@@ -1,5 +1,5 @@
 ---
-title: "crab_creel_westport_v3"
+title: "FWC-estimation-method-wesport-v3"
 author: "Matt George"
 date: "`r Sys.Date()`"
 output: html_document
