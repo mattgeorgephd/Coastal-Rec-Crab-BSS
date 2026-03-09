@@ -47,7 +47,7 @@ params <- list(
   days_wkend           = c("Friday", "Saturday", "Sunday"),
   min_fishing_time     = 0.5,
   period_pe            = "month",
-  period_bss           = "week",
+  period_bss           = "month",
   sections             = c(1),
   bss_model_file_name  = "BSS_creel_model_02_2024-07-24.stan",
   model_used           = "Both models",
@@ -417,6 +417,10 @@ prep_inputs_bss_crab <- function(days, dwg_summ, est_catch_group, period, params
 
   eff <- dwg_summ$effort_index
   cen <- dwg_summ$effort_census
+  
+  eff <- eff |> filter(count_sequence <= 3)
+  cen <- cen |> filter(count_sequence <= 3)
+  
   int_cg <- dwg_summ$interview |>
     mutate(fish_count = .data[[est_catch_group]]) |>
     filter(!is.na(fishing_time_total), fishing_time_total > 0)
@@ -563,7 +567,7 @@ fit_dung <- rstan::stan(
   data = bss_inputs_dung,
   chains = 4, iter = 2000, warmup = 1000, thin = 1,
   control = list(adapt_delta = 0.9, max_treedepth = 12),
-  cores = 6
+  cores = 8
 )
 
 # --- Extract BSS results ---

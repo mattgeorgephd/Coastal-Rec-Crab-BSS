@@ -1,0 +1,19 @@
+List of 16
+ $ project_name       : chr "Coastal Recreational Crab"
+ $ fishery_name       : chr "Rec Crab Grays Harbor Westport Docks 2024-25"
+ $ est_date_start     : chr "2024-09-16"
+ $ est_date_end       : chr "2025-09-15"
+ $ season_filter      : chr "2024-25"
+ $ est_catch_groups   :'data.frame':	2 obs. of  2 variables:
+  ..$ species: chr [1:2] "Dungeness" "Red_Rock"
+  ..$ fate   : chr [1:2] "Kept" "Kept"
+ $ study_design       : chr "Crab"
+ $ days_wkend         : chr [1:3] "Friday" "Saturday" "Sunday"
+ $ min_fishing_time   : num 0.5
+ $ period_pe          : chr "month"
+ $ period_bss         : chr "month"
+ $ sections           : num 1
+ $ bss_model_file_name: chr "BSS_creel_model_02_2024-07-24.stan"
+ $ model_used         : chr "Both models"
+ $ data_grade         : chr "provisional"
+ $ export             : chr "local"
