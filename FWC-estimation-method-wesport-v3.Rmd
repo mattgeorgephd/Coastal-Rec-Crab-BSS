@@ -1,0 +1,1007 @@
+---
+title: "crab_creel_westport_v3"
+author: "Matt George"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+###############################################################################
+# Crab Creel Estimation - Westport / Grays Harbor
+# 2024-25 Season | Framework v3
+#
+# Three population components estimated independently:
+#   1. Shore crabbers (dock + jetty + beach) — BSS + PE
+#   2. Private boat crabbers — BSS + PE
+#   3. Commercial/charter boats — Census/tally
+#
+# Two gear-regime sub-seasons:
+#   Sub-season 1: Ring-net only (Sep 16 – Nov 30, no pots)
+#   Sub-season 2: All-gear (Dec 1 – Sep 15, pots allowed)
+#
+# Port total = sum of all components
+#
+# v3 CHANGES (convergence improvements):
+#   - max_treedepth increased to 14 for shore fits (was 10 for all)
+#   - R_T prior in Stan model now guarded by if(T_n > 0) to prevent
+#     divergences when no trailer data is present
+#   - Boat ring-net sub-season uses PE-only when <20 interviews
+#     (17 interviews is too thin for BSS)
+#   - Shore all-gear sub-season gets iter=4000/warmup=2000 to
+#     improve E_sum ESS from 197 to 400+
+#   - Added diagnostic, PE, and BSS plots throughout
+###############################################################################
+
+
+# ===========================================================================
+# 0. SETUP — Load packages and configure environment
+# ===========================================================================
+
+load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here")
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib, dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+rstan_options(auto_write = TRUE)
+purrr::walk(list.files(here("R_functions"), full.names = TRUE), source)
+
+# Create dated output directory
+run_date <- format(Sys.Date(), "%Y%m%d")
+output_dir <- here("output", run_date)
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+
+# ===========================================================================
+# 0.1 PARAMETERS — All user-configurable settings in one place
+# ===========================================================================
+
+params <- list(
+  # --- Metadata ---
+  project_name      = "Coastal Recreational Crab",
+  fishery_name      = "Rec Crab Grays Harbor Westport 2024-25",
+  est_date_start    = "2024-09-16",
+  est_date_end      = "2025-09-15",
+  season_filter     = "2024-25",
+
+  # --- Gear restriction dates ---
+  # Pots prohibited Sep 16 – Nov 30; allowed Dec 1 onward
+  pot_open_date     = "2024-12-01",
+
+  # --- Commercial/charter season ---
+  # Commercial vessels stop recreational fishing after this date (varies by year)
+  commercial_opener = "2025-01-15",
+
+  # --- Catch groups ---
+  # Set to FALSE to skip Red Rock and save ~50% BSS runtime
+  estimate_red_rock = FALSE,
+
+  # --- Day type classification ---
+  days_wkend        = c("Friday", "Saturday", "Sunday"),
+  min_fishing_time  = 0.5,   # minimum crabber-hours to include an interview
+
+  # --- Time stratification ---
+  period_pe         = "month",
+  period_bss        = "month",
+  sections          = c(1),
+
+  # --- BSS model settings ---
+  bss_model_file    = "BSS_crab_model_01.stan",
+  bss_chains        = 4,
+  bss_adapt_delta   = 0.9,
+  bss_cores         = 4,
+  bss_max_interviews = 1000,  # set to NULL for full dataset; integer to subsample
+  bss_max_count_seq  = 3,     # cap count sequences per day
+
+  # --- BSS convergence tuning (per population × sub-season) ---
+  # Shore fits get higher treedepth (many eps_E_H parameters)
+  # Shore all-gear gets more iterations (longest sub-season, lowest ESS)
+  bss_iter_default          = 2000,
+  bss_warmup_default        = 1000,
+  bss_max_treedepth_default = 10,
+  bss_iter_shore_allgear    = 4000,   # double iterations for largest fit
+  bss_warmup_shore_allgear  = 2000,
+  bss_max_treedepth_shore   = 14,     # higher treedepth for shore (many params)
+
+  # --- Minimum interview threshold for BSS ---
+  # Below this, use PE only (BSS needs sufficient CPUE data)
+  bss_min_interviews = 20
+)
+
+# Crabbing holidays for 2024-25 season (high-effort days)
+crabbing_holiday_dates <- as.Date(c(
+  "2024-09-02",  # Labor Day
+  "2024-11-29",  # Native American Heritage Day
+  "2024-12-31",  # New Year's Eve
+  "2025-01-01",  # New Year's Day
+  "2025-02-08",  # Super Bowl Eve
+  "2025-05-26",  # Memorial Day
+  "2025-06-15"   # Father's Day
+))
+
+# --- Derived: catch groups vector used throughout ---
+catch_groups <- if(params$estimate_red_rock) {
+  c("Dungeness_Kept", "Red_Rock_Kept")
+} else {
+  "Dungeness_Kept"
+}
+
+# --- Derived: sub-season date ranges ---
+subseason_1 <- list(
+  name = "ring_net_only",
+  start = as.Date(params$est_date_start),
+  end   = as.Date(params$pot_open_date) - 1
+)
+subseason_2 <- list(
+  name = "all_gear",
+  start = as.Date(params$pot_open_date),
+  end   = as.Date(params$est_date_end)
+)
+
+cat(sprintf("Sub-season 1 (ring-net): %s to %s (%d days)\n",
+            subseason_1$start, subseason_1$end,
+            as.integer(subseason_1$end - subseason_1$start + 1)))
+cat(sprintf("Sub-season 2 (all-gear): %s to %s (%d days)\n",
+            subseason_2$start, subseason_2$end,
+            as.integer(subseason_2$end - subseason_2$start + 1)))
+cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
+
+
+# ===========================================================================
+# 1. DATA INGESTION — Read CSVs and classify interviews by population
+#
+# Populations:
+#   shore        = Dock + Jetty + Beach crabbers
+#   private_boat = Private boats (launched from BL, interviewed at dock or BL)
+#   comm_charter = Commercial crab vessels + charter boats (Marina)
+# ===========================================================================
+
+fetch_crab_data_v2 <- function(params) {
+
+  cat("Reading data...\n")
+
+  # --- Read effort CSV (dates in YYYY-MM-DD from re-exported file) ---
+  effort_raw <- read_csv(here("input_files","effort_combined.csv"), show_col_types=FALSE) |>
+    filter(season == params$season_filter) |> mutate(date = as.Date(date))
+
+  # --- Read interview CSV (dates in M/D/YYYY from iForm export) ---
+  interview_raw <- read_csv(here("input_files","interview_combined.csv"), show_col_types=FALSE,
+    col_types = cols(date=col_date(format="%m/%d/%Y"), crabbers=col_double(),
+      number_of_gear=col_double(), dungeness_kept=col_double(), red_rock_kept=col_double(),
+      hours_fished=col_double(), crabber_hours=col_double(), gear_hours=col_double(),
+      completed_trip=col_character(), total_vehicles=col_double(), crabbing_holiday=col_integer())) |>
+    filter(season == params$season_filter)
+
+  # --- Filter to Grays Harbor sites ---
+  gh_effort <- effort_raw |> filter(creel_area %in% c(
+    "Westport Docks Float 20","Westport Docks Float 17-21",
+    "Westport Boat Launch","Westport Marina","Westport Jetty",
+    "Ocean Shores Boat Launch","Damon Point"))
+
+  gh_interview <- interview_raw |> filter(creel_location == "Grays Harbor")
+
+  # --- Classify each interview into a population ---
+  # Uses crabbing_mode (Dock/Jetty/Beach/Boat) and boat_type (Private/Commercial/Charter)
+  gh_interview <- gh_interview |>
+    mutate(
+      event_date = as.Date(as.character(date), format = "%Y-%m-%d"),
+      boat_type_clean = case_when(
+        str_detect(boat_type, "(?i)commer") ~ "Commercial",
+        str_detect(boat_type, "(?i)charter") ~ "Charter",
+        str_detect(boat_type, "(?i)guide") ~ "Charter",
+        str_detect(boat_type, "(?i)private") ~ "Private",
+        TRUE ~ NA_character_
+      ),
+      population = case_when(
+        boat_type_clean %in% c("Commercial","Charter") ~ "comm_charter",
+        crabbing_mode == "Boat" & (is.na(boat_type_clean) | boat_type_clean == "Private") ~ "private_boat",
+        crabbing_mode %in% c("Dock","Jetty","Beach") ~ "shore",
+        TRUE ~ "shore"
+      )
+    )
+
+  cat("  Grays Harbor interviews by population:\n")
+  gh_interview |> count(population) |> mutate(l=sprintf("    %s: %d",population,n)) |>
+    pull(l) |> walk(cat,"\n")
+
+  # --- Process interviews: compute fishing time, catch, trip status ---
+  gh_interview <- gh_interview |>
+    filter(!is.na(crabbers), as.numeric(crabbers) > 0) |>
+    mutate(
+      interview_id = paste0(survey_id,"_",interview_num),
+      section_num = 1,
+      angler_count = as.integer(crabbers),
+      number_of_gear = as.numeric(number_of_gear),
+      hours_fished = as.numeric(hours_fished),
+      crabber_hours_calc = as.numeric(crabber_hours),
+      fishing_time_total = case_when(
+        !is.na(crabber_hours_calc) & crabber_hours_calc > 0 ~ crabber_hours_calc,
+        !is.na(hours_fished) & !is.na(angler_count) ~ hours_fished * angler_count,
+        TRUE ~ NA_real_
+      ),
+      gear_time_total = case_when(
+        !is.na(as.numeric(gear_hours)) & as.numeric(gear_hours) > 0 ~ as.numeric(gear_hours),
+        !is.na(hours_fished) & !is.na(number_of_gear) ~ hours_fished * number_of_gear,
+        TRUE ~ NA_real_
+      ),
+      dungeness_kept = replace_na(as.numeric(dungeness_kept), 0),
+      red_rock_kept = replace_na(as.numeric(red_rock_kept), 0),
+      trip_status = case_when(
+        completed_trip=="1"~"Complete", completed_trip=="0"~"Incomplete", TRUE~NA_character_
+      ),
+      angler_final_int = case_when(population=="shore"~1L, population=="private_boat"~2L, TRUE~NA_integer_)
+    ) |>
+    filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time)
+
+  # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
+  # Float 20 is the primary count location; Float 17-21 counts are paired
+  # with the nearest-in-time Float 20 count and summed for section total
+  dock_effort <- gh_effort |>
+    filter(creel_area %in% c("Westport Docks Float 20","Westport Docks Float 17-21")) |>
+    mutate(event_date = date,
+           count_time_posix = as.POSIXct(paste(date,count_time), format="%Y-%m-%d %H:%M:%S", tz="America/Los_Angeles")) |>
+    filter(!is.na(count_time_posix))
+
+  f20 <- dock_effort |> filter(creel_area=="Westport Docks Float 20") |>
+    arrange(event_date,count_time_posix) |> group_by(event_date) |>
+    mutate(count_sequence=row_number()) |> ungroup()
+
+  f17 <- dock_effort |> filter(creel_area=="Westport Docks Float 17-21")
+
+  if(nrow(f17) > 0) {
+    f17_paired <- f17 |>
+      left_join(f20 |> select(event_date,count_sequence,f20_time=count_time_posix),
+                by="event_date", relationship="many-to-many") |>
+      mutate(time_diff=abs(as.numeric(difftime(count_time_posix,f20_time,units="mins")))) |>
+      group_by(event_date,survey_id,count_time) |> slice_min(time_diff,n=1,with_ties=FALSE) |> ungroup() |>
+      select(event_date,count_sequence,f17_gear=total_gear_count)
+  } else {
+    f17_paired <- tibble(event_date=Date(),count_sequence=integer(),f17_gear=numeric())
+  }
+
+  shore_effort <- f20 |> select(event_date,count_sequence,f20_gear=total_gear_count) |>
+    left_join(f17_paired, by=c("event_date","count_sequence")) |>
+    mutate(f17_gear=replace_na(f17_gear,0), count_quantity=f20_gear+f17_gear,
+           section_num=1, count_type="Gear Count", population="shore")
+
+  # --- BOAT EFFORT: Trailer counts at boat launches ---
+  boat_effort <- gh_effort |>
+    filter(creel_area %in% c("Westport Boat Launch","Ocean Shores Boat Launch")) |>
+    mutate(event_date = date,
+           count_time_posix = as.POSIXct(paste(date,count_time), format="%Y-%m-%d %H:%M:%S", tz="America/Los_Angeles"),
+           count_quantity = as.numeric(boat_trailer_count)) |>
+    filter(!is.na(count_time_posix), !is.na(count_quantity), count_quantity >= 0) |>
+    arrange(event_date,count_time_posix) |> group_by(event_date) |>
+    mutate(count_sequence=row_number()) |> ungroup() |>
+    select(event_date,count_sequence,count_quantity) |>
+    mutate(section_num=1, count_type="Trailer Count", population="private_boat")
+
+  # --- COMMERCIAL TALLY: Daily vessel counts from the "wes commercial tally" sheet ---
+  comm_tally <- read_csv(here("input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
+    mutate(date = as.Date(date))
+
+  cat(sprintf("\n  Shore effort obs: %d (%d days)\n", nrow(shore_effort), n_distinct(shore_effort$event_date)))
+  cat(sprintf("  Boat effort obs: %d (%d days)\n", nrow(boat_effort), n_distinct(boat_effort$event_date)))
+  cat(sprintf("  Commercial tally days: %d\n", nrow(comm_tally)))
+
+  # --- CATCH tables: one row per interview × species ---
+  catch <- bind_rows(
+    gh_interview |> filter(dungeness_kept>0) |>
+      transmute(interview_id,event_date,population,species="Dungeness",fate="Kept",
+                fish_count=as.integer(dungeness_kept),catch_group="Dungeness_Kept"),
+    if(params$estimate_red_rock) {
+      gh_interview |> filter(red_rock_kept>0) |>
+        transmute(interview_id,event_date,population,species="Red_Rock",fate="Kept",
+                  fish_count=as.integer(red_rock_kept),catch_group="Red_Rock_Kept")
+    } else { tibble() }
+  )
+
+  return(list(
+    shore_effort = shore_effort,
+    boat_effort = boat_effort,
+    interview = gh_interview,
+    catch = catch,
+    comm_tally = comm_tally,
+    ll = tibble(centroid_lat=46.904, centroid_lon=-124.105)
+  ))
+}
+
+
+# ===========================================================================
+# 2. PREP DAYS — Build calendar for a given date range
+#
+# Creates a tibble with one row per day including day_type (weekday/weekend/
+# holiday), day_length, period index, and open/closed status per section.
+# ===========================================================================
+
+prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period_pe, sections) {
+  date_begin <- as.Date(date_begin); date_end <- as.Date(date_end)
+  days <- tibble(
+    event_date = seq.Date(date_begin, date_end, by="day"),
+    day = weekdays(event_date),
+    day_type = case_when(
+      event_date %in% holiday_dates ~ "holiday",
+      day %in% weekends ~ "weekend", TRUE ~ "weekday"),
+    day_type_num_weekend = as.integer(day_type %in% c("weekend","holiday")),
+    week = as.numeric(format(event_date,"%W")),
+    month = as.numeric(format(event_date,"%m")),
+    year = as.numeric(format(event_date,"%Y")),
+    period = if(period_pe=="month") as.numeric(format(event_date,"%m"))
+             else as.numeric(format(event_date,"%W")),
+    day_index = as.integer(seq_along(event_date)),
+    month_index = as.integer(factor(paste(year,sprintf("%02d",month)),
+                  levels=unique(paste(year,sprintf("%02d",month))))),
+    day_length = if_else(month %in% 4:9, 10.0, 8.5)
+  )
+  for(s in sections) days[[paste0("open_section_",s)]] <- TRUE
+  days
+}
+
+
+# ===========================================================================
+# 3. SUMMARIZE DATA — Filter to a given population × sub-season
+#
+# Returns effort index, interviews with catch columns joined, and the
+# crabbers-per-gear ratio for PE expansion.
+# ===========================================================================
+
+prep_population_summary <- function(dwg, population_name, date_start, date_end, params) {
+  ds <- as.Date(date_start); de <- as.Date(date_end)
+  summ <- list()
+
+  # Select effort data for this population
+  if(population_name == "shore") {
+    summ$effort_index <- dwg$shore_effort |> filter(between(event_date, ds, de))
+  } else if(population_name == "private_boat") {
+    summ$effort_index <- dwg$boat_effort |> filter(between(event_date, ds, de))
+  }
+
+  # Filter interviews to this population and date range
+  int_pop <- dwg$interview |>
+    filter(population == population_name, between(event_date, ds, de))
+
+  # Join catch columns wide (one column per catch group)
+  catch_wide <- dwg$catch |>
+    filter(population == population_name) |>
+    group_by(interview_id, catch_group) |>
+    summarise(fish_count=sum(fish_count), .groups="drop") |>
+    pivot_wider(names_from=catch_group, values_from=fish_count, values_fill=0)
+
+  summ$interview <- int_pop |>
+    left_join(catch_wide, by="interview_id") |>
+    mutate(across(any_of(catch_groups), ~replace_na(.,0)))
+
+  # Crabbers-per-gear ratio (for PE: converts gear counts to crabber counts)
+  ratio_data <- summ$interview |> filter(!is.na(number_of_gear), number_of_gear>0, angler_count>0)
+  summ$crabbers_per_gear <- if(nrow(ratio_data)>0) sum(ratio_data$angler_count)/sum(ratio_data$number_of_gear) else 1.0
+
+  cat(sprintf("\n  %s [%s to %s]: %d effort obs, %d interviews, crab/gear=%.2f\n",
+              population_name, ds, de, nrow(summ$effort_index), nrow(summ$interview), summ$crabbers_per_gear))
+
+  return(summ)
+}
+
+
+# ===========================================================================
+# 4. PE METHOD — Point estimate using stratified expansion
+#
+# For each month × day_type stratum:
+#   effort = mean_daily_crabber_hours × n_total_days_in_stratum
+#   catch  = effort × mean_CPUE_in_stratum
+# ===========================================================================
+
+run_pe <- function(summ, days, params, population_name) {
+  results <- list()
+
+  # Daily effort: average gear count → estimated crabbers → crabber-hours
+  daily_effort <- summ$effort_index |>
+    filter(count_sequence <= params$bss_max_count_seq) |>
+    group_by(event_date, section_num) |>
+    summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
+    mutate(est_crabbers = mean_count * summ$crabbers_per_gear) |>
+    left_join(days |> select(event_date,day_type,day_length,period), by="event_date") |>
+    mutate(est_daily_crabber_hours = est_crabbers * day_length,
+           est_daily_gear_hours = mean_count * day_length)
+
+  # Total days per stratum (for expansion)
+  total_days_strat <- days |> filter(open_section_1) |>
+    group_by(period, day_type) |> summarise(n_total_days=n(), .groups="drop")
+
+  # Stratum-level effort totals
+  effort_strat <- daily_effort |>
+    group_by(section_num, period, day_type) |>
+    summarise(mean_daily=mean(est_daily_crabber_hours,na.rm=TRUE),
+              sd_daily=sd(est_daily_crabber_hours,na.rm=TRUE),
+              n_sampled=n(), .groups="drop") |>
+    left_join(total_days_strat, by=c("period","day_type")) |>
+    mutate(est_total = mean_daily * n_total_days,
+           se_total = sqrt((n_total_days^2)*replace_na(sd_daily^2,0)/pmax(n_sampled,1)))
+
+  results$effort_total <- sum(effort_strat$est_total, na.rm=TRUE)
+  results$effort_se <- sqrt(sum(effort_strat$se_total^2, na.rm=TRUE))
+
+  # CPUE and catch per stratum
+  for(cg in catch_groups) {
+    if(!cg %in% names(summ$interview)) { results[[cg]] <- 0; next }
+
+    daily_cpue <- summ$interview |>
+      group_by(event_date, section_num) |>
+      summarise(catch=sum(.data[[cg]],na.rm=TRUE), hrs=sum(fishing_time_total,na.rm=TRUE),
+                n_int=n(), .groups="drop") |>
+      mutate(cpue=if_else(hrs>0, catch/hrs, 0)) |>
+      left_join(days |> select(event_date,day_type,period), by="event_date")
+
+    cpue_strat <- daily_cpue |>
+      group_by(section_num, period, day_type) |>
+      summarise(mean_cpue=weighted.mean(cpue,w=n_int,na.rm=TRUE), .groups="drop")
+
+    catch_strat <- effort_strat |>
+      left_join(cpue_strat, by=c("section_num","period","day_type")) |>
+      mutate(est_catch = est_total * replace_na(mean_cpue, 0))
+
+    results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
+  }
+
+  rr_str <- if(params$estimate_red_rock) sprintf(", RR=%s", format(round(results$Red_Rock_Kept),big.mark=",")) else ""
+  cat(sprintf("  PE %s: Effort=%s hrs, Dung=%s%s\n", population_name,
+              format(round(results$effort_total),big.mark=","),
+              format(round(results$Dungeness_Kept),big.mark=","), rr_str))
+
+  return(results)
+}
+
+
+# ===========================================================================
+# 5. BSS PREP — Build the Stan data list for BSS_crab_model_01.stan
+#
+# Populates gear counts (shore) or trailer counts (boat), plus CPUE
+# interviews and gear-per-crabber expansion data.
+# ===========================================================================
+
+prep_bss_crab <- function(days, summ, est_catch_group, params, population_name) {
+
+  eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
+  D <- nrow(days); G <- 1L; S <- 1L; H <- max(c(eff$count_sequence, 1L))
+  P_n <- max(days$month_index)
+  pvec <- days$month_index
+
+  # Join day index to effort data
+  eff_d <- eff |> left_join(days |> select(event_date,day_index), by="event_date") |> filter(!is.na(day_index))
+
+  # Prepare interview data for this catch group
+  int_cg <- summ$interview |>
+    mutate(fish_count = .data[[est_catch_group]]) |>
+    filter(!is.na(fishing_time_total), fishing_time_total > 0)
+
+  int_d <- int_cg |> left_join(days |> select(event_date,day_index), by="event_date") |>
+    filter(!is.na(day_index)) |> distinct(interview_id, .keep_all=TRUE)
+
+  # Gear expansion subset (interviews with valid gear and crabber counts)
+  intA <- int_d |> filter(!is.na(number_of_gear), number_of_gear>0, angler_count>0)
+
+  # Subsample interviews if requested (for faster fitting)
+  if(!is.null(params$bss_max_interviews) && nrow(int_d)>params$bss_max_interviews) {
+    set.seed(42)
+    int_d <- int_d |> slice_sample(n=params$bss_max_interviews)
+    intA <- intA |> filter(interview_id %in% int_d$interview_id)
+  }
+
+  is_shore <- (population_name == "shore")
+
+  list(
+    D=D, G=G, S=S, H=H, P_n=P_n, period=pvec,
+    w=days$day_type_num_weekend, L=days$day_length,
+    O=array(1.0, dim=c(D,S,G)),
+
+    # Gear counts (shore only; empty arrays for boat)
+    Gear_n = if(is_shore) nrow(eff_d) else 0L,
+    day_Gear = if(is_shore) eff_d$day_index else integer(0),
+    section_Gear = if(is_shore) rep(1L,nrow(eff_d)) else integer(0),
+    countnum_Gear = if(is_shore) as.integer(eff_d$count_sequence) else integer(0),
+    Gear_I = if(is_shore) as.integer(eff_d$count_quantity) else integer(0),
+
+    # Trailer counts (boat only; empty arrays for shore)
+    T_n = if(!is_shore) nrow(eff_d) else 0L,
+    day_T = if(!is_shore) eff_d$day_index else integer(0),
+    section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
+    countnum_T = if(!is_shore) as.integer(eff_d$count_sequence) else integer(0),
+    T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
+
+    # Direct crabber counts (not used in 2024-25; placeholder for future jetty data)
+    Crab_n=0L, day_Crab=integer(0), section_Crab=integer(0),
+    countnum_Crab=integer(0), Crab_I=integer(0), p_I_crab=1.0,
+
+    # Interview CPUE data
+    IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),
+    section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count), h=int_d$fishing_time_total,
+
+    # Gear-per-crabber expansion (shore only)
+    IntA_gear = if(is_shore) nrow(intA) else 0L,
+    Gear_A = if(is_shore) as.integer(intA$number_of_gear) else integer(0),
+    A_A_gear = if(is_shore) as.integer(intA$angler_count) else integer(0),
+
+    # Trailer-per-group expansion (boat only)
+    IntA_trailer = if(!is_shore) nrow(intA) else 0L,
+    T_A_int = if(!is_shore) rep(1L, nrow(intA)) else integer(0),
+    A_A_trailer = if(!is_shore) as.integer(intA$angler_count) else integer(0),
+
+    # Hyperparameters (priors)
+    value_cauchyDF_sigma_eps_E=5, value_cauchyDF_sigma_r_E=5,
+    value_cauchyDF_sigma_eps_C=5, value_cauchyDF_sigma_r_C=5,
+    value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
+    value_normal_sigma_B1=1,
+    value_normal_mu_mu_C=log(0.5), value_normal_sigma_mu_C=2,
+    value_normal_mu_mu_E=if(is_shore) log(25) else log(10),
+    value_normal_sigma_mu_E=2,
+    value_cauchyDF_sigma_mu_C=5, value_cauchyDF_sigma_mu_E=5
+  )
+}
+
+
+# ===========================================================================
+# 6. COMMERCIAL/CHARTER CENSUS ESTIMATION
+#
+# Uses daily vessel tallies × mean catch per vessel from interviews.
+# Active period: season start through commercial opener date.
+# Expands to unsampled days using ratio of total/sampled days.
+# ===========================================================================
+
+estimate_comm_charter <- function(dwg, params) {
+  cat("\n--- Commercial/Charter Census Estimation ---\n")
+
+  tally <- dwg$comm_tally |>
+    filter(date <= as.Date(params$commercial_opener))
+
+  comm_int <- dwg$interview |>
+    filter(population == "comm_charter",
+           event_date <= as.Date(params$commercial_opener))
+
+  if(nrow(comm_int) == 0 || nrow(tally) == 0) {
+    cat("  No commercial/charter data available.\n")
+    result <- list(effort_total=0, Dungeness_Kept=0)
+    if(params$estimate_red_rock) result$Red_Rock_Kept <- 0
+    return(result)
+  }
+
+  mean_dung_per_vessel <- sum(comm_int$dungeness_kept) / nrow(comm_int)
+  rr_str <- ""
+  if(params$estimate_red_rock) {
+    mean_rr_per_vessel <- sum(comm_int$red_rock_kept) / nrow(comm_int)
+    rr_str <- sprintf(", Mean Red Rock/vessel: %.1f", mean_rr_per_vessel)
+  }
+
+  cat(sprintf("  Tally days: %d, Interviews: %d\n", nrow(tally), nrow(comm_int)))
+  cat(sprintf("  Mean Dungeness/vessel: %.1f%s\n", mean_dung_per_vessel, rr_str))
+
+  daily_est <- tally |>
+    mutate(
+      total_comm_charter = commercial_tally + charter_tally,
+      est_dung = total_comm_charter * mean_dung_per_vessel
+    )
+
+  if(params$estimate_red_rock) {
+    daily_est <- daily_est |> mutate(est_rr = total_comm_charter * mean_rr_per_vessel)
+  }
+
+  sampled_days <- nrow(daily_est)
+  total_possible_days <- as.integer(
+    min(as.Date(params$commercial_opener), as.Date(params$est_date_end)) -
+    as.Date(params$est_date_start) + 1
+  )
+  expansion <- total_possible_days / sampled_days
+
+  total_dung <- sum(daily_est$est_dung) * expansion
+  result <- list(
+    Dungeness_Kept = total_dung,
+    effort_total = sum(daily_est$total_comm_charter) * expansion,
+    daily_est = daily_est
+  )
+
+  if(params$estimate_red_rock) {
+    result$Red_Rock_Kept <- sum(daily_est$est_rr) * expansion
+  }
+
+  dung_str <- format(round(total_dung), big.mark=",")
+  rr_out <- if(params$estimate_red_rock) sprintf(", Red Rock: %s", format(round(result$Red_Rock_Kept),big.mark=",")) else ""
+  cat(sprintf("  Sampled %d of %d possible days (expansion=%.1f)\n",
+              sampled_days, total_possible_days, expansion))
+  cat(sprintf("  Est Dungeness: %s%s\n", dung_str, rr_out))
+
+  return(result)
+}
+
+
+# ===========================================================================
+# 7. RUN EVERYTHING
+# ===========================================================================
+
+# ---- 7.0 LOAD DATA ----
+cat("\n", strrep("=",60), "\n LOADING DATA\n", strrep("=",60), "\n")
+dwg <- fetch_crab_data_v2(params)
+
+
+# ---- 7.1 DIAGNOSTIC PLOTS (raw data exploration) ----
+cat("\n", strrep("=",60), "\n DIAGNOSTIC PLOTS\n", strrep("=",60), "\n")
+
+# Full-season days for plotting context
+days_full <- prep_days_crab(params$est_date_start, params$est_date_end,
+                            params$days_wkend, crabbing_holiday_dates,
+                            params$period_pe, params$sections)
+
+# Plot 1: Shore gear count timeseries
+p_shore_effort <- dwg$shore_effort |>
+  group_by(event_date) |>
+  summarise(total_gear = sum(count_quantity), n_counts = n(), .groups = "drop") |>
+  left_join(days_full |> select(event_date, day_type), by = "event_date") |>
+  ggplot(aes(x = event_date, y = total_gear, color = day_type, size = n_counts)) +
+  geom_point(alpha = 0.5) +
+  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  annotate("text", x = as.Date(params$pot_open_date) + 5, y = Inf, label = "Pots open",
+           hjust = 0, vjust = 1.5, size = 3, color = "red") +
+  scale_size_continuous(range = c(1,3), breaks = 1:3, name = "Counts/day") +
+  labs(title = "Shore Crabbers: Daily Gear Count (Docks F20 + F17-21)",
+       subtitle = "Point size = count sequences per day",
+       x = "Date", y = "Total gear count", color = "Day type") +
+  theme_bw()
+ggsave(file.path(output_dir, "plot_shore_effort_timeseries.png"), p_shore_effort, width = 10, height = 6)
+print(p_shore_effort)
+
+# Plot 2: Boat trailer count timeseries
+p_boat_effort <- dwg$boat_effort |>
+  group_by(event_date) |>
+  summarise(total_trailers = sum(count_quantity), n_counts = n(), .groups = "drop") |>
+  left_join(days_full |> select(event_date, day_type), by = "event_date") |>
+  ggplot(aes(x = event_date, y = total_trailers, color = day_type)) +
+  geom_point(alpha = 0.5) +
+  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  labs(title = "Private Boat Crabbers: Daily Trailer Count (Boat Launch)",
+       x = "Date", y = "Total trailer count", color = "Day type") +
+  theme_bw()
+ggsave(file.path(output_dir, "plot_boat_effort_timeseries.png"), p_boat_effort, width = 10, height = 6)
+print(p_boat_effort)
+
+# Plot 3: CPUE timeseries by population (faceted)
+cpue_data <- dwg$interview |>
+  filter(fishing_time_total > 0, dungeness_kept >= 0) |>
+  mutate(cpue = dungeness_kept / fishing_time_total) |>
+  group_by(event_date, population) |>
+  summarise(mean_cpue = mean(cpue), n_int = n(), .groups = "drop") |>
+  left_join(days_full |> select(event_date, day_type), by = "event_date") |>
+  filter(population %in% c("shore", "private_boat"))
+
+p_cpue <- cpue_data |>
+  ggplot(aes(x = event_date, y = mean_cpue, color = day_type)) +
+  geom_point(alpha = 0.4, size = 1.5) +
+  geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
+  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  facet_wrap(~population, ncol = 1, scales = "free_y",
+             labeller = labeller(population = c(shore = "Shore Crabbers", private_boat = "Private Boat Crabbers"))) +
+  labs(title = "Dungeness CPUE by Population",
+       x = "Date", y = "Mean CPUE (crab/crabber-hr)", color = "Day type") +
+  theme_bw()
+ggsave(file.path(output_dir, "plot_cpue_timeseries.png"), p_cpue, width = 10, height = 8)
+print(p_cpue)
+
+# Plot 4: Gear counts by month and day type (boxplot)
+p_effort_month <- dwg$shore_effort |>
+  group_by(event_date) |>
+  summarise(total_gear = sum(count_quantity), .groups = "drop") |>
+  left_join(days_full |> select(event_date, day_type, month, year), by = "event_date") |>
+  mutate(month_label = factor(format(event_date, "%Y-%m"))) |>
+  ggplot(aes(x = month_label, y = total_gear, fill = day_type)) +
+  geom_boxplot() +
+  labs(title = "Shore Gear Counts by Month and Day Type",
+       x = "Month", y = "Daily gear count", fill = "Day type") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave(file.path(output_dir, "plot_effort_by_month.png"), p_effort_month, width = 12, height = 6)
+print(p_effort_month)
+
+# Plot 5: Commercial/charter vessel tally
+if(nrow(dwg$comm_tally) > 0) {
+  p_comm <- dwg$comm_tally |>
+    pivot_longer(cols = c(commercial_tally, charter_tally, private_tally),
+                 names_to = "vessel_type", values_to = "count") |>
+    mutate(vessel_type = str_remove(vessel_type, "_tally") |> str_to_title()) |>
+    ggplot(aes(x = date, y = count, fill = vessel_type)) +
+    geom_col(position = "stack") +
+    geom_vline(xintercept = as.Date(params$commercial_opener), linetype = "dashed", color = "red") +
+    annotate("text", x = as.Date(params$commercial_opener) + 2, y = Inf,
+             label = "Commercial opener", hjust = 0, vjust = 1.5, size = 3, color = "red") +
+    labs(title = "Westport Marina: Daily Vessel Tally",
+         x = "Date", y = "Vessels", fill = "Type") +
+    theme_bw()
+  ggsave(file.path(output_dir, "plot_commercial_tally.png"), p_comm, width = 10, height = 5)
+  print(p_comm)
+}
+
+cat("  Diagnostic plots saved.\n")
+
+
+# ---- 7.2 PE ESTIMATES ----
+cat("\n", strrep("=",60), "\n PE ESTIMATES\n", strrep("=",60), "\n")
+
+pe_all <- list()
+for(pop in c("shore","private_boat")) {
+  for(ss in list(subseason_1, subseason_2)) {
+    label <- paste0(pop, "_", ss$name)
+    days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
+                              params$period_pe, params$sections)
+    summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+    pe_all[[label]] <- run_pe(summ_ss, days_ss, params, label)
+  }
+}
+
+
+# ---- 7.3 PE PLOTS ----
+cat("\n  Generating PE plots...\n")
+
+# Collect PE daily effort across all population × sub-season combos
+pe_daily_all <- list()
+for(pop in c("shore","private_boat")) {
+  for(ss in list(subseason_1, subseason_2)) {
+    label <- paste0(pop, "_", ss$name)
+    days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
+                              params$period_pe, params$sections)
+    summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+
+    de <- summ_ss$effort_index |>
+      filter(count_sequence <= params$bss_max_count_seq) |>
+      group_by(event_date, section_num) |>
+      summarise(mean_count = mean(count_quantity), .groups = "drop") |>
+      mutate(est_crabbers = mean_count * summ_ss$crabbers_per_gear) |>
+      left_join(days_ss |> select(event_date, day_type, day_length), by = "event_date") |>
+      mutate(est_daily_crabber_hours = est_crabbers * day_length,
+             population = pop, subseason = ss$name)
+    pe_daily_all[[label]] <- de
+  }
+}
+
+pe_daily_df <- bind_rows(pe_daily_all)
+
+p_pe_effort <- pe_daily_df |>
+  mutate(pop_label = case_when(
+    population == "shore" ~ "Shore Crabbers",
+    population == "private_boat" ~ "Private Boat Crabbers")) |>
+  ggplot(aes(x = event_date, y = est_daily_crabber_hours, color = day_type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
+  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  facet_wrap(~pop_label, ncol = 1, scales = "free_y") +
+  labs(title = "PE: Estimated Daily Crabber-Hours by Population",
+       x = "Date", y = "Estimated crabber-hours", color = "Day type") +
+  theme_bw()
+ggsave(file.path(output_dir, "plot_pe_daily_effort.png"), p_pe_effort, width = 10, height = 8)
+print(p_pe_effort)
+
+
+# ---- 7.4 COMMERCIAL/CHARTER ----
+pe_all$comm_charter <- estimate_comm_charter(dwg, params)
+
+
+# ---- 7.5 PE PORT TOTALS ----
+cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
+
+component_names <- c("Shore (ring-net)","Shore (all-gear)","Private Boat (ring-net)",
+                     "Private Boat (all-gear)","Commercial/Charter","PORT TOTAL")
+component_keys <- c("shore_ring_net_only","shore_all_gear",
+                    "private_boat_ring_net_only","private_boat_all_gear","comm_charter")
+
+pe_summary <- tibble(
+  Component = component_names,
+  Effort_hrs = c(sapply(component_keys, function(k) pe_all[[k]]$effort_total), NA),
+  Dungeness = c(sapply(component_keys, function(k) pe_all[[k]]$Dungeness_Kept), NA)
+)
+pe_summary$Effort_hrs[6] <- sum(pe_summary$Effort_hrs[1:5], na.rm=TRUE)
+pe_summary$Dungeness[6] <- sum(pe_summary$Dungeness[1:5], na.rm=TRUE)
+
+if(params$estimate_red_rock) {
+  pe_summary$Red_Rock <- c(
+    sapply(component_keys, function(k) pe_all[[k]]$Red_Rock_Kept %||% 0), NA)
+  pe_summary$Red_Rock[6] <- sum(pe_summary$Red_Rock[1:5], na.rm=TRUE)
+}
+
+print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
+write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FALSE)
+
+
+# ---- 7.6 BSS MODEL RUNS ----
+cat("\n", strrep("=",60), "\n BSS MODEL RUNS\n", strrep("=",60), "\n")
+
+bss_catch_groups <- catch_groups
+cat(sprintf("Running BSS for: %s\n", paste(bss_catch_groups, collapse=", ")))
+
+bss_all <- list()
+for(cg in bss_catch_groups) {
+  for(pop in c("shore","private_boat")) {
+    for(ss in list(subseason_1, subseason_2)) {
+      label <- paste0(pop, "_", ss$name, "_", cg)
+      cat(sprintf("\n--- BSS: %s ---\n", label))
+
+      days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
+                                params$period_pe, params$sections)
+      summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+
+      # --- Data sufficiency check ---
+      # Need minimum effort obs AND enough interviews for CPUE estimation
+      n_int <- nrow(summ_ss$interview)
+      n_eff <- nrow(summ_ss$effort_index)
+
+      if(n_eff < 5 || n_int < params$bss_min_interviews) {
+        cat(sprintf("  Insufficient data for BSS (%d effort, %d interviews < %d min), using PE only.\n",
+                    n_eff, n_int, params$bss_min_interviews))
+        bss_all[[label]] <- list(C_sum=NA, E_sum=NA, pe_fallback=TRUE,
+                                 population=pop, subseason=ss$name, catch_group=cg)
+        next
+      }
+
+      bss_data <- prep_bss_crab(days_ss, summ_ss, cg, params, pop)
+
+      # --- Determine convergence settings for this fit ---
+      # Shore fits: higher treedepth (many eps_E_H parameters)
+      # Shore all-gear: double iterations (longest sub-season, needs more ESS)
+      is_shore <- (pop == "shore")
+      is_allgear <- (ss$name == "all_gear")
+
+      fit_iter    <- if(is_shore && is_allgear) params$bss_iter_shore_allgear else params$bss_iter_default
+      fit_warmup  <- if(is_shore && is_allgear) params$bss_warmup_shore_allgear else params$bss_warmup_default
+      fit_treedep <- if(is_shore) params$bss_max_treedepth_shore else params$bss_max_treedepth_default
+
+      cat(sprintf("  Stan settings: iter=%d, warmup=%d, max_treedepth=%d\n",
+                  fit_iter, fit_warmup, fit_treedep))
+
+      fit <- rstan::stan(
+        file = here("stan_models", params$bss_model_file),
+        data = bss_data,
+        chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
+        control = list(adapt_delta=params$bss_adapt_delta, max_treedepth=fit_treedep),
+        cores = params$bss_cores
+      )
+
+      # --- Extract and save BSS summary ---
+      bss_summ <- summary(fit, pars=c("C_sum","E_sum"))$summary
+      cat("  BSS Summary:\n"); print(bss_summ)
+      write.csv(as.data.frame(bss_summ), file.path(output_dir, paste0("bss_summary_",label,".csv")))
+
+      C_draws <- rstan::extract(fit, "C_sum")$C_sum
+      E_draws <- rstan::extract(fit, "E_sum")$E_sum
+
+      bss_all[[label]] <- list(
+        C_sum = quantile(C_draws, c(0.025,0.5,0.975)),
+        E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
+        C_draws = C_draws, E_draws = E_draws,
+        fit = fit, pe_fallback = FALSE,
+        population = pop, subseason = ss$name, catch_group = cg
+      )
+
+      # --- BSS PLOTS for this fit ---
+
+      # Daily effort posteriors (ribbon plot)
+      E_bss <- rstan::extract(fit, "E")$E  # [draws, S, D, G]
+      E_daily <- tibble(
+        event_date = days_ss$event_date,
+        median = apply(E_bss[,1,,1], 2, median),
+        lo95 = apply(E_bss[,1,,1], 2, quantile, 0.025),
+        hi95 = apply(E_bss[,1,,1], 2, quantile, 0.975)
+      )
+
+      p_bss_eff <- E_daily |>
+        left_join(days_ss |> select(event_date, day_type), by = "event_date") |>
+        ggplot(aes(x = event_date)) +
+        geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "steelblue") +
+        geom_line(aes(y = median), color = "steelblue") +
+        labs(title = sprintf("BSS Daily Effort: %s", label),
+             subtitle = "Median with 95% credible interval",
+             x = "Date", y = "Crabber-hours") +
+        theme_bw()
+      ggsave(file.path(output_dir, paste0("plot_bss_effort_", label, ".png")),
+             p_bss_eff, width = 10, height = 6)
+      print(p_bss_eff)
+
+      # Daily catch posteriors (ribbon plot)
+      C_bss <- rstan::extract(fit, "C")$C  # [draws, S, D, G]
+      C_daily <- tibble(
+        event_date = days_ss$event_date,
+        median = apply(C_bss[,1,,1], 2, median),
+        lo95 = apply(C_bss[,1,,1], 2, quantile, 0.025),
+        hi95 = apply(C_bss[,1,,1], 2, quantile, 0.975)
+      )
+
+      p_bss_catch <- C_daily |>
+        ggplot(aes(x = event_date)) +
+        geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "darkgreen") +
+        geom_line(aes(y = median), color = "darkgreen") +
+        labs(title = sprintf("BSS Daily Catch (%s): %s", cg, label),
+             subtitle = "Median with 95% credible interval",
+             x = "Date", y = "Dungeness crab caught") +
+        theme_bw()
+      ggsave(file.path(output_dir, paste0("plot_bss_catch_", label, ".png")),
+             p_bss_catch, width = 10, height = 6)
+      print(p_bss_catch)
+
+      # Season total posterior densities
+      p_bss_post <- tibble(C_sum = C_draws, E_sum = E_draws) |>
+        pivot_longer(everything(), names_to = "param", values_to = "value") |>
+        ggplot(aes(x = value)) +
+        geom_density(fill = "steelblue", alpha = 0.4) +
+        facet_wrap(~param, scales = "free", labeller = labeller(
+          param = c(C_sum = paste("Catch", cg), E_sum = "Effort (crabber-hrs)")
+        )) +
+        labs(title = sprintf("BSS Posteriors: %s", label), x = "Value", y = "Density") +
+        theme_bw()
+      ggsave(file.path(output_dir, paste0("plot_bss_posteriors_", label, ".png")),
+             p_bss_post, width = 12, height = 5)
+      print(p_bss_post)
+
+      # Save daily CSVs
+      write.csv(E_daily, file.path(output_dir, paste0("bss_daily_effort_", label, ".csv")), row.names=FALSE)
+      write.csv(C_daily, file.path(output_dir, paste0("bss_daily_catch_", label, ".csv")), row.names=FALSE)
+
+    }
+  }
+}
+
+
+# ---- 7.7 COMBINED BSS PORT TOTAL ----
+cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
+
+# Determine n_draws from the largest fit (shore all-gear has more draws)
+# Use the max across all fits to handle variable iter counts
+n_draws_max <- max(sapply(bss_all, function(b) {
+  if(!is.null(b$pe_fallback) && b$pe_fallback) return(0)
+  length(b$C_draws)
+}))
+if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
+
+for(cg in bss_catch_groups) {
+  bss_C_total <- rep(0, n_draws_max)
+  bss_E_total <- rep(0, n_draws_max)
+
+  for(pop in c("shore","private_boat")) {
+    for(ss in list(subseason_1, subseason_2)) {
+      label <- paste0(pop, "_", ss$name, "_", cg)
+      pe_label <- paste0(pop, "_", ss$name)
+      b <- bss_all[[label]]
+
+      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+        # PE fallback: add PE estimate as a constant (no uncertainty from this component)
+        bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
+        bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
+      } else {
+        # BSS: add posterior draws (recycle shorter draws vectors if needed)
+        n <- length(b$C_draws)
+        idx <- rep_len(1:n, n_draws_max)
+        bss_C_total <- bss_C_total + b$C_draws[idx]
+        bss_E_total <- bss_E_total + b$E_draws[idx]
+      }
+    }
+  }
+  # Add commercial/charter as constant (no BSS for this component)
+  bss_C_total <- bss_C_total + (pe_all$comm_charter[[cg]] %||% 0)
+  bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
+
+  final_table <- tibble(
+    Catch_Group = cg,
+    Estimate = c("Effort (crabber-hrs)", "Catch"),
+    PE = c(round(pe_summary$Effort_hrs[6]),
+           round(if(cg=="Dungeness_Kept") pe_summary$Dungeness[6] else pe_summary$Red_Rock[6])),
+    BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total))),
+    BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025))),
+    BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)))
+  )
+
+  cat(sprintf("\n--- Port Total: %s ---\n", cg))
+  print(final_table)
+  write.csv(final_table, file.path(output_dir, paste0("port_total_",cg,".csv")), row.names=FALSE)
+}
+
+
+# ---- 7.8 SAVE PARAMETERS ----
+writeLines(capture.output(str(params)), file.path(output_dir, "run_parameters.txt"))
+
+cat(sprintf("\nAll outputs saved to: %s\n", output_dir))
+cat(paste(" ", list.files(output_dir), collapse="\n"), "\n")
+
+```
