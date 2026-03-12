@@ -68,7 +68,7 @@ The classification rules are:
 | Boat | Commercial or Charter or Guide | Commercial/Charter | Vessels moored at marina |
 | Boat | Private or blank | Private Boat | Trailered boats from boat launch |
 
-**"Boat" interviews at the docks:** Approximately 104 interviews at Float 20 and Float 17-21 have `crabbing_mode = "Boat"` with `boat_type = "Private"`. These are private boat crabbers who launched from the boat launch but pulled up to the docks for offloading or interviewing. Their **effort** is captured by the trailer counts at the boat launch (not the dock gear counts), so they are correctly classified as private boat population for both effort and CPUE purposes.
+**"Boat" interviews at the docks:** Approximately 104 interviews at Float 20 and Float 17-21 have `crabbing_mode = "Boat"` with `boat_type = "Private"`. These are private boat crabbers who are interviewed as they are moored in the marina. There is no **effort** count for these boats.
 
 **Marina interviews:** The 312 interviews at Westport Marina are split by `boat_type`:
 - 141 Commercial Crab Vessel -> Commercial/Charter population
@@ -96,7 +96,7 @@ A separate daily tally of vessels was maintained at Westport Marina from Decembe
 
 ### 3.1 Full Season
 
-The 2024-25 crab season runs from **September 16, 2024 through September 15, 2025** (365 days). This annual cycle corresponds to the state recreational crabbing regulation year.
+The 2024-25 crab season runs from **September 16, 2024 through September 15, 2025** (365 days). This annual cycle corresponds to our bounds that we set for estimation of a recreational crabbing season that mirrors the commerical season, based on the annual closure of the commerical season on Sept. 15 each year.
 
 ### 3.2 Gear-Regime Sub-Seasons
 
@@ -122,7 +122,7 @@ The `pot_open_date` parameter controls the split and can be adjusted if regulati
 
 ### 3.3 Commercial/Charter Active Period
 
-Commercial crab vessels and charter boats participate in the recreational crab fishery primarily before the **commercial crab season opener**. Once the commercial season opens, these vessels shift to commercial crabbing and their recreational harvest becomes negligible.
+Commercial crab vessels and charter boats participate in the recreational crab fishery primarily before the **commercial crab season opener**. Once the commercial season opens, these vessels shift to commercial crabbing and their recreational harvest drops off. Charter and guide boat effort may be sustained after this period.
 
 The commercial opener date varies by year and is set as a parameter:
 
@@ -144,15 +144,18 @@ The 2024-25 holidays are:
 
 | Date | Holiday |
 |---|---|
-| Sep 2, 2024 | Labor Day |
+| Sep 1, 2025 | Labor Day |
 | Nov 29, 2024 | Native American Heritage Day |
 | Dec 31, 2024 | New Year's Eve |
 | Jan 1, 2025 | New Year's Day |
+| July 4, 2025 | Independence Day (only count this holiday if it falls on a weekend)| 
 | Feb 8, 2025 | Super Bowl Eve |
-| May 26, 2025 | Memorial Day |
+| May 24, 2025 | Memorial Day - day before |
+| May 25, 2025 | Memorial Day |
+| May 26, 2025 | Memorial Day - day after|
 | Jun 15, 2025 | Father's Day |
 
-In the BSS model, weekends and holidays are combined into a single binary indicator (`w[d] = 1` for weekend/holiday, `0` for weekday) that enters the effort process as a fixed effect (`B1 * w[d]`). In the PE method, holidays are treated as their own stratum, separate from both weekdays and weekends.
+In the BSS model, weekends and holidays are combined into a single binary indicator (`w[d] = 1` for weekend/holiday, `0` for weekday) that enters the effort process as a fixed effect (`B1 * w[d]`). In the PE method, holidays are treated as their own stratum, separate from both weekdays and weekends. This approach should be investigated to see if treating each holiday independently would yield better results.
 
 ### 3.5 Day Length
 
@@ -160,10 +163,12 @@ Day length determines how many hours of crabbing effort are possible each day. T
 
 | Months | Day Length | Rationale |
 |---|---|---|
-| April – September | 10.0 hours | Longer summer days |
-| October – March | 8.5 hours | Shorter winter days |
+| April – September | 14 hours | Longer summer days |
+| October – March | 12 hours | Shorter winter days |
 
 This simplification is appropriate because dock crabbing does not strictly follow sunrise/sunset — crabbers often deploy gear before dawn and retrieve after dusk, and the docks are lit. Day length primarily serves as a scaling factor to convert instantaneous effort counts (crabbers present at a point in time) to daily crabber-hours.
+
+Seasonal time windows will likely vary. This approach is designed to be conservative and acknowledge that crabbers are not supposed to be fishing after dark, but may set pots before dawn and return to them after dusk, outside of our sampling window.
 
 ---
 
@@ -207,7 +212,7 @@ The negative binomial distribution handles the substantial overdispersion in cra
 
 ### 4.2 Private Boat Crabbers
 
-**In plain language:** People who trailer their own boats to the boat launch, motor into Grays Harbor, and crab from their boats. They are interviewed either at the boat launch upon return or at the docks if they pull up there.
+**In plain language:** People who trailer their own boats to the boat launch, motor into Grays Harbor, and crab from their boats. They are interviewed either at the boat launch upon return or at the docks if they are moored there. If crabbers are interviewed at the boat launch then a trailer count is available; if a crabber is interviewed at any other site (including the docks), then a trailer count is not available.
 
 **Population includes:** All interviews with `crabbing_mode = "Boat"` and `boat_type = "Private"` (or blank), regardless of interview location.
 
@@ -229,16 +234,16 @@ R_T (trailers per boat group) is bounded between 0 and 1 and receives a `Beta(0.
 
 ### 4.3 Commercial/Charter Vessels
 
-**In plain language:** Large fishing vessels — commercial crab boats and charter boats — moored at Westport Marina that participate in recreational crabbing before the commercial season opens. These boats are much more efficient than private recreational boats and catch a disproportionate amount of crab relative to their numbers.
+**In plain language:** Large fishing vessels (commercial crab boats) moored at Westport Marina participate in recreational crabbing before the commercial season opens, and possibly after it opens, although likely in a reduced capacity. Charter boats typcially operate in the fall, with effort possible later in the season as well. Commercial boats and charter boats are much more efficient than private recreational boats and catch a disproportionate amount of crab relative to their numbers. Guide boats more similar to charter vessels, although they are smaller and typcially hold six or fewer people, making their impact smaller than charters; however, functionally, guide boats are charter vessels, just smaller.
 
 **Population includes:** All interviews with `boat_type` matching "Commercial Crab Vessel", "Charter", or "Guide".
 
 **2024-25 data:**
-- 47 tally days (Dec 3, 2024 – Feb 8, 2025)
+- 47 tally days (Dec 1, 2024 – Feb 8, 2025) - this has been updated
 - ~164 interviews (after filtering)
-- Active period: Sep 16, 2024 through Jan 15, 2025 (commercial opener)
+- Active period: Dec 1, 2024 through Feb 8, 2025 (last day that a charter tally count was taken for this season)
 
-**Why not BSS?** The Marina has only 5 gear count records across 3 days — far too sparse for a state-space model. Vessel tallies are also inherently different from gear or trailer counts (counting discrete large vessels rather than individual pieces of equipment).
+**Why not BSS?** The Marina has only 5 gear count records across 3 days — far too sparse for a state-space model. Vessel tallies are also inherently different from gear or trailer counts (counting discrete large vessels rather than individual pieces of equipment). The Marina counts are not done consistently and should not be used as an accurate estimate of effort from charter vessels.
 
 **Estimation method:** Direct census expansion:
 ```
@@ -246,7 +251,7 @@ Daily harvest = (commercial vessels + charter vessels) x mean crab per vessel
 Season harvest = sum(daily harvest on sampled days) x (total possible days / sampled days)
 ```
 
-The total possible days runs from the season start through the commercial opener.
+The total possible days runs from the start of the census period to the end (Dec 1, 2024 – Feb 8, 2025 for the 2024-25 season).
 
 ---
 
@@ -254,7 +259,7 @@ The total possible days runs from the season start through the commercial opener
 
 ### 5.1 Point Estimator (PE)
 
-**In plain language:** The PE method calculates a simple average of daily effort for each month x day-type combination, multiplies by the total number of days in that stratum to get total effort, and estimates catch by multiplying effort by average CPUE.
+**In plain language:** The PE method calculates a simple average of daily effort for each month x day-type combination, multiplies by the total number of days in that stratum to get total effort, and estimates catch by multiplying effort by average CPUE. This approach should likely be at higher resolution than month, like a stat week, given the model can run reasonable amount of time.
 
 **Technical description:**
 
@@ -339,8 +344,8 @@ The Stan model file is `BSS_crab_model_01.stan`. Its design is tailored for the 
 
 **Effort observation types supported:**
 - Gear counts (docks) with `R_G` expansion parameter — lognormal prior, unbounded >0 because crabbers deploy >1 gear unit each
-- Trailer counts (boat launch) with `R_T` expansion parameter — beta prior, bounded 0-1, guarded by `if (T_n > 0)` so it is only evaluated when trailer data is present
-- Direct crabber counts (jetty, future) with `p_I_crab` visibility parameter — passed as data, not estimated
+- Trailer counts (boat launch) with `R_T` expansion parameter — beta prior, bounded 0-1, guarded by `if (T_n > 0)` so it is only evaluated when trailer data is present (this approach may need to be updated. When a vessel is interviewed, it should be assumed that there is an associated trailer count with it, but the trailer might not be counted in the effort count because of the discrepency in time between when the interview and the effort count were taken. Guarding this as T_n > 0 doesn't make much sense. Let's update to if a boat is interviewed, it automatically is assumed a trailer count should be associated with it).
+- Direct crabber counts (jetty, future) with `p_I_crab` visibility parameter — passed as data, not estimated. (The jetty is a unique situation. The interviews at the jetty and associated gear counts should can be combined with the "dock" crabbing mode. Let's not treat the jetty as a unqiue going forward, but rather lump with dock crabbers for estimation).
 - Overflow protection in generated quantities — Poisson_rng rates capped at 1e9 to prevent crashes during warmup
 
 ### 5.4 Period Stratification
@@ -565,23 +570,19 @@ The BSS estimate should be preferred when convergence is adequate (R-hat < 1.05,
 
 - **Marina effort data is sparse.** The commercial/charter census relies entirely on the tally sheet.
 
-- **No ingress/egress data.** Digital camera data from dock access points has been collected but not yet digitized.
-
 - **Beach crabbing is unmeasured.** Only 1 beach interview in 2024-25.
 
 ### 11.2 Planned Improvements
 
-1. **Digitize ingress/egress camera data** to create continuous daily crabber counts.
+1. **Add Westport Jetty effort counts** using the `Crab_n`/`Crab_I` inputs already in the Stan model.
 
-2. **Add Westport Jetty effort counts** using the `Crab_n`/`Crab_I` inputs already in the Stan model.
+2. **Improve commercial/charter estimation** by stratifying the census expansion by day type.
 
-3. **Improve commercial/charter estimation** by stratifying the census expansion by day type.
+3. **Restructure `eps_E_H` allocation** so only days with observations receive overdispersion parameters.
 
-4. **Restructure `eps_E_H` allocation** so only days with observations receive overdispersion parameters.
+4. **Expand to other ports:** Willapa Bay (Tokeland, Chinook) and Columbia River.
 
-5. **Expand to other ports:** Willapa Bay (Tokeland, Chinook) and Columbia River.
-
-6. **Add a holiday effect** as a separate covariate (`B2 x holiday[d]`) in the BSS effort process.
+5. **Add a holiday effect** as a separate covariate (`B2 x holiday[d]`) in the BSS effort process (look into this - are all holidays currently treated as a single category in the BSS model? If so, does the effort to a single holiday get disconnected from the effort in the surround period because it is being averaged across the holiday "stratum" that includes holidays in other months).
 
 ---
 
