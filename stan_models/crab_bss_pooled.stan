@@ -1,65 +1,51 @@
 // =============================================================================
-// Pooled CPUE Crab Creel Model (crab_bss_pooled.stan)
-// Adapted from WDFW FW CreelEstimates BSS model (2024-07-24)
-// 
+// Pooled CPUE Crab Creel Model — Sparse Overdispersion + I/E Integration
+// (crab_bss_pooled.stan)
+//
+// RESTRUCTURED eps_E_H: Within-day overdispersion parameters are allocated
+// ONLY for actual effort observations, not for all D*H*S*G combinations.
+//
+// INGRESS/EGRESS INTEGRATION (Option 2):
+// On days with I/E surveys, observed crabber-hours enter as a direct
+// lognormal observation of lambda_E * L, bypassing R_G and day-length
+// assumptions. This calibrates the gear-count pathway and provides
+// high-confidence anchor points for the effort trajectory.
+//
 // Single CPUE process shared across all gear types.
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
-// 
-// Designed for recreational Dungeness crab fishery monitoring.
-//
-// KEY CHANGES FROM FW MODEL:
-//   1. GEAR COUNTS (docks): counts crab gear in water → R_G (gear/crabber)
-//   2. TRAILER COUNTS (boat launch): counts trailers → R_T (trailer/group)
-//   3. DIRECT CRABBER COUNTS (jetty): counts people crabbing → no expansion
-//   4. Census blocks REMOVED (discrete sites = full spatial coverage)
-//   5. Vehicle counts and bias parameter REMOVED
-//   6. Poisson_rng overflow protection in generated quantities
-//
-// CRABBER TYPES (G):
-//   g=1: Shore crabbers (dock, jetty) — informed by gear + crabber counts
-//   g=2: Boat crabbers — informed by trailer counts
-//   Can run G=1 (dock-only) by setting T_n=0, Crab_n=0
 // =============================================================================
 
 data {
-  // --- Core dimensions ---
-  int<lower=1> D;              // days in season
-  int<lower=1> G;              // crabber types
-  int<lower=1> S;              // sections
-  int<lower=1> H;              // max count sequences per day
-  int<lower=1> P_n;            // time periods
-  int<lower=1> period[D];      // period index per day
-  vector<lower=0,upper=1>[D] w;       // weekend/holiday indicator (1 for both)
-  vector<lower=0,upper=1>[D] holiday;  // holiday-only indicator (1 only on holidays)
-  vector<lower=0>[D] L;                // day length (hours, from suncalc)
-  real<lower=0> O[D,S,G];      // open/closed status
+  int<lower=1> D;
+  int<lower=1> G;
+  int<lower=1> S;
+  int<lower=1> P_n;
+  int<lower=1> period[D];
+  vector<lower=0,upper=1>[D] w;
+  vector<lower=0,upper=1>[D] holiday;
+  vector<lower=0>[D] L;
+  real<lower=0> O[D,S,G];
 
-  // --- GEAR index counts (docks: counting crab gear in water) ---
+  // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
+  int<lower=0> n_effort_obs;
+
   int<lower=0> Gear_n;
   int<lower=1> day_Gear[Gear_n];
   int<lower=1> section_Gear[Gear_n];
-  int<lower=1> countnum_Gear[Gear_n];
   int<lower=0> Gear_I[Gear_n];
 
-  // --- TRAILER index counts (boat launch) ---
   int<lower=0> T_n;
   int<lower=1> day_T[T_n];
   int<lower=1> section_T[T_n];
-  int<lower=1> countnum_T[T_n];
   int<lower=0> T_I[T_n];
 
-  // --- DIRECT CRABBER counts (reserved for future use) ---
-  // Jetty crabbers are lumped with shore (dock) population for estimation.
-  // These inputs are retained as placeholders for future independent jetty counts.
   int<lower=0> Crab_n;
   int<lower=1> day_Crab[Crab_n];
   int<lower=1> section_Crab[Crab_n];
-  int<lower=1> countnum_Crab[Crab_n];
   int<lower=0> Crab_I[Crab_n];
   real<lower=0,upper=1> p_I_crab;
 
-  // --- Interview CPUE data ---
   int<lower=0> IntC;
   int<lower=1> day_IntC[IntC];
   int<lower=1> gear_IntC[IntC];
@@ -67,17 +53,20 @@ data {
   int<lower=0> c[IntC];
   vector<lower=0>[IntC] h;
 
-  // --- Interview expansion: gear per crabber ---
   int<lower=0> IntA_gear;
   int<lower=0> Gear_A[IntA_gear];
   int<lower=1> A_A_gear[IntA_gear];
 
-  // --- Interview expansion: trailers per group ---
   int<lower=0> IntA_trailer;
   int<lower=0> T_A_int[IntA_trailer];
   int<lower=1> A_A_trailer[IntA_trailer];
 
-  // --- Hyperparameters ---
+  // Ingress/egress direct crabber-hours observations
+  int<lower=0> IE_n;
+  int<lower=1> day_IE[IE_n];
+  int<lower=1> section_IE[IE_n];
+  vector<lower=0>[IE_n] IE_crabber_hours;
+
   real value_cauchyDF_sigma_eps_E;
   real value_cauchyDF_sigma_eps_C;
   real value_cauchyDF_sigma_r_E;
@@ -95,25 +84,27 @@ data {
 }
 
 parameters {
-  // --- Effort process ---
-  real B1;                             // weekend/holiday effect
-  real B2;                             // additional holiday effect (beyond weekend)
+  real B1;
+  real B2;
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
   real<lower=0> sigma_r_E;
   real<lower=0,upper=1> phi_E_scaled;
   matrix[P_n-1, G*S] eps_E;
   matrix[G,S] omega_E_0;
-  matrix<lower=0>[D,G] eps_E_H[S,H];
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  // --- Expansion parameters ---
-  real<lower=0> R_G;                   // gear per crabber (lognormal prior, typically 1-3)
-  real<lower=0,upper=1> R_T;           // trailers per boat crabber group (beta prior)
+  // Sparse overdispersion: one per actual effort observation
+  vector<lower=0>[n_effort_obs] eps_E_H_obs;
 
-  // --- CPUE process ---
+  real<lower=0> R_G;
+  real<lower=0,upper=1> R_T;
+
+  // I/E measurement error (log scale)
+  real<lower=0> sigma_IE;
+
   real<lower=0> sigma_eps_C;
   cholesky_factor_corr[G*S] Lcorr_C;
   real<lower=0,upper=1> phi_C_scaled;
@@ -130,7 +121,6 @@ transformed parameters {
   real<lower=-1,upper=1> phi_E;
   matrix[P_n, G*S] omega_E;
   matrix<lower=0>[D,G] lambda_E_S[S];
-  matrix<lower=0>[D,G] lambda_E_S_I[S,H];
   real<lower=0> r_E;
 
   matrix[G,S] mu_C;
@@ -144,7 +134,6 @@ transformed parameters {
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
 
-  // AR(1) process
   omega_E[1,] = to_row_vector(omega_E_0);
   omega_C[1,] = to_row_vector(omega_C_0);
   for (p in 2:P_n) {
@@ -154,7 +143,6 @@ transformed parameters {
       diag_pre_multiply(rep_vector(sigma_eps_C, G*S), Lcorr_C) * to_vector(eps_C[p-1,]));
   }
 
-  // Daily effort and CPUE rates
   for (g in 1:G) {
     for (s in 1:S) {
       mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
@@ -166,16 +154,12 @@ transformed parameters {
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
           to_matrix(omega_C[period[d],], G, S)[g,s]) * O[d,s,g];
-        for (i in 1:H) {
-          lambda_E_S_I[s,i][d,g] = lambda_E_S[s][d,g] * eps_E_H[s,i][d,g];
-        }
       }
     }
   }
 }
 
 model {
-  // === HYPERPRIORS ===
   sigma_eps_E ~ cauchy(0, value_cauchyDF_sigma_eps_E);
   sigma_eps_C ~ cauchy(0, value_cauchyDF_sigma_eps_C);
   Lcorr_E ~ lkj_corr_cholesky(1);
@@ -189,15 +173,10 @@ model {
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
 
-  // === PRIORS ===
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
 
-  // Gear per crabber: prior centered ~1.3, data from 3000+ interviews will dominate
   R_G ~ lognormal(log(1.3), 0.3);
-  // Trailers per group: evaluate prior when trailer effort counts OR
-  // boat interview expansion data exists (avoids U-shaped prior divergences
-  // when neither trailer counts nor boat interviews are present)
   if (T_n > 0 || IntA_trailer > 0) {
     R_T ~ beta(0.5, 0.5);
   }
@@ -205,13 +184,6 @@ model {
   for (g in 1:G) {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
     mu_mu_C[g] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
-    for (d in 1:D) {
-      for (s in 1:S) {
-        for (i in 1:H) {
-          eps_E_H[s,i][d,g] ~ gamma(r_E, r_E);
-        }
-      }
-    }
     for (s in 1:S) {
       omega_E_0[g,s] ~ normal(0, sqrt(square(sigma_eps_E) / (1 - square(phi_E))));
       omega_C_0[g,s] ~ normal(0, sqrt(square(sigma_eps_C) / (1 - square(phi_C))));
@@ -220,45 +192,49 @@ model {
     }
   }
 
-  // === LIKELIHOODS ===
+  // Sparse overdispersion prior: vectorized over actual observations only
+  eps_E_H_obs ~ gamma(r_E, r_E);
 
-  // --- Gear counts (docks): gear_observed ~ Poisson(effort_shore * R_G) ---
+  // --- Gear counts: obs indices 1..Gear_n ---
   for (i in 1:Gear_n) {
     Gear_I[i] ~ poisson(
-      lambda_E_S_I[section_Gear[i], countnum_Gear[i]][day_Gear[i], 1] * R_G
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
     );
   }
 
-  // --- Trailer counts (boat launch): trailer_observed ~ Poisson(effort_boat * R_T) ---
+  // --- Trailer counts: obs indices Gear_n+1..Gear_n+T_n ---
   for (i in 1:T_n) {
     T_I[i] ~ poisson(
-      lambda_E_S_I[section_T[i], countnum_T[i]][day_T[i], G] * R_T
+      lambda_E_S[section_T[i]][day_T[i], G] * eps_E_H_obs[Gear_n + i] * R_T
     );
   }
 
-  // --- Direct crabber counts (reserved for future jetty counts) ---
-  // Jetty is currently lumped with shore. Uncomment if jetty gets independent effort counts.
-  // for (i in 1:Crab_n) {
-  //   Crab_I[i] ~ poisson(
-  //     lambda_E_S_I[section_Crab[i], countnum_Crab[i]][day_Crab[i], 1] * p_I_crab
-  //   );
-  // }
-
-  // --- Interview CPUE: crab_caught ~ NegBin(CPUE * hours, r_C) ---
+  // --- Interview CPUE ---
   for (a in 1:IntC) {
     c[a] ~ neg_binomial_2(
       lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
     );
   }
 
-  // --- Interview expansion: gear per crabber ---
   for (a in 1:IntA_gear) {
     Gear_A[a] ~ poisson(A_A_gear[a] * R_G);
   }
 
-  // --- Interview expansion: trailers per group ---
   for (a in 1:IntA_trailer) {
     T_A_int[a] ~ bernoulli(R_T);
+  }
+
+  // --- I/E direct effort observations ---
+  // I/E crabber-hours are a direct measurement of lambda_E * L (daily effort)
+  // with lognormal measurement error. This bypasses R_G and day-length assumptions.
+  if (IE_n > 0) {
+    sigma_IE ~ exponential(5);  // prior: ~0.2 on log scale (±20% measurement error)
+    for (i in 1:IE_n) {
+      IE_crabber_hours[i] ~ lognormal(
+        log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
+        sigma_IE
+      );
+    }
   }
 }
 
@@ -270,11 +246,13 @@ generated quantities {
   matrix<lower=0>[D,G] E[S];
   real<lower=0> C_sum;
   real<lower=0> E_sum;
-  real R_G_out;  // expose R_G for monitoring
+  real R_G_out;
+  real sigma_IE_out;
 
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
+  sigma_IE_out = sigma_IE;
   C_sum = 0;
   E_sum = 0;
 
@@ -282,7 +260,6 @@ generated quantities {
     for (d in 1:D) {
       for (s in 1:S) {
         lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
-        // Overflow protection for poisson_rng
         if (lambda_Ctot_S[s][d,g] < 1e9) {
           C[s][d,g] = poisson_rng(lambda_Ctot_S[s][d,g]);
         } else {

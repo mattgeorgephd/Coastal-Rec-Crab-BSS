@@ -1,267 +1,345 @@
-# Recreational Crab Harvest Estimation — Grays Harbor
-## Pooled CPUE Model Documentation
+# Recreational Dungeness Crab Harvest Estimation — Grays Harbor
+## Pooled CPUE Model: Technical Documentation
 
-**Authors:** Matt George, with analytical development support  
+**Author:** Matthew George, Ph.D.  
+**Contact:** matthew.george@dfw.wa.gov  
 **Agency:** Washington Department of Fish and Wildlife (WDFW)  
-**Date:** March 2026  
-**Status:** Proof of concept — 2024-25 season  
+**Status:** Operational — Annual estimation framework  
 
 ---
 
 ## 1. Summary for Decision-Makers
 
-This framework estimates the total recreational Dungeness crab harvest at Westport and the greater Grays Harbor area. It combines field observations (gear counts, trailer counts, and crabber interviews) with a statistical model that fills in the days when no sampling occurred.
+This framework estimates the total recreational Dungeness crab harvest at Westport and the greater Grays Harbor area. It combines four types of field observations — gear counts at the docks, trailer counts at the boat launch, dockside crabber interviews, and ingress/egress surveys — with a statistical model that fills in the days when no sampling occurred. The result is a season-long harvest estimate for the port, broken down by month, crabbing mode, and gear type, with a measure of how uncertain the estimate is.
 
-**Key results (2024-25, through Jan 30):**
-- Estimated total harvest: ~32,000–34,000 Dungeness crab
-- Shore crabbers (docks, jetty, beach) contribute ~51% of the catch
-- Commercial/charter vessels contribute ~30% despite low vessel-hours
-- Private boats contribute ~18%
-- Pots account for ~57% of catch, traps ~24%, ring nets ~15%, snares ~4%
+**What this model produces:**
 
-**What this model does well:** Produces defensible total harvest estimates with uncertainty bounds. When the model says "32,000 ± 3,000 crab," that means we're 95% confident the true harvest falls in that range.
+- A total Dungeness crab harvest estimate for the port with a 95% credible interval (e.g., "an estimated 70,000 crab were harvested, with 95% probability that the true number falls between 62,000 and 79,000").
+- Monthly harvest trends showing when crabbing pressure peaks and how it changes through the season.
+- Breakdowns by crabbing mode (shore, private boat, commercial/charter) showing which user group contributes what share of the total.
+- Gear-type harvest proportions (pots, ring nets, traps, snares) based on what crabbers report in interviews.
+- A temporal correction factor (f_temporal) quantifying how well gear-count-based effort estimates match directly-observed crabber-hours from I/E surveys.
 
-**What this model does not do:** It does not estimate catch separately for each gear type within the statistical model. Gear-type breakdowns are approximate, based on interview proportions applied after estimation. For gear-type-specific estimates with their own uncertainty bounds, see the Gear-Resolved CPUE Model.
+**What this model does not do:** It does not model each gear type's catch rate independently. Gear-type breakdowns are approximate, derived from proportions observed in interviews and applied to the total catch estimate after estimation. For gear-type-specific estimates with their own uncertainty bounds, see the companion Gear-Resolved CPUE Model.
+
+**How confident are we?** The framework runs two independent estimation methods — a simple average-based approach (PE) and a Bayesian time-series model (BSS) — then compares them. When the two methods agree closely and the BSS model converges properly, confidence is high. On days with ingress/egress surveys, the effort estimate is anchored by direct observation rather than relying on the gear-count conversion, providing an independent calibration check. The output includes formal convergence diagnostics and a comparison table so reviewers can assess reliability.
 
 ---
 
 ## 2. Understanding the Two Estimation Methods
 
-Before diving into technical details, it helps to understand *why* this framework produces two sets of numbers (PE and BSS) and what each one means.
+The framework produces two sets of numbers because no single method is ideal in all situations.
 
-### Point Estimator (PE) — The Simple Average
+### 2.1 Point Estimator (PE) — The Simple Average
 
-The PE method works like this: look at sampled days, compute the average daily harvest for each week × day-type combination, then multiply by the total number of days in that combination to estimate the unsampled days.
+The PE method works like this: look at the days when surveyors were in the field, compute the average daily harvest for each week × day-type (weekday vs weekend) combination, then multiply by the total number of days in that combination to estimate harvest on unsampled days.
 
-**Strength:** Easy to understand, no modeling assumptions.  
-**Weakness:** If the sampled days happen to be unusually busy or quiet, the estimate is biased. Can't estimate harvest for weeks with zero samples.
+**Strengths:** Easy to understand. Transparent calculations. No modeling assumptions beyond "sampled days represent unsampled days within a stratum."
 
-### Bayesian State-Space Model (BSS) — The Time-Series Model
+**Weaknesses:** If the sampled days happen to be unusually busy or quiet, the estimate is biased. Cannot produce estimates for time periods with zero samples. Does not produce uncertainty bounds. Treats each stratum independently — a busy Saturday provides no information about the following Tuesday.
 
-The BSS method fits a smooth curve through the daily effort and catch rate data, then uses that curve to estimate every day — including days with no sampling. It produces not just a single number but a range of plausible values (a "credible interval").
+### 2.2 Bayesian State-Space Model (BSS) — The Time-Series Model
 
-**Strength:** Fills temporal gaps, accounts for temporal autocorrelation (yesterday's effort predicts today's), produces uncertainty bounds.  
-**Weakness:** More complex, slower to run, requires convergence checking.
+The BSS method fits a smooth curve through the daily effort and catch rate data, then uses that curve to estimate every day in the season — including days with no field sampling. It works by assuming that daily effort and catch rates evolve smoothly over time: yesterday's effort level is informative about today's. The model produces a full probability distribution of plausible values (a "posterior distribution"), from which we extract a median estimate and a 95% credible interval.
 
-### Combined Best Estimate
+On days with ingress/egress surveys, the BSS receives a direct crabber-hours observation in addition to the gear count. This dual-observation design lets the model calibrate the gear-count-to-effort mapping within the estimation, rather than relying on external assumptions.
 
-The framework checks whether the BSS model converged properly (R-hat < 1.05 and effective sample size > 400). If it did, the BSS estimate is preferred. If not, the PE is used as a robust fallback.
+**Strengths:** Fills temporal gaps by borrowing information from neighboring days. Accounts for temporal autocorrelation. Produces rigorous uncertainty bounds. I/E anchor points constrain the effort trajectory.
 
----
+**Weaknesses:** More complex. Requires 30–60 minutes per model fit. Must be checked for convergence — if the model doesn't converge, the estimates are unreliable.
 
-## 3. Glossary
+### 2.3 Combined Best Estimate
 
-| Term | Meaning |
-|---|---|
-| **BSS** | Bayesian State-Space model — a time-series approach that estimates hidden daily quantities |
-| **PE** | Point Estimator — a simpler stratified-expansion approach |
-| **CPUE** | Catch Per Unit Effort — the average number of crab caught per crabber-hour |
-| **Crabber-hour** | One person crabbing for one hour (the basic unit of effort) |
-| **Effort** | The total amount of crabbing activity, measured in crabber-hours |
-| **Gear count** | A snapshot count of crab gear deployed in the water at a point in time |
-| **R_G** | Gear-per-crabber ratio — how many pieces of gear each crabber deploys (~1.27) |
-| **R_T** | Trailer-per-boat-group ratio — fraction of boat groups that have a trailer at the ramp |
-| **AR(1)** | First-order autoregressive process — a model where today's value depends on yesterday's |
-| **Credible interval** | The Bayesian equivalent of a confidence interval — a range containing the true value with 95% probability |
-| **R-hat** | A convergence diagnostic — should be below 1.05 for reliable results |
-| **n_eff** | Effective sample size — how many independent samples the MCMC chain produced |
-| **Posterior** | The probability distribution of a parameter after seeing the data |
-| **Latent** | A hidden quantity that is not directly observed but inferred from data |
-| **Sub-season** | One of two periods: ring-net only (Sep–Nov) or all-gear (Dec–Sep) |
-| **Day type** | Weekday, weekend, or holiday — effort differs systematically across these |
+The framework automatically checks whether each BSS fit converged properly using two standard diagnostics: R-hat (should be below 1.05) and effective sample size (should exceed 400). If both criteria are met, the BSS estimate is preferred. If convergence fails, the PE is used as a robust fallback. The output files include a convergence report showing which method was selected for each component and why.
 
 ---
 
-## 4. Study Area and Data Sources
+## 3. The Recreational Crab Fishery at Grays Harbor
 
-### 4.1 Westport / Grays Harbor
+### 3.1 Fishery Overview
 
-Westport is a small coastal town on the south side of the Grays Harbor estuary in Washington State. It is one of the highest-volume recreational crabbing ports on the Pacific coast. Crabbing occurs year-round from multiple access points within a few square miles.
+The recreational Dungeness crab (*Metacarcinus magister*) fishery at Westport and the greater Grays Harbor area is one of the highest-volume recreational crabbing operations on the Washington coast. Thousands of crabbers participate annually, using a variety of gear types from shore-based locations and private boats. The fishery operates year-round, though effort peaks during summer months and around major holidays.
 
-### 4.2 Effort Data
+Recreational crabbers at Grays Harbor use four primary gear types: crab pots (the highest-catch gear), ring nets, foldable/star traps, and snares. WDFW regulations restrict pot use to a specific portion of the season (typically December through September), creating a structural break in both effort and catch rates when pots become available.
 
-Effort is measured through **instantaneous counts** — a field surveyor visits a site and counts the gear or trailers visible at that moment.
+Commercial Dungeness crab vessels also participate in the recreational fishery before the commercial season opens — these large vessels crab recreationally under the same daily limits as private boats but tend to have much higher catch rates per vessel. Their harvest is tracked separately through a vessel tally system at the marina.
 
-| Site | What Is Counted | 2024-25 Records |
-|---|---|---|
-| Westport Docks Float 20 | Crab gear in the water | 348 |
-| Westport Docks Float 17-21 | Crab gear in the water | 169 |
-| Westport Boat Launch | Boat trailers at ramp | 226 |
-| Ocean Shores Boat Launch | Boat trailers at ramp | 4 |
-| Westport Marina | Vessels (limited) | 5 |
+### 3.2 Why Estimate Harvest?
 
-Float 20 and Float 17-21 counts are paired by time and summed to produce a section-level gear total.
+WDFW needs accurate recreational harvest estimates to monitor total removals against sustainable yield targets, evaluate the effectiveness of gear restrictions and season structures, inform allocation decisions between recreational and commercial sectors, and track long-term trends in recreational participation and catch rates.
 
-### 4.3 Interview Data
+### 3.3 Study Area
 
-Creel interviews capture trip-level information from crabbers: group size, gear deployed, hours fished, crab kept by species, and crabbing mode. In 2024-25, 4,359 interviews were conducted. Each is classified into a population:
-
-| crabbing_mode | boat_type | Population |
-|---|---|---|
-| Dock, Jetty, Beach | any | Shore |
-| Boat | Commercial/Charter/Guide | Commercial/Charter |
-| Boat | Private or blank | Private Boat |
-
-### 4.4 Commercial/Charter Vessel Tally
-
-A daily tally of commercial and charter vessels was maintained at Westport Marina from December 1, 2024 through February 8, 2025 (47 tally days within a 70-day period).
+Westport is a small coastal town on the south side of the Grays Harbor estuary. Recreational crabbing occurs from multiple access points within a few square miles: a system of public docks (Floats 17–21), a jetty, beaches, a public boat launch, and a commercial marina. Each access point serves a different crabbing mode and requires a different type of effort measurement.
 
 ---
 
-## 5. Season Structure
+## 4. Data Sources and Field Collection
 
-The 2024-25 season (Sep 16, 2024 – Sep 15, 2025) is split into two sub-seasons at the pot-open date (Dec 1):
+The estimation framework uses four types of field data.
 
-| Sub-season | Dates | Duration | Gear Allowed |
+### 4.1 Effort Counts
+
+**What they are:** Instantaneous point-in-time counts of gear or trailers, conducted by a field surveyor who visits a site and records the number of crabbing indicators visible at that moment.
+
+**Why they matter:** Effort counts are the primary input for estimating total crabbing activity on any given day. Since not every crabber is interviewed, effort counts provide an independent measure of how many people are actively crabbing.
+
+**How they are collected:** Field staff conduct effort counts during scheduled survey events. Protocol calls for multiple counts per day at standardized times. The number of within-day counts matters because the BSS model uses replication to estimate within-day variability.
+
+**Sites and count types:**
+
+| Site | What Is Counted | Why This Indicator | Role in Model |
 |---|---|---|---|
-| Ring-net only | Sep 16 – Nov 30 | 76 days | Ring nets, snares, foldable traps |
-| All-gear | Dec 1 – Sep 15 | 289 days | All gear including pots |
+| Westport Docks Float 20 | Crab gear in the water | Each piece of gear = an active crabber | Primary shore effort indicator |
+| Westport Docks Float 17-21 | Crab gear in the water | Paired with Float 20 for full dock coverage | Summed with Float 20 for section total |
+| Westport Boat Launch | Boat trailers at ramp | Each trailer = a boat group out crabbing | Private boat effort indicator |
+| Ocean Shores Boat Launch | Boat trailers at ramp | Secondary launch on north shore | Supplementary boat effort |
+| Westport Jetty | Crabbers (future) | Direct person count | Reserved for future use |
 
-Each sub-season is estimated independently. This prevents the model from trying to bridge the large discontinuity in effort and CPUE that occurs when pots become legal.
+**Assumptions:**
+- A point-in-time count reflects relative effort on that day.
+- The time of day introduces noise but not systematic bias.
+- The surveyor's count is accurate — all deployed gear is visible and countable.
 
-### Day Length
+### 4.2 Crabber Interviews
 
-Day length is computed daily from civil twilight (dawn to dusk) using the `suncalc` R package, capped between 9 and 16 hours. This is more accurate than fixed seasonal windows and accounts for crabbers who set gear before dawn and retrieve after dusk.
+**What they are:** Dockside interviews conducted by WDFW field staff who approach crabbers and record trip-level information.
 
-### Day Type
+**Why they matter:** Interviews provide the catch rate (crab per unit effort) and the gear-per-crabber ratio (R_G) — quantities that effort counts alone cannot measure.
 
-Each day is classified as weekday (Mon–Thu), weekend (Fri–Sun), or holiday. In the BSS model, effort on these day types is modeled with two separate effects: B1 (weekend boost) and B2 (additional holiday boost beyond B1). This captures the pattern that holidays generate substantially higher effort than regular weekends.
+**What each interview records:** Number of crabbers in the group, number of gear units deployed, gear type(s) used, hours fished, crabber-hours, gear-hours, Dungeness crab kept, Red Rock crab kept, trip completion status, crabbing mode, and boat type.
+
+**CPUE denominator by population:** Shore interviews use crabber-hours (crabbers × hours fished). Boat interviews use gear-hours (gear units × hours fished), because boat gear soaks continuously and the relevant effort unit is gear deployment time, not crabber presence time.
+
+**Population classification:**
+
+| Crabbing Mode | Boat Type | Population |
+|---|---|---|
+| Dock, Jetty, or Beach | Any | **Shore** |
+| Boat | Private or blank | **Private Boat** |
+| Boat | Commercial, Charter, or Guide | **Commercial/Charter** |
+
+**Assumptions:**
+- Interviewed crabbers are representative of all crabbers in their population.
+- Crabbers accurately report catch, hours fished, and group size.
+
+### 4.3 Commercial/Charter Vessel Tally
+
+A daily count of commercial crab vessels and charter boats at Westport Marina during the period when these vessels participate in the recreational fishery. Combined with mean catch per vessel from interviews for stratified expansion.
+
+### 4.4 Ingress/Egress (I/E) Surveys
+
+**What they are:** All-day surveys where a field staff member records the number of crabbers arriving at and departing from a site every 15 minutes. At the boat launch, boat arrivals and departures are tracked instead.
+
+**Why they matter:** I/E surveys provide a direct measurement of daily crabber-hours that bypasses the conversion chain used by gear counts (gear count → R_G division → day-length multiplication). A gear count is a snapshot at one moment; an I/E survey tracks the full activity curve across the day.
+
+**How crabber-hours are computed:** The running total (`crabber_flow`) tracks crabbers currently present at each 15-minute interval. Daily crabber-hours equals the sum of `crabber_flow × 0.25` across all intervals — the area under the crabber-presence curve.
+
+**How I/E data enters the model:** On I/E survey days, the BSS receives the observed crabber-hours as a direct lognormal observation of lambda_E × L, with measurement error sigma_IE. This dual-observation design (gear count + I/E on the same day) lets the model calibrate the gear-count pathway against the I/E ground truth.
+
+**What the I/E data reveals:** The effective day length (crabber-hours ÷ peak crabbers present) averages approximately 3.5–5.0 hours at Float 20, substantially shorter than the civil-twilight-based day length (9–16 hours). Crabbers rotate through the dock in a peaked activity curve, not a flat all-day presence. The f_temporal correction factor varies with the time of day the gear count is taken.
+
+**Sites:** WDF20 (Westport Docks Float 20) and WBL (Westport Boat Launch).
+
+---
+
+## 5. Key Design Decisions
+
+### 5.1 Sub-Seasons
+
+**Ring-net only** (Sep 16 – Nov 30): Crab pots prohibited. **All-gear** (Dec 1 – Sep 15): Pots allowed. Each sub-season is estimated independently.
+
+### 5.2 Day Length and Effort Units
+
+**Shore crabbers — I/E-derived L_effective:** Rather than using civil twilight (9–16 hours), the framework estimates an empirical "effective day length" from all available historical I/E data. L_effective is defined as total crabber-hours ÷ peak crabbers present on each I/E survey day. It captures the fact that crabbers rotate through the dock in a peaked activity curve — the peak count at any moment substantially exceeds the average count across the day.
+
+The L_effective model groups I/E days into three sub-season periods aligned with the pot closure:
+
+| Sub-season period | Months | Rationale |
+|---|---|---|
+| **ring_net** | Sep 16 – Nov 30 | Pots prohibited. Shorter, more active ring-net trips with frequent gear checking. |
+| **allgear_winter** | Dec 1 – Feb 28 | Pots open. Higher CPUE. Pot crabbers may "set and leave" for hours, creating the largest divergence between gear counts and crabber presence. |
+| **allgear_spring_summer** | Mar 1 – Sep 15 | Longer days, more tourist crabbers, potentially different turnover patterns. |
+
+Within each sub-season period, L_effective is estimated separately for weekdays and weekends (with holidays pooled as weekends). For cells with fewer than 2 I/E observations, the grand mean across all I/E days is used as a conservative fallback.
+
+The original civil twilight day length is retained as `day_length_civil_twilight` for reference and for any downstream analysis that needs the astronomical value. The outputs include `L_effective_lookup.csv` (the 6-cell lookup table) and `L_effective_ie_detail.csv` (per-day I/E measurements) for transparency.
+
+**Why this matters:** Analysis of I/E data at Float 20 shows L_effective averaging 3.5–5.0 hours — roughly half the civil twilight value. Using civil twilight systematically overestimates daily shore effort (and therefore harvest). The L_effective model corrects this using direct field observations. As the I/E dataset grows over future seasons, the cell estimates will become more precise and the model can be refined (e.g., monthly rather than seasonal grouping).
+
+**When no I/E data is available:** If the I/E file is missing or `use_ie_day_length = FALSE`, the framework reverts to civil twilight day length with no change in behavior.
+
+**Private boats:** Day length is fixed at **24 hours** because boat crab gear (primarily pots) soaks continuously. The boat effort unit is **gear-hours** (gear units × hours deployed; CPUE is crab per gear-hour).
+
+### 5.3 Day Type
+
+Weekday (Mon–Thu), weekend (Fri–Sun), or holiday. Separate B1 (weekend) and B2 (holiday) effort effects in the BSS.
 
 ---
 
 ## 6. Population Components
 
-The framework estimates three populations independently:
+### 6.1 Shore Crabbers (Dock + Jetty + Beach)
 
-### 6.1 Shore Crabbers
-
-People crabbing from the Westport docks, jetty, or beaches. Effort is measured by gear counts at the docks.
-
-**How gear counts become crabber-hours:** The number of gear in the water is divided by the gear-per-crabber ratio (R_G ≈ 1.27, meaning each crabber deploys about 1.27 pieces of gear), then multiplied by day length.
-
-In equation form: `Gear count ÷ R_G × day length = crabber-hours`
+Effort indicator: gear counts at the docks. Conversion: `(Gear counted ÷ R_G) × day_length = crabber-hours`. On I/E days, crabber-hours are observed directly.
 
 ### 6.2 Private Boat Crabbers
 
-People who trailer their boats to the boat launch. Effort is measured by trailer counts.
-
-**How trailer counts become crabber-hours:** Each trailer represents one boat group out crabbing. The trailer-per-group ratio R_T converts trailers to boat groups.
-
-Boat crabbers have substantially higher CPUE (~4.8 crab/trip vs ~1.1 for shore), justifying separate estimation.
+Effort indicator: trailer counts at boat launches. Conversion: `trailer_count × gear_per_group × 24 = gear-hours`. CPUE uses gear-hours as the denominator.
 
 ### 6.3 Commercial/Charter Vessels
 
-Large vessels moored at Westport Marina. Effort is measured by the daily vessel tally. Estimation uses a day-type stratified census expansion: weekday and weekend/holiday harvest rates are computed separately and expanded to the full census period (Dec 1 – Feb 8), preventing bias from uneven sampling across day types.
+Estimated via day-type stratified census expansion from the vessel tally.
 
 ---
 
-## 7. The Pooled CPUE Model
+## 7. The Pooled CPUE Model (Technical)
 
-### 7.1 How It Works (Non-Technical)
+### 7.1 Effort Process
 
-The model assumes that each day has a "true" effort level and a "true" catch rate that we can't directly observe. On days when we have data, the observations pin down these hidden quantities. On days without data, the model fills in the gaps by assuming effort and catch rates change smoothly from day to day. The result is a complete daily time series with uncertainty bounds.
-
-All gear types share a single catch rate process — the model doesn't distinguish whether crab were caught by pots, ring nets, or traps.
-
-### 7.2 How It Works (Technical)
-
-**Effort process:**
 ```
 log(lambda_E[d]) = mu_E + omega_E[period[d]] + B1 × w[d] + B2 × holiday[d]
 ```
-In words: daily effort on the log scale equals a baseline level (`mu_E`), plus a smooth deviation that changes each period (`omega_E`, following an AR(1) process), plus a weekend boost (`B1`), plus an additional holiday boost (`B2`).
 
-**CPUE process:**
+AR(1) structure: `omega_E[p] = phi_E × omega_E[p-1] + innovation`.
+
+### 7.2 CPUE Process
+
 ```
 log(lambda_C[d]) = mu_C + omega_C[period[d]]
 ```
-In words: daily catch rate follows a similar smooth process but without a weekend effect (CPUE is assumed constant across day types within a period).
 
-**Observation models:**
-- Gear counts: `count ~ Poisson(crabbers × gear_per_crabber × time_of_day_noise)`
-- Trailer counts: `count ~ Poisson(boat_groups × trailers_per_group × time_of_day_noise)`
-- Interview catch: `crab_caught ~ NegBin(catch_rate × hours_fished, overdispersion)`
+### 7.3 Observation Models
 
-**Daily catch:** `C[d] = Poisson_draw(crabbers[d] × day_length[d] × catch_rate[d])`
+- **Gear counts (shore):** `Gear_I ~ Poisson(lambda_E × eps_E_H_obs × R_G)`
+- **Trailer counts (boats):** `T_I ~ Poisson(lambda_E × eps_E_H_obs × R_T)`
+- **Interview catch:** `c ~ NegBin(lambda_C × h, r_C)` where h = crabber-hours (shore) or gear-hours (boats)
+- **I/E crabber-hours:** `IE_crabber_hours ~ Lognormal(log(lambda_E × L), sigma_IE)`
 
-### 7.3 Stan Model File
+### 7.4 Sparse Overdispersion
 
-The Stan model is `crab_bss_pooled.stan`. Key parameters:
+`eps_E_H_obs` allocated only for actual effort observations. Eliminates 64–77% of effort parameters.
+
+### 7.5 I/E Integration (Option 2) — How Ingress/Egress Data Enters the Model
+
+#### The problem the I/E data solves
+
+On a typical survey day, the model sees a gear count — say 50 pieces of gear at the dock at 10:30am. To turn this into daily crabber-hours (which is what gets multiplied by CPUE to produce catch), the model has to do three things: divide by R_G (~1.27 gear per crabber) to get ~39 crabbers present at that moment, then multiply by day length (~10 hours) to get ~390 crabber-hours. That day-length multiplication assumes those 39 crabbers were there all day. They weren't — crabbers rotate through. I/E data from February 10, 2024 showed 117 crabbers at peak but only 581 true crabber-hours, meaning an effective day length of about 5 hours, not 10.
+
+#### What the model "sees" without I/E
+
+The BSS has a latent effort variable `lambda_E[d]` for each day — the model's belief about how much crabbing happened. On days with gear counts, the model observes:
+
+```
+Gear_count ~ Poisson(lambda_E[d] × eps_overdispersion × R_G)
+```
+
+This tells the model about lambda_E, but only through the lens of R_G and overdispersion. The model then computes daily effort as `E[d] = lambda_E[d] × L[d]` (day length), and daily catch as `C[d] = lambda_E[d] × L[d] × lambda_C[d]`. If L[d] is wrong, both the effort and catch estimates inherit that bias.
+
+#### What the model "sees" with I/E
+
+On I/E days, the model gets a second observation of the same latent effort state:
+
+```
+IE_crabber_hours ~ Lognormal(log(lambda_E[d] × L[d]), sigma_IE)
+```
+
+This is a direct observation of `E[d]` — the quantity the model is trying to estimate — with some measurement noise (sigma_IE). It doesn't go through R_G, doesn't go through overdispersion, and doesn't depend on when during the day the gear count was taken. The I/E surveyor tracked every arrival and departure across the full day, so the resulting crabber-hours *is* the daily effort.
+
+#### How the two observations interact on paired days
+
+On a day with both a gear count and an I/E survey, the model has two independent signals constraining lambda_E[d]:
+
+1. The gear count says: "lambda_E is approximately Gear_count / (R_G × eps)" — but this is noisy because R_G is uncertain and eps adds overdispersion.
+
+2. The I/E says: "lambda_E × L is approximately IE_crabber_hours" — this is much more precise (sigma_IE is small, ~0.2 on log scale, meaning ~±20% measurement error).
+
+The model resolves these two signals through the posterior. If the gear-count pathway consistently implies higher effort than the I/E observations, the model can adjust by: (a) shifting R_G upward (more gear per crabber means the same gear count implies fewer crabbers), (b) adjusting the effort process level downward, or (c) absorbing it through the overdispersion terms. The key point is that the model figures out the calibration internally rather than requiring an externally imposed correction factor.
+
+#### What happens on non-I/E days
+
+On the ~95% of days without I/E surveys, the model only has gear counts. But the I/E anchor points have already constrained the effort trajectory — the AR(1) process smoothly interpolates between them. And the posterior for R_G has been informed by the dual-observation days, so the gear-count conversion is now calibrated. The I/E data effectively "teaches" the model how to interpret gear counts more accurately, even on days when no I/E survey was conducted.
+
+#### Why lognormal for the I/E likelihood
+
+The I/E measurement has multiplicative error — if the surveyor misses 10% of arrivals, that's a proportional undercount regardless of whether 20 or 200 crabbers came through. Lognormal naturally handles this: `sigma_IE = 0.2` means the true value is within about ±20% of the observation, with the uncertainty being proportional to the magnitude.
+
+#### What sigma_IE tells you
+
+The posterior for sigma_IE is itself informative. If it comes back very small (~0.05–0.10), the I/E measurements are highly precise and the model trusts them almost exactly. If it's larger (~0.3+), there's substantial discrepancy between what the I/E predicts and what the rest of the model expects — which could indicate that the I/E survey window didn't cover the full crabbing day, or that the gear-count pathway has a systematic bias the model is struggling to reconcile.
+
+#### Analogy
+
+Think of it like having two thermometers. The gear count is a cheap thermometer that reads through a window — indirect, noisy, and potentially biased by when you look. The I/E survey is a precision thermometer placed directly in the room. On days when you have both, the model can figure out how much the cheap thermometer is off. Then on days when you only have the cheap thermometer, it applies that learned correction.
+
+#### When no I/E data is available
+
+When `IE_n = 0`, the I/E likelihood contributes nothing and the model reverts to the gear-count-only pathway with no change in behavior. This makes the I/E integration fully backward-compatible — it improves estimates when I/E data is available but doesn't alter the model structure when it isn't.
+
+### 7.6 Key Parameters
 
 | Parameter | Description | Prior |
 |---|---|---|
 | B1 | Weekend effort multiplier (log scale) | Normal(0, 1) |
-| B2 | Additional holiday effort multiplier | Normal(0, 1) |
-| R_G | Gear per crabber | Lognormal(log(1.3), 0.3) |
-| R_T | Trailers per boat group | Beta(0.5, 0.5), guarded |
-| phi_E, phi_C | AR(1) autocorrelation | Beta(2, 2), rescaled to [-1, 1] |
-| r_E, r_C | Overdispersion (effort, CPUE) | Half-Cauchy |
+| B2 | Holiday effort multiplier | Normal(0, 1) |
+| R_G | Gear per crabber (shore) | Lognormal(log(1.3), 0.3) |
+| R_T | Trailers per boat group | Beta(0.5, 0.5) |
+| phi_E, phi_C | AR(1) autocorrelation | Beta(2,2) rescaled [-1,1] |
+| r_E, r_C | Overdispersion | Half-Cauchy(5) |
+| sigma_IE | I/E measurement error (log scale) | Exponential(5) |
+
+**Stan model file:** `crab_bss_pooled.stan`
 
 ---
 
 ## 8. Convergence and Model Selection
 
-For each BSS fit, convergence is assessed using R-hat (< 1.05) and effective sample size (> 400). Fits passing both thresholds use the BSS estimate; otherwise PE is used as a fallback.
+R-hat < 1.05 AND n_eff > 400 for C_sum and E_sum. The `convergence_report.csv` output records diagnostics for every fit.
 
 ---
 
 ## 9. Output Files
 
-Each run produces output in `output/YYYYMMDD/`:
+16+ CSV files, 10+ plots, and run parameters. Key additions: `ie_analysis.csv` (I/E validation with f_temporal and L_effective), `L_effective_lookup.csv` (sub-season × day-type predicted day lengths), `L_effective_ie_detail.csv` (per-day I/E measurements), `plot_L_effective_ie.png` (historical I/E L_effective with model predictions), and `plot_day_length_comparison.png` (civil twilight vs I/E day length across the season).
 
-### Tables
-| File | Contents |
+---
+
+## 10. Limitations and Future Directions
+
+- Limited I/E coverage; expand to ~40 days per season with month × day-type stratification.
+- L_effective model has thin cells (some sub-season × day-type combinations have < 2 I/E days); as the I/E dataset grows, finer temporal resolution (monthly grouping) will become feasible.
+- No jetty effort counts. Beach crabbing unmeasured.
+- Gear-type breakdowns are approximate (proportional allocation, not modeled).
+- The L_effective model assumes the structural relationship between I/E crabber-hours and peak count is stable across years within a sub-season × day-type cell.
+- Add per-gear catch recording in interviews for future gear-resolved analysis.
+
+---
+
+## 11. Glossary
+
+| Term | Meaning |
 |---|---|
-| `pe_port_summary.csv` | PE estimates by component and port total |
-| `port_total_Dungeness_Kept.csv` | Combined PE + BSS port total |
-| `monthly_by_population.csv` | Month × Population with PE, BSS, and Combined estimates |
-| `monthly_port_totals.csv` | Port-level monthly totals |
-| `monthly_by_mode.csv` | Monthly catch by crabbing mode |
-| `catch_by_gear_type.csv` | Catch by gear type (proportional allocation from interviews) |
-| `monthly_by_area.csv` | Monthly catch by creel area |
-| `wide_summary.csv` | All dimensions in one table |
-| `bss_summary_{label}.csv` | Stan convergence diagnostics per fit |
-| `run_parameters.txt` | Full parameter list for reproducibility |
-
----
-
-## 10. Key Assumptions
-
-1. **Gear counts represent relative effort** across days.
-2. **Gear-per-crabber ratio is constant** within a sub-season.
-3. **Trailer counts represent boat crabber effort.**
-4. **Day length from civil twilight is a reasonable proxy** for available fishing hours.
-5. **Interviews are representative** of all crabbers in the population.
-6. **Released crab mortality is not estimated.**
-7. **The AR(1) process captures temporal dynamics** — effort and CPUE change smoothly.
-8. **Within-day overdispersion is gamma-distributed.**
-9. **Holidays and weekends are pooled as "high-effort days"** in the effort process, with B2 capturing the additional holiday boost.
-10. **Mean catch per commercial vessel is constant** within each day-type stratum across sampled and unsampled days.
-
----
-
-## 11. Limitations and Planned Improvements
-
-### Current Limitations
-- No jetty effort counts (28 interviews contribute to CPUE only)
-- Single-count days in ring-net sub-season limit within-day overdispersion estimation
-- Beach crabbing unmeasured (1 interview in 2024-25)
-- **Gear-type breakdowns are approximate** — derived from interview proportions, not modeled
-
-### Planned Improvements
-1. Add Westport Jetty effort counts
-2. Restructure `eps_E_H` allocation for data-informed days only
-3. Expand to other ports (Willapa Bay, Columbia River)
+| **BSS** | Bayesian State-Space model |
+| **PE** | Point Estimator |
+| **CPUE** | Catch Per Unit Effort |
+| **Crabber-hour** | One person crabbing for one hour |
+| **Gear-hour** | One piece of crab gear deployed for one hour |
+| **R_G** | Gear-per-crabber ratio |
+| **I/E** | Ingress/Egress survey |
+| **f_temporal** | Temporal correction factor: I/E crabber-hours ÷ gear-count-derived estimate |
+| **L_effective** | Effective day length: I/E crabber-hours ÷ peak crabbers present |
+| **L_effective model** | Sub-season × day-type regression predicting L_effective from historical I/E data |
+| **sigma_IE** | I/E measurement error on log scale |
+| **AR(1)** | First-order autoregressive process |
+| **Credible interval** | Bayesian range containing the true value with stated probability |
 
 ---
 
 ## 12. Reproducibility
 
-1. Clone the `FWC-estimation-method` repository
-2. Place input files in `input_files/`
-3. Place `crab_bss_pooled.stan` in `stan_models/`
-4. Open `BSS-GH-pooled-CPUE-model.Rmd`
-5. Set parameters and run
+1. Clone the repository. Place input files in `input_files/`: `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `Matt_Ingress-Egress_Compilation.xlsx`.
+2. Place `crab_bss_pooled.stan` in `stan_models/`.
+3. Open `BSS-GH-pooled-CPUE-model.Rmd`, update parameters, run.
 
-**Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here  
-**Expected runtime:** ~3-4 hours on a 4-core machine
+**Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl.  
+**Expected runtime:** 3–4 hours on a 4-core machine.

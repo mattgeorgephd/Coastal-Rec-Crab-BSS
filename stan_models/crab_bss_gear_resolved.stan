@@ -1,98 +1,72 @@
 // =============================================================================
-// Gear-Resolved CPUE Crab Creel Model (crab_bss_gear_resolved.stan)
+// Pooled CPUE Crab Creel Model — Gear-Hours Formulation
+// (crab_bss_pooled_gearhours.stan)
 //
-// Adapted from WDFW FW CreelEstimates BSS model
-// Per-gear-type CPUE processes with independent AR(1) dynamics.
+// GEAR-HOURS CHANGE (boat populations):
+//   For boat crabbers using pots, gear is deployed continuously (24 hrs/day)
+//   while the trailer remains at the boat ramp. The previous formulation used
+//   crabber-hours with day_length (9-16 hrs), creating a unit mismatch that
+//   systematically underestimated boat catch by ~2x.
+//
+//   This version:
+//     - lambda_E represents GEAR IN THE WATER (shore: via R_G; boats: directly)
+//     - For boats: R_G_boat (gear per group) replaces R_T (trailers per crabber)
+//     - CPUE denominator h = gear-hours (boats) or crabber-hours (shore)
+//     - L[d] = 24 for boats (gear fishes 24/7), day_length for shore
+//     - Trailer obs: T_I ~ Poisson(lambda_E / R_G_boat * eps)
+//
+//   Shore model is unchanged: lambda_E = crabbers, h = crabber-hours, L = day_length.
+//
+// SPARSE eps_E_H: Overdispersion allocated only for actual observations.
+// Single CPUE process shared across all gear types.
 // Holiday effect B2 separates holiday effort from regular weekends.
-// Per-gear-type NegBin overdispersion (r_C_gear) for each gear type.
-//
-// ARCHITECTURE: Shared effort × separate CPUE per gear type
-//   - Single latent effort process lambda_E (total crabbers present)
-//   - G_gear independent CPUE AR(1) processes lambda_C_gear[d, g_gear]
-//   - Time-varying gear-type proportions pi_gear[period] (Dirichlet)
-//   - Daily catch per gear type:
-//     C_gear[d,g] = lambda_E[d] × L[d] × pi_gear[period[d],g] × lambda_C_gear[d,g]
-//
-// EFFORT SIDE: Unchanged from v2.0
-//   - Gear counts (docks) with R_G expansion
-//   - Trailer counts (boat launch) with R_T expansion
-//   - Weekend/holiday effect B1
-//   - Within-day gamma overdispersion eps_E_H
-//
-// CPUE SIDE: Replaced from v2.0
-//   - G_gear separate AR(1) processes (shared phi_C, sigma_eps_C)
-//   - Each interview's catch depends on its gear type
-//   - Categorical likelihood for gear-type assignment informs pi_gear
-//   - Negative binomial catch likelihood per gear type
-//
-// GENERATED QUANTITIES:
-//   - C_gear[D, G_gear]: daily catch by gear type
-//   - C_sum_gear[G_gear]: season total by gear type
-//   - C[S][D,G]: total catch (backward compatible)
-//   - E[S][D,G], E_sum: effort (unchanged)
+// Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
 // =============================================================================
 
 data {
-  // --- Core dimensions ---
-  int<lower=1> D;              // days in sub-season
-  int<lower=1> G;              // crabber types (always 1; shore or boat per fit)
-  int<lower=1> S;              // sections (always 1)
-  int<lower=1> H;              // max count sequences per day
-  int<lower=1> P_n;            // time periods
-  int<lower=1> period[D];      // period index per day
-  vector<lower=0,upper=1>[D] w;       // weekend/holiday indicator (1 for both)
-  vector<lower=0,upper=1>[D] holiday;  // holiday-only indicator (1 for holidays, 0 otherwise)
-  vector<lower=0>[D] L;                // day length (hours, from suncalc)
-  real<lower=0> O[D,S,G];      // open/closed status
+  int<lower=1> D;
+  int<lower=1> G;
+  int<lower=1> S;
+  int<lower=1> P_n;
+  int<lower=1> period[D];
+  vector<lower=0,upper=1>[D] w;
+  vector<lower=0,upper=1>[D] holiday;
+  vector<lower=0>[D] L;
+  real<lower=0> O[D,S,G];
 
-  // --- Gear-type dimension ---
-  int<lower=1> G_gear;         // number of gear types present in this sub-season
+  // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
+  int<lower=0> n_effort_obs;
 
-  // --- GEAR index counts (docks: counting crab gear in water) ---
   int<lower=0> Gear_n;
   int<lower=1> day_Gear[Gear_n];
   int<lower=1> section_Gear[Gear_n];
-  int<lower=1> countnum_Gear[Gear_n];
   int<lower=0> Gear_I[Gear_n];
 
-  // --- TRAILER index counts (boat launch) ---
   int<lower=0> T_n;
   int<lower=1> day_T[T_n];
   int<lower=1> section_T[T_n];
-  int<lower=1> countnum_T[T_n];
   int<lower=0> T_I[T_n];
 
-  // --- Direct crabber counts (reserved for future jetty counts) ---
   int<lower=0> Crab_n;
   int<lower=1> day_Crab[Crab_n];
   int<lower=1> section_Crab[Crab_n];
-  int<lower=1> countnum_Crab[Crab_n];
   int<lower=0> Crab_I[Crab_n];
   real<lower=0,upper=1> p_I_crab;
 
-  // --- Interview CPUE data (with gear type) ---
   int<lower=0> IntC;
   int<lower=1> day_IntC[IntC];
-  int<lower=1> gear_IntC[IntC];                    // crabber type G-index (always 1)
+  int<lower=1> gear_IntC[IntC];
   int<lower=1> section_IntC[IntC];
-  int<lower=0> c[IntC];                            // crab caught
-  vector<lower=0>[IntC] h;                         // hours fished
-  int<lower=1,upper=G_gear> gear_type_IntC[IntC];  // gear type per interview
+  int<lower=0> c[IntC];
+  vector<lower=0>[IntC] h;
 
-  // --- Interview expansion: gear per crabber ---
   int<lower=0> IntA_gear;
   int<lower=0> Gear_A[IntA_gear];
   int<lower=1> A_A_gear[IntA_gear];
 
-  // --- Interview expansion: trailers per group ---
   int<lower=0> IntA_trailer;
-  int<lower=0> T_A_int[IntA_trailer];
-  int<lower=1> A_A_trailer[IntA_trailer];
+  int<lower=1> Gear_A_boat[IntA_trailer];  // number of gear per boat group (replaces T_A_int, A_A_trailer)
 
-  // --- Gear-type proportions prior ---
-  vector<lower=0>[G_gear] pi_gear_alpha;  // Dirichlet concentration per gear type
-
-  // --- Hyperparameters ---
   real value_cauchyDF_sigma_eps_E;
   real value_cauchyDF_sigma_eps_C;
   real value_cauchyDF_sigma_r_E;
@@ -110,247 +84,176 @@ data {
 }
 
 parameters {
-  // --- Effort process ---
-  real B1;                             // weekend/holiday effect
-  real B2;                             // additional holiday effect (beyond B1)
+  real B1;
+  real B2;
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
   real<lower=0> sigma_r_E;
   real<lower=0,upper=1> phi_E_scaled;
   matrix[P_n-1, G*S] eps_E;
   matrix[G,S] omega_E_0;
-  matrix<lower=0>[D,G] eps_E_H[S,H];
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  // --- Expansion parameters ---
-  real<lower=0> R_G;                   // gear per crabber
-  real<lower=0,upper=1> R_T;          // trailers per boat group
+  // Sparse overdispersion: one per actual effort observation
+  vector<lower=0>[n_effort_obs] eps_E_H_obs;
 
-  // --- CPUE process per gear type ---
-  real mu_C_gear[G_gear];              // CPUE intercept per gear type (log scale)
-  real<lower=0> sigma_eps_C_gear;      // shared CPUE process error SD
-  real<lower=0,upper=1> phi_C_gear_scaled;  // shared AR(1) coefficient (0-1, rescaled)
-  real<lower=0> sigma_r_C_gear[G_gear]; // NegBin overdispersion scale per gear type
-  matrix[P_n-1, G_gear] eps_C_gear;   // CPUE innovations [periods-1 × gear types]
-  vector[G_gear] omega_C_gear_0;       // initial CPUE state per gear type
+  real<lower=0> R_G;
+  real<lower=0> R_G_boat;  // gear per boat group (replaces R_T)
 
-  // --- Gear-type proportions ---
-  simplex[G_gear] pi_gear[P_n];       // per-period gear-type mix
+  real<lower=0> sigma_eps_C;
+  cholesky_factor_corr[G*S] Lcorr_C;
+  real<lower=0,upper=1> phi_C_scaled;
+  real<lower=0> sigma_r_C;
+  matrix[P_n-1, G*S] eps_C;
+  matrix[G,S] omega_C_0;
+  real mu_mu_C[G];
+  real<lower=0> sigma_mu_C;
+  matrix[G,S] eps_mu_C;
 }
 
 transformed parameters {
-  // --- Effort (unchanged) ---
   matrix[G,S] mu_E;
   real<lower=-1,upper=1> phi_E;
   matrix[P_n, G*S] omega_E;
   matrix<lower=0>[D,G] lambda_E_S[S];
-  matrix<lower=0>[D,G] lambda_E_S_I[S,H];
   real<lower=0> r_E;
 
-  // --- CPUE by gear type ---
-  real<lower=-1,upper=1> phi_C_gear;
-  vector<lower=0>[G_gear] r_C_gear;
-  matrix[P_n, G_gear] omega_C_gear;
-  matrix<lower=0>[D, G_gear] lambda_C_gear;
+  matrix[G,S] mu_C;
+  real<lower=-1,upper=1> phi_C;
+  real<lower=0> r_C;
+  matrix[P_n, G*S] omega_C;
+  matrix<lower=0>[D,G] lambda_C_S[S];
 
   r_E = 1 / square(sigma_r_E);
-  for (gg in 1:G_gear) {
-    r_C_gear[gg] = 1 / square(sigma_r_C_gear[gg]);
-  }
+  r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
-  phi_C_gear = (phi_C_gear_scaled * 2) - 1;
+  phi_C = (phi_C_scaled * 2) - 1;
 
-  // --- Effort AR(1) process (unchanged) ---
   omega_E[1,] = to_row_vector(omega_E_0);
+  omega_C[1,] = to_row_vector(omega_C_0);
   for (p in 2:P_n) {
     omega_E[p,] = to_row_vector(phi_E * to_vector(omega_E[p-1,]) +
       diag_pre_multiply(rep_vector(sigma_eps_E, G*S), Lcorr_E) * to_vector(eps_E[p-1,]));
+    omega_C[p,] = to_row_vector(phi_C * to_vector(omega_C[p-1,]) +
+      diag_pre_multiply(rep_vector(sigma_eps_C, G*S), Lcorr_C) * to_vector(eps_C[p-1,]));
   }
 
-  // --- Gear-type CPUE AR(1) processes ---
-  for (gg in 1:G_gear) {
-    omega_C_gear[1, gg] = omega_C_gear_0[gg];
-  }
-  for (p in 2:P_n) {
-    for (gg in 1:G_gear) {
-      omega_C_gear[p, gg] = phi_C_gear * omega_C_gear[p-1, gg] +
-        sigma_eps_C_gear * eps_C_gear[p-1, gg];
-    }
-  }
-
-  // --- Daily effort rates (unchanged) ---
   for (g in 1:G) {
     for (s in 1:S) {
       mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
+      mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
     }
     for (d in 1:D) {
       for (s in 1:S) {
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
-        for (i in 1:H) {
-          lambda_E_S_I[s,i][d,g] = lambda_E_S[s][d,g] * eps_E_H[s,i][d,g];
-        }
+        lambda_C_S[s][d,g] = exp(mu_C[g,s] +
+          to_matrix(omega_C[period[d],], G, S)[g,s]) * O[d,s,g];
       }
-    }
-  }
-
-  // --- Daily CPUE rates by gear type ---
-  for (d in 1:D) {
-    for (gg in 1:G_gear) {
-      lambda_C_gear[d, gg] = exp(mu_C_gear[gg] + omega_C_gear[period[d], gg]);
     }
   }
 }
 
 model {
-  // === EFFORT PRIORS (unchanged) ===
   sigma_eps_E ~ cauchy(0, value_cauchyDF_sigma_eps_E);
+  sigma_eps_C ~ cauchy(0, value_cauchyDF_sigma_eps_C);
   Lcorr_E ~ lkj_corr_cholesky(1);
+  Lcorr_C ~ lkj_corr_cholesky(1);
   phi_E_scaled ~ beta(value_betashape_phi_E_scaled, value_betashape_phi_E_scaled);
+  phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
+  sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
   sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);
+  sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
-  B2 ~ normal(0, value_normal_sigma_B2);  // holiday effect: additional boost beyond B1
-  to_vector(eps_E) ~ std_normal();
+  B2 ~ normal(0, value_normal_sigma_B2);
 
-  // Gear per crabber
+  to_vector(eps_E) ~ std_normal();
+  to_vector(eps_C) ~ std_normal();
+
   R_G ~ lognormal(log(1.3), 0.3);
-  // Trailers per group (guarded)
   if (T_n > 0 || IntA_trailer > 0) {
-    R_T ~ beta(0.5, 0.5);
+    R_G_boat ~ lognormal(log(4), 0.5);  // ~4 gear per group, with range ~2-8
   }
 
   for (g in 1:G) {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
-    for (d in 1:D) {
-      for (s in 1:S) {
-        for (i in 1:H) {
-          eps_E_H[s,i][d,g] ~ gamma(r_E, r_E);
-        }
-      }
-    }
+    mu_mu_C[g] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
     for (s in 1:S) {
       omega_E_0[g,s] ~ normal(0, sqrt(square(sigma_eps_E) / (1 - square(phi_E))));
+      omega_C_0[g,s] ~ normal(0, sqrt(square(sigma_eps_C) / (1 - square(phi_C))));
       eps_mu_E[g,s] ~ std_normal();
+      eps_mu_C[g,s] ~ std_normal();
     }
   }
 
-  // === CPUE PRIORS (gear-type) ===
-  sigma_eps_C_gear ~ cauchy(0, value_cauchyDF_sigma_eps_C);
-  phi_C_gear_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
-  for (gg in 1:G_gear) {
-    sigma_r_C_gear[gg] ~ cauchy(0, value_cauchyDF_sigma_r_C);
-  }
-  to_vector(eps_C_gear) ~ std_normal();
+  // Sparse overdispersion prior: vectorized over actual observations only
+  eps_E_H_obs ~ gamma(r_E, r_E);
 
-  for (gg in 1:G_gear) {
-    mu_C_gear[gg] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
-    omega_C_gear_0[gg] ~ normal(0, sqrt(square(sigma_eps_C_gear) / (1 - square(phi_C_gear))));
-  }
-
-  // Gear-type proportions per period
-  for (p in 1:P_n) {
-    pi_gear[p] ~ dirichlet(pi_gear_alpha);
-  }
-
-  // === EFFORT LIKELIHOODS (unchanged) ===
-
-  // Gear counts (docks)
+  // --- Gear counts: obs indices 1..Gear_n ---
   for (i in 1:Gear_n) {
     Gear_I[i] ~ poisson(
-      lambda_E_S_I[section_Gear[i], countnum_Gear[i]][day_Gear[i], 1] * R_G
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
     );
   }
 
-  // Trailer counts (boat launch)
+  // --- Trailer counts: obs indices Gear_n+1..Gear_n+T_n ---
+  // lambda_E = gear in water; trailers = gear / R_G_boat = groups
   for (i in 1:T_n) {
     T_I[i] ~ poisson(
-      lambda_E_S_I[section_T[i], countnum_T[i]][day_T[i], G] * R_T
+      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat * eps_E_H_obs[Gear_n + i]
     );
   }
 
-  // === CPUE LIKELIHOODS (gear-type indexed) ===
+  // --- Interview CPUE ---
   for (a in 1:IntC) {
-    // Gear-type assignment informs pi_gear proportions
-    gear_type_IntC[a] ~ categorical(pi_gear[period[day_IntC[a]]]);
-    // Catch informs gear-specific CPUE rate
-    c[a] ~ neg_binomial_2(lambda_C_gear[day_IntC[a], gear_type_IntC[a]] * h[a], r_C_gear[gear_type_IntC[a]]);
+    c[a] ~ neg_binomial_2(
+      lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
+    );
   }
 
-  // === EXPANSION LIKELIHOODS (unchanged) ===
   for (a in 1:IntA_gear) {
     Gear_A[a] ~ poisson(A_A_gear[a] * R_G);
   }
+
+  // --- Gear per boat group: learn R_G_boat from interview data ---
   for (a in 1:IntA_trailer) {
-    T_A_int[a] ~ bernoulli(R_T);
+    Gear_A_boat[a] ~ poisson(R_G_boat);
   }
 }
 
 generated quantities {
-  // Effort (unchanged structure)
+  matrix[G*S, G*S] Omega_C;
   matrix[G*S, G*S] Omega_E;
+  matrix<lower=0>[D,G] lambda_Ctot_S[S];
+  matrix<lower=0>[D,G] C[S];
   matrix<lower=0>[D,G] E[S];
+  real<lower=0> C_sum;
   real<lower=0> E_sum;
   real R_G_out;
-  vector[G_gear] r_C_gear_out;
+  real R_G_boat_out;
 
-  // Catch by gear type
-  matrix<lower=0>[D, G_gear] C_gear;
-  vector<lower=0>[G_gear] C_sum_gear;
-  real<lower=0> C_sum;
-
-  // Backward-compatible total catch in C[S][D,G] format
-  matrix<lower=0>[D,G] C[S];
-
-  // Pi_gear summary (expose for monitoring)
-  matrix[P_n, G_gear] pi_gear_out;
-
+  Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
-  r_C_gear_out = r_C_gear;
-  E_sum = 0;
+  R_G_boat_out = R_G_boat;
   C_sum = 0;
-  C_sum_gear = rep_vector(0, G_gear);
+  E_sum = 0;
 
-  // Copy pi_gear to output matrix
-  for (p in 1:P_n) {
-    for (gg in 1:G_gear) {
-      pi_gear_out[p, gg] = pi_gear[p][gg];
-    }
-  }
-
-  // Daily effort (unchanged)
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
+        if (lambda_Ctot_S[s][d,g] < 1e9) {
+          C[s][d,g] = poisson_rng(lambda_Ctot_S[s][d,g]);
+        } else {
+          C[s][d,g] = lambda_Ctot_S[s][d,g];
+        }
+        C_sum = C_sum + C[s][d,g];
         E[s][d,g] = lambda_E_S[s][d,g] * L[d];
         E_sum = E_sum + E[s][d,g];
-      }
-    }
-  }
-
-  // Daily catch by gear type
-  for (d in 1:D) {
-    real total_catch_d = 0;
-    for (gg in 1:G_gear) {
-      real rate = lambda_E_S[1][d,1] * L[d] * pi_gear[period[d]][gg] * lambda_C_gear[d, gg];
-      if (rate > 0 && rate < 1e9) {
-        C_gear[d, gg] = poisson_rng(rate);
-      } else if (rate >= 1e9) {
-        C_gear[d, gg] = rate;  // overflow protection
-      } else {
-        C_gear[d, gg] = 0;
-      }
-      C_sum_gear[gg] = C_sum_gear[gg] + C_gear[d, gg];
-      total_catch_d = total_catch_d + C_gear[d, gg];
-    }
-    C_sum = C_sum + total_catch_d;
-    // Backward compat: total catch across all gear types
-    for (s in 1:S) {
-      for (g in 1:G) {
-        C[s][d,g] = total_catch_d;
       }
     }
   }
