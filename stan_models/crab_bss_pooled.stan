@@ -1,33 +1,43 @@
 // =============================================================================
-// Pooled CPUE Crab Creel Model — Sparse Overdispersion + I/E Integration
-// (crab_bss_pooled.stan)
+// Pooled CPUE Crab Creel Model
+// Adaptive-resolution AR(1) + CPUE Day-Type Effect + L_effective Uncertainty
 //
-// RESTRUCTURED eps_E_H: Within-day overdispersion parameters are allocated
-// ONLY for actual effort observations, not for all D*H*S*G combinations.
+// The AR(1) processes for effort and CPUE evolve over P_n temporal periods.
+// The R preprocessing selects the resolution (daily, weekly, or monthly)
+// based on data density for each population × sub-season, then sets:
+//   P_n = number of AR periods (= D for daily, ~D/7 for weekly, etc.)
+//   period[d] = mapping from each day to its AR period index
 //
-// INGRESS/EGRESS INTEGRATION (Option 2):
-// On days with I/E surveys, observed crabber-hours enter as a direct
-// lognormal observation of lambda_E * L, bypassing R_G and day-length
-// assumptions. This calibrates the gear-count pathway and provides
-// high-confidence anchor points for the effort trajectory.
+// When P_n = D and period[d] = d, this is equivalent to a daily AR(1).
+// When P_n = n_months and period maps days to months, it behaves as
+// a monthly AR(1). The Stan code is identical in both cases.
 //
-// Single CPUE process shared across all gear types.
-// Holiday effect B2 separates holiday effort from regular weekends.
-// Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
+// Additional features:
+//   - B1_C: weekend CPUE effect
+//   - L_effective as parameter with lognormal prior (shore only)
+//   - Data-driven R_G prior from interview data
+//   - Informative R_T prior Beta(alpha, beta)
+//   - Sparse overdispersion (observation-indexed)
+//   - I/E direct effort integration
+//   - Dual reporting: expected catch + predictive draws
 // =============================================================================
 
 data {
-  int<lower=1> D;
-  int<lower=1> G;
-  int<lower=1> S;
-  int<lower=1> P_n;
-  int<lower=1> period[D];
-  vector<lower=0,upper=1>[D] w;
-  vector<lower=0,upper=1>[D] holiday;
-  vector<lower=0>[D] L;
-  real<lower=0> O[D,S,G];
+  int<lower=1> D;                        // Number of days in sub-season
+  int<lower=1> G;                        // Number of gear groups (1 in pooled)
+  int<lower=1> S;                        // Number of sections (1)
+  int<lower=1> P_n;                      // Number of AR periods
+  int<lower=1> period[D];               // Day-to-period mapping
+  vector<lower=0,upper=1>[D] w;          // Weekend indicator
+  vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
+  real<lower=0> O[D,S,G];               // Open/closed
 
-  // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
+  // --- Day length ---
+  vector<lower=0>[D] L_data;
+  int<lower=0,upper=1> estimate_L;
+  vector<lower=0>[D] L_prior_sigma;
+
+  // --- Effort observations (sparse overdispersion) ---
   int<lower=0> n_effort_obs;
 
   int<lower=0> Gear_n;
@@ -46,6 +56,7 @@ data {
   int<lower=0> Crab_I[Crab_n];
   real<lower=0,upper=1> p_I_crab;
 
+  // --- Interview CPUE ---
   int<lower=0> IntC;
   int<lower=1> day_IntC[IntC];
   int<lower=1> gear_IntC[IntC];
@@ -53,20 +64,23 @@ data {
   int<lower=0> c[IntC];
   vector<lower=0>[IntC] h;
 
+  // --- Gear-per-crabber interviews ---
   int<lower=0> IntA_gear;
   int<lower=0> Gear_A[IntA_gear];
   int<lower=1> A_A_gear[IntA_gear];
 
+  // --- Trailer-per-group interviews ---
   int<lower=0> IntA_trailer;
   int<lower=0> T_A_int[IntA_trailer];
   int<lower=1> A_A_trailer[IntA_trailer];
 
-  // Ingress/egress direct crabber-hours observations
+  // --- I/E direct effort observations ---
   int<lower=0> IE_n;
   int<lower=1> day_IE[IE_n];
   int<lower=1> section_IE[IE_n];
   vector<lower=0>[IE_n] IE_crabber_hours;
 
+  // --- Hyperparameters ---
   real value_cauchyDF_sigma_eps_E;
   real value_cauchyDF_sigma_eps_C;
   real value_cauchyDF_sigma_r_E;
@@ -75,17 +89,26 @@ data {
   real value_betashape_phi_C_scaled;
   real value_normal_sigma_B1;
   real value_normal_sigma_B2;
+  real value_normal_sigma_B1_C;
   real value_normal_mu_mu_C;
   real value_normal_sigma_mu_C;
   real value_normal_mu_mu_E;
   real value_normal_sigma_mu_E;
   real value_cauchyDF_sigma_mu_C;
   real value_cauchyDF_sigma_mu_E;
+
+  // --- Data-driven priors ---
+  real<lower=0> R_G_prior_mu;
+  real<lower=0> R_G_prior_sigma;
+  real<lower=0> R_T_alpha;
+  real<lower=0> R_T_beta;
 }
 
 parameters {
   real B1;
   real B2;
+  real B1_C;
+
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
   real<lower=0> sigma_r_E;
@@ -96,13 +119,11 @@ parameters {
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  // Sparse overdispersion: one per actual effort observation
   vector<lower=0>[n_effort_obs] eps_E_H_obs;
 
   real<lower=0> R_G;
   real<lower=0,upper=1> R_T;
 
-  // I/E measurement error (log scale)
   real<lower=0> sigma_IE;
 
   real<lower=0> sigma_eps_C;
@@ -114,6 +135,8 @@ parameters {
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
   matrix[G,S] eps_mu_C;
+
+  vector[D * estimate_L] L_raw;
 }
 
 transformed parameters {
@@ -129,11 +152,22 @@ transformed parameters {
   matrix[P_n, G*S] omega_C;
   matrix<lower=0>[D,G] lambda_C_S[S];
 
+  vector<lower=0>[D] L;
+
+  // --- Compute L ---
+  if (estimate_L == 1) {
+    for (d in 1:D)
+      L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]);
+  } else {
+    L = L_data;
+  }
+
   r_E = 1 / square(sigma_r_E);
   r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
 
+  // --- AR(1) over P_n periods ---
   omega_E[1,] = to_row_vector(omega_E_0);
   omega_C[1,] = to_row_vector(omega_C_0);
   for (p in 2:P_n) {
@@ -150,10 +184,12 @@ transformed parameters {
     }
     for (d in 1:D) {
       for (s in 1:S) {
+        // Effort: AR deviation (at period resolution) + weekend + holiday
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
+        // CPUE: AR deviation + weekend CPUE effect
         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
-          to_matrix(omega_C[period[d],], G, S)[g,s]) * O[d,s,g];
+          to_matrix(omega_C[period[d],], G, S)[g,s] + B1_C * w[d]) * O[d,s,g];
       }
     }
   }
@@ -172,13 +208,19 @@ model {
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
+  B1_C ~ normal(0, value_normal_sigma_B1_C);
 
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
 
-  R_G ~ lognormal(log(1.3), 0.3);
+  R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
+
   if (T_n > 0 || IntA_trailer > 0) {
-    R_T ~ beta(0.5, 0.5);
+    R_T ~ beta(R_T_alpha, R_T_beta);
+  }
+
+  if (estimate_L == 1) {
+    L_raw ~ std_normal();
   }
 
   for (g in 1:G) {
@@ -192,24 +234,20 @@ model {
     }
   }
 
-  // Sparse overdispersion prior: vectorized over actual observations only
   eps_E_H_obs ~ gamma(r_E, r_E);
 
-  // --- Gear counts: obs indices 1..Gear_n ---
   for (i in 1:Gear_n) {
     Gear_I[i] ~ poisson(
       lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
     );
   }
 
-  // --- Trailer counts: obs indices Gear_n+1..Gear_n+T_n ---
   for (i in 1:T_n) {
     T_I[i] ~ poisson(
       lambda_E_S[section_T[i]][day_T[i], G] * eps_E_H_obs[Gear_n + i] * R_T
     );
   }
 
-  // --- Interview CPUE ---
   for (a in 1:IntC) {
     c[a] ~ neg_binomial_2(
       lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
@@ -224,11 +262,8 @@ model {
     T_A_int[a] ~ bernoulli(R_T);
   }
 
-  // --- I/E direct effort observations ---
-  // I/E crabber-hours are a direct measurement of lambda_E * L (daily effort)
-  // with lognormal measurement error. This bypasses R_G and day-length assumptions.
   if (IE_n > 0) {
-    sigma_IE ~ exponential(5);  // prior: ~0.2 on log scale (±20% measurement error)
+    sigma_IE ~ exponential(5);
     for (i in 1:IE_n) {
       IE_crabber_hours[i] ~ lognormal(
         log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
@@ -241,31 +276,47 @@ model {
 generated quantities {
   matrix[G*S, G*S] Omega_C;
   matrix[G*S, G*S] Omega_E;
+
   matrix<lower=0>[D,G] lambda_Ctot_S[S];
+  matrix<lower=0>[D,G] C_expected[S];
+  real<lower=0> C_expected_sum;
+
   matrix<lower=0>[D,G] C[S];
-  matrix<lower=0>[D,G] E[S];
   real<lower=0> C_sum;
+
+  matrix<lower=0>[D,G] E[S];
   real<lower=0> E_sum;
+
   real R_G_out;
   real sigma_IE_out;
+  real B1_C_out;
+  vector[D] L_out;
 
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
   sigma_IE_out = sigma_IE;
+  B1_C_out = B1_C;
+  L_out = L;
+
   C_sum = 0;
+  C_expected_sum = 0;
   E_sum = 0;
 
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
         lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
+        C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
+        C_expected_sum = C_expected_sum + C_expected[s][d,g];
+
         if (lambda_Ctot_S[s][d,g] < 1e9) {
           C[s][d,g] = poisson_rng(lambda_Ctot_S[s][d,g]);
         } else {
           C[s][d,g] = lambda_Ctot_S[s][d,g];
         }
         C_sum = C_sum + C[s][d,g];
+
         E[s][d,g] = lambda_E_S[s][d,g] * L[d];
         E_sum = E_sum + E[s][d,g];
       }
