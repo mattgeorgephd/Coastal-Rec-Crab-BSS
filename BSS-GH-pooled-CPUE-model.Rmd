@@ -52,7 +52,7 @@ rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("R_functions"), full.names = TRUE), source)
 
 run_date <- format(Sys.Date(), "%Y%m%d")
-output_dir <- here("output", run_date)
+output_dir <- here("output", run_date, "pooled-CPUE")
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 timer_log <- list()
@@ -72,9 +72,9 @@ run_start_time <- Sys.time()
 
 params <- list(
   project_name      = "Coastal Recreational Crab",
-  fishery_name      = "Rec Crab Grays Harbor Westport 2024-25",
+  fishery_name      = "Rec Crab Grays Harbor 2024-25",
   est_date_start    = "2024-09-16",
-  est_date_end      = "2025-01-31",
+  est_date_end      = "2025-09-15",
   season_filter     = "2024-25",
   pot_open_date     = "2024-12-01",
   commercial_opener = "2025-01-1",
@@ -130,11 +130,20 @@ params <- list(
   ie_min_obs_for_regression = 5
 )
 
+# Crabbing holidays for 2024-25 season (high-effort days)
 crabbing_holiday_dates <- as.Date(c(
-  "2024-11-29","2024-12-31","2025-01-01","2025-02-08",
-  "2025-05-24","2025-05-25","2025-05-26","2025-06-15",
-  "2025-07-04","2025-09-01"
+  "2024-11-29",  # Native American Heritage Day
+  "2024-12-31",  # New Year's Eve
+  "2025-01-01",  # New Year's Day
+  "2025-02-08",  # Super Bowl Eve
+  "2025-05-24",  # Memorial Day weekend - Saturday
+  "2025-05-25",  # Memorial Day weekend - Sunday
+  "2025-05-26",  # Memorial Day
+  "2025-06-15",  # Father's Day
+  "2025-07-04",  # Independence Day (Friday = weekend, counts as holiday)
+  "2025-09-01"   # Labor Day
 ))
+
 
 catch_groups <- if(params$estimate_red_rock) {
   c("Dungeness_Kept", "Red_Rock_Kept")
