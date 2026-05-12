@@ -5,7 +5,7 @@
 **Contact:** matthew.george@dfw.wa.gov  
 **Agency:** Washington Department of Fish and Wildlife (WDFW)  
 **Status:** Operational — Annual estimation framework  
-**Model version:** v5.2 (Stan model v3.2)
+**Model version:** v5.3 (Stan model: gear-hours formulation for boats)
 
 ---
 
@@ -211,9 +211,16 @@ Effort from trailer counts. Boat crabbers have 2–5× higher CPUE than shore cr
 
 R_G is fixed at 1.3 for boat fits (not estimated) because no gear-count data informs this parameter for boats. Allowing R_G to float at its prior in boat fits would waste parameter space and potentially interact with other parameters.
 
-**R_T assumption (trailers per group):** All boat-launched crabbing groups are assumed to have exactly one trailer. This drives R_T toward 1.0, which is the expected value for a boat launch. The `T_A_int` variable is set to 1 for all boat interviews, reflecting this structural assumption rather than missing data.
+**Gear-hours formulation (v5.3):** Pots and traps soak continuously, 24 hours per day, while the crabbing party is away from the boat (the trailer remains at the ramp). Because gear in the water — not crabber-hours — is what generates catch for these populations, the BSS for boats treats `lambda_E` as the daily count of *gear units* in the water rather than crabbers. Consequences:
 
-**Assumptions:** Every crabbing boat has a trailer. Trailer counts capture all private boat crabbing. Boat interviews are representative.
+- The daily fishing window `L[d]` is 24 h for boat fits (vs day_length for shore).
+- The CPUE denominator `h` is gear-hours (`gear_time_total` in the interview frame) rather than crabber-hours.
+- Trailer counts relate to `lambda_E` through `lambda_E / R_G_boat`, where `R_G_boat` is the number of gear units deployed per boat group (the boat-side analog of `R_G`).
+- `R_G_boat` is learned from observed `number_of_gear` in boat interviews via `Gear_A_boat[a] ~ Poisson(R_G_boat)`.
+
+The earlier formulation (≤ v5.2) used crabber-hours and `day_length` for boats and modeled trailers per group (`R_T`). Because pots fish ~24 h but day_length is 9–17 h, that formulation systematically underestimated boat catch by roughly a factor of 2.
+
+**Assumptions:** Every crabbing boat trailers a vehicle. Trailer counts capture all private boat crabbing. Boat interviews are representative. `R_G_boat` is constant within a sub-season.
 
 ### 6.3 Commercial/Charter Vessels
 
@@ -305,9 +312,10 @@ The framework produces two sets of daily catch quantities to serve different pur
 
 ### 7.6 Observation Models
 
-- Gear counts: `Gear_I ~ Poisson(lambda_E × eps_E_H_obs × R_G)` (sparse overdispersion)
-- Trailer counts: `T_I ~ Poisson(lambda_E × eps_E_H_obs × R_T)`
-- Interview catch (weighted): `target += w_g × NegBin_lpmf(c | lambda_C_gear[g] × hours, r_C_gear[g])` for each gear type `g` with weight `w_g > 0`
+- Gear counts (shore): `Gear_I ~ Poisson(lambda_E × eps_E_H_obs × R_G)` (sparse overdispersion)
+- Trailer counts (boat, v5.3): `T_I ~ Poisson((lambda_E / R_G_boat) × eps_E_H_obs)` — trailers count groups, and groups = gear / R_G_boat
+- Gear-per-group observations (boat, v5.3): `Gear_A_boat[a] ~ Poisson(R_G_boat)` — learns mean gear per boat group from interview data
+- Interview catch (weighted): `target += w_g × NegBin_lpmf(c | lambda_C_gear[g] × h, r_C_gear[g])` for each gear type `g` with weight `w_g > 0`. For shore, `h` is crabber-hours; for boat, `h` is gear-hours (v5.3).
 
 The interview catch likelihood is a weighted pseudo-likelihood. Each interview contributes to multiple gear types' CPUE in proportion to `gear_weights[interview, gear_type]`. For single-gear interviews, this is equivalent to a standard hard-assignment approach. For multi-gear interviews, the full observed catch is evaluated against each reported gear type's CPUE, scaled by the fractional weight. This allows multi-gear interviews to inform all of their reported gear types rather than being arbitrarily assigned to a single type.
 
@@ -350,7 +358,7 @@ Within-day effort overdispersion parameters are allocated only for actual observ
 | B1 | Weekend effort multiplier (log scale) | Normal(0, 1) |
 | B2 | Additional holiday effort multiplier | Normal(0, 1) |
 | R_G | Gear per crabber (shore: estimated, boat: fixed at 1.3) | Lognormal(log(1.3), 0.3) or fixed |
-| R_T | Trailers per boat group | Beta(0.5, 0.5), guarded |
+| R_G_boat | Gear per boat group (boat fits, v5.3) | Lognormal(log(4), 0.5) |
 | phi_E | Effort AR(1) autocorrelation | Beta(2,2) rescaled |
 | phi_C_gear | CPUE AR(1) autocorrelation (shared across gear types) | Beta(2,2) rescaled |
 | mu_C_gear[G_gear] | CPUE intercept per gear type (log scale) | Normal(log(0.5), 2) |
@@ -399,7 +407,7 @@ All outputs from the Pooled model, plus gear-type-specific tables:
 | `daily_combined_estimate.csv` | Daily PE, BSS, and combined estimates |
 | `data_coverage.csv` | Month × population sampling coverage |
 | `effort_multipliers.csv` | B1/B2 as human-readable multipliers |
-| `expansion_ratios.csv` | R_G and R_T posteriors (with estimation status) |
+| `expansion_ratios.csv` | R_G and R_G_boat posteriors (with estimation status) |
 | `interview_cpue_summary.csv` | Monthly CPUE from raw interviews |
 | `pe_vs_bss_comparison.csv` | Component-level PE vs BSS comparison |
 | `season_summary.csv` | One-table season summary |
@@ -419,6 +427,12 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 - Shared `phi_C_gear` assumes similar temporal autocorrelation across gear types (per-gear-type process error SD partially addresses this).
 - Commercial/charter harvest estimation lacks formal uncertainty quantification.
 - The incomplete trip filter reduces CPUE sample size by approximately 35% for shore crabbers. The sensitivity analysis output quantifies the resulting harvest difference. In populations where the incomplete fraction is low (private boat: ~9%), the filter has minimal impact.
+
+### Addressed in v5.3
+
+1. ~~Boat CPUE used crabber-hours and day_length while pots fish 24 h, biasing boat catch downward by ~2x~~ → Gear-hours formulation for boats: `L=24`, `h=gear_time_total`, `lambda_E` represents gear in water.
+2. ~~Trailer-per-group ratio R_T conflated gear count and group count~~ → `R_G_boat` (gear per boat group) replaces `R_T`; learned directly from observed `number_of_gear` in boat interviews via `Gear_A_boat[a] ~ Poisson(R_G_boat)`.
+3. ~~R-side `prep_bss_crab()` still passed obsolete `T_A_int` and `A_A_trailer` to a Stan model that no longer declares them, producing a runtime "Gear_A_boat[IntA_trailer] is missing" error~~ → Data list updated; boat-only filter on `gear_time_total` added so the IntC likelihood is well-defined.
 
 ### Addressed in v5.2
 
@@ -457,10 +471,13 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 |---|---|
 | **BSS** | Bayesian State-Space model |
 | **PE** | Point Estimator |
-| **CPUE** | Catch Per Unit Effort (crab per crabber-hour) |
-| **Crabber-hour** | One person crabbing for one hour |
+| **CPUE** | Catch Per Unit Effort (shore: crab per crabber-hour; boat v5.3: crab per gear-hour) |
 | **R_G** | Gear-per-crabber ratio (estimated for shore, fixed for boat) |
-| **R_T** | Trailer-per-boat-group ratio |
+| **R_G_boat** | Gear-per-boat-group ratio (boat fits, v5.3); replaces R_T |
+| **Gear_A_boat** | Observed number of gear units per boat-interview group; data input that informs R_G_boat |
+| **gear-hours** | Total time gear spent in the water across a group; CPUE denominator for boat fits |
+| **crabber-hours** | One person actively crabbing for one hour; CPUE denominator for shore fits |
+| **gear_time_total** | Per-interview gear-hours field: `gear_hours` if recorded, else `hours_fished × number_of_gear` |
 | **AR(1)** | First-order autoregressive process |
 | **Credible interval** | Bayesian range containing the true value with stated probability |
 | **R-hat** | Convergence diagnostic comparing MCMC chains |
@@ -498,7 +515,15 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 
 ## 13. Change Log
 
-### v5.2 (current)
+### v5.3 (current)
+- Boat CPUE recast as gear-hours: `lambda_E` represents gear in water (not crabbers), `L=24` for boat fits, `h=gear_time_total` for boat interviews. Corrects a ~2x downward bias in private-boat catch estimates relative to the v5.2 crabber-hours / day_length formulation.
+- `R_T` (trailers per group) replaced by `R_G_boat` (gear per boat group); learned from observed `number_of_gear` via `Gear_A_boat[a] ~ Poisson(R_G_boat)`.
+- Trailer likelihood reformulated: `T_I ~ Poisson(lambda_E / R_G_boat × eps_E_H_obs)` (trailers count groups; groups = gear / R_G_boat).
+- `prep_bss_crab()` data list updated to pass `Gear_A_boat` in place of obsolete `T_A_int` and `A_A_trailer`; eliminates the "Gear_A_boat[IntA_trailer] is missing" runtime error.
+- New boat-only filter drops interviews lacking a valid `gear_time_total` before the IntC likelihood is constructed.
+- `expansion_ratios.csv` reports `R_G_boat` posterior for boat fits in place of `R_T`.
+
+### v5.2
 - Incomplete trip filter: excludes interviews with `trip_status == "Incomplete"` from CPUE estimation to remove systematic downward bias (~20% for pots/traps)
 - Dirichlet-sampled gear-type proportions in generated quantities propagate pi_gear uncertainty into season totals and credible intervals
 - Expected-value daily catch (C_gear) for smooth trajectory plots; Dirichlet + Poisson predicted catch (C_gear_pred) for season totals

@@ -25,6 +25,27 @@ knitr::opts_chunk$set(echo = TRUE)
 #
 # Port total = sum of all components
 #
+# v5.3 CHANGES (from v5.2): align R-side data prep with the gear-hours
+# Stan formulation (crab_bss_gear_resolved.stan).
+#
+#   - For boat fits, the Stan model now expects:
+#       * Gear_A_boat[IntA_trailer]  : observed gear per boat group
+#                                       (replaces T_A_int, A_A_trailer)
+#       * h                          : gear-hours, not crabber-hours
+#       * L[d] = 24                  : pots fish 24/7 while trailer is at ramp
+#     The previous (v5.2) data list still passed the obsolete T_A_int /
+#     A_A_trailer variables and used crabber-hours / day_length for boats,
+#     producing the runtime error "Gear_A_boat[IntA_trailer] is missing"
+#     and (if that were patched alone) a ~2x downward bias in boat catch.
+#
+#   - prep_bss_crab() now branches by is_shore for L, h, and the gear-
+#     expansion block. is_shore is computed earlier in the function so
+#     it can gate the boat-specific gear_time_total filter on int_d.
+#
+#   - Boat interviews lacking a valid gear_time_total are dropped before
+#     the Stan data list is built (analogous to the existing
+#     fishing_time_total filter for shore).
+#
 # v5.2 CHANGES (from v5.1):
 #   - Stan model v3.2: Expected value for C_gear (no Poisson noise)
 #     for harvest estimates. Separate C_gear_pred with Poisson draws
@@ -593,6 +614,10 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
 
   eff_d <- eff |> left_join(days |> select(event_date,day_index), by="event_date") |> filter(!is.na(day_index))
 
+  # v5.3: is_shore is computed early so that the boat-specific
+  # gear_time_total filter and the L/h branches below can use it.
+  is_shore <- (population_name == "shore")
+
   int_cg <- summ$interview |>
     mutate(fish_count = .data[[est_catch_group]]) |>
     filter(!is.na(fishing_time_total), fishing_time_total > 0)
@@ -646,6 +671,18 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
 
   intA <- int_d |> filter(!is.na(number_of_gear), number_of_gear>0, angler_count>0)
 
+  # v5.3: For boat fits, the CPUE denominator is gear-hours, not crabber-hours.
+  # gear_time_total is computed in load_creel_data() from gear_hours (preferred)
+  # or hours_fished * number_of_gear (fallback). Drop boat interviews lacking it
+  # so the IntC likelihood (c ~ NegBin(lambda_C * h, r_C)) is well-defined.
+  if(!is_shore) {
+    n_before_gh <- nrow(int_d)
+    int_d <- int_d |> filter(!is.na(gear_time_total), gear_time_total > 0)
+    cat(sprintf("  Boat gear-hours filter: %d → %d interviews (require non-NA gear_time_total)\n",
+                n_before_gh, nrow(int_d)))
+    intA <- intA |> filter(interview_id %in% int_d$interview_id)
+  }
+
   # v5.1: bss_max_interviews = NULL means use full dataset (Issue 8)
   if(!is.null(params$bss_max_interviews) && nrow(int_d)>params$bss_max_interviews) {
     set.seed(42)
@@ -653,7 +690,7 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     intA <- intA |> filter(interview_id %in% int_d$interview_id)
   }
 
-  is_shore <- (population_name == "shore")
+  # v5.3: is_shore now defined earlier in the function (see comment above).
 
   # =========================================================================
   # v5.1 GEAR-TYPE CLASSIFICATION: Word-boundary regex + weighted assignment
@@ -821,9 +858,25 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
               n_effort_obs, D, max(c(eff$count_sequence, 1L)),
               D * max(c(eff$count_sequence, 1L))))
 
+  # v5.3: Defensive check. Stan declares Gear_A_boat as int<lower=1>.
+  # number_of_gear is stored as numeric (load_creel_data line ~305), so a
+  # fractional value (e.g. 0.5) would pass the intA filter (> 0) but cast
+  # to 0L and crash the Stan validator. Whole-number gear counts should
+  # always hold in practice, but verify before building the data list.
+  if(!is_shore && nrow(intA) > 0) {
+    if(any(as.integer(intA$number_of_gear) < 1L)) {
+      stop("prep_bss_crab: Gear_A_boat contains values < 1 after as.integer(). ",
+           "Inspect intA$number_of_gear for non-integer or sub-1 entries.")
+    }
+  }
+
   list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
-    w=days$day_type_num_weekend, holiday=days$day_type_num_holiday, L=days$day_length,
+    w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    # v5.3: Pots fish continuously while the trailer sits at the ramp,
+    # so the daily fishing window for boats is 24 h. Shore crabbers
+    # actively tend their gear, so the window remains day_length.
+    L = if(is_shore) days$day_length else rep(24.0, nrow(days)),
     O=array(1.0, dim=c(D,S,G)),
 
     # Sparse effort observation count
@@ -851,8 +904,11 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     Crab_I=integer(0), p_I_crab=1.0,
 
     # Interview CPUE data (with gear weights — v5.1 Issue 4)
+    # v5.3: For boats, h is gear-hours to match lambda_E (gear in water).
+    # For shore, h remains crabber-hours.
     IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),
-    section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count), h=int_d$fishing_time_total,
+    section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count),
+    h = if(is_shore) int_d$fishing_time_total else int_d$gear_time_total,
     gear_weights = gear_weight_matrix,
 
     # Gear-per-crabber expansion (shore only)
@@ -860,13 +916,14 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     Gear_A = if(is_shore) as.integer(intA$number_of_gear) else integer(0),
     A_A_gear = if(is_shore) as.integer(intA$angler_count) else integer(0),
 
-    # Trailer-per-group expansion (boat only)
-    # v5.1 Issue 12: T_A_int is always 1 for boat interviews because all
-    # boat-launched crabbing groups require a trailer. This is a structural
-    # assumption, not missing data — it correctly drives R_T toward 1.
+    # Gear-per-boat-group expansion (boat only)
+    # v5.3: Replaces T_A_int / A_A_trailer. The Stan model learns R_G_boat
+    # (mean gear deployed per boat group) directly from observed
+    # number_of_gear via Gear_A_boat[a] ~ Poisson(R_G_boat). The intA
+    # filter already enforces number_of_gear > 0 and angler_count > 0,
+    # which satisfies the Stan constraint int<lower=1> Gear_A_boat[].
     IntA_trailer = if(!is_shore) nrow(intA) else 0L,
-    T_A_int = if(!is_shore) rep(1L, nrow(intA)) else integer(0),
-    A_A_trailer = if(!is_shore) as.integer(intA$angler_count) else integer(0),
+    Gear_A_boat  = if(!is_shore) as.integer(intA$number_of_gear) else integer(0),
 
     # Gear-type proportions (v5.1 Issue 1+3: DATA, not parameter)
     pi_gear_data = pi_gear_data,
@@ -2058,22 +2115,39 @@ write.csv(cpue_summary, file.path(output_dir, "interview_cpue_summary.csv"), row
 
 
 # ===========================================================================
-# 7.16 R_G AND R_T POSTERIOR SUMMARIES
+# 7.16 R_G AND R_G_boat POSTERIOR SUMMARIES
+# v5.3: Stan model now exposes R_G_boat (gear per boat group) in place of
+#       R_T (trailers per group). For shore fits R_G_boat is sampled from
+#       its prior but has no data attached, so it is reported only for
+#       boat fits. For boat fits R_G is fixed at params$R_G_fixed_boat.
 # v5.1: Notes R_G behavior for boat vs shore fits
 # ===========================================================================
 
-cat("\n", strrep("=",60), "\n EXPANSION RATIO POSTERIORS (R_G, R_T)\n", strrep("=",60), "\n")
+cat("\n", strrep("=",60), "\n EXPANSION RATIO POSTERIORS (R_G, R_G_boat)\n", strrep("=",60), "\n")
 
 expansion_results <- list()
 for(label in names(bss_all)) {
   b <- bss_all[[label]]
   if(is.null(b$pe_fallback) || !b$pe_fallback) {
     R_G_draws <- rstan::extract(b$fit, "R_G")$R_G
-    R_T_draws <- rstan::extract(b$fit, "R_T")$R_T
 
-    # v5.1: Flag whether R_G was estimated or fixed
+    # v5.3: R_G_boat is only data-informed for boat fits; report it there.
     is_shore_fit <- grepl("^shore_", label)
     R_G_status <- if(is_shore_fit) "estimated" else sprintf("fixed at %.2f", params$R_G_fixed_boat)
+
+    if(!is_shore_fit) {
+      R_G_boat_draws <- rstan::extract(b$fit, "R_G_boat")$R_G_boat
+      R_G_boat_median <- round(median(R_G_boat_draws), 3)
+      R_G_boat_lo95   <- round(quantile(R_G_boat_draws, 0.025), 3)
+      R_G_boat_hi95   <- round(quantile(R_G_boat_draws, 0.975), 3)
+      R_G_boat_interp <- sprintf("%.2f gear per boat group (%.2f-%.2f)",
+        R_G_boat_median, R_G_boat_lo95, R_G_boat_hi95)
+    } else {
+      R_G_boat_median <- NA_real_
+      R_G_boat_lo95   <- NA_real_
+      R_G_boat_hi95   <- NA_real_
+      R_G_boat_interp <- "not applicable (shore fit)"
+    }
 
     expansion_results[[label]] <- tibble(
       fit = label,
@@ -2083,11 +2157,10 @@ for(label in names(bss_all)) {
       R_G_status = R_G_status,
       R_G_interpretation = sprintf("%.2f gear per crabber (%.2f-%.2f) [%s]",
         median(R_G_draws), quantile(R_G_draws, 0.025), quantile(R_G_draws, 0.975), R_G_status),
-      R_T_median = round(median(R_T_draws), 3),
-      R_T_lo95 = round(quantile(R_T_draws, 0.025), 3),
-      R_T_hi95 = round(quantile(R_T_draws, 0.975), 3),
-      R_T_interpretation = sprintf("%.2f trailers per group (%.2f-%.2f)",
-        median(R_T_draws), quantile(R_T_draws, 0.025), quantile(R_T_draws, 0.975))
+      R_G_boat_median = R_G_boat_median,
+      R_G_boat_lo95 = R_G_boat_lo95,
+      R_G_boat_hi95 = R_G_boat_hi95,
+      R_G_boat_interpretation = R_G_boat_interp
     )
   }
 }
@@ -2095,10 +2168,10 @@ if(length(expansion_results) > 0) {
   expansion_df <- bind_rows(expansion_results)
   cat("\n")
   for(i in 1:nrow(expansion_df)) {
-    cat(sprintf("  %s:\n    R_G: %s\n    R_T: %s\n",
+    cat(sprintf("  %s:\n    R_G:      %s\n    R_G_boat: %s\n",
                 expansion_df$fit[i],
                 expansion_df$R_G_interpretation[i],
-                expansion_df$R_T_interpretation[i]))
+                expansion_df$R_G_boat_interpretation[i]))
   }
   write.csv(expansion_df, file.path(output_dir, "expansion_ratios.csv"), row.names = FALSE)
 }
