@@ -1,4 +1,30 @@
-.Rproj.user
+# --- R session / IDE artifacts ---
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
+.Renviron
+
+# --- Compiled Stan models and saved R objects ---
+# rstan (auto_write = TRUE) writes a compiled *.rds next to each *.stan on first
+# build; saved model fits and other intermediate R objects also use *.rds / *.rda.
+# These are machine-local build artifacts and are regenerable, so they are not
+# version-controlled.
+*.rds
+*.RDS
+*.rda
+*.Rda
+*.RDa
+
+# --- Local data caches (weather / tide / buoy API fetches) ---
+# The weather-tide covariate module caches fetched NOAA CO-OPS, NDBC, ASOS, and
+# GSOD series under cache/ (default: cache/weather_tide/) to avoid repeated API
+# calls. These are regenerable and machine-local.
+cache/
+*_cache/
+*.cache
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*~

@@ -57,7 +57,7 @@ On days with ingress/egress surveys, the BSS receives a direct crabber-hours obs
 
 ### 2.3 Combined Best Estimate
 
-The framework checks convergence using R-hat (\< 1.05) and effective sample size (\> 400) for both C_expected_sum and E_sum (Vehtari et al. 2021). If both criteria are met, the BSS expected catch estimate is preferred. Otherwise, the PE is used.
+The framework checks convergence using rank-normalized split-R-hat and bulk effective sample size (Vehtari et al. 2021) together with divergent transitions (Betancourt 2017), evaluated on C_expected_sum and E_sum. When all criteria pass, the BSS expected catch estimate is preferred; otherwise the PE is used. Section 8 gives the exact thresholds.
 
 The primary harvest estimate uses C_expected (the posterior expected catch, E[C\|data]) rather than the Poisson predictive draw, following the distinction between estimation and prediction in hierarchical models (Gelman et al. 2013, Ch. 7). The predictive distribution (C_sum) is reported separately for computing prediction intervals.
 
@@ -244,7 +244,7 @@ A fit **passes**, and its BSS estimate is preferred, when all of the following h
 
 Divergent transitions are part of the gate because they can bias the posterior even when R-hat and n_eff look satisfactory; a sampler that cannot integrate the Hamiltonian trajectory accurately is not exploring the target distribution, regardless of how well the chains agree (Betancourt 2017). This is the same standard applied in the gear-resolved track, so both models now use one convergence gate. Treedepth saturation above 5% raises a warning rather than a hard failure: it signals truncated trajectories that reduce effective sample size, and is addressed by raising `max_treedepth` for the affected fit. Per-fit `max_treedepth` and `adapt_delta` overrides are set for the shore all-gear fit (14, 0.95), the boat all-gear fit (13, 0.99), and the ring-net fits (12, 0.95), with all other fits using the defaults (10, 0.9). The report also records the AR resolution used for each fit, so reviewers can judge whether the selected resolution was appropriate.
 
-> Note on the R-hat threshold: the gate currently uses 1.05, the project's historical value. Vehtari et al. (2021) recommend 1.01 for rank-normalized split-R-hat. Tightening this threshold to match the cited source is tracked as a separate change (Section 14).
+> Note on the R-hat threshold: the gate uses R-hat \< 1.05 as its operational value. Vehtari et al. (2021), the source of the rank-normalized R-hat and the ESS \> 400 criterion, recommend a stricter R-hat \< 1.01. The choice does not affect the 2024-25 results: every fit that passes does so with R-hat near 1.00, and every fit that fails does so on divergent transitions or n_eff, not on an R-hat falling between 1.01 and 1.05. Tightening to 1.01 is therefore a no-cost rigor improvement and is recommended, applied consistently across the pooled and gear-resolved tracks.
 
 ------------------------------------------------------------------------
 
@@ -265,7 +265,7 @@ Each run produces output in `output/YYYYMMDD/`:
 | `ie_analysis.csv`               | I/E validation with f_temporal                         |
 | `bss_L_effective_{label}.csv`   | Daily L posteriors (prior, median, 95% CI)             |
 | `L_effective_ie_detail.csv`     | Per-I/E-day regression predictions vs observed         |
-| `daily_combined_estimate.csv`   | Daily PE + BSS estimates with method flag              |
+| `pe_vs_bss_comparison.csv`     | PE vs BSS effort and catch by component, with the selected method |
 
 ------------------------------------------------------------------------
 
@@ -357,6 +357,13 @@ Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.C. (2021). Ra
 ## 14. Version History
 
 Versions continue the shared milestone sequence used in `README.md` (which documents v1--v5). The pooled and gear-resolved tracks have interleaved since v5; the gear-resolved documentation maintains its own v5.x change log. If a different numbering scheme is preferred, these entries can be renumbered.
+
+### v6.3 (2026-06-17), Documentation corrections (no code change)
+
+-   Corrected the Section 9 output-file listing: replaced `daily_combined_estimate.csv` (produced by the gear-resolved model, not the pooled pipeline) with `pe_vs_bss_comparison.csv`, which the pooled run actually writes.
+-   Corrected the Vehtari citation in Sections 2.2 and 8. The rank-normalized R-hat and the ESS > 400 criterion are attributed to Vehtari et al. (2021); the note now states accurately that Vehtari recommend R-hat < 1.01, while the gate retains its operational R-hat < 1.05 pending a cross-track threshold decision. Section 2.2 also now reflects the divergence criterion added in v6.1.
+-   No change to the Stan model, the R pipeline, or the convergence gate logic.
+-   Files changed: this documentation (Sections 2.2, 8, 9, 14).
 
 ### v6.2 (2026-06-17), Boat all-gear sampler tuning
 
