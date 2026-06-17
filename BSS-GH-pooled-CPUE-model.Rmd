@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v6.1 (2026-06-17) - divergence-aware convergence gate ported
+#          from the gear-resolved track. See documentation Section 14.
 #
 # Three population components estimated independently:
 #   1. Shore crabbers (dock + jetty + beach) — BSS + PE
@@ -38,6 +40,10 @@ knitr::opts_chunk$set(echo = TRUE)
 #   - TIGHTER VARIANCE PRIORS: Half-Cauchy scales set to 1.
 #   - SPARSE OVERDISPERSION: eps_E_H allocated per observation, not per day.
 #   - I/E INTEGRATION: Direct crabber-hours as lognormal anchor points.
+#   - DIVERGENCE-AWARE GATE (v6.1): A BSS fit with more than max_divergences
+#     divergent transitions falls back to PE, matching the gear-resolved
+#     track. Per-fit max_treedepth/adapt_delta overrides reduce divergences
+#     and treedepth truncation on the dense shore all-gear geometry.
 ###############################################################################
 
 # ===========================================================================
@@ -101,7 +107,26 @@ params <- list(
   bss_iter_shore_allgear    = 5000,
   bss_warmup_shore_allgear  = 2500,
 
+  # Per-fit treedepth / adapt_delta overrides (v6.1, ported from gear-resolved
+  # v5.2). The shore all-gear daily-AR posterior is the densest geometry and
+  # saturated max_treedepth=10 on 91.6% of iterations in the 2026-04-08 run;
+  # ring-net fits are data-sparse and benefit from tighter adaptation. Deeper
+  # trees plus higher adapt_delta reduce divergent transitions and treedepth
+  # truncation. Any fit without an override uses the *_default values.
+  bss_treedepth_shore_allgear = 14,
+  bss_delta_shore_allgear     = 0.95,
+  bss_treedepth_ringnet       = 12,
+  bss_delta_ringnet           = 0.95,
+
   bss_min_interviews = 20,
+
+  # --- Convergence divergence criterion (v6.1, ported from gear-resolved v5.2) ---
+  # Maximum divergent transitions allowed for a BSS fit to pass. Divergences
+  # bias the posterior even when R-hat and ESS look clean (Betancourt 2017),
+  # so they are now part of the pass/fail gate rather than recorded-but-ignored.
+  #   0 = strict (any divergence fails); 5 = permissive.
+  # Matches the gear-resolved default so both model tracks apply one standard.
+  max_divergences = 5,
 
   # --- Adaptive AR temporal resolution ---
   # The model selects the finest AR resolution the data can support:
@@ -1240,15 +1265,28 @@ for(cg in bss_catch_groups) {
       bss_data <- prep_bss_crab(days_ss, summ_ss, cg, params, pop, ie_data = ie_data)
       ar_resolutions[[label]] <- attr(bss_data, "ar_resolution")
 
-      is_shore <- (pop == "shore")
+      is_shore   <- (pop == "shore")
       is_allgear <- (ss$name == "all_gear")
+      is_ringnet <- (ss$name == "ring_net_only")
 
       fit_iter    <- if(is_shore && is_allgear) params$bss_iter_shore_allgear else params$bss_iter_default
       fit_warmup  <- if(is_shore && is_allgear) params$bss_warmup_shore_allgear else params$bss_warmup_default
-      fit_treedep <- params$bss_max_treedepth_default
 
-      cat(sprintf("  Stan: iter=%d, warmup=%d, D=%d days, P_n=%d (%s), %d interviews\n",
-                  fit_iter, fit_warmup, bss_data$D, bss_data$P_n,
+      # v6.1: per-fit max_treedepth / adapt_delta (ported from gear-resolved
+      # v5.2). Falls back to *_default for any fit without a specific override.
+      if(is_shore && is_allgear) {
+        fit_treedep <- params$bss_treedepth_shore_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_shore_allgear     %||% params$bss_adapt_delta
+      } else if(is_ringnet) {
+        fit_treedep <- params$bss_treedepth_ringnet %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_ringnet     %||% params$bss_adapt_delta
+      } else {
+        fit_treedep <- params$bss_max_treedepth_default
+        fit_delta   <- params$bss_adapt_delta
+      }
+
+      cat(sprintf("  Stan: iter=%d, warmup=%d, max_treedepth=%d, adapt_delta=%.2f, D=%d days, P_n=%d (%s), %d interviews\n",
+                  fit_iter, fit_warmup, fit_treedep, fit_delta, bss_data$D, bss_data$P_n,
                   attr(bss_data, "ar_resolution"), bss_data$IntC))
 
       timer_start(paste0("BSS_", label))
@@ -1256,7 +1294,7 @@ for(cg in bss_catch_groups) {
         file = here("stan_models", params$bss_model_file),
         data = bss_data,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
-        control = list(adapt_delta=params$bss_adapt_delta, max_treedepth=fit_treedep),
+        control = list(adapt_delta=fit_delta, max_treedepth=fit_treedep),
         cores = params$bss_cores
       )
       timer_stop(paste0("BSS_", label))
@@ -1657,7 +1695,22 @@ for(label in names(bss_all)) {
 
     pass_rhat <- max(rhat_C, rhat_E, na.rm=TRUE) < 1.05
     pass_neff <- min(neff_C, neff_E, na.rm=TRUE) > 400
-    pass <- pass_rhat & pass_neff
+    # v6.1: divergent transitions are now part of the gate (ported from
+    # gear-resolved v5.2). Divergences bias the posterior even when R-hat and
+    # ESS are clean (Betancourt 2017), so a fit with > max_divergences fails
+    # to the PE fallback rather than being reported as a clean BSS pass.
+    pass_divergence <- (n_divergent <= params$max_divergences)
+    pass <- pass_rhat & pass_neff & pass_divergence
+
+    # v6.1: warn on treedepth saturation (soft signal, not a hard fail) and on
+    # any divergences, mirroring the gear-resolved diagnostics output.
+    if(n_total > 0 && n_treedepth / n_total > 0.05) {
+      cat(sprintf("  WARNING: %s - %.1f%% treedepth exceedances (consider increasing max_treedepth)\n",
+                  label, n_treedepth / n_total * 100))
+    }
+    if(n_divergent > 0) {
+      cat(sprintf("  WARNING: %s - %d divergent transitions detected\n", label, n_divergent))
+    }
 
     convergence_report[[label]] <- tibble(
       fit = label,

@@ -234,7 +234,17 @@ For seasonal totals, Poisson noise largely averages out (CLT), so the two distri
 
 ## 8. Convergence and Model Selection
 
-R-hat \< 1.05 AND n_eff \> 400 for C_expected_sum and E_sum (Vehtari et al. 2021). The convergence report records the AR resolution used for each fit, enabling reviewers to assess whether the selected resolution was appropriate.
+For each BSS fit the framework monitors four diagnostics, reported per fit in `convergence_report.csv`: rank-normalized split-R-hat and bulk effective sample size for `C_expected_sum` and `E_sum` (Vehtari et al. 2021), the number of divergent transitions, and the percentage of post-warmup iterations that saturate `max_treedepth`.
+
+A fit **passes**, and its BSS estimate is preferred, when all of the following hold; otherwise the PE estimate is used for that component:
+
+-   R-hat \< 1.05 for `C_expected_sum` and `E_sum`.
+-   n_eff \> 400 for `C_expected_sum` and `E_sum`.
+-   Divergent transitions ≤ `max_divergences` (default 5).
+
+Divergent transitions are part of the gate because they can bias the posterior even when R-hat and n_eff look satisfactory; a sampler that cannot integrate the Hamiltonian trajectory accurately is not exploring the target distribution, regardless of how well the chains agree (Betancourt 2017). This is the same standard applied in the gear-resolved track, so both models now use one convergence gate. Treedepth saturation above 5% raises a warning rather than a hard failure: it signals truncated trajectories that reduce effective sample size, and is addressed by raising `max_treedepth` for the affected fit. Per-fit `max_treedepth` and `adapt_delta` overrides are set for the shore all-gear fit (14, 0.95) and the ring-net fits (12, 0.95), with all other fits using the defaults (10, 0.9). The report also records the AR resolution used for each fit, so reviewers can judge whether the selected resolution was appropriate.
+
+> Note on the R-hat threshold: the gate currently uses 1.05, the project's historical value. Vehtari et al. (2021) recommend 1.01 for rank-normalized split-R-hat. Tightening this threshold to match the cited source is tracked as a separate change (Section 14).
 
 ------------------------------------------------------------------------
 
@@ -305,6 +315,8 @@ Each run produces output in `output/YYYYMMDD/`:
 
 ## 13. References
 
+Betancourt, M. (2017). A conceptual introduction to Hamiltonian Monte Carlo. *arXiv preprint* arXiv:1701.02434.
+
 Conn, P.B. (2002). Bayesian methods for estimating recreational angler effort, catch rates, and total catch using creel survey data. Ph.D. Dissertation, University of Wisconsin-Madison.
 
 Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models. *Bayesian Analysis*, 1(3), 515--534.
@@ -338,3 +350,33 @@ Thomson, C.J. (1991). Effects of the avidity bias on survey estimates of fishing
 Vehtari, A., Gelman, A., & Gabry, J. (2017). Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC. *Statistics and Computing*, 27(5), 1413--1432.
 
 Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.C. (2021). Rank-normalization, folding, and localization: an improved R-hat for assessing convergence of MCMC. *Bayesian Analysis*, 16(2), 667--718.
+
+------------------------------------------------------------------------
+
+## 14. Version History
+
+Versions continue the shared milestone sequence used in `README.md` (which documents v1--v5). The pooled and gear-resolved tracks have interleaved since v5; the gear-resolved documentation maintains its own v5.x change log. If a different numbering scheme is preferred, these entries can be renumbered.
+
+### v6.1 (2026-06-17), Divergence-aware convergence gate
+
+-   **Convergence gate now includes divergent transitions.** A BSS fit passes only when R-hat, n_eff, **and** divergent transitions (≤ `max_divergences`, default 5) all pass; otherwise it falls back to PE. Previously the gate checked only R-hat and n_eff, so the shore all-gear fit in the 2026-04-08 run was reported as a clean BSS pass despite 842 divergent transitions and 91.6% treedepth saturation. Divergences can bias the posterior even when R-hat and n_eff are satisfactory (Betancourt 2017). This matches the gear-resolved v5.2 gate, so both tracks now apply one standard.
+-   **Treedepth and divergence warnings.** The run log now warns when treedepth saturation exceeds 5% or when any divergent transitions are detected, even if the fit still passes.
+-   **Per-fit `max_treedepth` / `adapt_delta` overrides.** Added so that fits needing deeper trajectories actually use them: shore all-gear (`max_treedepth` 14, `adapt_delta` 0.95) and ring-net (`max_treedepth` 12, `adapt_delta` 0.95). Any fit without an override uses the defaults (`max_treedepth` 10, `adapt_delta` 0.9). This reduces the divergences and treedepth truncation that previously affected the dense shore all-gear geometry.
+-   **Expected effect on the 2024-25 estimate.** On re-run, the shore all-gear fit will either converge cleanly under the deeper-tree / higher-delta settings (preferred outcome) or fail the divergence gate and fall back to PE. Either way the reported BSS estimate will no longer be a divergence-contaminated pass. The private boat all-gear fit already failed on R-hat and continues to use PE; its dedicated tuning is handled as a separate change (boat refit).
+-   Files changed: `BSS-GH-pooled-CPUE-model.Rmd` (parameters, per-fit Stan control, convergence report); this documentation (Sections 8, 13, 14).
+
+### v6.0 (pre-change baseline, current GitHub state), Post-critique modeling upgrades
+
+Documentation catch-up entry: records pooled-model features already present in the repository but not previously captured in a change log. These were developed in response to the 2026-03-31 model critique:
+
+-   Adaptive AR(1) temporal resolution (daily / weekly / monthly) selected per fit from effort-data density.
+-   `L_effective` estimated as a parameter with a lognormal prior from the I/E regression, propagating effective-day-length uncertainty into catch (addresses the critique's primary concern: the snapshot-times-day-length effort expansion).
+-   `B1_C` day-type CPUE effect (weekend vs weekday catch rate).
+-   Direct I/E crabber-hour integration as lognormal anchor points.
+-   Data-driven `R_G` prior centered on the empirical gear-per-crabber ratio.
+-   Sparse per-observation overdispersion (`eps_E_H` allocated per observation).
+-   Expected (`C_expected`) and predictive (`C`) catch both reported in generated quantities.
+
+### v3-v4 (pooled), v5 (gear-resolved branched)
+
+Earlier shared-sequence milestones are documented in the `README.md` development-history table.
