@@ -1,9 +1,9 @@
 # BSS-GH Weather & Tide Covariate Module — Technical Documentation
 
 **Author:** Matt George (WDFW), with implementation support
-**File:** `BSS-GH-weather-tide-covariates.Rmd` + `crab_bss_pooled_covariates_patch.md`
-**Version:** 0.1.0
-**Date:** 2026-04-22
+**File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
+**Version:** 0.1.1
+**Date:** 2026-06-17
 **Companion to:** `BSS-GH-pooled-CPUE-model.Rmd` and `BSS-GH-pooled-CPUE-model-documentation.md`
 
 ---
@@ -36,7 +36,7 @@ Three principles drove the design:
           |
           |  produces dwg, ie_data, days, summaries
           v
-  BSS-GH-weather-tide-covariates.Rmd    (new; this module)
+  BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd   (this module)
           |
           |--> fetch_tide_with_fallback()      [Westport -> Toke Point -> La Push]
           |--> fetch_buoy_with_fallback()      [46211 -> 46029 -> 46041 -> 46087]
@@ -45,7 +45,7 @@ Three principles drove the design:
           |--> compute daily covariates
           |--> boat departure clustering test  [hypothesis H1]
           |--> Layer B GAM screen               [H2, H3, H4]
-          |--> fit baseline BSS + augmented BSS (crab_bss_pooled_covariates.stan)
+          |--> fit baseline BSS + augmented BSS (crab_bss_pooled_weather_adjusted.stan)
           |--> PSIS-LOO comparison (w/ k-fold fallback)
           |--> decision rule: include covariates per (population × sub-season)
           |
@@ -189,7 +189,7 @@ Covariate selection is run **per sub-season × population** because the biology 
 
 ## 4. Code structure
 
-### 4.1 Section map of `BSS-GH-weather-tide-covariates.Rmd`
+### 4.1 Section map of `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`
 
 | Section | Purpose |
 |---------|---------|
@@ -236,9 +236,9 @@ Covariate selection is run **per sub-season × population** because the biology 
 | `kfold_time_block_cv(...)` | Refit both models over contiguous time blocks, compute held-out predictive log-density. |
 | `mask_stan_data`, `extract_stan_data`, `compute_lpd_held_out` | Helpers for k-fold CV. |
 
-### 4.3 Stan model patch
+### 4.3 Augmented Stan model
 
-See `crab_bss_pooled_covariates_patch.md` for the surgical patch to apply to `crab_bss_pooled.stan`, producing `crab_bss_pooled_covariates.stan`. The augmented Stan file collapses to baseline when `K_E = K_C = 0`, so a single Stan file serves both baseline and augmented fits.
+The augmented Stan model is `crab_bss_pooled_weather_adjusted.stan` (in `stan_models/`). It extends the pooled model with covariate design matrices `X_E`, `X_C` and their dimensions `K_E`, `K_C`, adding linear predictors on `mu_E` and `mu_C`. It collapses to the baseline pooled model when `K_E = K_C = 0`, so this one file serves both the baseline fit (built by zeroing `K_E`, `K_C`, `X_E`, `X_C`) and the covariate-augmented fit. There is no separate patch file: the augmented model is maintained as a complete standalone Stan file.
 
 ---
 
@@ -395,7 +395,7 @@ Items identified during the initial build that warrant future consideration:
 - **Station backup ordering for tide.** Toke Point is in Willapa Bay, not directly on the Pacific; its tide phase is similar to Westport but amplitude differs. Using Toke Point as a substitute height may introduce bias; phase-based features (rising/falling, hour of high) are more robust across stations than absolute height.
 - **Mixed-mode shore aggregation.** Per project decision, dock/jetty/beach are all coded as "shore". If shore effort or CPUE response to tide differs meaningfully by sub-mode, the aggregate signal may be muted. Revisit if jetty/beach interview counts grow.
 - **GSOD temporal resolution.** When all ASOS stations fail and the module falls back to GSOD, only daily summary statistics are available. Covariates derived from sub-daily aggregation (e.g., `visibility_mi_min` during daylight) are NA.
-- **Production pooled Stan model reconciliation.** The patch in `crab_bss_pooled_covariates_patch.md` is constructed by inference from `BSS_creel_model_02_*.stan` and R usage in the main RMD. The actual `crab_bss_pooled.stan` was not available during module development. Section 10 of the patch document provides adaptation guidance if the production model structure differs.
+- **Production pooled Stan model reconciliation.** The augmented model `crab_bss_pooled_weather_adjusted.stan` preserves the pooled model's likelihood and adds covariate blocks on `mu_E` and `mu_C`, collapsing to the baseline when `K_E = K_C = 0`. It must be kept in step with `crab_bss_pooled.stan`: the two share the same effort and CPUE process code, so any change to the pooled model's likelihood or parameter naming has to be mirrored in the augmented file. A `log_lik`-level cross-check of the two files (and confirmation of `p_I_shore` vs `p_TI` naming) is still outstanding (see Planned patches).
 
 ---
 
@@ -403,11 +403,12 @@ Items identified during the initial build that warrant future consideration:
 
 | Version | Date       | Notes |
 |---------|------------|-------|
+| 0.1.1   | 2026-06-17 | Reference and file reconciliation. Corrected documentation and code-comment references from the never-committed patch file (`crab_bss_pooled_covariates_patch.md`) and the non-existent `crab_bss_pooled_covariates.stan` to the standalone augmented model `crab_bss_pooled_weather_adjusted.stan`, which the module already loads for both the baseline (K=0) and covariate fits. Corrected the documented module filename to `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` and removed the stale, misfiled duplicate `stan_models/BSS-GH-weather-tide-covariates.Rmd`. The module now runs from a clean clone using the root Rmd. The `log_lik`-level reconciliation and `p_I_shore` vs `p_TI` naming check originally planned for 0.1.1 are not part of this change and remain open (now tracked as 0.1.2). |
 | 0.1.0   | 2026-04-22 | Initial build. Tide/weather fetch with fallback, daily covariate construction, Layer B GAM screen, BSS augmented fits, PSIS-LOO comparison with k-fold time-block CV fallback, decision rule, and final-estimate selection. Covers 2024-25 season data out of the box; parameterized for annual reuse. Companion Stan patch (`crab_bss_pooled_covariates_patch.md`) supplies minimum-surgical additions to `crab_bss_pooled.stan`. |
 
 ### 9.1 Planned patches
 
-- **0.1.1 (planned):** Verify against production `crab_bss_pooled.stan` once available; reconcile observation likelihoods in the `log_lik` block. Confirm `p_I_shore` vs `p_TI` naming.
+- **0.1.2 (planned):** Cross-check the augmented `crab_bss_pooled_weather_adjusted.stan` against the production `crab_bss_pooled.stan` at the `log_lik` level; reconcile observation likelihoods and confirm `p_I_shore` vs `p_TI` naming.
 - **0.2.0 (planned):** Add sub-season-shared priors on `gamma` (multilevel extension per item 2 in future improvements).
 - **0.3.0 (planned):** Non-linear covariate effects via small basis splines per item 4.
 

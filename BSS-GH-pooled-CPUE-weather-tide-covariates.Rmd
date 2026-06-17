@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
+# Version: 0.1.1 (2026-06-17). See BSS-GH-weather-tide-covariates-documentation.md
+#          Section 9 for the change history.
 #
 # PURPOSE
 #   Test hypotheses about tide and weather effects on recreational Dungeness
@@ -43,8 +45,9 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 #
 # DEPENDENCIES
 #   Must be run AFTER BSS-GH-pooled-CPUE-model.Rmd (uses same interview
-#   and effort pipelines). Stan model requires covariate patch applied to
-#   crab_bss_pooled.stan (see crab_bss_pooled_covariates_patch.md).
+#   and effort pipelines). The covariate fits use the augmented Stan model
+#   crab_bss_pooled_weather_adjusted.stan, which adds covariate blocks to the
+#   pooled model and collapses to the baseline when K_E = K_C = 0.
 ###############################################################################
 
 # ===========================================================================
