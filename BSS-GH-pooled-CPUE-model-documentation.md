@@ -242,7 +242,7 @@ A fit **passes**, and its BSS estimate is preferred, when all of the following h
 -   n_eff \> 400 for `C_expected_sum` and `E_sum`.
 -   Divergent transitions ≤ `max_divergences` (default 5).
 
-Divergent transitions are part of the gate because they can bias the posterior even when R-hat and n_eff look satisfactory; a sampler that cannot integrate the Hamiltonian trajectory accurately is not exploring the target distribution, regardless of how well the chains agree (Betancourt 2017). This is the same standard applied in the gear-resolved track, so both models now use one convergence gate. Treedepth saturation above 5% raises a warning rather than a hard failure: it signals truncated trajectories that reduce effective sample size, and is addressed by raising `max_treedepth` for the affected fit. Per-fit `max_treedepth` and `adapt_delta` overrides are set for the shore all-gear fit (14, 0.95) and the ring-net fits (12, 0.95), with all other fits using the defaults (10, 0.9). The report also records the AR resolution used for each fit, so reviewers can judge whether the selected resolution was appropriate.
+Divergent transitions are part of the gate because they can bias the posterior even when R-hat and n_eff look satisfactory; a sampler that cannot integrate the Hamiltonian trajectory accurately is not exploring the target distribution, regardless of how well the chains agree (Betancourt 2017). This is the same standard applied in the gear-resolved track, so both models now use one convergence gate. Treedepth saturation above 5% raises a warning rather than a hard failure: it signals truncated trajectories that reduce effective sample size, and is addressed by raising `max_treedepth` for the affected fit. Per-fit `max_treedepth` and `adapt_delta` overrides are set for the shore all-gear fit (14, 0.95), the boat all-gear fit (13, 0.99), and the ring-net fits (12, 0.95), with all other fits using the defaults (10, 0.9). The report also records the AR resolution used for each fit, so reviewers can judge whether the selected resolution was appropriate.
 
 > Note on the R-hat threshold: the gate currently uses 1.05, the project's historical value. Vehtari et al. (2021) recommend 1.01 for rank-normalized split-R-hat. Tightening this threshold to match the cited source is tracked as a separate change (Section 14).
 
@@ -278,6 +278,7 @@ Each run produces output in `output/YYYYMMDD/`:
 -   No jetty effort counts. Beach crabbing unmeasured.
 -   The B1_C effect is constant across the season; a time-varying weekend CPUE effect may be warranted if tourist composition shifts seasonally.
 -   The adaptive AR selection is rule-based; a formal model comparison (LOO-CV or WAIC; Vehtari et al. 2017) could provide principled resolution selection.
+-   The private boat all-gear BSS fit is prone to non-convergence. The trailer-count effort series is sparse and the latent effort process is weakly identified, producing many divergent transitions (5998 in the 2026-04-08 run, with no treedepth saturation, which points to a step-size rather than a trajectory-length problem). v6.2 adds dedicated sampler tuning (adapt_delta 0.99, max_treedepth 13, more iterations) as an attempt to achieve convergence; when the fit still fails the gate, the boat estimate uses PE. If tuning does not succeed, the likely structural levers are an informative prior on the boat effort process or forcing a coarser AR resolution for the boat fit (the adaptive rule selected daily AR despite the sparse effort series).
 
 ------------------------------------------------------------------------
 
@@ -356,6 +357,13 @@ Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.C. (2021). Ra
 ## 14. Version History
 
 Versions continue the shared milestone sequence used in `README.md` (which documents v1--v5). The pooled and gear-resolved tracks have interleaved since v5; the gear-resolved documentation maintains its own v5.x change log. If a different numbering scheme is preferred, these entries can be renumbered.
+
+### v6.2 (2026-06-17), Boat all-gear sampler tuning
+
+-   **Dedicated sampler settings for the private boat all-gear fit.** Added `bss_iter_boat_allgear` (5000), `bss_warmup_boat_allgear` (2500), `bss_treedepth_boat_allgear` (13), and `bss_delta_boat_allgear` (0.99), applied through a new boat all-gear branch in the per-fit Stan control. The boat all-gear fit failed convergence in the 2026-04-08 run (5998 divergent transitions, R-hat 1.074, n_eff 76) under the defaults (adapt_delta 0.9, max_treedepth 10) and fell back to PE. Because `treedepth_pct` was 0, the divergences came from step size rather than truncated trajectories, so `adapt_delta` (raised to 0.99) is the primary lever and `max_treedepth` (raised to 13) is a buffer against the longer trajectories a higher `adapt_delta` produces.
+-   **Per-fit tuning consolidated.** `iter`, `warmup`, `max_treedepth`, and `adapt_delta` are now set together in one `if/else` block (matching the gear-resolved pattern), rather than `iter`/`warmup` in separate ternaries. Behavior is unchanged for the shore all-gear and ring-net fits.
+-   **This is an attempt, not a guarantee.** If the boat all-gear fit still exceeds `max_divergences` or fails R-hat / n_eff under the new settings, it falls back to PE exactly as before. n_eff = 76 was far below the 400 threshold, and additional iterations help only if the geometry fix removes the autocorrelation; if n_eff (not divergences) remains the binding failure, the structural levers in Section 10 apply. Expect a longer runtime for this fit (higher adapt_delta and more iterations mean more leapfrog steps per iteration).
+-   Files changed: `BSS-GH-pooled-CPUE-model.Rmd` (parameters, per-fit Stan control); this documentation (Sections 8, 10, 14).
 
 ### v6.1 (2026-06-17), Divergence-aware convergence gate
 

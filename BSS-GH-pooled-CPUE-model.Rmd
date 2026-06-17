@@ -13,8 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
-# Version: v6.1 (2026-06-17) - divergence-aware convergence gate ported
-#          from the gear-resolved track. See documentation Section 14.
+# Version: v6.2 (2026-06-17) - boat all-gear sampler tuning, on top of the
+#          v6.1 divergence-aware convergence gate. See documentation Section 14.
 #
 # Three population components estimated independently:
 #   1. Shore crabbers (dock + jetty + beach) — BSS + PE
@@ -44,6 +44,9 @@ knitr::opts_chunk$set(echo = TRUE)
 #     divergent transitions falls back to PE, matching the gear-resolved
 #     track. Per-fit max_treedepth/adapt_delta overrides reduce divergences
 #     and treedepth truncation on the dense shore all-gear geometry.
+#   - BOAT ALL-GEAR TUNING (v6.2): Dedicated adapt_delta=0.99 / max_treedepth=13
+#     settings for the divergence-heavy boat all-gear fit, attempted before
+#     accepting the PE fallback.
 ###############################################################################
 
 # ===========================================================================
@@ -117,6 +120,18 @@ params <- list(
   bss_delta_shore_allgear     = 0.95,
   bss_treedepth_ringnet       = 12,
   bss_delta_ringnet           = 0.95,
+
+  # v6.2: boat all-gear sampler tuning. The boat all-gear fit failed in the
+  # 2026-04-08 run (5998 divergences, R-hat 1.074, n_eff 76) under defaults
+  # (adapt_delta 0.9, max_treedepth 10). treedepth_pct was 0, so divergences
+  # came from step size, not trajectory truncation: adapt_delta is raised to
+  # 0.99 (primary lever) and max_treedepth to 13 (buffer), with more iterations
+  # to give n_eff a chance to clear 400. This is an attempt; if the fit still
+  # fails the gate, the boat estimate falls back to PE as before.
+  bss_iter_boat_allgear       = 5000,
+  bss_warmup_boat_allgear     = 2500,
+  bss_treedepth_boat_allgear  = 13,
+  bss_delta_boat_allgear      = 0.99,
 
   bss_min_interviews = 20,
 
@@ -1266,21 +1281,37 @@ for(cg in bss_catch_groups) {
       ar_resolutions[[label]] <- attr(bss_data, "ar_resolution")
 
       is_shore   <- (pop == "shore")
+      is_boat    <- (pop == "private_boat")
       is_allgear <- (ss$name == "all_gear")
       is_ringnet <- (ss$name == "ring_net_only")
 
-      fit_iter    <- if(is_shore && is_allgear) params$bss_iter_shore_allgear else params$bss_iter_default
-      fit_warmup  <- if(is_shore && is_allgear) params$bss_warmup_shore_allgear else params$bss_warmup_default
-
-      # v6.1: per-fit max_treedepth / adapt_delta (ported from gear-resolved
-      # v5.2). Falls back to *_default for any fit without a specific override.
+      # v6.1/v6.2: per-fit sampler tuning. Each branch sets iter, warmup,
+      # max_treedepth, and adapt_delta; any fit without a specific override
+      # uses the *_default values. Ported from the gear-resolved track (v6.1)
+      # and extended with a boat all-gear branch (v6.2). The boat all-gear fit
+      # produced 5998 divergences with treedepth_pct = 0 in the 2026-04-08 run,
+      # so step size (adapt_delta), not trajectory length, was the binding
+      # constraint: adapt_delta is raised to 0.99 and max_treedepth to 13 (the
+      # smaller steps from a higher adapt_delta lengthen trajectories, so the
+      # deeper tree is a buffer against new treedepth saturation).
       if(is_shore && is_allgear) {
+        fit_iter    <- params$bss_iter_shore_allgear
+        fit_warmup  <- params$bss_warmup_shore_allgear
         fit_treedep <- params$bss_treedepth_shore_allgear %||% params$bss_max_treedepth_default
         fit_delta   <- params$bss_delta_shore_allgear     %||% params$bss_adapt_delta
+      } else if(is_boat && is_allgear) {
+        fit_iter    <- params$bss_iter_boat_allgear      %||% params$bss_iter_default
+        fit_warmup  <- params$bss_warmup_boat_allgear    %||% params$bss_warmup_default
+        fit_treedep <- params$bss_treedepth_boat_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_boat_allgear     %||% params$bss_adapt_delta
       } else if(is_ringnet) {
+        fit_iter    <- params$bss_iter_default
+        fit_warmup  <- params$bss_warmup_default
         fit_treedep <- params$bss_treedepth_ringnet %||% params$bss_max_treedepth_default
         fit_delta   <- params$bss_delta_ringnet     %||% params$bss_adapt_delta
       } else {
+        fit_iter    <- params$bss_iter_default
+        fit_warmup  <- params$bss_warmup_default
         fit_treedep <- params$bss_max_treedepth_default
         fit_delta   <- params$bss_adapt_delta
       }
