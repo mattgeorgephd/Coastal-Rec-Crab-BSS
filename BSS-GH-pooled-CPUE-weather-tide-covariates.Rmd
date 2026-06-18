@@ -855,6 +855,19 @@ compute_interview_tide_features <- function(interview_df, tide_obs) {
     return(list(per_interview = tibble(), daily = tibble()))
   }
 
+  # The crab interview export records interview_time and hours_fished but no
+  # fishing start time, so a per-interview departure timestamp cannot be built.
+  # Return empty departure features and let the rest of the covariate pipeline
+  # run on the daily tide/weather covariates. The CPUE GAM screen does not use
+  # these features, and the effort screen drops them automatically when absent.
+  if(!"fishing_start_time" %in% names(interview_df) ||
+     all(is.na(interview_df[["fishing_start_time"]]))) {
+    message("  compute_interview_tide_features: no fishing_start_time; skipping ",
+            "departure-tide features (daily tide/weather covariates and the GAM ",
+            "screens are unaffected).")
+    return(list(per_interview = tibble(), daily = tibble()))
+  }
+
   # Reconstruct departure POSIX
   int <- interview_df |>
     filter(!is.na(fishing_start_time)) |>
