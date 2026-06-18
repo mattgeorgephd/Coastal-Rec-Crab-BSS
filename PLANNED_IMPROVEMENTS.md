@@ -27,9 +27,10 @@ A living backlog for the crab creel estimation framework. We check items off as 
   *Why:* the paper's contribution is that the BSS fills gaps and propagates uncertainty; silent degradation to PE on a key component undermines that claim.
   *Status / sub-steps:*
   - [x] **B1.1 Diagnose.** Boat all-gear used daily AR and diverged on ~100% of iterations (treedepth 0, n_eff 76, R-hat 1.07): a funnel from a 289-state daily latent process that the weakly-informative trailer-count series cannot identify. Shore uses the same daily AR but converges (n_eff > 2000) because gear counts are far more informative.
-  - [x] **B1.2 Coarsen boat AR (v6.5).** Added `ar_max_resolution` per-population cap; boat capped at weekly, cutting the latent dimension ~7x. *Validation pending a model run.*
-  - [ ] **B1.3 Non-center the AR initial state `omega_0` (Stan).** The `omega_0 ~ normal(0, sqrt(sigma^2/(1 - phi^2)))` prior is a centered funnel; non-centering it improves geometry for all fits (the shore fits also carry 400-800 divergences and shore all-gear saturates treedepth at 91.6%). Do this if B1.2 plus the v6.2 tuning does not converge the boat fit, and for cleaner geometry generally. Effort: medium (Stan reparameterization, recompile).
+  - [x] **B1.2 Coarsen boat AR (v6.5).** Added `ar_max_resolution` per-population cap; boat capped at weekly, cutting the latent dimension ~7x. *Result (2026-06-17 run): improved boat mixing (R-hat 1.07 -> 1.01, n_eff 76 -> 261) but did not clear divergences (~98% still divergent). The cap was necessary but not sufficient.*
+  - [x] **B1.3 Non-center the AR initial state `omega_0` (v6.6, Stan).** The centered `omega_0 ~ normal(0, sqrt(sigma^2/(1 - phi^2)))` prior was isolated as the binding constraint by the v6.5 run (all fits at treedepth 0, ~98% boat divergence, persisting at adapt_delta 0.99: a funnel, not a step-size problem). Reparameterized `omega_E_0`/`omega_C_0` as raw standard normals scaled by the stationary SD in transformed parameters, in both `crab_bss_pooled.stan` and the augmented model. Inference-preserving. *Convergence result pending the next run; the boat may need B1.5 if a 98% divergence rate does not clear.*
   - [ ] **B1.4 Characterize the fallback.** If a component still cannot converge, document the PE-vs-BSS agreement and the conditions under which PE is used, so the fallback is a defensible part of the method rather than a silent failure.
+  - [ ] **B1.5 Inference-changing levers for the boat (only if B1.3 is insufficient).** If the boat still diverges after non-centering, the remaining options change the inference and are decisions, not mechanical fixes: a tighter prior on `sigma_eps` (regularize the AR variance), monthly boat AR (coarser than weekly), or accepting PE for the boat component. Each trades model richness or a prior assumption for stability. Present options once the next run's outputs are in. Effort: low-medium per option.
 
 - [ ] **B2. Posterior predictive checks (PPCs).** *What:* check that the effort and CPUE observation models reproduce key features of the data (zero fraction, overdispersion) by gear and day-type. *Why:* standard expectation for a Bayesian estimation paper; demonstrates the likelihood fits. Effort: medium.
 
@@ -66,6 +67,7 @@ A living backlog for the crab creel estimation framework. We check items off as 
 - [ ] **D1. Resolve the redundant baseline refit in the covariate module.** *What:* the module recomputes a baseline fit the main pooled run already produced (it needs a baseline for the PSIS-LOO comparison, but recomputes rather than reusing). *Why:* a workflow inefficiency; resolving it needs a save/load handoff between the two Rmds or merging them. Effort: medium.
 - [ ] **D2. Module log_lik reconciliation (module 0.1.3, planned).** *What:* cross-check `crab_bss_pooled_weather_adjusted.stan` against `crab_bss_pooled.stan` at the `log_lik` level; confirm `p_I_shore` vs `p_TI` naming. *Why:* ensures the baseline-vs-covariate LOO comparison is valid. Effort: low-medium.
 - [ ] **D3. Jetty/beach effort counts (critique issue 3).** *What:* shore effort lumps dock, jetty, and beach. *Why:* improves shore effort accuracy; requires a field-protocol change for 2025-26, not a code change. Effort: out of code scope, sampling-dependent.
+- [ ] **D4. Port B1.3 (non-centered `omega_0`) to the gear-resolved Stan model.** *What:* `crab_bss_gear_resolved.stan` almost certainly carries the same centered `omega_0` funnel, and its latest run had every component fall back to PE. *Why:* the same reparameterization should fix the same pathology; do it once the pooled B1.3 is validated on a run. Effort: low (mechanical port).
 
 ---
 
@@ -73,6 +75,7 @@ A living backlog for the crab creel estimation framework. We check items off as 
 
 Recent changes already merged (most recent first):
 
+- **Pooled v6.6 / B1.3** Non-centered the AR initial state `omega_0` in both pooled-track Stan models, removing the centered funnel isolated by the v6.5 run as the cause of the boat divergences. Inference-preserving; convergence result pending the next run.
 - **Module v0.2.0** Schema fix (interview departure proxy replaces the missing `fishing_start_time`) so the module runs on the crab data, plus the BSS engine brought to pooled v6.5 parity: divergence gate, boat sampler tuning, per-population AR cap, and a per-fit convergence report. Unblocks C1.
 - **Pooled v6.5 / B1.2** Per-population AR resolution cap; boat capped at weekly.
 - **Pooled v6.4 + gear-resolved v5.4** R-hat convergence threshold tightened from 1.05 to 1.01 (Vehtari et al. 2021), consistently across both tracks.

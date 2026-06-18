@@ -52,6 +52,10 @@
 //
 // Gear expansion, trailer expansion, and I/E anchors have no latent random
 // effects; log_lik for those uses their native likelihood directly.
+//
+// v6.6 (B1.3): the AR(1) initial states omega_E_0 / omega_C_0 are non-centered
+//   (omega_*_0 = stationary SD x raw), matching crab_bss_pooled.stan, to remove
+//   the centered funnel behind the boat divergences. Inference is unchanged.
 // =============================================================================
 
 data {
@@ -162,7 +166,7 @@ parameters {
   real<lower=0> sigma_r_E;
   real<lower=0,upper=1> phi_E_scaled;
   matrix[P_n-1, G*S] eps_E;
-  matrix[G,S] omega_E_0;
+  matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
@@ -179,7 +183,7 @@ parameters {
   real<lower=0,upper=1> phi_C_scaled;
   real<lower=0> sigma_r_C;
   matrix[P_n-1, G*S] eps_C;
-  matrix[G,S] omega_C_0;
+  matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
   matrix[G,S] eps_mu_C;
@@ -196,6 +200,7 @@ transformed parameters {
   matrix[G,S] mu_E;
   real<lower=-1,upper=1> phi_E;
   matrix[P_n, G*S] omega_E;
+  matrix[G,S] omega_E_0;
   matrix<lower=0>[D,G] lambda_E_S[S];
   real<lower=0> r_E;
 
@@ -203,6 +208,7 @@ transformed parameters {
   real<lower=-1,upper=1> phi_C;
   real<lower=0> r_C;
   matrix[P_n, G*S] omega_C;
+  matrix[G,S] omega_C_0;
   matrix<lower=0>[D,G] lambda_C_S[S];
 
   vector<lower=0>[D] L;
@@ -219,6 +225,10 @@ transformed parameters {
   r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
+
+  // --- B1.3: non-centered AR(1) initial state (see crab_bss_pooled.stan). ---
+  omega_E_0 = sqrt(square(sigma_eps_E) / (1 - square(phi_E))) * omega_E_0_raw;
+  omega_C_0 = sqrt(square(sigma_eps_C) / (1 - square(phi_C))) * omega_C_0_raw;
 
   // --- AR(1) over P_n periods ---
   omega_E[1,] = to_row_vector(omega_E_0);
@@ -289,8 +299,8 @@ model {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
     mu_mu_C[g] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
     for (s in 1:S) {
-      omega_E_0[g,s] ~ normal(0, sqrt(square(sigma_eps_E) / (1 - square(phi_E))));
-      omega_C_0[g,s] ~ normal(0, sqrt(square(sigma_eps_C) / (1 - square(phi_C))));
+      omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
+      omega_C_0_raw[g,s] ~ std_normal();
       eps_mu_E[g,s] ~ std_normal();
       eps_mu_C[g,s] ~ std_normal();
     }
