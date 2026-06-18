@@ -13,8 +13,11 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
-# Version: 0.1.2 (2026-06-17). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
+# Version: 0.2.0 (2026-06-17). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
 #          Section 9 for the change history.
+#          v0.2.0 brings the BSS engine to pooled-model v6.5 parity (divergence
+#          gate, boat sampler tuning, per-population AR cap) and fixes the
+#          interview schema mismatch (departure-time proxy for completed trips).
 #
 # PURPOSE
 #   Test hypotheses about tide and weather effects on recreational Dungeness
@@ -60,6 +63,10 @@ install.lib <- load.lib[!load.lib %in% installed.packages()]
 for(lib in install.lib) install.packages(lib, dependencies = TRUE)
 sapply(load.lib, require, character = TRUE)
 rstan_options(auto_write = TRUE)
+
+# Null-coalescing operator (base R >= 4.4 provides this natively; define it if
+# absent so the module is robust on older R and when run standalone).
+if(!exists("%||%", mode = "function")) `%||%` <- function(a, b) if(is.null(a)) b else a
 
 # Source shared functions if present (matches main RMD structure)
 if(dir.exists(here("R_functions"))) {
@@ -109,6 +116,40 @@ params <- list(
   ar_daily_min_coverage      = 0.25,
   ar_daily_min_obs           = 20,
   ar_weekly_min_per_week     = 1.5,
+
+  # --- v6.x BSS parity (ported from BSS-GH-pooled-CPUE-model.Rmd) -----------
+  # The module fits its own BSS, so the convergence machinery the main model
+  # gained in v6.1-v6.5 must be mirrored here, or the boat fit diverges and the
+  # baseline-vs-covariate LOO comparison is untrustworthy.
+  # v6.5 per-population AR resolution cap: the boat trailer-count series cannot
+  # identify a daily AR(1), so it is capped at weekly (cuts the latent AR
+  # dimension ~7x). Shore stays at daily, where it converges.
+  ar_max_resolution          = list(shore = "daily", private_boat = "weekly"),
+  boat_use_gear_hours        = TRUE,
+  # v6.2 per-fit sampler tuning. Boat all-gear needs adapt_delta 0.99 /
+  # treedepth 13 (it diverged ~100% at the defaults); shore all-gear 14 / 0.95;
+  # ring-net 12 / 0.95; everything else the defaults (10 / 0.9).
+  bss_iter_boat_allgear      = 5000,
+  bss_warmup_boat_allgear    = 2500,
+  bss_treedepth_boat_allgear = 13,
+  bss_delta_boat_allgear     = 0.99,
+  bss_treedepth_shore_allgear= 14,
+  bss_delta_shore_allgear    = 0.95,
+  bss_treedepth_ringnet      = 12,
+  bss_delta_ringnet          = 0.95,
+  # v6.1 divergence gate: a fit with more than this many divergent transitions
+  # is flagged as non-converged, so its LOO elpd is treated as unreliable.
+  max_divergences            = 5,
+
+  # --- Departure-time proxy (boat departure-on-flood hypothesis) ------------
+  # The crab interview export records interview_time and hours_fished but no
+  # fishing start time. With this TRUE, departure is approximated as
+  # interview_time - hours_fished for completed trips, which assumes the
+  # interview is taken at trip end (a returning crabber at the access point).
+  # Set FALSE to skip the interview-derived departure-tide features entirely;
+  # the daily tide/weather covariates and the GAM screens are unaffected either
+  # way. The rigorous alternative is interval-level I/E departure data.
+  use_interview_departure_proxy = TRUE,
 
   # --- Tide stations (ordered by priority; proximity-ranked backups) ---
   # Coordinates are approximate CO-OPS station locations. The fetch routine
@@ -855,28 +896,51 @@ compute_interview_tide_features <- function(interview_df, tide_obs) {
     return(list(per_interview = tibble(), daily = tibble()))
   }
 
-  # The crab interview export records interview_time and hours_fished but no
-  # fishing start time, so a per-interview departure timestamp cannot be built.
-  # Return empty departure features and let the rest of the covariate pipeline
-  # run on the daily tide/weather covariates. The CPUE GAM screen does not use
-  # these features, and the effort screen drops them automatically when absent.
-  if(!"fishing_start_time" %in% names(interview_df) ||
-     all(is.na(interview_df[["fishing_start_time"]]))) {
-    message("  compute_interview_tide_features: no fishing_start_time; skipping ",
-            "departure-tide features (daily tide/weather covariates and the GAM ",
-            "screens are unaffected).")
+  # --- Construct a departure timestamp ---------------------------------------
+  # Priority: (1) an explicit fishing_start_time if the schema has one;
+  # (2) otherwise a proxy of interview_time - hours_fished for completed trips,
+  # which the crab export supports (interview_time is an Excel serial datetime,
+  # so its fractional part is the local time of day). The proxy assumes the
+  # interview is taken at the end of the trip; it is restricted to completed
+  # trips, and any lag between return and interview biases departure later.
+  # (3) If neither is available (or the proxy is disabled), return empty so the
+  # daily tide/weather covariates and the GAM screens still run.
+  use_proxy <- isTRUE(params$use_interview_departure_proxy %||% TRUE)
+  has_start <- "fishing_start_time" %in% names(interview_df) &&
+               any(!is.na(interview_df$fishing_start_time))
+  can_proxy <- use_proxy &&
+               all(c("interview_time", "hours_fished") %in% names(interview_df)) &&
+               any(!is.na(suppressWarnings(as.numeric(interview_df$interview_time))) &
+                   !is.na(interview_df$hours_fished))
+
+  if(has_start) {
+    int <- interview_df |>
+      filter(!is.na(fishing_start_time)) |>
+      mutate(depart_posix = as.POSIXct(paste(event_date, fishing_start_time),
+                                       format = "%Y-%m-%d %H:%M",
+                                       tz = params$local_tz)) |>
+      filter(!is.na(depart_posix))
+  } else if(can_proxy) {
+    message("  compute_interview_tide_features: no fishing_start_time; using the ",
+            "interview_time - hours_fished departure proxy for completed trips ",
+            "(assumes the interview is at trip end). Set ",
+            "params$use_interview_departure_proxy = FALSE to disable.")
+    int <- interview_df |>
+      mutate(interview_time = suppressWarnings(as.numeric(interview_time))) |>
+      filter(!is.na(interview_time), !is.na(hours_fished),
+             trip_status %in% "Complete") |>
+      mutate(
+        time_of_day_sec = (interview_time - floor(interview_time)) * 86400,
+        depart_posix = as.POSIXct(paste(event_date, "00:00:00"), tz = params$local_tz) +
+                       time_of_day_sec - hours_fished * 3600
+      ) |>
+      filter(!is.na(depart_posix))
+  } else {
+    message("  compute_interview_tide_features: no fishing_start_time and no usable ",
+            "interview_time/hours_fished (or proxy disabled); skipping departure-tide ",
+            "features. Daily tide/weather covariates and the GAM screens are unaffected.")
     return(list(per_interview = tibble(), daily = tibble()))
   }
-
-  # Reconstruct departure POSIX
-  int <- interview_df |>
-    filter(!is.na(fishing_start_time)) |>
-    mutate(
-      depart_posix = as.POSIXct(paste(event_date, fishing_start_time),
-                                format = "%Y-%m-%d %H:%M",
-                                tz = params$local_tz)
-    ) |>
-    filter(!is.na(depart_posix))
 
   if(nrow(int) == 0) return(list(per_interview = tibble(), daily = tibble()))
 
@@ -1227,12 +1291,25 @@ prep_bss_crab_augmented <- function(days, summ, est_catch_group, params, populat
   n_weeks <- max(days$week_index)
   obs_per_week <- n_effort_days / n_weeks
 
+  # Data-driven finest resolution, then v6.5 per-population cap (mirrors the
+  # main RMD). The boat trailer-count series is too weakly informative for a
+  # daily AR(1), so it is capped at weekly.
   if(coverage >= params$ar_daily_min_coverage && n_effort_days >= params$ar_daily_min_obs) {
-    ar_resolution <- "daily"; P_n <- D; pvec <- days$day_index
+    ar_resolution <- "daily"
   } else if(obs_per_week >= params$ar_weekly_min_per_week && n_weeks >= 3) {
-    ar_resolution <- "weekly"; P_n <- n_weeks; pvec <- days$week_index
+    ar_resolution <- "weekly"
   } else {
-    ar_resolution <- "monthly"; P_n <- max(days$month_index); pvec <- days$month_index
+    ar_resolution <- "monthly"
+  }
+  res_rank <- c(monthly = 1L, weekly = 2L, daily = 3L)
+  pop_cap  <- params$ar_max_resolution[[population_name]] %||% "daily"
+  if(res_rank[[ar_resolution]] > res_rank[[pop_cap]]) ar_resolution <- pop_cap
+  if(ar_resolution == "daily") {
+    P_n <- D;                     pvec <- days$day_index
+  } else if(ar_resolution == "weekly") {
+    P_n <- n_weeks;               pvec <- days$week_index
+  } else {
+    P_n <- max(days$month_index); pvec <- days$month_index
   }
 
   int_cg <- summ$interview |> mutate(fish_count = .data[[est_catch_group]])
@@ -1567,6 +1644,39 @@ log_mean_exp <- function(x) {
 
 
 # ===========================================================================
+# 8.5 BSS CONVERGENCE CHECK (ported from main RMD v6.1/v6.4 gate)
+# Unlike the main model, the module does not fall back to PE; it records
+# convergence per fit so an unreliable LOO comparison can be flagged. A fit
+# failing this check has an unreliable elpd, so its comparison is suspect.
+# ===========================================================================
+
+bss_convergence_check <- function(fit, label, role, max_divergences) {
+  sp    <- rstan::get_sampler_params(fit, inc_warmup = FALSE)
+  n_div <- sum(sapply(sp, function(x) sum(x[,"divergent__"])))
+  max_td <- fit@stan_args[[1]]$control$max_treedepth
+  n_td  <- sum(sapply(sp, function(x) sum(x[,"treedepth__"] >= max_td)))
+  n_tot <- sum(sapply(sp, nrow))
+  s <- summary(fit, pars = c("C_expected_sum", "E_sum"))$summary
+  rhat_C <- s["C_expected_sum","Rhat"]; rhat_E <- s["E_sum","Rhat"]
+  neff_C <- s["C_expected_sum","n_eff"]; neff_E <- s["E_sum","n_eff"]
+  pass_rhat <- max(rhat_C, rhat_E, na.rm = TRUE) < 1.01     # v6.4
+  pass_neff <- min(neff_C, neff_E, na.rm = TRUE) > 400
+  pass_div  <- (n_div <= max_divergences)                   # v6.1
+  pass <- pass_rhat & pass_neff & pass_div
+  if(n_tot > 0 && n_td / n_tot > 0.05)
+    cat(sprintf("    WARNING: %s [%s] %.1f%% treedepth exceedances\n",
+                label, role, n_td / n_tot * 100))
+  if(n_div > 0)
+    cat(sprintf("    WARNING: %s [%s] %d divergent transitions\n", label, role, n_div))
+  tibble(fit = label, role = role,
+         divergences = n_div, treedepth_pct = round(n_td / max(n_tot, 1) * 100, 1),
+         C_rhat = round(rhat_C, 4), E_rhat = round(rhat_E, 4),
+         C_neff = round(neff_C), E_neff = round(neff_E),
+         pass_convergence = pass)
+}
+
+
+# ===========================================================================
 # 9. MAIN EXECUTION
 # ===========================================================================
 
@@ -1736,6 +1846,7 @@ cat("\n", strrep("=", 60),
 bss_baseline_all <- list()
 bss_covariate_all <- list()
 model_comparisons <- list()
+bss_convergence_all <- list()
 
 for(cg in "Dungeness_Kept") {
   for(pop in c("shore","private_boat")) {
@@ -1775,33 +1886,59 @@ for(cg in "Dungeness_Kept") {
       bss_data_base$X_E <- matrix(0, nrow = bss_data_cov$D, ncol = 0)
       bss_data_base$X_C <- matrix(0, nrow = bss_data_cov$D, ncol = 0)
 
-      is_shore <- (pop == "shore"); is_allgear <- (ss$name == "all_gear")
-      fit_iter   <- if(is_shore && is_allgear) params$bss_iter_shore_allgear
-                    else params$bss_iter_default
-      fit_warmup <- if(is_shore && is_allgear) params$bss_warmup_shore_allgear
-                    else params$bss_warmup_default
+      # v6.2 per-fit sampler tuning (mirrors the main RMD). Both the baseline
+      # and covariate fits for a given pop x sub-season use the same settings.
+      is_shore   <- (pop == "shore");        is_boat    <- (pop == "private_boat")
+      is_allgear <- (ss$name == "all_gear"); is_ringnet <- (ss$name == "ring_net_only")
+      if(is_shore && is_allgear) {
+        fit_iter <- params$bss_iter_shore_allgear; fit_warmup <- params$bss_warmup_shore_allgear
+        fit_treedep <- params$bss_treedepth_shore_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_shore_allgear     %||% params$bss_adapt_delta
+      } else if(is_boat && is_allgear) {
+        fit_iter <- params$bss_iter_boat_allgear   %||% params$bss_iter_default
+        fit_warmup <- params$bss_warmup_boat_allgear %||% params$bss_warmup_default
+        fit_treedep <- params$bss_treedepth_boat_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_boat_allgear     %||% params$bss_adapt_delta
+      } else if(is_ringnet) {
+        fit_iter <- params$bss_iter_default; fit_warmup <- params$bss_warmup_default
+        fit_treedep <- params$bss_treedepth_ringnet %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_ringnet     %||% params$bss_adapt_delta
+      } else {
+        fit_iter <- params$bss_iter_default; fit_warmup <- params$bss_warmup_default
+        fit_treedep <- params$bss_max_treedepth_default; fit_delta <- params$bss_adapt_delta
+      }
+      ar_res <- attr(bss_data_cov, "ar_resolution") %||% NA_character_
 
-      cat(sprintf("  Baseline (K_E=0, K_C=0): iter=%d warmup=%d\n",
-                  fit_iter, fit_warmup))
+      cat(sprintf("  Baseline (K_E=0, K_C=0): iter=%d warmup=%d treedepth=%d delta=%.2f AR=%s\n",
+                  fit_iter, fit_warmup, fit_treedep, fit_delta, ar_res))
       fit_base <- rstan::stan(
         file = here("stan_models", params$bss_model_file_covariates),
         data = bss_data_base,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
-        control = list(adapt_delta = params$bss_adapt_delta,
-                       max_treedepth = params$bss_max_treedepth_default),
+        control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
         cores = params$bss_cores, refresh = 0
       )
 
-      cat(sprintf("  Covariates (K_E=%d, K_C=%d): iter=%d warmup=%d\n",
-                  bss_data_cov$K_E, bss_data_cov$K_C, fit_iter, fit_warmup))
+      cat(sprintf("  Covariates (K_E=%d, K_C=%d): iter=%d warmup=%d treedepth=%d delta=%.2f\n",
+                  bss_data_cov$K_E, bss_data_cov$K_C, fit_iter, fit_warmup, fit_treedep, fit_delta))
       fit_cov <- rstan::stan(
         file = here("stan_models", params$bss_model_file_covariates),
         data = bss_data_cov,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
-        control = list(adapt_delta = params$bss_adapt_delta,
-                       max_treedepth = params$bss_max_treedepth_default),
+        control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
         cores = params$bss_cores, refresh = 0
       )
+
+      # v6.1/v6.4 convergence diagnostics. The module does not fall back to PE;
+      # it records convergence so an unreliable LOO comparison can be flagged.
+      conv_base <- bss_convergence_check(fit_base, label, "baseline",   params$max_divergences)
+      conv_cov  <- bss_convergence_check(fit_cov,  label, "covariates", params$max_divergences)
+      conv_base$ar_resolution <- ar_res; conv_cov$ar_resolution <- ar_res
+      bss_convergence_all[[label]] <- bind_rows(conv_base, conv_cov)
+      if(!conv_base$pass_convergence || !conv_cov$pass_convergence) {
+        cat(sprintf("  CAUTION: %s did not pass the convergence gate (baseline=%s, covariates=%s); its LOO comparison may be unreliable.\n",
+                    label, conv_base$pass_convergence, conv_cov$pass_convergence))
+      }
 
       bss_baseline_all[[label]]  <- list(fit = fit_base, stan_data = bss_data_base)
       bss_covariate_all[[label]] <- list(fit = fit_cov, stan_data = bss_data_cov,
@@ -1833,6 +1970,17 @@ for(cg in "Dungeness_Kept") {
                 row.names = FALSE)
     }
   }
+}
+
+
+# Convergence report across all fits (baseline + covariates for each component).
+# Both rows of a component must pass for its LOO comparison to be trustworthy.
+if(length(bss_convergence_all) > 0) {
+  convergence_df <- bind_rows(bss_convergence_all)
+  cat("\n  BSS convergence summary (both fits must pass for a trustworthy LOO):\n")
+  print(convergence_df)
+  write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"),
+            row.names = FALSE)
 }
 
 

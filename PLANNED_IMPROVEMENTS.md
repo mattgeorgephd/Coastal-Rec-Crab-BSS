@@ -47,7 +47,7 @@ A living backlog for the crab creel estimation framework. We check items off as 
 
 ## C. Weather impacts on CPUE (priority alongside B)
 
-- [ ] **C1. Run the weather-tide module and read the PSIS-LOO results.** *What:* determine which tide/weather covariates actually improve CPUE (and effort) for 2024-25. *Why:* prerequisite for integration; we should only add covariates that demonstrably help. Effort: low (analysis, needs a run).
+- [~] **C1. Run the weather-tide module and read the PSIS-LOO results.** *What:* determine which tide/weather covariates actually improve CPUE (and effort) for 2024-25. *Why:* prerequisite for integration; we should only add covariates that demonstrably help. *Status:* the module (v0.2.0) is now runnable against the crab data (the `fishing_start_time` schema mismatch is fixed via a departure proxy) and its BSS engine is at pooled v6.5 parity, so its fits and LOO comparison are trustworthy. Next action: run the GAM screen for the early read, then the BSS comparison once pooled v6.5 confirms the boat fit converges at weekly AR. Effort: low (analysis, needs a run).
 
 - [ ] **C2. Fold supported covariates into the production pooled CPUE.** *What:* move the verified covariates from the separate `crab_bss_pooled_weather_adjusted.stan` into `crab_bss_pooled.stan` and the main Rmd. *Why:* makes weather-on-CPUE a permanent part of the pooled method rather than an experimental side file; this is the stated end goal. Effort: medium. Depends on C1.
 
@@ -56,6 +56,8 @@ A living backlog for the crab creel estimation framework. We check items off as 
 - [ ] **C4. Non-linear covariate effects (splines).** *What:* allow non-linear tide/weather effects on CPUE (the module's planned 0.3.0). *Why:* tide effects on CPUE are plausibly non-monotonic. Effort: medium. Do after C1 confirms linear effects are real.
 
 - [ ] **C5. Weather in the gear-resolved CPUE (optional).** *What:* a gear-resolved augmented model so weather effects can differ by gear (e.g., ring-net CPUE more tide-sensitive than pot). *Why:* parity and possibly better fit, but lower priority given the pooled focus. Effort: medium-high.
+
+- [ ] **C6. Rigorous boat-departure timing via interval-level I/E data.** *What:* the boat departure-on-flood test currently uses an interview-time proxy (departure = `interview_time - hours_fished` for completed trips, which assumes the interview is at trip end). Replace it with actual departure events from the I/E surveys, weighting each survey interval by its observed departure count and the tide phase during that interval. *Why:* removes the interview-timing assumption and uses the correct data source for departure timing. Requires exposing interval-level I/E data (`fetch_ie_data` currently aggregates to daily totals and discards per-interval timestamps) and confirming the raw `ingress_egress.xlsx` carries interval times. Effort: medium. Only needed if the departure-on-flood hypothesis is pursued seriously.
 
 ---
 
@@ -71,6 +73,7 @@ A living backlog for the crab creel estimation framework. We check items off as 
 
 Recent changes already merged (most recent first):
 
+- **Module v0.2.0** Schema fix (interview departure proxy replaces the missing `fishing_start_time`) so the module runs on the crab data, plus the BSS engine brought to pooled v6.5 parity: divergence gate, boat sampler tuning, per-population AR cap, and a per-fit convergence report. Unblocks C1.
 - **Pooled v6.5 / B1.2** Per-population AR resolution cap; boat capped at weekly.
 - **Pooled v6.4 + gear-resolved v5.4** R-hat convergence threshold tightened from 1.05 to 1.01 (Vehtari et al. 2021), consistently across both tracks.
 - **Pooled v6.3** Documentation corrections (output-file listing, Vehtari citation).
