@@ -1,0 +1,5 @@
+"fit","ar_resolution","divergences","treedepth_pct","C_sum_rhat","E_sum_rhat","C_sum_neff","E_sum_neff","B1_C_rhat","pass_convergence","method_selected"
+"shore_ring_net_only_Dungeness_Kept","daily",1838,0,1.1302,1.1532,10,9,1.2325,FALSE,"PE (convergence fail)"
+"shore_all_gear_Dungeness_Kept","daily",398,0,1.0002,1.0004,6242,5593,1.0003,FALSE,"PE (convergence fail)"
+"private_boat_ring_net_only_Dungeness_Kept",NA,NA,NA,NA,NA,NA,NA,NA,FALSE,"PE (insufficient data)"
+"private_boat_all_gear_Dungeness_Kept","weekly",9835,0,1.0098,1.0102,373,261,1.0113,FALSE,"PE (convergence fail)"
