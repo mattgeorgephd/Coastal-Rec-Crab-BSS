@@ -131,11 +131,12 @@ Versions through v5 are a single shared milestone sequence. Since v5 the pooled 
 | v2 | shared | Bug fixes (CSV columns, Stan dimensions, output folder) |
 | v3 | pooled | Three populations, two sub-seasons, convergence tuning |
 | v4 | pooled | Dawn/dusk day length, stat-week PE, census dates, team review |
-| v5.0 to v5.3 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions, divergence-aware gate, gear-hours boat formulation |
+| v5.0 to v5.4 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions, divergence-aware gate, gear-hours boat formulation, R-hat gate tightened to 1.01 |
 | v6.0 | pooled | Post-critique upgrades: adaptive AR(1), `L_effective` from I/E, `B1_C` day-type CPUE effect, data-driven `R_G` prior, sparse overdispersion |
 | v6.1 | pooled | Divergence-aware convergence gate (`max_divergences`, treedepth warnings, per-fit tuning) |
 | v6.2 | pooled | Boat all-gear sampler tuning |
 | v6.3 | pooled | Documentation corrections |
+| v6.4 | pooled | R-hat convergence threshold tightened to 1.01 (gear-resolved track tightened in step, v5.4) |
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
 
 See each model's documentation change log for details.

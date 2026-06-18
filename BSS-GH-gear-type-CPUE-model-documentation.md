@@ -5,7 +5,7 @@
 **Contact:** matthew.george@dfw.wa.gov  
 **Agency:** Washington Department of Fish and Wildlife (WDFW)  
 **Status:** Operational — Annual estimation framework  
-**Model version:** v5.3 (Stan model: gear-hours formulation for boats)
+**Model version:** v5.4 (convergence gate R-hat < 1.01; Stan model unchanged from v5.3 gear-hours formulation)
 
 ---
 
@@ -48,7 +48,7 @@ The BSS fits a smooth curve through daily effort and catch rate data, estimating
 
 ### 2.3 Combined Best Estimate
 
-BSS is preferred when all convergence diagnostics pass: R-hat < 1.05 AND n_eff > 400 for all monitored parameters (including per-gear-type quantities), AND no divergent transitions during sampling. Divergent transitions indicate that the sampler has encountered regions of the posterior with difficult geometry, which can bias parameter estimates even when R-hat and n_eff appear satisfactory. When any diagnostic fails, PE is used as the fallback. The `convergence_report.csv` output documents the decision and all diagnostic values for every fit.
+BSS is preferred when all convergence diagnostics pass: R-hat < 1.01 AND n_eff > 400 for all monitored parameters (including per-gear-type quantities), AND no divergent transitions during sampling. Divergent transitions indicate that the sampler has encountered regions of the posterior with difficult geometry, which can bias parameter estimates even when R-hat and n_eff appear satisfactory. When any diagnostic fails, PE is used as the fallback. The `convergence_report.csv` output documents the decision and all diagnostic values for every fit.
 
 ---
 
@@ -379,10 +379,10 @@ Convergence is assessed on all key parameters, not just the aggregates. The foll
 
 **Parameter diagnostics:**
 
-- **Aggregates:** R-hat < 1.05 AND n_eff > 400 for `C_sum` and `E_sum`
-- **Per-gear-type catch:** R-hat < 1.05 AND n_eff > 400 for all `C_sum_gear[g]`
-- **Per-gear-type overdispersion:** R-hat < 1.05 for all `r_C_gear[g]`
-- **Per-gear-type process error:** R-hat < 1.05 for all `sigma_eps_C_gear[g]`
+- **Aggregates:** R-hat < 1.01 AND n_eff > 400 for `C_sum` and `E_sum`
+- **Per-gear-type catch:** R-hat < 1.01 AND n_eff > 400 for all `C_sum_gear[g]`
+- **Per-gear-type overdispersion:** R-hat < 1.01 for all `r_C_gear[g]`
+- **Per-gear-type process error:** R-hat < 1.01 for all `sigma_eps_C_gear[g]`
 
 **Sampler diagnostics:**
 
@@ -515,7 +515,10 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 
 ## 13. Change Log
 
-### v5.3 (current)
+### v5.4 (current)
+- R-hat convergence threshold tightened from 1.05 to 1.01 for the aggregates (`C_sum`, `E_sum`) and all per-gear-type quantities, following Vehtari et al. (2021). Applied in step with the pooled track (v6.4) so both gates use one threshold. Outcome-neutral for the 2024-25 run, where every fit already falls back to PE on divergent transitions.
+
+### v5.3
 - Boat CPUE recast as gear-hours: `lambda_E` represents gear in water (not crabbers), `L=24` for boat fits, `h=gear_time_total` for boat interviews. Corrects a ~2x downward bias in private-boat catch estimates relative to the v5.2 crabber-hours / day_length formulation.
 - `R_T` (trailers per group) replaced by `R_G_boat` (gear per boat group); learned from observed `number_of_gear` via `Gear_A_boat[a] ~ Poisson(R_G_boat)`.
 - Trailer likelihood reformulated: `T_I ~ Poisson(lambda_E / R_G_boat × eps_E_H_obs)` (trailers count groups; groups = gear / R_G_boat).

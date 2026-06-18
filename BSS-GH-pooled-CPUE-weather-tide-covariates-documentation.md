@@ -2,7 +2,7 @@
 
 **Author:** Matt George (WDFW), with implementation support
 **File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
-**Version:** 0.1.1
+**Version:** 0.1.2
 **Date:** 2026-06-17
 **Companion to:** `BSS-GH-pooled-CPUE-model.Rmd` and `BSS-GH-pooled-CPUE-model-documentation.md`
 
@@ -403,12 +403,13 @@ Items identified during the initial build that warrant future consideration:
 
 | Version | Date       | Notes |
 |---------|------------|-------|
+| 0.1.2   | 2026-06-17 | Removed the dead `bss_model_file_baseline` parameter (defined but never used). Both the baseline and covariate fits load the augmented model `crab_bss_pooled_weather_adjusted.stan`; the baseline is built by zeroing the covariate blocks (`K_E = K_C = 0`) so that baseline and covariate `log_lik` are produced by the same model and stay comparable for PSIS-LOO. Added an inline comment to prevent re-introduction. (The redundant baseline refit itself, recomputing a baseline the main pooled run already produced, is tracked as a separate item.) |
 | 0.1.1   | 2026-06-17 | Reference and file reconciliation. Corrected documentation and code-comment references from the never-committed patch file (`crab_bss_pooled_covariates_patch.md`) and the non-existent `crab_bss_pooled_covariates.stan` to the standalone augmented model `crab_bss_pooled_weather_adjusted.stan`, which the module already loads for both the baseline (K=0) and covariate fits. Corrected the documented module filename to `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` and removed the stale, misfiled duplicate `stan_models/BSS-GH-weather-tide-covariates.Rmd`. The module now runs from a clean clone using the root Rmd. The `log_lik`-level reconciliation and `p_I_shore` vs `p_TI` naming check originally planned for 0.1.1 are not part of this change and remain open (now tracked as 0.1.2). |
 | 0.1.0   | 2026-04-22 | Initial build. Tide/weather fetch with fallback, daily covariate construction, Layer B GAM screen, BSS augmented fits, PSIS-LOO comparison with k-fold time-block CV fallback, decision rule, and final-estimate selection. Covers 2024-25 season data out of the box; parameterized for annual reuse. Companion Stan patch (`crab_bss_pooled_covariates_patch.md`) supplies minimum-surgical additions to `crab_bss_pooled.stan`. |
 
 ### 9.1 Planned patches
 
-- **0.1.2 (planned):** Cross-check the augmented `crab_bss_pooled_weather_adjusted.stan` against the production `crab_bss_pooled.stan` at the `log_lik` level; reconcile observation likelihoods and confirm `p_I_shore` vs `p_TI` naming.
+- **0.1.3 (planned):** Cross-check the augmented `crab_bss_pooled_weather_adjusted.stan` against the production `crab_bss_pooled.stan` at the `log_lik` level; reconcile observation likelihoods and confirm `p_I_shore` vs `p_TI` naming.
 - **0.2.0 (planned):** Add sub-season-shared priors on `gamma` (multilevel extension per item 2 in future improvements).
 - **0.3.0 (planned):** Non-linear covariate effects via small basis splines per item 4.
 

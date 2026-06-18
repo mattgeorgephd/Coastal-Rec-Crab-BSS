@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
-# 2024-25 Season | Framework v5.2
+# 2024-25 Season | Framework v5.4
 #
 # Three population components estimated independently:
 #   1. Shore crabbers (dock + jetty + beach) — BSS + PE
@@ -24,6 +24,10 @@ knitr::opts_chunk$set(echo = TRUE)
 #   Sub-season 2: All-gear (Dec 1 – Sep 15, pots allowed)
 #
 # Port total = sum of all components
+#
+# v5.4 CHANGES (from v5.3): R-hat convergence gate tightened from 1.05 to 1.01
+# (Vehtari et al. 2021), in step with the pooled track. See documentation
+# Section 13.
 #
 # v5.3 CHANGES (from v5.2): align R-side data prep with the gear-hours
 # Stan formulation (crab_bss_gear_resolved.stan).
@@ -1855,7 +1859,7 @@ for(label in names(bss_all)) {
                    summ_r_C[,"Rhat"], summ_sig_C[,"Rhat"])
     all_neffs <- c(neff_C, neff_E, summ_gear[,"n_eff"])
 
-    pass_rhat <- max(all_rhats, na.rm=TRUE) < 1.05
+    pass_rhat <- max(all_rhats, na.rm=TRUE) < 1.01  # v5.4: tightened from 1.05 (Vehtari et al. 2021)
     pass_neff <- min(all_neffs, na.rm=TRUE) > 400
     # v5.2 Fix 4: Divergent transitions now part of convergence criterion
     pass_divergence <- (n_divergent <= params$max_divergences)
@@ -1888,7 +1892,7 @@ for(label in names(bss_all)) {
     )
 
     # Warn if gear-type parameters failed but aggregates passed
-    if(!pass && max(c(rhat_C, rhat_E), na.rm=TRUE) < 1.05) {
+    if(!pass && max(c(rhat_C, rhat_E), na.rm=TRUE) < 1.01) {
       cat(sprintf("  WARNING: %s — C_sum/E_sum converged but gear-type parameters did not.\n", label))
       cat(sprintf("    max gear Rhat=%.3f, max r_C Rhat=%.3f, max sigma_C Rhat=%.3f\n",
                   max_gear_rhat, max_r_C_rhat, max_sigma_C_rhat))

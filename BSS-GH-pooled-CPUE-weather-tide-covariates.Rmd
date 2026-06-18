@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
-# Version: 0.1.1 (2026-06-17). See BSS-GH-weather-tide-covariates-documentation.md
+# Version: 0.1.2 (2026-06-17). See BSS-GH-weather-tide-covariates-documentation.md
 #          Section 9 for the change history.
 #
 # PURPOSE
@@ -91,7 +91,10 @@ params <- list(
   sections          = c(1),
 
   # --- BSS pass-through ---
-  bss_model_file_baseline    = "crab_bss_pooled.stan",
+  # Both the baseline and covariate fits use the augmented Stan model below.
+  # The baseline is obtained by zeroing the covariate blocks (K_E = K_C = 0),
+  # not by loading crab_bss_pooled.stan, so that the baseline and covariate
+  # log_lik are produced by the same model and stay comparable for PSIS-LOO.
   bss_model_file_covariates  = "crab_bss_pooled_weather_adjusted.stan",
   bss_chains                 = 4,
   bss_iter_default           = 3000,
