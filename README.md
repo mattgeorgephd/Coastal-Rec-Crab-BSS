@@ -56,7 +56,7 @@ This module is **experimental and not a production estimator on its own.** It is
 | File | Description |
 |---|---|
 | `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | R analysis and integration script |
-| `BSS-GH-weather-tide-covariates-documentation.md` | Technical documentation |
+| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | Technical documentation |
 | `stan_models/crab_bss_pooled_weather_adjusted.stan` | Augmented Stan model (baseline at K=0) |
 
 ### Which Should I Use?

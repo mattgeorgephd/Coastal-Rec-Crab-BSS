@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
-# Version: 0.1.2 (2026-06-17). See BSS-GH-weather-tide-covariates-documentation.md
+# Version: 0.1.2 (2026-06-17). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
 #          Section 9 for the change history.
 #
 # PURPOSE

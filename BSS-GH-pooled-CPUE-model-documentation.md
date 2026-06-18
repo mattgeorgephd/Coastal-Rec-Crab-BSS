@@ -49,6 +49,8 @@ The BSS method fits a smooth curve through the daily effort and catch rate data 
 
 This adaptive approach resolves a tension identified in the creel survey literature: daily AR processes provide the smoothest interpolation and most honest uncertainty quantification (Conn 2002; Sullivan 2003), but require sufficient observation density to identify the autocorrelation parameters. When data is too sparse --- as with boat trailer counts during winter months --- a daily AR with D ≈ 60 latent states but only 10 observations creates a poorly-identified posterior with difficult HMC geometry. The adaptive rule applies the finest resolution the data can support while falling back gracefully when it cannot.
 
+As of v6.5, the data-driven choice is additionally capped per population via `ar_max_resolution`: the boat fit is capped at weekly regardless of coverage. The boat trailer-count series proved too weakly informative to identify a daily AR even when its coverage exceeded the daily threshold; at daily resolution the 2026-04-08 boat all-gear fit diverged on nearly all iterations (n_eff 76). Coverage measures how many days carry an observation, not how much each observation constrains the latent process, so a coverage-only rule can still select a resolution the data cannot identify. Shore remains uncapped at daily, where it converges with n_eff > 2000.
+
 On days with ingress/egress surveys, the BSS receives a direct crabber-hours observation in addition to the gear count. The effective day length on those days is informed by both the I/E observation and a regression prior, with the posterior narrowing around the I/E-anchored value.
 
 **Strengths:** Fills temporal gaps with proper uncertainty scaling. Accounts for temporal autocorrelation. Produces rigorous uncertainty bounds. I/E anchor points constrain the effort trajectory.
@@ -278,7 +280,7 @@ Each run produces output in `output/YYYYMMDD/`:
 -   No jetty effort counts. Beach crabbing unmeasured.
 -   The B1_C effect is constant across the season; a time-varying weekend CPUE effect may be warranted if tourist composition shifts seasonally.
 -   The adaptive AR selection is rule-based; a formal model comparison (LOO-CV or WAIC; Vehtari et al. 2017) could provide principled resolution selection.
--   The private boat all-gear BSS fit is prone to non-convergence. The trailer-count effort series is sparse and the latent effort process is weakly identified, producing many divergent transitions (5998 in the 2026-04-08 run, with no treedepth saturation, which points to a step-size rather than a trajectory-length problem). v6.2 adds dedicated sampler tuning (adapt_delta 0.99, max_treedepth 13, more iterations) as an attempt to achieve convergence; when the fit still fails the gate, the boat estimate uses PE. If tuning does not succeed, the likely structural levers are an informative prior on the boat effort process or forcing a coarser AR resolution for the boat fit (the adaptive rule selected daily AR despite the sparse effort series).
+-   The private boat all-gear BSS fit has been prone to non-convergence. The trailer-count effort series is weakly informative, and at daily AR resolution the latent process was under-identified, producing near-total divergence (5998 transitions in the 2026-04-08 run, treedepth 0, n_eff 76, the signature of a funnel). Two fixes have been applied: v6.2 dedicated sampler tuning (adapt_delta 0.99, max_treedepth 13, more iterations), and v6.5 a per-population AR cap that forces the boat fit to weekly resolution, cutting the latent dimension roughly sevenfold. If the boat fit still fails the gate after these, the remaining structural lever is the AR initial-state parameterization: `omega_0` carries a centered `normal(0, sqrt(sigma^2/(1 - phi^2)))` prior that is itself a funnel, and non-centering it (optionally with an informative prior on the boat effort scale) would help. When the fit still fails, the boat estimate falls back to PE.
 
 ------------------------------------------------------------------------
 
@@ -357,6 +359,12 @@ Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.C. (2021). Ra
 ## 14. Version History
 
 Versions continue the shared milestone sequence used in `README.md` (which documents v1--v5). The pooled and gear-resolved tracks have interleaved since v5; the gear-resolved documentation maintains its own v5.x change log. If a different numbering scheme is preferred, these entries can be renumbered.
+
+### v6.5 (2026-06-17), Per-population AR resolution cap (B1)
+
+-   Added `ar_max_resolution`, a per-population cap on the adaptive AR resolution, and capped the boat fit at weekly. The data-driven rule had selected daily AR for the boat all-gear fit because effort coverage exceeded 25%, but the trailer-count series cannot identify a 289-state daily latent process: the 2026-04-08 boat all-gear fit diverged on ~100% of post-warmup iterations (treedepth 0, n_eff 76, R-hat 1.07), the signature of a funnel from an over-parameterized latent process. Capping boat at weekly reduces the latent AR dimension from D to the number of weeks (roughly sevenfold), so the process is identified by the available data. Shore is left at daily, where it converges with n_eff > 2000.
+-   Rationale: coverage measures how many days carry an observation, not how strongly each observation constrains the latent process, so a coverage-only rule can select a resolution the data cannot support. The cap is the first step of B1 (making the BSS converge or characterizing the PE fallback). If the boat fit still fails after this and the v6.2 sampler tuning, the next lever is non-centering the AR initial state `omega_0` (Section 10).
+-   Files changed: `BSS-GH-pooled-CPUE-model.Rmd` (parameter, AR-selection logic, header); this documentation (Sections on adaptive resolution, 10, 14).
 
 ### v6.4 (2026-06-17), R-hat threshold tightened to 1.01
 
