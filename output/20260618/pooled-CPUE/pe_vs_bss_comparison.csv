@@ -1,0 +1,6 @@
+"component","PE_effort","BSS_effort","effort_diff_pct","PE_catch","BSS_catch","catch_diff_pct","method_selected"
+"shore (ring_net_only)",11026,11218,1.7,6070,6776,11.6,"PE"
+"shore (all_gear)",42541,55579,30.6,12733,19119,50.2,"PE"
+"private_boat (ring_net_only)",11678,NA,NA,6171,NA,NA,"PE"
+"private_boat (all_gear)",237717,87920,-63,63864,56195,-12,"PE"
+"comm_charter (census)",283,NA,NA,12007,NA,NA,"Census"
