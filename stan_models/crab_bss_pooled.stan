@@ -25,6 +25,18 @@
 //   (omega_*_0 = stationary SD x raw) to remove the centered funnel that drove
 //   the boat divergences (~98% of iterations). The implied prior is unchanged,
 //   so the posterior is the same; only the sampling geometry improves.
+//
+// v6.7 (B1.5): the per-observation effort overdispersion is marginalized. The
+//   gamma-Poisson form Poisson(lambda * eps_E_H_obs * R) with
+//   eps_E_H_obs ~ Gamma(r_E, r_E) is replaced by its exact marginal,
+//   neg_binomial_2(lambda * R, r_E), for both gear and trailer counts. This
+//   removes the n_effort_obs latent eps_E_H_obs parameters, a centered
+//   high-dimensional funnel (neck at large r_E / small sigma_r) that survived
+//   the B1.3 non-centering and produced the residual shore divergences. The
+//   marginalization is exact (gamma-Poisson == negative binomial), so the
+//   posterior over every reported quantity is unchanged; only nuisance
+//   parameters and the funnel are removed. The interview catch likelihood
+//   already used neg_binomial_2(.., r_C); the effort counts now match it.
 // =============================================================================
 
 data {
@@ -124,7 +136,11 @@ parameters {
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  vector<lower=0>[n_effort_obs] eps_E_H_obs;
+  // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
+  //       now marginalized into neg_binomial_2 in the model block, so the per-
+  //       observation latent effects (and their funnel) no longer exist as
+  //       parameters. n_effort_obs is retained in the data block only for
+  //       R-interface compatibility; it is no longer referenced.
 
   real<lower=0> R_G;
   real<lower=0,upper=1> R_T;
@@ -249,17 +265,22 @@ model {
     }
   }
 
-  eps_E_H_obs ~ gamma(r_E, r_E);
-
+  // B1.5: effort-count overdispersion marginalized to neg_binomial_2. The
+  //       previous form was Gear_I ~ Poisson(lambda * eps_E_H_obs * R_G) with
+  //       eps_E_H_obs ~ Gamma(r_E, r_E); integrating out eps_E_H_obs gives
+  //       neg_binomial_2(lambda * R_G, r_E) exactly (mean lambda*R_G, variance
+  //       lambda*R_G + (lambda*R_G)^2 / r_E). r_E = 1 / sigma_r_E^2 is
+  //       unchanged, so the overdispersion is identical; only the latent per-
+  //       observation eps parameters (and their centered funnel) are removed.
   for (i in 1:Gear_n) {
-    Gear_I[i] ~ poisson(
-      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
+    Gear_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
     );
   }
 
   for (i in 1:T_n) {
-    T_I[i] ~ poisson(
-      lambda_E_S[section_T[i]][day_T[i], G] * eps_E_H_obs[Gear_n + i] * R_T
+    T_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_T[i]][day_T[i], G] * R_T, r_E
     );
   }
 

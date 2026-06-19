@@ -36,26 +36,32 @@
 // -----------------------------------------------------------------------------
 // NOTE ON log_lik AND OVERDISPERSION
 // -----------------------------------------------------------------------------
-// Effort counts (Gear_I, T_I) in the model block are Poisson conditional on
-// per-observation random effects eps_E_H_obs[i] ~ Gamma(r_E, r_E). The
-// marginal distribution, integrating out eps_E_H_obs, is Negative Binomial 2
-// with mean (lambda * R) and dispersion r_E. For LOO to reflect the
-// predictive density of a NEW observation (not in the training set, so its
-// eps_E_H_obs is unknown), log_lik below uses the marginal neg_binomial_2
-// form rather than the conditional Poisson. This is the statistically correct
-// choice per Vehtari et al. (2017). The ELPD difference between baseline and
-// weather-adjusted models is valid under either choice as long as both fits
-// use the same log_lik construction, which they do here.
+// As of B1.5 (see version note below), effort counts (Gear_I, T_I) use the
+// marginal Negative Binomial 2 form, neg_binomial_2(lambda * R, r_E), directly
+// in the MODEL block. Earlier versions used the conditional Poisson with per-
+// observation random effects eps_E_H_obs[i] ~ Gamma(r_E, r_E); the gamma-
+// Poisson mixture integrates out to exactly this neg_binomial_2, so the change
+// is inference-preserving and removed a centered funnel. log_lik has always
+// used this marginal form (correct for the predictive density of a NEW
+// observation whose eps_E_H_obs would be unknown; Vehtari et al. 2017), so the
+// model block and log_lik are now identical in form for effort counts. The
+// ELPD difference between baseline and weather-adjusted models is valid as long
+// as both fits use the same log_lik construction, which they do here.
 //
-// Interview catches already use neg_binomial_2(..., r_C) in the model block;
-// log_lik uses the same form directly.
-//
-// Gear expansion, trailer expansion, and I/E anchors have no latent random
-// effects; log_lik for those uses their native likelihood directly.
+// Interview catches use neg_binomial_2(..., r_C) in both the model block and
+// log_lik. Gear expansion, trailer expansion, and I/E anchors have no latent
+// random effects; log_lik for those uses their native likelihood directly.
 //
 // v6.6 (B1.3): the AR(1) initial states omega_E_0 / omega_C_0 are non-centered
 //   (omega_*_0 = stationary SD x raw), matching crab_bss_pooled.stan, to remove
 //   the centered funnel behind the boat divergences. Inference is unchanged.
+//
+// v6.7 (B1.5): effort-count overdispersion marginalized to neg_binomial_2 in
+//   the model block, matching crab_bss_pooled.stan. The eps_E_H_obs parameters
+//   and their Gamma(r_E, r_E) prior are removed; the gamma-Poisson mixture
+//   equals neg_binomial_2(lambda * R, r_E) exactly, so inference is unchanged
+//   while a centered high-dimensional funnel is removed. log_lik was already
+//   on this marginal form, so the model block and log_lik now match.
 // =============================================================================
 
 data {
@@ -171,7 +177,9 @@ parameters {
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  vector<lower=0>[n_effort_obs] eps_E_H_obs;
+  // B1.5: eps_E_H_obs[n_effort_obs] removed; effort-count overdispersion is now
+  //       marginalized into neg_binomial_2 in the model block. n_effort_obs is
+  //       retained in the data block only for R-interface compatibility.
 
   real<lower=0> R_G;
   real<lower=0,upper=1> R_T;
@@ -306,7 +314,9 @@ model {
     }
   }
 
-  eps_E_H_obs ~ gamma(r_E, r_E);
+  // B1.5: effort-count overdispersion marginalized to neg_binomial_2 (see the
+  //       gear/trailer loops below and the header note). eps_E_H_obs and its
+  //       Gamma(r_E, r_E) prior are removed; r_E = 1 / sigma_r_E^2 is unchanged.
 
   // === WEATHER-ADJ: covariate priors ========================================
   if (K_E > 0) gamma_E ~ normal(0, prior_sd_gamma);
@@ -314,14 +324,14 @@ model {
   // ==========================================================================
 
   for (i in 1:Gear_n) {
-    Gear_I[i] ~ poisson(
-      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
+    Gear_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
     );
   }
 
   for (i in 1:T_n) {
-    T_I[i] ~ poisson(
-      lambda_E_S[section_T[i]][day_T[i], G] * eps_E_H_obs[Gear_n + i] * R_T
+    T_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_T[i]][day_T[i], G] * R_T, r_E
     );
   }
 
