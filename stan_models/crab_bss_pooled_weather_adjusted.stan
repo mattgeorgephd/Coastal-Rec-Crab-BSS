@@ -62,6 +62,11 @@
 //   equals neg_binomial_2(lambda * R, r_E) exactly, so inference is unchanged
 //   while a centered high-dimensional funnel is removed. log_lik was already
 //   on this marginal form, so the model block and log_lik now match.
+//
+// v6.8 (B1.6): sigma_IE given a proper prior unconditionally (matching
+//   crab_bss_pooled.stan). Fixes the improper flat sigma_IE direction when
+//   IE_n = 0 (the boat), which drifted to ~1e307 and drove divergences.
+//   Inference-preserving for the reported quantities.
 // =============================================================================
 
 data {
@@ -349,8 +354,15 @@ model {
     T_A_int[a] ~ bernoulli(R_T);
   }
 
+  // B1.6: sigma_IE gets a proper prior unconditionally. When IE_n = 0 (the boat
+  //       has no I/E observations) the old code left sigma_IE with no prior and
+  //       no likelihood: an improper flat direction that drifted to ~1e307 and
+  //       was the boat's dominant divergence source (the divergence diagnostic
+  //       found sigma_IE at the floating-point ceiling for the boat). sigma_IE
+  //       is decoupled from effort and catch, so this is inference-preserving
+  //       for E and C; it only makes the posterior proper and the sampler sane.
+  sigma_IE ~ exponential(5);
   if (IE_n > 0) {
-    sigma_IE ~ exponential(5);
     for (i in 1:IE_n) {
       IE_crabber_hours[i] ~ lognormal(
         log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),

@@ -37,6 +37,13 @@
 //   posterior over every reported quantity is unchanged; only nuisance
 //   parameters and the funnel are removed. The interview catch likelihood
 //   already used neg_binomial_2(.., r_C); the effort counts now match it.
+//
+// v6.8 (B1.6): sigma_IE is given a proper prior unconditionally. Previously the
+//   prior sat inside if (IE_n > 0), so for a fit with no I/E data (the boat)
+//   sigma_IE had no prior and no likelihood, an improper flat direction that
+//   drifted to ~1e307 and was the boat's dominant divergence source. sigma_IE
+//   is decoupled from effort and catch, so this is inference-preserving for the
+//   reported quantities; it only makes the posterior proper.
 // =============================================================================
 
 data {
@@ -298,8 +305,15 @@ model {
     T_A_int[a] ~ bernoulli(R_T);
   }
 
+  // B1.6: sigma_IE gets a proper prior unconditionally. When IE_n = 0 (the boat
+  //       has no I/E observations) the old code left sigma_IE with no prior and
+  //       no likelihood: an improper flat direction that drifted to ~1e307 and
+  //       was the boat's dominant divergence source (the divergence diagnostic
+  //       found sigma_IE at the floating-point ceiling for the boat). sigma_IE
+  //       is decoupled from effort and catch, so this is inference-preserving
+  //       for E and C; it only makes the posterior proper and the sampler sane.
+  sigma_IE ~ exponential(5);
   if (IE_n > 0) {
-    sigma_IE ~ exponential(5);
     for (i in 1:IE_n) {
       IE_crabber_hours[i] ~ lognormal(
         log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),

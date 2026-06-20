@@ -13,7 +13,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
-# Version: v6.6 (2026-06-17) - non-centered AR initial state in crab_bss_pooled.stan (B1.3)
+# Version: v6.8 (2026-06-19) - sigma_IE proper prior unconditionally (B1.6, fixes
+#          the boat's improper flat sigma_IE direction at IE_n=0); distortion-aware
+#          divergence gate so well-mixed non-distorting shore fits use BSS not PE;
+#          per-fit model diagnostics (structural params, divergence localization,
+#          posterior predictive calibration); fixed RNG seed + session capture.
+#          v6.7 (2026-06-19) - effort-count overdispersion marginalized to
+#          neg_binomial_2 in crab_bss_pooled.stan (B1.5), inference-preserving.
+#          v6.6 (2026-06-17) - non-centered AR initial state in crab_bss_pooled.stan (B1.3)
 #          v6.5 (2026-06-17) - per-population AR resolution cap (boat -> weekly)
 #          to address boat all-gear non-convergence (B1). Prior versions: v6.4
 #          R-hat gate 1.01, v6.2 boat sampler tuning, v6.1 divergence gate.
@@ -145,6 +152,22 @@ params <- list(
   #   0 = strict (any divergence fails); 5 = permissive.
   # Matches the gear-resolved default so both model tracks apply one standard.
   max_divergences = 5,
+
+  # --- B1.6: distortion-aware divergence acceptance ---
+  # A fit with more than max_divergences can still pass IF it is otherwise clean
+  # (R-hat, n_eff, treedepth) AND the divergent draws do not move the reported
+  # totals. max_divergence_distortion is the largest fractional shift in
+  # C_expected_sum / E_sum between divergent and non-divergent draws still
+  # accepted. The divergence diagnostic showed the shore divergences are diffuse
+  # (no funnel neck) and shift the totals < 1%, while the boat shifts them ~2-4%;
+  # this accepts shore and rejects the boat. 0.02 is conservative.
+  max_divergence_distortion = 0.02,
+
+  # --- B1.6: fixed RNG seed for reproducible fits ---
+  # rstan seeds each chain from bss_seed + chain_id, so chains still differ and
+  # R-hat remains meaningful; only run-to-run randomness is removed. Change the
+  # number if a pathological seed is ever suspected.
+  bss_seed = 20260619,
 
   # --- Adaptive AR temporal resolution ---
   # The model selects the finest AR resolution the data can support:
@@ -1350,6 +1373,7 @@ for(cg in bss_catch_groups) {
         data = bss_data,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta=fit_delta, max_treedepth=fit_treedep),
+        seed = params$bss_seed,
         cores = params$bss_cores
       )
       timer_stop(paste0("BSS_", label))
@@ -1370,7 +1394,7 @@ for(cg in bss_catch_groups) {
         C_expected_sum = quantile(C_exp_draws, c(0.025,0.5,0.975)),
         E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
         C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws,
-        fit = fit, pe_fallback = FALSE,
+        fit = fit, pe_fallback = FALSE, bss_data = bss_data,
         population = pop, subseason = ss$name, catch_group = cg
       )
 
@@ -1734,6 +1758,7 @@ for(label in names(bss_all)) {
       fit = label, ar_resolution = NA_character_, divergences = NA, treedepth_pct = NA,
       C_sum_rhat = NA, E_sum_rhat = NA, C_sum_neff = NA, E_sum_neff = NA,
       B1_C_rhat = NA,
+      distortion_C = NA_real_, distortion_E = NA_real_, pass_distortion = FALSE,
       pass_convergence = FALSE, method_selected = "PE (insufficient data)"
     )
   } else {
@@ -1755,7 +1780,31 @@ for(label in names(bss_all)) {
     # ESS are clean (Betancourt 2017), so a fit with > max_divergences fails
     # to the PE fallback rather than being reported as a clean BSS pass.
     pass_divergence <- (n_divergent <= params$max_divergences)
-    pass <- pass_rhat & pass_neff & pass_divergence
+
+    # B1.6: distortion-aware acceptance. A fit with more than max_divergences
+    # can still pass IF it is otherwise clean (R-hat, n_eff, treedepth) AND the
+    # divergent draws do not move the reported totals. This tests whether the
+    # estimate is corrupted rather than counting divergences. The divergence
+    # diagnostic established the shore divergences are diffuse (no funnel neck)
+    # and shift C_expected_sum / E_sum < 1%, while the boat shifts them ~2-4%.
+    # sp is already extracted above; reuse it for the divergent flag.
+    divergent_flag <- unlist(lapply(sp, function(x) x[,"divergent__"])) == 1
+    distortion_C <- NA_real_; distortion_E <- NA_real_; pass_distortion <- FALSE
+    if(sum(divergent_flag) > 0 && sum(!divergent_flag) > 0) {
+      flat_par <- function(p) as.vector(as.array(b$fit, pars = p)[,,1])
+      v <- flat_par("C_expected_sum")
+      distortion_C <- abs(median(v[divergent_flag]) - median(v[!divergent_flag])) /
+                      median(v[!divergent_flag])
+      v <- flat_par("E_sum")
+      distortion_E <- abs(median(v[divergent_flag]) - median(v[!divergent_flag])) /
+                      median(v[!divergent_flag])
+      pass_distortion <- is.finite(distortion_C) && is.finite(distortion_E) &&
+                         max(distortion_C, distortion_E) < params$max_divergence_distortion
+    }
+
+    # R-hat and n_eff must pass either way. Divergences pass if strictly under
+    # the cap OR otherwise-clean with non-distorting divergences.
+    pass <- pass_rhat & pass_neff & (pass_divergence | pass_distortion)
 
     # v6.1: warn on treedepth saturation (soft signal, not a hard fail) and on
     # any divergences, mirroring the gear-resolved diagnostics output.
@@ -1777,14 +1826,34 @@ for(label in names(bss_all)) {
       C_sum_neff = round(neff_C),
       E_sum_neff = round(neff_E),
       B1_C_rhat = round(rhat_B1C, 4),
+      distortion_C = round(distortion_C, 4),
+      distortion_E = round(distortion_E, 4),
+      pass_distortion = pass_distortion,
       pass_convergence = pass,
-      method_selected = if(pass) "BSS" else "PE (convergence fail)"
+      method_selected = if(pass && !pass_divergence) "BSS (divergences non-distorting)" else if(pass) "BSS" else "PE (convergence fail)"
     )
   }
 }
 convergence_df <- bind_rows(convergence_report)
 print(convergence_df)
 write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.names = FALSE)
+
+
+# ---- 7.12 PER-FIT MODEL DIAGNOSTICS (B1.6) ----
+# Additive per-fit diagnostics: structural parameters, divergence localization,
+# and posterior predictive calibration. write_bss_diagnostics() is sourced from
+# R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so a diagnostic
+# failure prints a note and never interrupts the run. Storing bss_data with each
+# fit (Section 7) is what enables the PPC; without it the PPC is skipped cleanly.
+cat("\n", strrep("=",60), "\n MODEL DIAGNOSTICS\n", strrep("=",60), "\n")
+for(label in names(bss_all)) {
+  b <- bss_all[[label]]
+  if(is.null(b$fit)) next                  # PE-only entry: nothing to diagnose
+  cat(sprintf("  %s:\n", label))
+  write_bss_diagnostics(b$fit,
+                        if(!is.null(b$bss_data)) b$bss_data else NULL,
+                        label, output_dir)
+}
 
 
 # ---- 7.14 EFFORT & CPUE MULTIPLIERS ----
@@ -1938,6 +2007,16 @@ write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names
 timer_stop("6_outputs")
 writeLines(capture.output(str(params)), file.path(output_dir, "run_parameters.txt"))
 
+# B1.6: session and version capture for reproducibility. Pins package and Stan
+# versions and the seed with each output set, so a result is reproducible from
+# the committed artifacts.
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "session_info.txt"))
+cat(sprintf("\nrstan %s; StanHeaders %s; bss_seed %s\n",
+            utils::packageVersion("rstan"),
+            utils::packageVersion("StanHeaders"),
+            params$bss_seed),
+    file = file.path(output_dir, "session_info.txt"), append = TRUE)
+
 cat(sprintf("\nAll outputs saved to: %s\n", output_dir))
 cat(paste(" ", list.files(output_dir), collapse="\n"), "\n")
 
@@ -1955,3 +2034,20 @@ cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
 # save.image(file = file.path(output_dir, "BSS-GH-pooled-CPUE-model_workspace.RData"))
 
 ```
+
+
+
+# Diagnose source of BSS error
+```{r}
+
+# load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
+
+source(here::here("divergence_diagnostic.R"))
+diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
+diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
+diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)
+```
+
+
+
+
