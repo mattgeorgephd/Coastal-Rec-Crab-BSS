@@ -1952,4 +1952,6 @@ print(timing_df, n = 20)
 cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
             as.numeric(run_total), as.numeric(run_total)/60))
 
+# save.image(file = file.path(output_dir, "BSS-GH-pooled-CPUE-model_workspace.RData"))
+
 ```
