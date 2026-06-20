@@ -13,8 +13,16 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
-# Version: 0.2.0 (2026-06-17). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
+# Version: 0.2.2 (2026-06-19). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
 #          Section 9 for the change history.
+#          v0.2.2 brings the BSS engine to pooled-model v6.8 parity (B1.5
+#          neg-binomial effort marginalization, B1.6 unconditional sigma_IE
+#          prior), adds a fixed RNG seed for reproducible baseline/covariate/CV
+#          fits, per-fit model diagnostics (structural params, divergence
+#          localization, posterior predictive calibration), and session capture.
+#          The module's LOO-reliability convergence gate is unchanged; the pooled
+#          model's distortion-aware gate does not apply here because LOO is more
+#          sensitive to divergences than the summed totals.
 #          v0.2.0 brings the BSS engine to pooled-model v6.5 parity (divergence
 #          gate, boat sampler tuning, per-population AR cap) and fixes the
 #          interview schema mismatch (departure-time proxy for completed trips).
@@ -140,6 +148,9 @@ params <- list(
   # v6.1 divergence gate: a fit with more than this many divergent transitions
   # is flagged as non-converged, so its LOO elpd is treated as unreliable.
   max_divergences            = 5,
+
+  # B1.6: fixed RNG seed for reproducible baseline, covariate, and CV fits.
+  bss_seed                   = 20260619,
 
   # --- Departure-time proxy (boat departure-on-flood hypothesis) ------------
   # The crab interview export records interview_time and hours_fished but no
@@ -1524,10 +1535,10 @@ kfold_time_block_cv <- function(stan_data_baseline, stan_data_covariates,
     # Refit both
     fit_b <- rstan::stan(file = here("stan_models", model_file_baseline),
                          data = train_base, chains = 2, iter = 1500, warmup = 750,
-                         cores = 2, refresh = 0)
+                         cores = 2, refresh = 0, seed = params$bss_seed)
     fit_c <- rstan::stan(file = here("stan_models", model_file_covariates),
                          data = train_cov, chains = 2, iter = 1500, warmup = 750,
-                         cores = 2, refresh = 0)
+                         cores = 2, refresh = 0, seed = params$bss_seed)
 
     # Compute log predictive density on held-out
     lpd_baseline[f]   <- compute_lpd_held_out(fit_b, test_base)
@@ -1916,6 +1927,7 @@ for(cg in "Dungeness_Kept") {
         data = bss_data_base,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
+        seed = params$bss_seed,
         cores = params$bss_cores, refresh = 0
       )
 
@@ -1926,6 +1938,7 @@ for(cg in "Dungeness_Kept") {
         data = bss_data_cov,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
+        seed = params$bss_seed,
         cores = params$bss_cores, refresh = 0
       )
 
@@ -1981,6 +1994,28 @@ if(length(bss_convergence_all) > 0) {
   print(convergence_df)
   write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"),
             row.names = FALSE)
+}
+
+
+# ---- PER-FIT MODEL DIAGNOSTICS (B1.6) ----
+# Structural parameters, divergence localization, and posterior predictive
+# calibration for every baseline and covariate fit. write_bss_diagnostics() is
+# sourced from R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so
+# a diagnostic failure prints a note and never interrupts the run. The augmented
+# Stan shares lambda_E_S / lambda_C_S / r_E / r_C with the baseline, so the same
+# diagnostics apply to both; outputs use a _baseline / _covariates suffix.
+cat("\n", strrep("=", 60), "\n MODEL DIAGNOSTICS\n", strrep("=", 60), "\n")
+for(label in names(bss_baseline_all)) {
+  e <- bss_baseline_all[[label]]
+  if(is.null(e$fit)) next
+  cat(sprintf("  %s (baseline):\n", label))
+  write_bss_diagnostics(e$fit, e$stan_data, paste0(label, "_baseline"), output_dir)
+}
+for(label in names(bss_covariate_all)) {
+  e <- bss_covariate_all[[label]]
+  if(is.null(e$fit)) next
+  cat(sprintf("  %s (covariates):\n", label))
+  write_bss_diagnostics(e$fit, e$stan_data, paste0(label, "_covariates"), output_dir)
 }
 
 
@@ -2159,6 +2194,16 @@ if(nrow(gamma_df) > 0) {
   ggsave(file.path(output_dir, "covariate_effects_forest.png"),
          p_gamma, width = 12, height = 8)
 }
+
+
+# B1.6: session and version capture for reproducibility (parallels the pooled
+# model). Pins package and Stan versions and the seed with each output set.
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "session_info.txt"))
+cat(sprintf("\nrstan %s; StanHeaders %s; bss_seed %s\n",
+            utils::packageVersion("rstan"),
+            utils::packageVersion("StanHeaders"),
+            params$bss_seed),
+    file = file.path(output_dir, "session_info.txt"), append = TRUE)
 
 
 cat("\n", strrep("=", 60), "\n DONE\n", strrep("=", 60), "\n")
