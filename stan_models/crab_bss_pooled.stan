@@ -45,19 +45,19 @@
 //   is decoupled from effort and catch, so this is inference-preserving for the
 //   reported quantities; it only makes the posterior proper.
 //
-// v6.9 (B1.7): the single-cell hierarchical scale is collapsed. With G = 1 and
-//   S = 1 (this pooled model is always single-cell), mu_E = mu_mu_E +
-//   eps_mu_E * sigma_mu_E placed 3 parameters on 1 identified quantity; with one
-//   cell sigma_mu_E is not identified (prior-dominated, heavy right tail) and
-//   formed a funnel with eps_mu_E. After B1.6 fixed sigma_IE this was the boat's
-//   last divergence source (the 59 residual divergences localized on sigma_mu_E,
-//   shifting the catch ~6%). sigma_mu_E / eps_mu_E (and the C counterparts) are
-//   removed and mu_E now equals mu_mu_E ~ normal(prior). This is NOT inference-
-//   preserving: it removes the extra HalfCauchy variance layer, which has no
-//   meaning for a single section, tightening the (still wide, SD 2 on the log
-//   scale) prior tails on mu_E. Effect is negligible where data is strong (shore)
-//   and mildly regularizing where it is weak (boat). The hierarchy must be
-//   restored for any multi-section / multi-gear (G>1 or S>1) use.
+// v6.9 (B1.7) ATTEMPTED AND REVERTED (2026-06-21). Collapsing the single-cell
+//   hierarchical scale (removing sigma_mu_E / eps_mu_E and the C counterparts so
+//   mu_E = mu_mu_E) cleared the boat funnel in offline diagnosis, but in the
+//   production run it made the shore all-gear fit hang. That fit is a daily AR
+//   over 289 days with ~50% of days unobserved; removing the level term that was
+//   decoupled from the AR forced the overall level to reconcile directly against
+//   the high-dimensional AR process, a long thin ridge the sampler traverses with
+//   maximal-length trajectories (max_treedepth saturation, ~2^14 leapfrog steps
+//   per iteration). shore ring-net (76 days, denser) completed in ~8 min; shore
+//   all-gear did not finish in 24 h, whereas v6.8 completed it with treedepth 0%.
+//   The hierarchy is restored (this file is back to the v6.8 structure). The boat
+//   stays on PE; the durable fix is a more informative boat effort series, not
+//   parameter surgery. See documentation Section 14.
 // =============================================================================
 
 data {
@@ -154,11 +154,8 @@ parameters {
   matrix[P_n-1, G*S] eps_E;
   matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
-  // B1.7: sigma_mu_E and eps_mu_E removed. With G=1, S=1 (this pooled model is
-  //       always single-cell) the hierarchical scale is a single-cell funnel:
-  //       mu_E = mu_mu_E + eps_mu_E*sigma_mu_E is 3 parameters for 1 identified
-  //       quantity, sigma_mu_E prior-dominated and unidentified. mu_E now equals
-  //       mu_mu_E directly (see transformed parameters).
+  real<lower=0> sigma_mu_E;
+  matrix[G,S] eps_mu_E;
 
   // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
   //       now marginalized into neg_binomial_2 in the model block, so the per-
@@ -178,7 +175,8 @@ parameters {
   matrix[P_n-1, G*S] eps_C;
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
-  // B1.7: sigma_mu_C and eps_mu_C removed (same single-cell funnel; mu_C = mu_mu_C).
+  real<lower=0> sigma_mu_C;
+  matrix[G,S] eps_mu_C;
 
   vector[D * estimate_L] L_raw;
 }
@@ -233,8 +231,8 @@ transformed parameters {
 
   for (g in 1:G) {
     for (s in 1:S) {
-      mu_E[g,s] = mu_mu_E[g];   // B1.7: single-cell collapse (S=1, G=1)
-      mu_C[g,s] = mu_mu_C[g];   // B1.7: single-cell collapse
+      mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
+      mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
     }
     for (d in 1:D) {
       for (s in 1:S) {
@@ -258,9 +256,8 @@ model {
   phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
   sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
-  // B1.7: sigma_mu_E / sigma_mu_C priors removed (parameters no longer exist).
-  //       value_cauchyDF_sigma_mu_* remain in the data block for R-interface
-  //       compatibility and are now unused.
+  sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);
+  sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
   B1_C ~ normal(0, value_normal_sigma_B1_C);
@@ -284,6 +281,8 @@ model {
     for (s in 1:S) {
       omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
       omega_C_0_raw[g,s] ~ std_normal();
+      eps_mu_E[g,s] ~ std_normal();
+      eps_mu_C[g,s] ~ std_normal();
     }
   }
 

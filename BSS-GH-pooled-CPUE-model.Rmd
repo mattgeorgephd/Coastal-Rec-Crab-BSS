@@ -13,15 +13,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
-# Version: v6.9 (2026-06-20) - single-cell hierarchical scale collapsed (B1.7) in
-#          crab_bss_pooled.stan and crab_bss_pooled_weather_adjusted.stan. With
-#          G=1, S=1 the effort/CPUE level mu was mu_mu + eps_mu*sigma_mu, an
-#          unidentified single-cell funnel; after B1.6 fixed sigma_IE it was the
-#          boat's last divergence source (59 residual divergences on sigma_mu_E,
-#          shifting catch ~6%). sigma_mu/eps_mu removed; mu = mu_mu. NOT inference-
-#          preserving (removes the HalfCauchy variance layer, meaningless for one
-#          section); restore the hierarchy for any G>1/S>1. RMD otherwise
-#          unchanged; only the Stan model files differ.
+# Version: v6.9 (2026-06-21) - B1.7 single-cell hierarchical scale collapse was
+#          ATTEMPTED then REVERTED: it made the shore all-gear fit hang (daily AR
+#          over 289 days with ~50% of days unobserved; removing the AR-decoupled
+#          level term forced the level to reconcile against the 289-state AR,
+#          saturating max_treedepth). Both Stan models are restored to the v6.8
+#          hierarchy. Retained v6.9 changes: hardened PPC calibration
+#          (R_functions/model_diagnostics.R) and, in the covariate module, a
+#          per-component tryCatch (v0.2.3). Boat stays on PE; the durable fix is a
+#          more informative boat effort series, not parameter surgery.
 #          v6.8 (2026-06-19) - sigma_IE proper prior unconditionally (B1.6, fixes
 #          the boat's improper flat sigma_IE direction at IE_n=0); distortion-aware
 #          divergence gate so well-mixed non-distorting shore fits use BSS not PE;
@@ -2051,7 +2051,7 @@ cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
 
 # load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
 
-source(here::here("divergence_diagnostic.R"))
+source(here::here("R_functions/divergence_diagnostic.R"))
 diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)
