@@ -86,22 +86,48 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   ndraw <- length(ex$r_E)
   use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use)) else seq_len(ndraw)
   nd  <- length(use)
-  lamE <- matrix(ex$lambda_E_S[use, 1, , 1], nrow = nd)  # [draws, D]
-  lamC <- matrix(ex$lambda_C_S[use, 1, , 1], nrow = nd)
+  # B1.7 fix: robust extraction. lambda_*_S is array[S] matrix[D,G]; rstan
+  # normally returns [iter, S, D, G], but guard against dropped size-1 dims so a
+  # shape change cannot abort the whole PPC. Want [draws, D] for the S=1, G=1
+  # pooled model.
+  get_lam <- function(arr) {
+    d <- dim(arr)
+    m <- if (length(d) == 4) arr[use, 1, , 1]
+         else if (length(d) == 3) arr[use, , 1]
+         else if (length(d) == 2) arr[use, ]
+         else stop(sprintf("unexpected lambda dims: %s", paste(d, collapse = "x")))
+    matrix(m, nrow = nd)
+  }
+  lamE <- get_lam(ex$lambda_E_S)   # [draws, D]
+  lamC <- get_lam(ex$lambda_C_S)
   rE <- ex$r_E[use]; rC <- ex$r_C[use]; RG <- ex$R_G[use]; RT <- ex$R_T[use]
 
+  # B1.7 fix: score each observation on its finite predictive draws only. An
+  # extreme lambda draw (exp() overflow in a weakly-identified fit) yields a
+  # non-finite mu, and rnbinom(mu = Inf) returns NA, which previously aborted
+  # quantile() and the entire PPC. Non-finite mu and non-finite draws are now
+  # dropped; an observation with < 20 usable draws is recorded NA and excluded.
   calib <- function(mu_mat, y, size_vec) {
-    nobs <- length(y); cov50 <- cov95 <- pit <- numeric(nobs)
+    nobs <- length(y); cov50 <- cov95 <- pit <- rep(NA_real_, nobs)
     for (i in seq_len(nobs)) {
-      yp <- stats::rnbinom(nd, mu = pmax(mu_mat[, i], 1e-8), size = size_vec)
-      qq <- stats::quantile(yp, c(.025, .25, .75, .975), names = FALSE)
+      mu_i <- pmax(mu_mat[, i], 1e-8)
+      keep <- is.finite(mu_i) & is.finite(size_vec)
+      if (sum(keep) < 20) next
+      yp <- stats::rnbinom(sum(keep), mu = mu_i[keep], size = size_vec[keep])
+      yp <- yp[is.finite(yp)]
+      if (length(yp) < 20) next
+      qq <- stats::quantile(yp, c(.025, .25, .75, .975), names = FALSE, na.rm = TRUE)
       cov50[i] <- y[i] >= qq[2] && y[i] <= qq[3]
       cov95[i] <- y[i] >= qq[1] && y[i] <= qq[4]
       pit[i]   <- mean(yp < y[i]) + 0.5 * mean(yp == y[i])
     }
-    list(summary = data.frame(coverage_50 = mean(cov50), coverage_95 = mean(cov95),
-                              pit_mean = mean(pit), pit_sd = stats::sd(pit), n = nobs),
-         pit = pit)
+    usable <- is.finite(pit)
+    list(summary = data.frame(coverage_50 = mean(cov50, na.rm = TRUE),
+                              coverage_95 = mean(cov95, na.rm = TRUE),
+                              pit_mean = mean(pit, na.rm = TRUE),
+                              pit_sd = stats::sd(pit, na.rm = TRUE),
+                              n = sum(usable), n_obs = nobs),
+         pit = pit[usable])
   }
 
   parts <- list()

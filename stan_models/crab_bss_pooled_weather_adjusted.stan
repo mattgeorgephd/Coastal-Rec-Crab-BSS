@@ -67,6 +67,13 @@
 //   crab_bss_pooled.stan). Fixes the improper flat sigma_IE direction when
 //   IE_n = 0 (the boat), which drifted to ~1e307 and drove divergences.
 //   Inference-preserving for the reported quantities.
+//
+// v6.9 (B1.7): single-cell hierarchical scale collapsed (matching
+//   crab_bss_pooled.stan). sigma_mu_E / eps_mu_E and the C counterparts removed;
+//   mu_E = mu_mu_E ~ normal(prior). With G = S = 1 the scale was an unidentified
+//   single-cell funnel and, after B1.6, the boat's last divergence source. NOT
+//   inference-preserving (removes the HalfCauchy variance layer, tightening the
+//   still-wide prior tails on mu_E); restore the hierarchy for any G>1 / S>1 use.
 // =============================================================================
 
 data {
@@ -179,8 +186,11 @@ parameters {
   matrix[P_n-1, G*S] eps_E;
   matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
-  real<lower=0> sigma_mu_E;
-  matrix[G,S] eps_mu_E;
+  // B1.7: sigma_mu_E and eps_mu_E removed. With G=1, S=1 (this pooled model is
+  //       always single-cell) the hierarchical scale is a single-cell funnel:
+  //       mu_E = mu_mu_E + eps_mu_E*sigma_mu_E is 3 parameters for 1 identified
+  //       quantity, sigma_mu_E prior-dominated and unidentified. mu_E now equals
+  //       mu_mu_E directly (see transformed parameters).
 
   // B1.5: eps_E_H_obs[n_effort_obs] removed; effort-count overdispersion is now
   //       marginalized into neg_binomial_2 in the model block. n_effort_obs is
@@ -198,8 +208,7 @@ parameters {
   matrix[P_n-1, G*S] eps_C;
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
-  real<lower=0> sigma_mu_C;
-  matrix[G,S] eps_mu_C;
+  // B1.7: sigma_mu_C and eps_mu_C removed (same single-cell funnel; mu_C = mu_mu_C).
 
   vector[D * estimate_L] L_raw;
 
@@ -255,8 +264,8 @@ transformed parameters {
 
   for (g in 1:G) {
     for (s in 1:S) {
-      mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
-      mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
+      mu_E[g,s] = mu_mu_E[g];   // B1.7: single-cell collapse (S=1, G=1)
+      mu_C[g,s] = mu_mu_C[g];   // B1.7: single-cell collapse
     }
     for (d in 1:D) {
       for (s in 1:S) {
@@ -289,8 +298,9 @@ model {
   phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
   sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
-  sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);
-  sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
+  // B1.7: sigma_mu_E / sigma_mu_C priors removed (parameters no longer exist).
+  //       value_cauchyDF_sigma_mu_* remain in the data block for R-interface
+  //       compatibility and are now unused.
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
   B1_C ~ normal(0, value_normal_sigma_B1_C);
@@ -314,8 +324,6 @@ model {
     for (s in 1:S) {
       omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
       omega_C_0_raw[g,s] ~ std_normal();
-      eps_mu_E[g,s] ~ std_normal();
-      eps_mu_C[g,s] ~ std_normal();
     }
   }
 

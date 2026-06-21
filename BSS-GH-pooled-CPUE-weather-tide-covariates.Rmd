@@ -13,8 +13,12 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
 ###############################################################################
 # Crab Creel Estimation, Westport / Grays Harbor
 # Weather & Tide Covariate Module
-# Version: 0.2.2 (2026-06-19). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
+# Version: 0.2.3 (2026-06-20). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
 #          Section 9 for the change history.
+#          v0.2.3 inherits pooled-model v6.9 (B1.7, single-cell hierarchical scale
+#          collapsed in the shared augmented Stan model) and wraps each component's
+#          fit + LOO in a tryCatch so one failing component no longer aborts the
+#          whole module run.
 #          v0.2.2 brings the BSS engine to pooled-model v6.8 parity (B1.5
 #          neg-binomial effort marginalization, B1.6 unconditional sigma_IE
 #          prior), adds a fixed RNG seed for reproducible baseline/covariate/CV
@@ -1880,6 +1884,11 @@ for(cg in "Dungeness_Kept") {
       # Effort and CPUE features for this pop (apply to BOTH subseasons, but
       # note that sub-season 1 is ring-net-only and sub-season 2 is all-gear.
       # Biology may differ; optionally screen per sub-season.)
+      # v0.2.3: wrap the per-component fit + LOO so one component that fails (a
+      # divergent augmented fit, a LOO/k-fold error, an out-of-memory) logs and
+      # the module continues to the next component, the convergence report, and
+      # the diagnostics, instead of aborting the whole run.
+      tryCatch({
       eff_feat <- selected_features[[pop]]$effort
       cpue_feat <- selected_features[[pop]]$cpue
 
@@ -1981,6 +1990,10 @@ for(cg in "Dungeness_Kept") {
       write.csv(tibble(obs = seq_along(k_b), k_baseline = k_b, k_covariates = k_c),
                 file.path(output_dir, sprintf("pareto_k_%s.csv", label)),
                 row.names = FALSE)
+      }, error = function(e) {
+        cat(sprintf("  ERROR on %s: %s\n  Skipping this component; continuing.\n",
+                    label, conditionMessage(e)))
+      })
     }
   }
 }
