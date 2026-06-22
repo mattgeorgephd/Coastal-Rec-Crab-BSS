@@ -13,7 +13,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
-# Version: v6.9 (2026-06-21) - B1.7 single-cell hierarchical scale collapse was
+# Version: v6.9.1 (2026-06-22) - added monthly catch BY CRABBING MODE (section
+#          7.8b): plot_monthly_catch_by_mode.png (grouped bars),
+#          plot_monthly_catch_by_mode_facet.png (free-y panels), and
+#          monthly_estimates_by_mode.csv. Each mode carries a per-month 95%
+#          interval; the uncertainty source matches the selected method (shore =
+#          BSS posterior; private boat = PE point with design-based effort SE,
+#          a lower bound; commercial/charter = census with catch-per-vessel CV).
+#          No change to the model or to the existing total monthly graph.
+#          v6.9 (2026-06-21) - B1.7 single-cell hierarchical scale collapse was
 #          ATTEMPTED then REVERTED: it made the shore all-gear fit hang (daily AR
 #          over 289 days with ~50% of days unobserved; removing the AR-decoupled
 #          level term forced the level to reconcile against the 289-state AR,
@@ -1656,6 +1664,170 @@ p_monthly <- monthly_summary |>
        x = "Month", y = "Dungeness crab caught") +
   theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave(file.path(output_dir, "plot_monthly_catch.png"), p_monthly, width = 12, height = 6)
+
+
+# ===========================================================================
+# 7.8b MONTHLY ESTIMATES BY CRABBING MODE (with per-mode uncertainty)
+# ===========================================================================
+# Companion to plot_monthly_catch.png. Breaks the monthly Dungeness catch out by
+# crabbing mode, each month with a 95% interval. The uncertainty source matches
+# the method actually selected for each component (convergence_report / pe_vs_bss):
+#   Shore  (BSS, both sub-seasons): full posterior. Monthly catch draws are summed
+#          from the daily C_expected draws, then 2.5/50/97.5 quantiles.
+#   Private Boat (PE, both sub-seasons): the selected PE point is distributed
+#          across months by monthly effort share, then given a design-based
+#          relative SE (stratified effort SE / effort total) applied as ONE
+#          per-component lognormal scale shared across months, so the monthly
+#          catches move together and the boat total carries that relative SE.
+#          NOTE: this captures effort sampling uncertainty (the dominant source
+#          for the trailer-count series) but NOT CPUE sampling uncertainty, so
+#          the boat interval is a lower bound. The boat BSS posterior CV (~27%)
+#          is the fuller characterization. If the boat is later moved to BSS
+#          (e.g. a scale-aware gate), this block auto-switches to the posterior.
+#   Commercial/Charter (census): point distributed by sampled-harvest share with
+#          a catch-per-vessel sampling CV as the relative SE (small, high coverage).
+# KNOWN ISSUE (shared with 7.8): the PE monthly effort share uses
+# crabbers_per_gear * day_length, which for the boat is day_length-weighted
+# rather than the flat 24 h gear-hours run_pe() uses; this slightly over-weights
+# long-day summer months in the monthly *distribution* (totals are unaffected).
+# Fix 7.8 and 7.8b together in a later pass for consistency with run_pe().
+cat("\n", strrep("=",60), "\n MONTHLY ESTIMATES BY MODE\n", strrep("=",60), "\n")
+
+modes_lvl <- c("Shore", "Private Boat", "Commercial/Charter")
+mk_mat <- function() matrix(0, nrow = n_draws_max, ncol = length(all_months),
+                            dimnames = list(NULL, all_months))
+bymode_C <- setNames(lapply(modes_lvl, function(x) mk_mat()), modes_lvl)
+
+# lognormal scale, mean 1, target relative SE (mean-preserving)
+rln_scale <- function(n, rel_se) {
+  rel_se <- max(rel_se, 1e-4)
+  sdlog  <- sqrt(log(1 + rel_se^2))
+  exp(stats::rnorm(n, -sdlog^2 / 2, sdlog))
+}
+
+for(cg in bss_catch_groups) {
+  for(pop in c("shore","private_boat")) {
+    mode_nm <- if(pop == "shore") "Shore" else "Private Boat"
+    for(ss in list(subseason_1, subseason_2)) {
+      label    <- paste0(pop, "_", ss$name, "_", cg)
+      pe_label <- paste0(pop, "_", ss$name)
+      b <- bss_all[[label]]
+
+      days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
+                                params$period_pe, params$sections, L_eff_model = L_eff_model)
+      days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
+
+      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+        summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+        pe_daily <- summ_ss$effort_index |>
+          filter(count_sequence <= params$bss_max_count_seq) |>
+          group_by(event_date) |>
+          summarise(mean_count = mean(count_quantity), .groups = "drop") |>
+          left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
+          mutate(daily_effort = mean_count * summ_ss$crabbers_per_gear * day_length)
+        monthly_pe <- pe_daily |>
+          group_by(month_label) |>
+          summarise(month_effort = sum(daily_effort, na.rm = TRUE), .groups = "drop") |>
+          mutate(share = month_effort / sum(month_effort))
+
+        pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
+        eff_total <- pe_all[[pe_label]]$effort_total %||% NA_real_
+        eff_se    <- pe_all[[pe_label]]$effort_se %||% NA_real_
+        rel_se <- if(!is.na(eff_total) && eff_total > 0 && !is.na(eff_se) && eff_se > 0)
+                    eff_se / eff_total else 0.30
+        scale_draws <- rln_scale(n_draws_max, rel_se)   # common effort-level uncertainty
+
+        for(m in monthly_pe$month_label) {
+          if(m %in% all_months) {
+            sh <- monthly_pe$share[monthly_pe$month_label == m]
+            bymode_C[[mode_nm]][, m] <- bymode_C[[mode_nm]][, m] + (pe_catch_total * sh) * scale_draws
+          }
+        }
+      } else {
+        C_exp_bss   <- rstan::extract(b$fit, "C_expected")$C_expected
+        n_fit_draws <- dim(C_exp_bss)[1]
+        C_daily_mat <- C_exp_bss[,1,,1]
+        for(m in unique(days_ss$month_label)) {
+          day_idx <- which(days_ss$month_label == m)
+          if(length(day_idx) == 0 || !(m %in% all_months)) next
+          month_C <- if(length(day_idx)==1) C_daily_mat[, day_idx] else rowSums(C_daily_mat[, day_idx])
+          idx <- rep_len(1:n_fit_draws, n_draws_max)
+          bymode_C[[mode_nm]][, m] <- bymode_C[[mode_nm]][, m] + month_C[idx]
+        }
+      }
+    }
+  }
+}
+
+# Commercial/charter (census): distribute by sampled-harvest share, with a
+# catch-per-vessel sampling CV as the relative SE (robust fallback if unavailable).
+if(!is.null(pe_all$comm_charter$daily_est)) {
+  comm_daily    <- pe_all$comm_charter$daily_est |> mutate(month_label = format(date, "%Y-%m"))
+  comm_total    <- pe_all$comm_charter$Dungeness_Kept %||% 0
+  total_sampled <- sum(comm_daily$est_dung)
+  rel_se_comm <- tryCatch({
+    cpv <- dwg$interview |> filter(population == "comm_charter") |> pull(dungeness_kept)
+    cpv <- cpv[is.finite(cpv)]
+    if(length(cpv) > 1 && mean(cpv) > 0) (sd(cpv) / sqrt(length(cpv))) / mean(cpv) else 0.12
+  }, error = function(e) 0.12)
+  scale_comm <- rln_scale(n_draws_max, rel_se_comm)
+  if(total_sampled > 0) {
+    for(m in unique(comm_daily$month_label)) {
+      if(m %in% all_months) {
+        sh <- sum(comm_daily$est_dung[comm_daily$month_label == m]) / total_sampled
+        bymode_C[["Commercial/Charter"]][, m] <- bymode_C[["Commercial/Charter"]][, m] + (comm_total * sh) * scale_comm
+      }
+    }
+  }
+}
+
+monthly_bymode <- purrr::map_dfr(modes_lvl, function(md) {
+  M <- bymode_C[[md]]
+  tibble(
+    Mode   = md,
+    Month  = all_months,
+    median = apply(M, 2, median),
+    lo95   = apply(M, 2, quantile, probs = 0.025),
+    hi95   = apply(M, 2, quantile, probs = 0.975)
+  )
+}) |>
+  mutate(Mode  = factor(Mode, levels = modes_lvl),
+         Month = factor(Month, levels = all_months),
+         across(c(median, lo95, hi95), round))
+
+print(monthly_bymode, n = nrow(monthly_bymode))
+write.csv(monthly_bymode, file.path(output_dir, "monthly_estimates_by_mode.csv"), row.names = FALSE)
+
+mode_cols <- c("Shore" = "#2c7fb8", "Private Boat" = "#d95f0e", "Commercial/Charter" = "#31a354")
+
+# (1) Grouped (dodged) bars, one colour per mode, with 95% interval error bars.
+p_bymode_dodge <- monthly_bymode |>
+  ggplot(aes(x = Month, y = median, fill = Mode)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75, alpha = 0.85) +
+  geom_errorbar(aes(ymin = lo95, ymax = hi95),
+                position = position_dodge(width = 0.8), width = 0.3) +
+  scale_fill_manual(values = mode_cols) +
+  labs(title = "Monthly Dungeness Catch by Crabbing Mode",
+       subtitle = "Median with 95% interval. Shore: BSS posterior. Private Boat: PE point, design-based effort SE (lower bound). Commercial/Charter: census, catch-per-vessel CV.",
+       x = "Month", y = "Dungeness crab caught", fill = "Mode") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "top")
+ggsave(file.path(output_dir, "plot_monthly_catch_by_mode.png"), p_bymode_dodge, width = 13, height = 6)
+
+# (2) Faceted companion (free y) so shore and commercial panels stay readable
+# next to the larger boat panel.
+p_bymode_facet <- monthly_bymode |>
+  ggplot(aes(x = Month, y = median, fill = Mode)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = lo95, ymax = hi95), width = 0.3) +
+  scale_fill_manual(values = mode_cols) +
+  facet_wrap(~Mode, ncol = 1, scales = "free_y") +
+  labs(title = "Monthly Dungeness Catch by Crabbing Mode",
+       subtitle = "Median with 95% interval (free y-axis per panel)",
+       x = "Month", y = "Dungeness crab caught") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")
+ggsave(file.path(output_dir, "plot_monthly_catch_by_mode_facet.png"), p_bymode_facet, width = 12, height = 9)
 
 
 # ===========================================================================

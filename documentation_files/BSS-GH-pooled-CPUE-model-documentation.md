@@ -259,6 +259,9 @@ Each run produces output in `output/YYYYMMDD/`:
 | `pe_port_summary.csv`           | PE estimates by component and port total               |
 | `port_total_Dungeness_Kept.csv` | Combined PE + BSS port total (expected and predictive) |
 | `monthly_estimates.csv`         | Monthly catch and effort with credible intervals       |
+| `monthly_estimates_by_mode.csv` | Monthly catch by crabbing mode with 95% intervals (v6.9.1) |
+| `plot_monthly_catch_by_mode.png` | Grouped monthly catch bars, one colour per mode, with 95% intervals (v6.9.1) |
+| `plot_monthly_catch_by_mode_facet.png` | Faceted (free-y) monthly catch by mode with 95% intervals (v6.9.1) |
 | `catch_by_mode.csv`             | Catch by crabbing mode (shore, boat, commercial)       |
 | `catch_by_gear_type.csv`        | Catch by gear type (proportional allocation)           |
 | `convergence_report.csv`        | Diagnostics per BSS fit: R-hat, n_eff, divergences, treedepth, AR resolution, and the divergent-vs-bulk distortion of the totals (v6.8) |
@@ -365,6 +368,13 @@ Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.C. (2021). Ra
 ## 14. Version History
 
 Versions continue the shared milestone sequence used in `README.md` (which documents v1--v5). The pooled and gear-resolved tracks have interleaved since v5; the gear-resolved documentation maintains its own v5.x change log. If a different numbering scheme is preferred, these entries can be renumbered.
+
+### v6.9.1 (2026-06-22), Monthly catch by crabbing mode
+
+-   **Added a by-mode monthly catch graph (section 7.8b)**, a companion to the existing total `plot_monthly_catch.png`. It breaks the monthly Dungeness catch out by crabbing mode, each month with a 95% interval, in two views: `plot_monthly_catch_by_mode.png` (grouped bars, one colour per mode) and `plot_monthly_catch_by_mode_facet.png` (one free-y panel per mode, so the shore and commercial panels stay readable next to the larger boat panel). The per-mode monthly draws are written to `monthly_estimates_by_mode.csv`.
+-   **The uncertainty source matches the method selected for each component.** Shore (BSS on both sub-seasons) uses the full posterior: monthly catch draws are summed from the daily `C_expected` draws and quantiled. Private boat (PE on both sub-seasons in this run) distributes the selected PE point across months by monthly effort share and applies a design-based relative SE (stratified effort SE / effort total) as a single per-component lognormal scale shared across months, so the monthly catches move together and the boat total carries that relative SE. This captures effort sampling uncertainty, the dominant source for the trailer-count series, but not CPUE sampling uncertainty, so the boat interval is a lower bound; the boat BSS posterior CV (about 27%) is the fuller characterization. Commercial/charter (census) distributes by sampled-harvest share with the catch-per-vessel sampling CV as the relative SE. The block reads `b$pe_fallback`, so if a component is later moved to BSS (for example by a scale-aware gate) it switches automatically to the posterior.
+-   **Known issue (shared with section 7.8):** the PE monthly effort share uses `crabbers_per_gear * day_length`, which for the boat is day-length-weighted rather than the flat 24 h gear-hours that `run_pe()` uses, so it slightly over-weights long-day summer months in the monthly *distribution* (component totals are unaffected). This is flagged for a later pass that fixes 7.8 and 7.8b together for consistency with `run_pe()`.
+-   No change to the model, the convergence gate, or the existing total monthly graph. Files changed: `BSS-GH-pooled-CPUE-model.Rmd` (section 7.8b added; header updated); this documentation.
 
 ### v6.9 (2026-06-21), B1.7 single-cell collapse attempted and reverted; PPC calibration hardened
 
