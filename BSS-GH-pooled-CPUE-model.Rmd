@@ -13,7 +13,42 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
-# Version: v6.9.1 (2026-06-22) - added monthly catch BY CRABBING MODE (section
+# Version: v7.0 (2026-06-22) - three changes.
+#          (1) SCALE-AWARE CONVERGENCE GATE (B1.8). The legacy gate normalized
+#          the divergent-vs-bulk median shift by the LEVEL of the estimate, so it
+#          failed a fit for having a WIDE posterior rather than a BIASED one: the
+#          boat all-gear fit (catch CV ~27%) read a statistically ordinary
+#          divergent shift as 6.4% and failed the fixed 2% level threshold, while
+#          identical-significance shore shifts (~1.5 SE) read ~1% and passed. The
+#          gate now measures how far the REPORTED total (full-posterior median)
+#          moves when divergent draws are dropped, in units of the posterior SD:
+#          impact = |median(all) - median(bulk)| / sd(all), passing under
+#          max_divergence_total_impact_sd (0.10), with a hard divergent-FRACTION
+#          backstop max_divergence_fraction (0.15). On the 2024-25 data all three
+#          fits pass (impact <= 0.009 SD); the boat moves from PE-labeled to BSS.
+#          The gate decision (use_bss) is computed once in 7.6b and now drives
+#          method selection in 7.7/7.8/7.8b; previously those keyed off
+#          pe_fallback (data sufficiency) ONLY and the gate was decorative, so the
+#          boat was already summed as BSS in the totals. The port total is
+#          therefore UNCHANGED (~100,448 expected catch); convergence_report.csv
+#          and pe_vs_bss_comparison.csv now LABEL the boat BSS, consistent with
+#          the totals, and the gate is authoritative for any future fit.
+#          (2) MONTHLY PE EFFORT-SHARE DAY-LENGTH FIX (7.8 and 7.8b). The PE
+#          monthly effort share used crabbers_per_gear * day_length for all
+#          populations; for boats run_pe() uses flat L=24 h gear-hours, so the
+#          share over-weighted long-day summer months. The PE share is now
+#          population-aware (boats: mean_count * gear_per_group * 24, which is
+#          day-length-free in the normalized share; shore: unchanged). Affects
+#          the boat ring-net monthly DISTRIBUTION only; totals are unaffected.
+#          (3) PPC ROOT-CAUSE FIX (R_functions/model_diagnostics.R). The hardened
+#          v6.9 PPC still wrote no ppc_calibration_/ppc_pit_ files: every fit
+#          aborted with "non-conformable arrays". rstan::extract returns a SCALAR
+#          (r_E, r_C, R_G, R_T) as a 1-D array that keeps a length-1 dim, which
+#          single-bracket indexing preserves; lambda[, day] * R_G then multiplied
+#          a 2-D by a 1-D array (both dimmed) and threw. The B1.7 attempt hardened
+#          lambda extraction, not the scalars, so it missed. Scalars are now
+#          coerced with as.numeric(); the PPC writes for all fits.
+#          v6.9.1 (2026-06-22) - added monthly catch BY CRABBING MODE (section
 #          7.8b): plot_monthly_catch_by_mode.png (grouped bars),
 #          plot_monthly_catch_by_mode_facet.png (free-y panels), and
 #          monthly_estimates_by_mode.csv. Each mode carries a per-month 95%
@@ -44,9 +79,9 @@ knitr::opts_chunk$set(echo = TRUE)
 #          See documentation Section 14.
 #
 # Three population components estimated independently:
-#   1. Shore crabbers (dock + jetty + beach) — BSS + PE
-#   2. Private boat crabbers — BSS + PE
-#   3. Commercial/charter boats — Census/tally
+#   1. Shore crabbers (dock + jetty + beach) - BSS + PE
+#   2. Private boat crabbers - BSS + PE
+#   3. Commercial/charter boats - Census/tally
 #
 # Two gear-regime sub-seasons:
 #   Sub-season 1: Ring-net only (Sep 16 – Nov 30, no pots)
@@ -162,22 +197,59 @@ params <- list(
 
   bss_min_interviews = 20,
 
-  # --- Convergence divergence criterion (v6.1, ported from gear-resolved v5.2) ---
-  # Maximum divergent transitions allowed for a BSS fit to pass. Divergences
-  # bias the posterior even when R-hat and ESS look clean (Betancourt 2017),
-  # so they are now part of the pass/fail gate rather than recorded-but-ignored.
-  #   0 = strict (any divergence fails); 5 = permissive.
-  # Matches the gear-resolved default so both model tracks apply one standard.
-  max_divergences = 5,
+  # --- B1.8: SCALE-AWARE convergence gate -------------------------------------
+  # The gate exists to reject a BSS fit whose divergent transitions have BIASED
+  # the reported totals, while still accepting a fit whose divergences are
+  # diffuse and harmless (Betancourt 2017). The earlier gate (v6.1 max_divergences,
+  # B1.6 max_divergence_distortion) measured the WRONG thing for that purpose.
+  #
+  # The flaw: B1.6 normalized the divergent-vs-bulk median shift by the LEVEL of
+  # the estimate, |median(div) - median(bulk)| / median(bulk). That ratio scales
+  # with posterior WIDTH, not with bias. A weakly-identified component with a wide
+  # posterior reads a large percentage even when the divergent draws sit a
+  # perfectly ordinary distance (in SD units) from the bulk. On the 2024-25 data
+  # the boat all-gear catch CV is ~27% versus the shore's ~8-10%, so its 59/10000
+  # divergent draws read 6.4% on the level scale and failed the 2% threshold,
+  # while the shore fits (~1.5 SE shifts) read ~1% and passed. Both are the same
+  # statistical event; only the posterior width differs. A fit penalized for being
+  # wide rather than biased mis-handles every future weakly-identified component.
+  #
+  # The fix: measure the divergent draws' impact on the reported TOTAL in units of
+  # that total's posterior SD, not as a fraction of its level. For C_expected_sum
+  # and E_sum,
+  #     impact = |median(all_draws) - median(bulk_draws)| / sd(all_draws)
+  # and a fit passes the impact test when max(impact_C, impact_E) is below
+  # max_divergence_total_impact_sd. This is scale-invariant: it asks whether the
+  # divergences move the answer relative to how well the answer is pinned down,
+  # which is exactly what the gate is meant to protect. On the 2024-25 data all
+  # three fits' impacts are < 0.01 SD (boat 0.0014 SD), so all three pass and the
+  # boat moves from PE to BSS. The boat BSS catch (~56,266, CV ~27%) is reported
+  # with its wide interval rather than substituted by the narrower PE point
+  # (~63,864); the wide interval is the honest characterization of a component
+  # identified by ~6-16 interviews/month in summer.
+  #
+  # 0.10 SD is conservative: a shift of one tenth of a standard deviation in the
+  # summed total is far below the threshold of practical concern for an annual
+  # harvest estimate, yet large enough that a genuinely biasing funnel (the case
+  # the gate must catch) would exceed it.
+  max_divergence_total_impact_sd = 0.10,
 
-  # --- B1.6: distortion-aware divergence acceptance ---
-  # A fit with more than max_divergences can still pass IF it is otherwise clean
-  # (R-hat, n_eff, treedepth) AND the divergent draws do not move the reported
-  # totals. max_divergence_distortion is the largest fractional shift in
-  # C_expected_sum / E_sum between divergent and non-divergent draws still
-  # accepted. The divergence diagnostic showed the shore divergences are diffuse
-  # (no funnel neck) and shift the totals < 1%, while the boat shifts them ~2-4%;
-  # this accepts shore and rejects the boat. 0.02 is conservative.
+  # Hard backstop independent of the impact test: a fit with more than this
+  # FRACTION of post-warmup draws divergent is rejected outright regardless of
+  # how little the totals move, because at that divergence rate the geometry is
+  # untrustworthy and the summed-total impact is not a sufficient summary. 0.15
+  # (15%) is well above the 2024-25 fits (boat 0.6%, shore 4.4-4.9%) and well
+  # below a pathological fit (the 2026-04-08 boat run diverged on ~100%).
+  max_divergence_fraction = 0.15,
+
+  # --- DEPRECATED gate parameters (retained for reference; no longer gating) ---
+  # max_divergences (v6.1) and max_divergence_distortion (B1.6) are superseded by
+  # the scale-aware gate above. They are kept here, and the level-normalized
+  # distortion is still COMPUTED and reported in convergence_report.csv
+  # (distortion_C / distortion_E columns) for continuity with prior runs, but
+  # neither value participates in the pass/fail decision. Do not reintroduce them
+  # into the gate without reading the B1.8 rationale above.
+  max_divergences = 5,
   max_divergence_distortion = 0.02,
 
   # --- B1.6: fixed RNG seed for reproducible fits ---
@@ -520,7 +592,7 @@ fetch_ie_data <- function(params) {
 
 
 # ===========================================================================
-# 1.6 L_EFFECTIVE MODEL — Regression with uncertainty propagation
+# 1.6 L_EFFECTIVE MODEL - Regression with uncertainty propagation
 #
 # Fits a
 # regression of log(L_effective) on day-of-year (quadratic) and day type.
@@ -592,7 +664,7 @@ estimate_L_effective <- function(ie_data, pot_open_date, params) {
 
   } else {
     # --- Fallback: grand mean with empirical SD ---
-    cat(sprintf("  Fewer than %d I/E obs — using grand mean fallback.\n",
+    cat(sprintf("  Fewer than %d I/E obs - using grand mean fallback.\n",
                 params$ie_min_obs_for_regression))
     grand_mean_log <- mean(ie_shore$log_L)
     grand_sd_log <- max(sd(ie_shore$log_L), 0.2)
@@ -634,7 +706,7 @@ estimate_L_effective <- function(ie_data, pot_open_date, params) {
 
 
 # ===========================================================================
-# 2. PREP DAYS — Build calendar with L_mu and L_sigma per day
+# 2. PREP DAYS - Build calendar with L_mu and L_sigma per day
 #
 # Stores both L_mu (predicted median) and L_prior_sigma
 # lookup value, store both L_mu (predicted median) and L_prior_sigma
@@ -700,7 +772,7 @@ prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period
 
 
 # ===========================================================================
-# 3. SUMMARIZE DATA — Filter to population × sub-season
+# 3. SUMMARIZE DATA - Filter to population × sub-season
 # ===========================================================================
 
 prep_population_summary <- function(dwg, population_name, date_start, date_end, params) {
@@ -741,7 +813,7 @@ prep_population_summary <- function(dwg, population_name, date_start, date_end, 
 
 
 # ===========================================================================
-# 4. PE METHOD — (unchanged from v1)
+# 4. PE METHOD - (unchanged from v1)
 # ===========================================================================
 
 run_pe <- function(summ, days, params, population_name) {
@@ -812,7 +884,7 @@ run_pe <- function(summ, days, params, population_name) {
 
 
 # ===========================================================================
-# 5. BSS PREP — Build Stan data list for crab_bss_pooled.stan
+# 5. BSS PREP - Build Stan data list for crab_bss_pooled.stan
 #
 # ADAPTIVE AR RESOLUTION: Selects daily, weekly, or monthly AR based on
 # effort data density. Dense data → daily AR for smooth interpolation.
@@ -1493,12 +1565,158 @@ for(cg in bss_catch_groups) {
 timer_stop("5_BSS_model_runs")
 
 
+# ---- 7.6b SCALE-AWARE CONVERGENCE GATE (B1.8) ----
+# Compute the pass/fail gate ONCE per fit here, immediately after fitting, and
+# store the decision (use_bss) plus a full diagnostic row (gate_info) on each
+# bss_all entry. Sections 7.7, 7.8, and 7.8b consume use_bss through use_pe_for()
+# below, and 7.11 simply assembles the stored gate_info rows. This makes the gate
+# the single authoritative source of method selection: previously 7.7/7.8/7.8b
+# keyed off pe_fallback (data sufficiency) alone, so a fit with enough data but a
+# failed gate would still have been summed into the BSS totals. Wiring use_bss
+# into the totals closes that gap. On the 2024-25 data all three fitted
+# components pass the scale-aware gate, so the port total is unchanged; but a
+# future weakly-identified fit that fails the gate now correctly falls back to PE
+# everywhere, not only in the report labels.
+cat("\n", strrep("=",60), "\n CONVERGENCE GATE (scale-aware, B1.8)\n", strrep("=",60), "\n")
+
+compute_gate <- function(b, label) {
+  # PE-only entry (insufficient data): no fit to gate.
+  if(is.null(b$fit) || (!is.null(b$pe_fallback) && b$pe_fallback)) {
+    return(tibble(
+      fit = label, ar_resolution = NA_character_,
+      divergences = NA_integer_, divergence_fraction = NA_real_, treedepth_pct = NA_real_,
+      C_sum_rhat = NA_real_, E_sum_rhat = NA_real_, C_sum_neff = NA_real_, E_sum_neff = NA_real_,
+      B1_C_rhat = NA_real_,
+      impact_C_sd = NA_real_, impact_E_sd = NA_real_,
+      distortion_C = NA_real_, distortion_E = NA_real_,
+      pass_rhat = FALSE, pass_neff = FALSE, pass_div_fraction = FALSE, pass_impact = FALSE,
+      pass_convergence = FALSE, method_selected = "PE (insufficient data)"
+    ))
+  }
+
+  sp <- rstan::get_sampler_params(b$fit, inc_warmup = FALSE)
+  n_divergent <- sum(sapply(sp, function(x) sum(x[,"divergent__"])))
+  n_treedepth <- sum(sapply(sp, function(x) sum(x[,"treedepth__"] >=
+    b$fit@stan_args[[1]]$control$max_treedepth)))
+  n_total <- sum(sapply(sp, nrow))
+  div_frac <- if(n_total > 0) n_divergent / n_total else NA_real_
+
+  summ <- summary(b$fit, pars = c("C_sum","C_expected_sum","E_sum","B1_C_out"))$summary
+  rhat_C <- summ["C_expected_sum","Rhat"]; rhat_E <- summ["E_sum","Rhat"]
+  neff_C <- summ["C_expected_sum","n_eff"]; neff_E <- summ["E_sum","n_eff"]
+  rhat_B1C <- summ["B1_C_out","Rhat"]
+
+  pass_rhat <- max(rhat_C, rhat_E, na.rm = TRUE) < 1.01   # Vehtari et al. 2021
+  pass_neff <- min(neff_C, neff_E, na.rm = TRUE) > 400
+
+  # Divergent-draw flag, aligned to the flattened draw vector. get_sampler_params
+  # returns a per-chain list; unlist() concatenates chain-major (all chain 1
+  # iterations, then chain 2, ...). as.array(fit)[,,1] flattened with as.numeric()
+  # is also chain-major (column-major over [iteration, chain]), so the flag and
+  # the draws line up element-for-element.
+  divergent_flag <- unlist(lapply(sp, function(x) x[,"divergent__"])) == 1
+  flat_par <- function(p) as.numeric(as.array(b$fit, pars = p)[,,1])
+
+  # --- Scale-aware impact: divergent draws' shift in the reported total, in SD ---
+  # impact = |median(all draws) - median(bulk draws)| / sd(all draws). Scale-
+  # invariant (units of posterior SD), so it does not penalize a wide posterior;
+  # it measures whether the divergences move the answer relative to how well the
+  # answer is pinned down. This is the gating criterion (B1.8).
+  impact_sd <- function(p) {
+    v  <- flat_par(p)
+    vb <- v[!divergent_flag]
+    s  <- sd(v)
+    if(!is.finite(s) || s <= 0 || length(vb) == 0) return(NA_real_)
+    abs(median(v) - median(vb)) / s
+  }
+  # --- Legacy level-distortion: reported for continuity, NOT gating (B1.8) ------
+  # |median(div) - median(bulk)| / median(bulk). Scales with posterior width, so
+  # it is retained only as a reported column, never in the pass/fail decision.
+  level_distortion <- function(p) {
+    v <- flat_par(p)
+    if(sum(divergent_flag) == 0 || sum(!divergent_flag) == 0) return(NA_real_)
+    mb <- median(v[!divergent_flag])
+    if(!is.finite(mb) || mb == 0) return(NA_real_)
+    abs(median(v[divergent_flag]) - mb) / mb
+  }
+
+  if(n_divergent > 0) {
+    impact_C <- impact_sd("C_expected_sum"); impact_E <- impact_sd("E_sum")
+    distortion_C <- level_distortion("C_expected_sum"); distortion_E <- level_distortion("E_sum")
+  } else {
+    # No divergences: nothing to distort. Impact is zero by construction.
+    impact_C <- 0; impact_E <- 0
+    distortion_C <- 0; distortion_E <- 0
+  }
+
+  pass_impact <- is.finite(impact_C) && is.finite(impact_E) &&
+                 max(impact_C, impact_E) < params$max_divergence_total_impact_sd
+  pass_div_fraction <- is.finite(div_frac) && (div_frac < params$max_divergence_fraction)
+
+  # Final gate: chains mixed (R-hat), enough effective draws (n_eff), divergence
+  # fraction under the hard backstop, AND divergences do not move the totals.
+  pass <- pass_rhat & pass_neff & pass_div_fraction & pass_impact
+
+  # Soft warnings (do not affect pass/fail) so the run log still flags geometry.
+  if(n_total > 0 && n_treedepth / n_total > 0.05) {
+    cat(sprintf("  WARNING: %s - %.1f%% treedepth exceedances (consider increasing max_treedepth)\n",
+                label, n_treedepth / n_total * 100))
+  }
+  if(n_divergent > 0) {
+    cat(sprintf("  %s: %d/%d divergent (%.1f%%); impact C/E = %.4f/%.4f SD; level-distortion C/E = %.1f%%/%.1f%%\n",
+                label, n_divergent, n_total, div_frac * 100,
+                impact_C, impact_E, distortion_C * 100, distortion_E * 100))
+  }
+  if(!pass_div_fraction && is.finite(div_frac)) {
+    cat(sprintf("  WARNING: %s - divergence fraction %.1f%% exceeds backstop %.0f%%; forcing PE.\n",
+                label, div_frac * 100, params$max_divergence_fraction * 100))
+  }
+  if(pass_rhat && pass_neff && pass_div_fraction && !pass_impact) {
+    cat(sprintf("  WARNING: %s - divergences move the totals %.3f SD (C) / %.3f SD (E), over %.2f SD; forcing PE.\n",
+                label, impact_C, impact_E, params$max_divergence_total_impact_sd))
+  }
+
+  tibble(
+    fit = label,
+    ar_resolution = ar_resolutions[[label]] %||% NA_character_,
+    divergences = n_divergent,
+    divergence_fraction = round(div_frac, 4),
+    treedepth_pct = round(n_treedepth / n_total * 100, 1),
+    C_sum_rhat = round(rhat_C, 4),
+    E_sum_rhat = round(rhat_E, 4),
+    C_sum_neff = round(neff_C),
+    E_sum_neff = round(neff_E),
+    B1_C_rhat = round(rhat_B1C, 4),
+    impact_C_sd = round(impact_C, 4),
+    impact_E_sd = round(impact_E, 4),
+    distortion_C = round(distortion_C, 4),
+    distortion_E = round(distortion_E, 4),
+    pass_rhat = pass_rhat,
+    pass_neff = pass_neff,
+    pass_div_fraction = pass_div_fraction,
+    pass_impact = pass_impact,
+    pass_convergence = pass,
+    method_selected = if(pass) "BSS" else "PE (convergence fail)"
+  )
+}
+
+for(label in names(bss_all)) {
+  gi <- compute_gate(bss_all[[label]], label)
+  bss_all[[label]]$gate_info <- gi
+  bss_all[[label]]$use_bss   <- isTRUE(gi$pass_convergence)
+}
+
+# A fit uses PE either because it never fit (insufficient data) or because it fit
+# but failed the scale-aware gate. Sections 7.7/7.8/7.8b call this to choose.
+use_pe_for <- function(b) isTRUE(b$pe_fallback) || !isTRUE(b$use_bss)
+
+
 # ---- 7.7 COMBINED BSS PORT TOTAL ----
 timer_start("6_outputs")
 cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
 
 n_draws_max <- max(sapply(bss_all, function(b) {
-  if(!is.null(b$pe_fallback) && b$pe_fallback) return(0)
+  if(use_pe_for(b)) return(0)   # B1.8: a gate-failed fit contributes no BSS draws
   length(b$C_exp_draws)
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
@@ -1514,7 +1732,7 @@ for(cg in bss_catch_groups) {
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
 
-      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+      if(use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
         bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
         bss_C_pred_total <- bss_C_pred_total + (pe_all[[pe_label]][[cg]] %||% 0)
         bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
@@ -1576,14 +1794,33 @@ for(cg in bss_catch_groups) {
                                 params$period_pe, params$sections, L_eff_model = L_eff_model)
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
-      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+      if(use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+        # Fix 2 (v7.0): population-aware daily effort so the monthly PE SHARE uses
+        # the same effort definition run_pe() uses for this component. run_pe()
+        # builds the private-boat effort series as gear-soak-hours,
+        # mean_count * gear_per_group * 24 (L = 24 h, day-length-free), but shore as
+        # crabber-hours, mean_count * crabbers_per_gear * day_length. The previous
+        # code applied the shore (day_length-weighted) form to BOTH, over-weighting
+        # long-day summer months in the boat monthly split. The share is normalized,
+        # so component and port TOTALS are unaffected; only the across-month
+        # distribution changes. gear_per_group is recomputed here from the same
+        # sub-season interview filter run_pe() uses (number_of_gear, angler_count
+        # both > 0; fallback 4.0) so the two stay consistent.
+        use_gear_hrs_pe <- str_detect(pop, "private_boat") && isTRUE(params$boat_use_gear_hours)
+        gpg_pe <- 4.0
+        if(use_gear_hrs_pe) {
+          rd_pe <- summ_ss$interview |>
+            filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
+          if(nrow(rd_pe) > 0) gpg_pe <- mean(rd_pe$number_of_gear)
+        }
         pe_daily <- summ_ss$effort_index |>
           filter(count_sequence <= params$bss_max_count_seq) |>
           group_by(event_date) |>
           summarise(mean_count = mean(count_quantity), .groups = "drop") |>
           left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
-          mutate(daily_effort = mean_count * summ_ss$crabbers_per_gear * day_length)
+          mutate(daily_effort = if(use_gear_hrs_pe) mean_count * gpg_pe * 24
+                                else mean_count * summ_ss$crabbers_per_gear * day_length)
 
         monthly_pe <- pe_daily |>
           group_by(month_label) |>
@@ -1674,23 +1911,29 @@ ggsave(file.path(output_dir, "plot_monthly_catch.png"), p_monthly, width = 12, h
 # the method actually selected for each component (convergence_report / pe_vs_bss):
 #   Shore  (BSS, both sub-seasons): full posterior. Monthly catch draws are summed
 #          from the daily C_expected draws, then 2.5/50/97.5 quantiles.
-#   Private Boat (PE, both sub-seasons): the selected PE point is distributed
-#          across months by monthly effort share, then given a design-based
-#          relative SE (stratified effort SE / effort total) applied as ONE
-#          per-component lognormal scale shared across months, so the monthly
-#          catches move together and the boat total carries that relative SE.
-#          NOTE: this captures effort sampling uncertainty (the dominant source
-#          for the trailer-count series) but NOT CPUE sampling uncertainty, so
-#          the boat interval is a lower bound. The boat BSS posterior CV (~27%)
-#          is the fuller characterization. If the boat is later moved to BSS
-#          (e.g. a scale-aware gate), this block auto-switches to the posterior.
+#   Private Boat: method is per sub-season (v7.0 scale-aware gate, B1.8). On the
+#          2024-25 data the all-gear sub-season passes the gate and uses the BSS
+#          posterior (full daily C_expected draws, CV ~27%), while the ring-net
+#          sub-season has too few interviews (< bss_min_interviews) and uses PE.
+#          The PE branch distributes the selected PE point across months by monthly
+#          effort share, then applies a design-based relative SE (stratified effort
+#          SE / effort total) as ONE per-component lognormal scale shared across
+#          months, so the monthly catches move together and the boat total carries
+#          that relative SE. NOTE: the PE branch captures effort sampling
+#          uncertainty but NOT CPUE sampling uncertainty, so a PE sub-season's
+#          interval is a lower bound; the BSS posterior is the fuller
+#          characterization. Branch selection is driven by use_pe_for(), so if a
+#          component's gate verdict changes in a future run this block follows it
+#          automatically.
 #   Commercial/Charter (census): point distributed by sampled-harvest share with
 #          a catch-per-vessel sampling CV as the relative SE (small, high coverage).
-# KNOWN ISSUE (shared with 7.8): the PE monthly effort share uses
-# crabbers_per_gear * day_length, which for the boat is day_length-weighted
-# rather than the flat 24 h gear-hours run_pe() uses; this slightly over-weights
-# long-day summer months in the monthly *distribution* (totals are unaffected).
-# Fix 7.8 and 7.8b together in a later pass for consistency with run_pe().
+# Fix 2 (v7.0): the PE monthly effort share is now population-aware (see the PE
+# branch below). The boat uses the flat 24 h gear-hours run_pe() uses; shore keeps
+# crabber-hours * day_length. This removes the prior day_length over-weighting of
+# long-day summer months in the boat monthly distribution (totals were, and remain,
+# unaffected; only the across-month split changed). The same formula lives in 7.8;
+# the two PE-share blocks are still duplicated (with a minor na.rm difference) and
+# are a candidate for consolidation into one helper in a future pass.
 cat("\n", strrep("=",60), "\n MONTHLY ESTIMATES BY MODE\n", strrep("=",60), "\n")
 
 modes_lvl <- c("Shore", "Private Boat", "Commercial/Charter")
@@ -1717,14 +1960,26 @@ for(cg in bss_catch_groups) {
                                 params$period_pe, params$sections, L_eff_model = L_eff_model)
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
-      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+      if(use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+        # Fix 2 (v7.0): population-aware daily effort, identical rationale to 7.8.
+        # Boat uses gear-soak-hours (mean_count * gear_per_group * 24); shore keeps
+        # crabber-hours (mean_count * crabbers_per_gear * day_length). Share is
+        # normalized so totals are unaffected; only the monthly split changes.
+        use_gear_hrs_pe <- str_detect(pop, "private_boat") && isTRUE(params$boat_use_gear_hours)
+        gpg_pe <- 4.0
+        if(use_gear_hrs_pe) {
+          rd_pe <- summ_ss$interview |>
+            filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
+          if(nrow(rd_pe) > 0) gpg_pe <- mean(rd_pe$number_of_gear)
+        }
         pe_daily <- summ_ss$effort_index |>
           filter(count_sequence <= params$bss_max_count_seq) |>
           group_by(event_date) |>
           summarise(mean_count = mean(count_quantity), .groups = "drop") |>
           left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
-          mutate(daily_effort = mean_count * summ_ss$crabbers_per_gear * day_length)
+          mutate(daily_effort = if(use_gear_hrs_pe) mean_count * gpg_pe * 24
+                                else mean_count * summ_ss$crabbers_per_gear * day_length)
         monthly_pe <- pe_daily |>
           group_by(month_label) |>
           summarise(month_effort = sum(daily_effort, na.rm = TRUE), .groups = "drop") |>
@@ -1808,7 +2063,7 @@ p_bymode_dodge <- monthly_bymode |>
                 position = position_dodge(width = 0.8), width = 0.3) +
   scale_fill_manual(values = mode_cols) +
   labs(title = "Monthly Dungeness Catch by Crabbing Mode",
-       subtitle = "Median with 95% interval. Shore: BSS posterior. Private Boat: PE point, design-based effort SE (lower bound). Commercial/Charter: census, catch-per-vessel CV.",
+       subtitle = "Median with 95% interval. Shore: BSS posterior. Private Boat: BSS posterior (all-gear), PE point with design-based effort SE (ring-net). Commercial/Charter: census, catch-per-vessel CV.",
        x = "Month", y = "Dungeness crab caught", fill = "Mode") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "top")
@@ -1929,93 +2184,16 @@ ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10,
 
 
 # ---- 7.11 CONVERGENCE REPORT ----
+# v7.0 (B1.8): the pass/fail decision and every diagnostic column are computed once
+# in 7.6b (compute_gate) and stored as bss_all[[label]]$gate_info, so this section
+# is now pure assembly. This guarantees the report agrees with the method actually
+# used in the totals (7.7/7.8/7.8b consume the same use_bss flag). All gate
+# warnings were already emitted in 7.6b at fit time. Columns now include the
+# scale-aware impact (impact_C_sd, impact_E_sd; the gating criterion) and retain
+# the legacy level-distortion (distortion_C, distortion_E) as reported-only.
 cat("\n", strrep("=",60), "\n CONVERGENCE REPORT\n", strrep("=",60), "\n")
 
-convergence_report <- list()
-for(label in names(bss_all)) {
-  b <- bss_all[[label]]
-  if(!is.null(b$pe_fallback) && b$pe_fallback) {
-    convergence_report[[label]] <- tibble(
-      fit = label, ar_resolution = NA_character_, divergences = NA, treedepth_pct = NA,
-      C_sum_rhat = NA, E_sum_rhat = NA, C_sum_neff = NA, E_sum_neff = NA,
-      B1_C_rhat = NA,
-      distortion_C = NA_real_, distortion_E = NA_real_, pass_distortion = FALSE,
-      pass_convergence = FALSE, method_selected = "PE (insufficient data)"
-    )
-  } else {
-    sp <- rstan::get_sampler_params(b$fit, inc_warmup = FALSE)
-    n_divergent <- sum(sapply(sp, function(x) sum(x[,"divergent__"])))
-    n_treedepth <- sum(sapply(sp, function(x) sum(x[,"treedepth__"] >=
-      b$fit@stan_args[[1]]$control$max_treedepth)))
-    n_total <- sum(sapply(sp, nrow))
-
-    summ <- summary(b$fit, pars = c("C_sum","C_expected_sum","E_sum","B1_C_out"))$summary
-    rhat_C <- summ["C_expected_sum","Rhat"]; rhat_E <- summ["E_sum","Rhat"]
-    neff_C <- summ["C_expected_sum","n_eff"]; neff_E <- summ["E_sum","n_eff"]
-    rhat_B1C <- summ["B1_C_out","Rhat"]
-
-    pass_rhat <- max(rhat_C, rhat_E, na.rm=TRUE) < 1.01  # v6.4: tightened from 1.05 (Vehtari et al. 2021)
-    pass_neff <- min(neff_C, neff_E, na.rm=TRUE) > 400
-    # v6.1: divergent transitions are now part of the gate (ported from
-    # gear-resolved v5.2). Divergences bias the posterior even when R-hat and
-    # ESS are clean (Betancourt 2017), so a fit with > max_divergences fails
-    # to the PE fallback rather than being reported as a clean BSS pass.
-    pass_divergence <- (n_divergent <= params$max_divergences)
-
-    # B1.6: distortion-aware acceptance. A fit with more than max_divergences
-    # can still pass IF it is otherwise clean (R-hat, n_eff, treedepth) AND the
-    # divergent draws do not move the reported totals. This tests whether the
-    # estimate is corrupted rather than counting divergences. The divergence
-    # diagnostic established the shore divergences are diffuse (no funnel neck)
-    # and shift C_expected_sum / E_sum < 1%, while the boat shifts them ~2-4%.
-    # sp is already extracted above; reuse it for the divergent flag.
-    divergent_flag <- unlist(lapply(sp, function(x) x[,"divergent__"])) == 1
-    distortion_C <- NA_real_; distortion_E <- NA_real_; pass_distortion <- FALSE
-    if(sum(divergent_flag) > 0 && sum(!divergent_flag) > 0) {
-      flat_par <- function(p) as.vector(as.array(b$fit, pars = p)[,,1])
-      v <- flat_par("C_expected_sum")
-      distortion_C <- abs(median(v[divergent_flag]) - median(v[!divergent_flag])) /
-                      median(v[!divergent_flag])
-      v <- flat_par("E_sum")
-      distortion_E <- abs(median(v[divergent_flag]) - median(v[!divergent_flag])) /
-                      median(v[!divergent_flag])
-      pass_distortion <- is.finite(distortion_C) && is.finite(distortion_E) &&
-                         max(distortion_C, distortion_E) < params$max_divergence_distortion
-    }
-
-    # R-hat and n_eff must pass either way. Divergences pass if strictly under
-    # the cap OR otherwise-clean with non-distorting divergences.
-    pass <- pass_rhat & pass_neff & (pass_divergence | pass_distortion)
-
-    # v6.1: warn on treedepth saturation (soft signal, not a hard fail) and on
-    # any divergences, mirroring the gear-resolved diagnostics output.
-    if(n_total > 0 && n_treedepth / n_total > 0.05) {
-      cat(sprintf("  WARNING: %s - %.1f%% treedepth exceedances (consider increasing max_treedepth)\n",
-                  label, n_treedepth / n_total * 100))
-    }
-    if(n_divergent > 0) {
-      cat(sprintf("  WARNING: %s - %d divergent transitions detected\n", label, n_divergent))
-    }
-
-    convergence_report[[label]] <- tibble(
-      fit = label,
-      ar_resolution = ar_resolutions[[label]] %||% NA_character_,
-      divergences = n_divergent,
-      treedepth_pct = round(n_treedepth / n_total * 100, 1),
-      C_sum_rhat = round(rhat_C, 4),
-      E_sum_rhat = round(rhat_E, 4),
-      C_sum_neff = round(neff_C),
-      E_sum_neff = round(neff_E),
-      B1_C_rhat = round(rhat_B1C, 4),
-      distortion_C = round(distortion_C, 4),
-      distortion_E = round(distortion_E, 4),
-      pass_distortion = pass_distortion,
-      pass_convergence = pass,
-      method_selected = if(pass && !pass_divergence) "BSS (divergences non-distorting)" else if(pass) "BSS" else "PE (convergence fail)"
-    )
-  }
-}
-convergence_df <- bind_rows(convergence_report)
+convergence_df <- bind_rows(lapply(names(bss_all), function(label) bss_all[[label]]$gate_info))
 print(convergence_df)
 write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.names = FALSE)
 

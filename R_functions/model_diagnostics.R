@@ -86,10 +86,9 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   ndraw <- length(ex$r_E)
   use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use)) else seq_len(ndraw)
   nd  <- length(use)
-  # B1.7 fix: robust extraction. lambda_*_S is array[S] matrix[D,G]; rstan
-  # normally returns [iter, S, D, G], but guard against dropped size-1 dims so a
-  # shape change cannot abort the whole PPC. Want [draws, D] for the S=1, G=1
-  # pooled model.
+  # lambda_*_S is array[S] matrix[D,G]; rstan returns [iter, S, D, G]. get_lam
+  # reduces it to [draws, D] for the S=1, G=1 pooled model and guards against
+  # dropped size-1 dims so a shape change cannot abort the whole PPC.
   get_lam <- function(arr) {
     d <- dim(arr)
     m <- if (length(d) == 4) arr[use, 1, , 1]
@@ -100,7 +99,28 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   }
   lamE <- get_lam(ex$lambda_E_S)   # [draws, D]
   lamC <- get_lam(ex$lambda_C_S)
-  rE <- ex$r_E[use]; rC <- ex$r_C[use]; RG <- ex$R_G[use]; RT <- ex$R_T[use]
+
+  # ROOT-CAUSE FIX (supersedes the earlier B1.7 attempt, which hardened lambda
+  # extraction and the rnbinom NA path but did not touch the scalars and so left
+  # the failure in place: every fit still aborted with "non-conformable arrays").
+  # rstan::extract(permuted = TRUE) returns a SCALAR parameter (r_E, r_C, R_G,
+  # R_T) as a 1-D ARRAY -- it carries a length-1 `dim` attribute, it is not a
+  # bare vector. Single-bracket indexing of a 1-D array PRESERVES that dim
+  # (dim(ex$R_G[use]) is length(use), not NULL), unlike a plain vector (no dim)
+  # or an [iter,1] matrix (single-index drops the dim). The predictive means
+  # below then evaluate `lamE[, day, drop=FALSE] * RG`, multiplying a 2-D array
+  # by a 1-D array: both operands have a `dim`, the dims differ, and R throws
+  # "non-conformable arrays". This fired on the gear branch (shore fits, R_G)
+  # and the trailer branch (boat fit, R_T) -- exactly the fits that failed --
+  # while the catch branch never did, because sweep() rebuilds STATS to match
+  # dim(x) and cannot raise this error. as.numeric() strips the stray dim; the
+  # multiply then recycles column-wise with the correct per-draw scaling
+  # (verified: element [i, j] = lamE[i, day[j]] * scalar[i]). as.numeric() is a
+  # no-op on an already-bare vector, so the fix is safe across rstan versions.
+  # A two-line check on any fit: dim(rstan::extract(fit, "R_G")$R_G) returns the
+  # iteration count (length-1 dim), not NULL.
+  rE <- as.numeric(ex$r_E[use]); rC <- as.numeric(ex$r_C[use])
+  RG <- as.numeric(ex$R_G[use]); RT <- as.numeric(ex$R_T[use])
 
   # B1.7 fix: score each observation on its finite predictive draws only. An
   # extreme lambda draw (exp() overflow in a weakly-identified fit) yields a
