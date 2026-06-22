@@ -13,6 +13,19 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v7.1 (2026-06-22) - add the effort over-dispersion decomposition
+#          diagnostic (T1.5). A per-fit, additive, tryCatch-wrapped section
+#          (7.13) splits each effort-count predictive variance into its
+#          Poisson floor, NB observation over-dispersion, and latent process
+#          parts via the law of total variance, writing
+#          effort_overdispersion_decomp_<label>.csv and ..._byobs_<label>.csv.
+#          This identifies the lever (the r_E / sigma_r_E prior vs the latent
+#          scale sigma_eps_E) behind the effort over-dispersion the v7.0 PPC
+#          found (gear/trailer PIT central humps, coverage_50 ~ 0.63-0.75 vs
+#          the nominal 0.50), before any prior or model change is decided.
+#          Sourced from R_functions/diagnose_effort_overdispersion.R. It
+#          writes only CSVs and changes nothing in the model, so the estimates
+#          are unaffected.
 # Version: v7.0 (2026-06-22) - three changes.
 #          (1) SCALE-AWARE CONVERGENCE GATE (B1.8). The legacy gate normalized
 #          the divergent-vs-bulk median shift by the LEVEL of the estimate, so it
@@ -2212,6 +2225,31 @@ for(label in names(bss_all)) {
   write_bss_diagnostics(b$fit,
                         if(!is.null(b$bss_data)) b$bss_data else NULL,
                         label, output_dir)
+}
+
+
+# ---- 7.13 EFFORT OVER-DISPERSION DECOMPOSITION (T1.5) ----
+# Additive per-fit diagnostic. The v7.0 PPC showed the negative-binomial
+# effort model is over-dispersed (gear/trailer PIT central humps, coverage_50
+# ~ 0.63-0.75 vs the nominal 0.50); that says the effort predictive is too
+# wide but not which part of the model to tune. This decomposes each effort-
+# count predictive variance, by the law of total variance, into its Poisson
+# floor E[mu], the NB observation over-dispersion E[mu^2/r_E] (the r_E /
+# sigma_r_E lever), and the latent process variance Var(mu) (the sigma_eps_E /
+# single-cell level lever), and reports their shares so the lever is identified
+# before any prior or model change. write_effort_overdispersion_diag() is
+# sourced from R_functions/diagnose_effort_overdispersion.R and is fully
+# tryCatch-wrapped; it writes only CSVs (effort_overdispersion_decomp_<label>
+# and ..._byobs_<label>) and changes nothing in the model. It needs the in-
+# memory fit and its bss_data (stored with each fit in Section 7), which is why
+# it runs here in the fit session rather than from the saved summary CSVs.
+cat("\n", strrep("=",60), "\n EFFORT OVER-DISPERSION DECOMPOSITION (T1.5)\n", strrep("=",60), "\n")
+for(label in names(bss_all)) {
+  b <- bss_all[[label]]
+  if(is.null(b$fit)) next                  # PE-only entry: nothing to decompose
+  write_effort_overdispersion_diag(b$fit,
+                                   if(!is.null(b$bss_data)) b$bss_data else NULL,
+                                   label, output_dir)
 }
 
 
