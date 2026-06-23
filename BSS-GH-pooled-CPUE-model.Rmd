@@ -13,6 +13,19 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v7.2 (2026-06-22) - add extended run outputs (O1-O11) so in-memory
+#          quantities are persisted and the R workspace is rarely needed for
+#          later diagnosis. Per-fit: full parameter posterior summary, AR latent
+#          path, AR-period data-coverage map, modeled daily CPUE, per-observation
+#          PPC residuals (exact randomized PIT), HMC sampler diagnostics with
+#          E-BFMI, summed-quantity draws, and a prior-vs-posterior table. Run-
+#          level: monthly PE-vs-BSS by mode, gear proportions with interview
+#          support, and a per-fit data summary. Section 7.13b calls
+#          R_functions/save_run_diagnostics.R; each writer is tryCatch-wrapped
+#          and writes only CSVs (no model change). The fit objects (.rds, O12)
+#          are intentionally not saved, to avoid output/ bloat. days_ss is now
+#          stored on each bss_all entry so the per-fit writers map periods to
+#          dates.
 # Version: v7.1 (2026-06-22) - add the effort over-dispersion decomposition
 #          diagnostic (T1.5). A per-fit, additive, tryCatch-wrapped section
 #          (7.13) splits each effort-count predictive variance into its
@@ -1496,7 +1509,7 @@ for(cg in bss_catch_groups) {
         C_expected_sum = quantile(C_exp_draws, c(0.025,0.5,0.975)),
         E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
         C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws,
-        fit = fit, pe_fallback = FALSE, bss_data = bss_data,
+        fit = fit, pe_fallback = FALSE, bss_data = bss_data, days_ss = days_ss,
         population = pop, subseason = ss$name, catch_group = cg
       )
 
@@ -2251,6 +2264,27 @@ for(label in names(bss_all)) {
                                    if(!is.null(b$bss_data)) b$bss_data else NULL,
                                    label, output_dir)
 }
+
+
+# ---- 7.13b EXTENDED RUN OUTPUTS (O1-O11) ----
+# Additive persistence of in-memory quantities not previously saved, so the R
+# workspace is rarely needed for later diagnosis. Per-fit (O1-O6, O8, O9): full
+# parameter posterior summary, AR latent path, AR-period data coverage, modeled
+# daily CPUE, per-observation PPC residuals (exact randomized PIT), HMC sampler
+# diagnostics (E-BFMI), summed-quantity draws, prior-vs-posterior. Run-level (O7,
+# O10, O11): monthly PE-vs-BSS by mode, gear proportions, per-fit data summary.
+# Sourced from R_functions/save_run_diagnostics.R; every writer is tryCatch-
+# wrapped and writes only CSVs, so this changes no estimate. The fit objects
+# (O12) are deliberately not saved, to avoid output/ bloat.
+cat("\n", strrep("=",60), "\n EXTENDED RUN OUTPUTS (O1-O11)\n", strrep("=",60), "\n")
+for(label in names(bss_all)) {
+  b <- bss_all[[label]]
+  if(is.null(b$fit)) next                  # PE-only entry: nothing to extract
+  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+}
+write_run_level_diagnostics(bss_all, pe_all,
+                            if(exists("gear_props")) gear_props else NULL,
+                            params, output_dir)
 
 
 # ---- 7.14 EFFORT & CPUE MULTIPLIERS ----
