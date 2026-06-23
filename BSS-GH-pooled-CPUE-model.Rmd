@@ -13,6 +13,19 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v7.3 (2026-06-22) - (1) pin the unused effort-expansion parameter in
+#          each fit (R_T in shore fits, R_G in the boat) via a tight prior in the
+#          Stan model, so the unused dimension stops wandering (O9 showed shore
+#          R_T sampling uniform on [0,1]); inference-preserving for E and C since
+#          the pinned parameter enters no likelihood. (2) Add pointwise log_lik
+#          (gear/trailer/catch) to the Stan generated quantities, enabling PSIS-
+#          LOO on the pooled model, with a new O13 diagnostic (loo_pointwise_* and
+#          loo_summary_*) reporting Pareto-k influence and elpd_loo. (3) Add day-
+#          level coverage columns to O3 (n_days_with_effort / _interview, frac_*)
+#          so the AR-period coverage map is comparable across resolutions (the
+#          boat's weekly periods previously overstated coverage vs shore's daily).
+#          Requires recompiling the Stan model. log_lik adds a [draws x n_obs]
+#          matrix per stream to each fit (a few hundred MB for shore all-gear).
 # Version: v7.2 (2026-06-22) - add extended run outputs (O1-O11) so in-memory
 #          quantities are persisted and the R workspace is rarely needed for
 #          later diagnosis. Per-fit: full parameter posterior summary, AR latent
@@ -2281,6 +2294,7 @@ for(label in names(bss_all)) {
   b <- bss_all[[label]]
   if(is.null(b$fit)) next                  # PE-only entry: nothing to extract
   write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
 }
 write_run_level_diagnostics(bss_all, pe_all,
                             if(exists("gear_props")) gear_props else NULL,

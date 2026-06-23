@@ -265,10 +265,30 @@ model {
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
 
-  R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
+  // P2: R_G enters only the gear-effort (Gear_I) and interview-gear (Gear_A)
+  //     likelihood terms. When neither is present (e.g. the boat, which has no
+  //     gear counts) R_G is unused, yet its prior alone leaves a free ~0.4-wide
+  //     dimension the sampler must still traverse (O9 showed boat R_G at its prior
+  //     with ~zero contraction). Pin it tightly to its prior location when unused,
+  //     so it does not wander; the value is irrelevant because it enters no
+  //     likelihood, so E and C are unchanged. Inference-preserving, like the B1.6
+  //     sigma_IE fix below.
+  if (Gear_n > 0 || IntA_gear > 0) {
+    R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
+  } else {
+    R_G ~ normal(R_G_prior_mu, 0.01);
+  }
 
+  // P2: R_T enters only the trailer-effort (T_I) and interview-trailer (T_A_int)
+  //     terms. When neither is present (e.g. shore fits, no trailer data) R_T
+  //     previously had no prior and sampled uniform on [0,1] (O9 showed posterior
+  //     0.50 +/- 0.29), a free dimension that wastes sampling. Pin it tightly to
+  //     its beta-prior mean when unused; the value enters no likelihood, so shore
+  //     E and C are unchanged.
   if (T_n > 0 || IntA_trailer > 0) {
     R_T ~ beta(R_T_alpha, R_T_beta);
+  } else {
+    R_T ~ normal(R_T_alpha / (R_T_alpha + R_T_beta), 0.01);
   }
 
   if (estimate_L == 1) {
@@ -356,12 +376,42 @@ generated quantities {
   real B1_C_out;
   vector[D] L_out;
 
+  // Pointwise log-likelihood for PSIS-LOO (loo package) and Pareto-k influence
+  // diagnostics, one entry per observation in each data stream. Enables the
+  // project's primary model-selection tool (PSIS-LOO) on the pooled model, e.g.
+  // comparing AR resolutions for the boat, and flags influential observations
+  // (high Pareto-k) such as sparse-month interviews. Empty when a stream is
+  // absent (e.g. log_lik_trailer for shore, log_lik_gear for the boat). Note:
+  // these add a [draws x n_obs] matrix per stream to the fit; for the shore
+  // all-gear fit (~3000 obs) that is a few hundred MB in memory. If that is a
+  // constraint, gate these behind a data flag (available on request).
+  vector[Gear_n] log_lik_gear;
+  vector[T_n] log_lik_trailer;
+  vector[IntC] log_lik_catch;
+
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
   L_out = L;
+
+  // Mirror the model-block likelihood terms exactly (lines for Gear_I, T_I, c).
+  for (i in 1:Gear_n) {
+    log_lik_gear[i] = neg_binomial_2_lpmf(
+      Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+    );
+  }
+  for (i in 1:T_n) {
+    log_lik_trailer[i] = neg_binomial_2_lpmf(
+      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] * R_T, r_E
+    );
+  }
+  for (a in 1:IntC) {
+    log_lik_catch[a] = neg_binomial_2_lpmf(
+      c[a] | lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
+    );
+  }
 
   C_sum = 0;
   C_expected_sum = 0;

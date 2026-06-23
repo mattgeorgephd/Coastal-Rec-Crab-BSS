@@ -159,17 +159,33 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     per_eff <- tabulate(period_of_day[eff_days], nbins = P_n)
     per_int <- tabulate(period_of_day[int_days], nbins = P_n)
     per_ie  <- tabulate(period_of_day[ie_days],  nbins = P_n)
+    # P4: day-level coverage, resolution-independent. n_effort_obs counts
+    #     observations (can exceed n_days); these count distinct DAYS within each
+    #     period carrying an observation, so a weekly period reads e.g. "2 of 7
+    #     days sampled" and is comparable to a daily fit (n_days = 1). This is what
+    #     makes the boat (weekly) and shore (daily) coverage directly comparable.
+    ueff <- unique(eff_days); uint <- unique(int_days)
+    per_days_eff <- integer(P_n); per_days_int <- integer(P_n)
+    for (p in seq_len(P_n)) {
+      dd <- which(period_of_day == p)
+      per_days_eff[p] <- sum(dd %in% ueff)
+      per_days_int[p] <- sum(dd %in% uint)
+    }
     oE <- .srd_get_P(ex$omega_E, use_full); oC <- .srd_get_P(ex$omega_C, use_full)
     ciwE <- apply(oE, 2, function(z) diff(stats::quantile(z, c(0.025, 0.975), names = FALSE)))
     ciwC <- apply(oC, 2, function(z) diff(stats::quantile(z, c(0.025, 0.975), names = FALSE)))
     per_start <- per_end <- rep(NA, P_n); per_ndays <- integer(P_n)
+    for (p in seq_len(P_n)) per_ndays[p] <- sum(period_of_day == p)
     if (!is.null(ev)) for (p in seq_len(P_n)) {
-      dd <- which(period_of_day == p); per_ndays[p] <- length(dd)
+      dd <- which(period_of_day == p)
       if (length(dd) > 0) { per_start[p] <- as.character(min(ev[dd])); per_end[p] <- as.character(max(ev[dd])) }
     }
     df <- data.frame(period = seq_len(P_n), date_start = per_start, date_end = per_end,
-                     n_days = per_ndays, n_effort_obs = per_eff, n_interviews = per_int,
-                     n_ie_obs = per_ie,
+                     n_days = per_ndays,
+                     n_days_with_effort = per_days_eff, n_days_with_interview = per_days_int,
+                     frac_days_effort = round(per_days_eff / pmax(per_ndays, 1), 3),
+                     frac_days_interview = round(per_days_int / pmax(per_ndays, 1), 3),
+                     n_effort_obs = per_eff, n_interviews = per_int, n_ie_obs = per_ie,
                      observed = (per_eff > 0 | per_int > 0),
                      omega_E_ci95_width = ciwE, omega_C_ci95_width = ciwC)
     utils::write.csv(df, file.path(output_dir, sprintf("bss_period_coverage_%s.csv", label)),
@@ -292,6 +308,70 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
                      row.names = FALSE)
   })
 
+  invisible(TRUE)
+}
+
+# ---- O13: PSIS-LOO + Pareto-k influence (per fit) ---------------------------
+# Consumes the Stan log_lik_gear / log_lik_trailer / log_lik_catch added to the
+# pooled model. Enables the project's primary model-selection tool (PSIS-LOO),
+# e.g. comparing AR resolutions for the boat across two runs by elpd_loo, and
+# flags influential observations (high Pareto-k), e.g. whether a few sparse-month
+# interviews drive a CPUE estimate. Caveat: this is conditional pointwise LOO
+# given the latent AR path, not leave-future-out; treat elpd differences as a
+# screen and use k-fold time-block CV for the definitive temporal comparison.
+# Degrades gracefully: without the 'loo' package it still saves pointwise lpd and
+# an across-draw influence proxy.
+write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
+  if (is.null(fit)) { cat(sprintf("  %s: no fit; LOO skipped.\n", label)); return(invisible(NULL)) }
+  ok <- function(tag, expr) tryCatch(expr, error = function(e) {
+    cat(sprintf("    [save:%s] %s skipped: %s\n", tag, label, conditionMessage(e))); NULL })
+  ev <- if (!is.null(days_ss) && "event_date" %in% names(days_ss)) as.Date(days_ss$event_date) else NULL
+  has_loo <- requireNamespace("loo", quietly = TRUE)
+
+  lpd_point <- function(ll) apply(ll, 2, function(col) {   # logsumexp-stable lpd
+    m <- max(col); m + log(mean(exp(col - m)))
+  })
+  streams <- list(
+    gear    = list(par = "log_lik_gear",    n = stan_data$Gear_n %||% 0, days = stan_data$day_Gear,  y = stan_data$Gear_I),
+    trailer = list(par = "log_lik_trailer", n = stan_data$T_n %||% 0,    days = stan_data$day_T,     y = stan_data$T_I),
+    catch   = list(par = "log_lik_catch",   n = stan_data$IntC %||% 0,   days = stan_data$day_IntC,  y = stan_data$c)
+  )
+  summ <- list()
+  for (sn in names(streams)) {
+    st <- streams[[sn]]
+    if ((st$n %||% 0) == 0) next                            # stream absent in this fit
+    res <- ok(paste0("O13:", sn), {
+      ll <- as.matrix(rstan::extract(fit, pars = st$par)[[1]])   # [draws x n_obs]
+      if (nrow(ll) == 0 || ncol(ll) == 0) return(NULL)
+      n_obs <- ncol(ll)
+      lpd <- lpd_point(ll)
+      ll_sd <- apply(ll, 2, stats::sd)                     # across-draw sd: influence proxy
+      dy <- st$days[seq_len(n_obs)]
+      df <- data.frame(data_type = sn, obs_index = seq_len(n_obs), day_index = dy,
+                       event_date = if (!is.null(ev)) as.character(ev[dy]) else NA,
+                       observed = st$y[seq_len(n_obs)],
+                       lpd = round(lpd, 4), loglik_sd = round(ll_sd, 4))
+      elpd <- p_loo <- se_elpd <- NA_real_; n_khi <- NA_integer_
+      if (has_loo) {
+        lo <- loo::loo(ll)
+        df$pareto_k <- round(lo$diagnostics$pareto_k, 3)
+        df$elpd_loo <- round(lo$pointwise[, "elpd_loo"], 4)
+        est <- lo$estimates
+        elpd <- est["elpd_loo", "Estimate"]; se_elpd <- est["elpd_loo", "SE"]
+        p_loo <- est["p_loo", "Estimate"]; n_khi <- sum(lo$diagnostics$pareto_k > 0.7)
+      }
+      utils::write.csv(df, file.path(output_dir, sprintf("loo_pointwise_%s_%s.csv", sn, label)),
+                       row.names = FALSE)
+      data.frame(stream = sn, n_obs = n_obs, elpd_loo = elpd, se_elpd_loo = se_elpd,
+                 p_loo = p_loo, n_pareto_k_gt_0.7 = n_khi, sum_lpd = round(sum(lpd), 2))
+    })
+    if (!is.null(res)) summ[[sn]] <- res
+  }
+  if (length(summ) > 0) ok("O13:summary", {
+    utils::write.csv(do.call(rbind, summ),
+                     file.path(output_dir, sprintf("loo_summary_%s.csv", label)), row.names = FALSE)
+  })
+  if (!has_loo) cat(sprintf("    [save:O13] %s: 'loo' not installed; saved pointwise lpd + loglik_sd only (no Pareto-k/elpd). install.packages('loo') for PSIS-LOO.\n", label))
   invisible(TRUE)
 }
 
