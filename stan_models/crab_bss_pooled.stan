@@ -265,30 +265,25 @@ model {
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
 
-  // P2: R_G enters only the gear-effort (Gear_I) and interview-gear (Gear_A)
-  //     likelihood terms. When neither is present (e.g. the boat, which has no
-  //     gear counts) R_G is unused, yet its prior alone leaves a free ~0.4-wide
-  //     dimension the sampler must still traverse (O9 showed boat R_G at its prior
-  //     with ~zero contraction). Pin it tightly to its prior location when unused,
-  //     so it does not wander; the value is irrelevant because it enters no
-  //     likelihood, so E and C are unchanged. Inference-preserving, like the B1.6
-  //     sigma_IE fix below.
-  if (Gear_n > 0 || IntA_gear > 0) {
-    R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
-  } else {
-    R_G ~ normal(R_G_prior_mu, 0.01);
-  }
+  // v7.4: REVERTED the v7.3 tight pin on the unused expansion parameters. The
+  //       sd=0.01 pin made R_G/R_T scale-disparate (0.01) versus sigma_mu_E
+  //       (~1-10) in the diagonal mass matrix; with a fixed seed this aggravated
+  //       the shore all-gear sigma_mu_E funnel from 444 to 1640 divergences and a
+  //       convergence failure (divergence localization put smd=2.4 on sigma_mu_E,
+  //       0.36 on R_T: the pin, not the funnel itself, was the trigger). A scale-
+  //       matched prior is harmless; a stiff one is not. R_G keeps its lognormal
+  //       prior unconditionally (the unused boat case sits at the prior, ~0.4
+  //       wide, scale-matched and harmless). The real fix for the funnel is the
+  //       non-centered mu/sigma_mu reparameterization (T2.5).
+  R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
 
-  // P2: R_T enters only the trailer-effort (T_I) and interview-trailer (T_A_int)
-  //     terms. When neither is present (e.g. shore fits, no trailer data) R_T
-  //     previously had no prior and sampled uniform on [0,1] (O9 showed posterior
-  //     0.50 +/- 0.29), a free dimension that wastes sampling. Pin it tightly to
-  //     its beta-prior mean when unused; the value enters no likelihood, so shore
-  //     E and C are unchanged.
+  // v7.4: R_T keeps its conditional beta prior (uniform on [0,1] when unused in
+  //       shore fits). The uniform is cosmetically loose but scale-matched and
+  //       harmless (v7.2 shore all-gear passed at 444 divergences with it); a
+  //       tidier scale-matched prior can be added once the funnel is reparameter-
+  //       ized (T2.5).
   if (T_n > 0 || IntA_trailer > 0) {
     R_T ~ beta(R_T_alpha, R_T_beta);
-  } else {
-    R_T ~ normal(R_T_alpha / (R_T_alpha + R_T_beta), 0.01);
   }
 
   if (estimate_L == 1) {
