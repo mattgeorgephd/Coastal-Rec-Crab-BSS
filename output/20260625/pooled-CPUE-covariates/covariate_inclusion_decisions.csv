@@ -1,0 +1,4 @@
+"label","elpd_diff","se_diff","method","include","reason","sign_notes"
+"shore_ring_net_only_Dungeness_Kept",-11.399973379105,4.73809106295946,"psis_loo",FALSE,"elpd_diff=-11.4, SE=4.7, margin<4.0SE",""
+"shore_all_gear_Dungeness_Kept",-0.0312537957093788,3.28045857131679,"psis_loo",FALSE,"elpd_diff=-0.0, SE=3.3, margin<4.0SE",""
+"private_boat_all_gear_Dungeness_Kept",-26.6126920019243,9.4515032749679,"psis_loo",FALSE,"elpd_diff=-26.6, SE=9.5, margin<4.0SE",""

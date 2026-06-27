@@ -13,6 +13,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v7.4 (2026-06-24) - (1) REVERTED the v7.3 tight pin on the unused
+#          expansion parameters (it made R_G/R_T scale-disparate vs sigma_mu_E in
+#          the diagonal mass matrix and tipped the shore all-gear funnel into a
+#          convergence failure; confirmed by re-run matching the v7.2 baseline).
+#          log_lik and the O1-O13 diagnostics are retained. (2) Add an ar_force
+#          experiment toggle (params$ar_force) to force a population's AR
+#          resolution, for the boat daily-vs-weekly resolution test; NULL leaves
+#          production behavior unchanged. See BOAT_RESOLUTION_EXPERIMENT.md.
 # Version: v7.3 (2026-06-22) - (1) pin the unused effort-expansion parameter in
 #          each fit (R_T in shore fits, R_G in the boat) via a tight prior in the
 #          Stan model, so the unused dimension stops wandering (O9 showed shore
@@ -315,6 +323,15 @@ params <- list(
   # identified by the available data. Resolutions rank "daily" > "weekly" >
   # "monthly"; a population absent from this list defaults to "daily" (no cap).
   ar_max_resolution = list(shore = "daily", private_boat = "weekly"),
+
+  # EXPERIMENT TOGGLE (v7.4): force a population's AR resolution, bypassing both
+  # the data-driven selection and ar_max_resolution. NULL leaves production
+  # behavior unchanged. For the boat daily-vs-weekly resolution experiment, set
+  # ar_force = list(private_boat = "daily") and re-run; compare against the
+  # weekly baseline using O7 (monthly PE-vs-BSS), O2 (AR path identification),
+  # O13 (catch elpd_loo), and the convergence report. See
+  # BOAT_RESOLUTION_EXPERIMENT.md.
+  ar_force = ar_force = list(private_boat = "daily"), #NULL
 
   # --- I/E integration ---
   ie_data_file      = "ingress_egress.xlsx",
@@ -970,6 +987,14 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name,
   res_rank <- c(monthly = 1L, weekly = 2L, daily = 3L)
   pop_cap  <- params$ar_max_resolution[[population_name]] %||% "daily"
   if(res_rank[[ar_resolution]] > res_rank[[pop_cap]]) ar_resolution <- pop_cap
+
+  # EXPERIMENT TOGGLE (v7.4): forced override bypasses the data-driven selection
+  # and the cap above. NULL (production) is a no-op. See params$ar_force.
+  if(!is.null(params$ar_force) && !is.null(params$ar_force[[population_name]])) {
+    ar_resolution <- params$ar_force[[population_name]]
+    cat(sprintf("  AR resolution FORCED to '%s' for %s (ar_force experiment override)\n",
+                ar_resolution, population_name))
+  }
 
   # Map the final resolution to AR period count and the day -> period index.
   if(ar_resolution == "daily") {

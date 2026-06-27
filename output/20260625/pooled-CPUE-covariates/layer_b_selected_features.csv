@@ -1,0 +1,5 @@
+"population","component","features"
+"shore","effort","tide_range_m;daytime_tide_range_m;tidal_energy;precip_mm_total"
+"shore","cpue","daytime_tide_range_m;daytime_high_hour;tidal_energy;wave_h_m_mean"
+"private_boat","effort","tide_range_m;daytime_tide_range_m;n_high_tides_daytime;tidal_energy;wave_h_m_mean;precip_mm_total;temp_c_max"
+"private_boat","cpue","tide_range_m;n_high_tides_daytime;tidal_energy;daytime_tide_max_m;daytime_tide_min_m;wave_h_m_mean;sst_c_mean;precip_mm_total"

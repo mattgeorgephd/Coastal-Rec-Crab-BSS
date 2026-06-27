@@ -1,0 +1,7 @@
+"fit","role","divergences","treedepth_pct","C_rhat","E_rhat","C_neff","E_neff","pass_convergence","ar_resolution"
+"shore_ring_net_only_Dungeness_Kept","baseline",294,0,1,1.0009,5189,4881,FALSE,"daily"
+"shore_ring_net_only_Dungeness_Kept","covariates",240,0,1.0002,1,6109,5984,FALSE,"daily"
+"shore_all_gear_Dungeness_Kept","baseline",444,0,1.0001,1.0005,5924,4704,FALSE,"daily"
+"shore_all_gear_Dungeness_Kept","covariates",394,0,1.0012,1.0022,5312,4650,FALSE,"daily"
+"private_boat_all_gear_Dungeness_Kept","baseline",57,0,1.0003,1.0005,5231,8728,FALSE,"weekly"
+"private_boat_all_gear_Dungeness_Kept","covariates",66,0,1,1.0001,10098,10576,FALSE,"weekly"

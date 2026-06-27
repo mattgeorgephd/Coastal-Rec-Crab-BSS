@@ -1,0 +1,132 @@
+R version 4.2.2 (2022-10-31 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 26200)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_United States.utf8 
+[2] LC_CTYPE=English_United States.utf8   
+[3] LC_MONETARY=English_United States.utf8
+[4] LC_NUMERIC=C                          
+[5] LC_TIME=English_United States.utf8    
+
+attached base packages:
+[1] stats     graphics  grDevices
+[4] utils     datasets  methods  
+[7] base     
+
+other attached packages:
+ [1] geosphere_1.5-18   
+ [2] jsonlite_2.0.0     
+ [3] httr_1.4.5         
+ [4] loo_2.9.0          
+ [5] mgcv_1.8-41        
+ [6] nlme_3.1-162       
+ [7] readxl_1.4.1       
+ [8] here_1.0.1         
+ [9] rstan_2.32.7       
+[10] StanHeaders_2.32.10
+[11] patchwork_1.2.0    
+[12] gt_1.3.0           
+[13] suncalc_0.5.1      
+[14] lubridate_1.9.1    
+[15] forcats_1.0.0      
+[16] stringr_1.5.0      
+[17] dplyr_1.2.0        
+[18] purrr_1.0.1        
+[19] readr_2.1.3        
+[20] tidyr_1.3.0        
+[21] tibble_3.3.1       
+[22] ggplot2_4.0.2      
+[23] tidyverse_1.3.2    
+
+loaded via a namespace (and not attached):
+ [1] matrixStats_0.63.0  
+ [2] fs_1.6.6            
+ [3] bit64_4.0.5         
+ [4] RColorBrewer_1.1-3  
+ [5] rprojroot_2.0.3     
+ [6] tensorA_0.36.2.1    
+ [7] tools_4.2.2         
+ [8] backports_1.4.1     
+ [9] utf8_1.2.3          
+[10] R6_2.6.1            
+[11] otel_0.2.0          
+[12] DBI_1.1.3           
+[13] sp_1.6-0            
+[14] withr_3.0.2         
+[15] tidyselect_1.2.1    
+[16] gridExtra_2.3       
+[17] prettyunits_1.1.1   
+[18] processx_3.8.6      
+[19] bit_4.0.5           
+[20] curl_5.0.0          
+[21] compiler_4.2.2      
+[22] textshaping_0.3.6   
+[23] cli_3.6.5           
+[24] rvest_1.0.3         
+[25] xml2_1.5.2          
+[26] posterior_1.6.1     
+[27] labeling_0.4.2      
+[28] checkmate_2.1.0     
+[29] scales_1.4.0        
+[30] S7_0.2.1            
+[31] callr_3.7.6         
+[32] QuickJSR_1.9.0      
+[33] systemfonts_1.0.4   
+[34] digest_0.6.31       
+[35] rmarkdown_2.20      
+[36] dichromat_2.0-0.1   
+[37] pkgconfig_2.0.3     
+[38] htmltools_0.5.9     
+[39] dbplyr_2.3.1        
+[40] fastmap_1.2.0       
+[41] rlang_1.1.7         
+[42] rstudioapi_0.14     
+[43] farver_2.1.1        
+[44] generics_0.1.3      
+[45] vroom_1.6.1         
+[46] distributional_0.6.0
+[47] googlesheets4_1.0.1 
+[48] inline_0.3.21       
+[49] magrittr_2.0.3      
+[50] Matrix_1.5-3        
+[51] Rcpp_1.0.10         
+[52] abind_1.4-5         
+[53] lifecycle_1.0.5     
+[54] stringi_1.7.12      
+[55] yaml_2.3.7          
+[56] pkgbuild_1.4.0      
+[57] grid_4.2.2          
+[58] parallel_4.2.2      
+[59] crayon_1.5.2        
+[60] lattice_0.20-45     
+[61] splines_4.2.2       
+[62] haven_2.5.1         
+[63] hms_1.1.2           
+[64] knitr_1.51          
+[65] ps_1.9.1            
+[66] pillar_1.11.0       
+[67] codetools_0.2-19    
+[68] stats4_4.2.2        
+[69] reprex_2.0.2        
+[70] glue_1.8.0          
+[71] evaluate_1.0.5      
+[72] V8_7.0.0            
+[73] data.table_1.14.6   
+[74] RcppParallel_5.1.6  
+[75] modelr_0.1.10       
+[76] vctrs_0.7.1         
+[77] tzdb_0.3.0          
+[78] cellranger_1.1.0    
+[79] gtable_0.3.6        
+[80] xfun_0.56           
+[81] broom_1.0.3         
+[82] ragg_1.2.5          
+[83] googledrive_2.0.0   
+[84] gargle_1.3.0        
+[85] timechange_0.2.0    
+[86] ellipsis_0.3.2      
+
+rstan 2.32.7; StanHeaders 2.32.10; bss_seed 20260619
