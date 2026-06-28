@@ -331,7 +331,7 @@ params <- list(
   # weekly baseline using O7 (monthly PE-vs-BSS), O2 (AR path identification),
   # O13 (catch elpd_loo), and the convergence report. See
   # BOAT_RESOLUTION_EXPERIMENT.md.
-  ar_force = ar_force = list(private_boat = "daily"), #NULL
+  ar_force = list(private_boat = "daily"), #NULL
 
   # --- I/E integration ---
   ie_data_file      = "ingress_egress.xlsx",
