@@ -1,8 +1,18 @@
 // =============================================================================
-// Pooled CPUE Crab Creel Model — Gear-Hours Formulation
-// (crab_bss_pooled_gearhours.stan)
+// Gear-Resolved CPUE Crab Creel Model - Gear-Hours Formulation
+// (crab_bss_gear_resolved.stan)
 //
-// GEAR-HOURS CHANGE (boat populations):
+// CPUE STRUCTURE: one CPUE process PER GEAR TYPE, not a single pooled process.
+//   mu_C is a [G, S] matrix and each gear g carries its own hierarchical mean
+//   mu_mu_C[g]; the AR(1) deviations omega_C run over G*S with a Cholesky
+//   correlation across the gear-by-section blocks, and the interview catch
+//   likelihood is indexed by each interview's gear type (gear_IntC). Gear-type
+//   catch therefore carries full posterior uncertainty, rather than being
+//   apportioned after the fact from interview proportions (which is what the
+//   pooled model, crab_bss_pooled.stan, does). This is the only structural
+//   difference from the pooled model; everything below is shared with it.
+//
+// GEAR-HOURS (boat populations):
 //   For boat crabbers using pots, gear is deployed continuously (24 hrs/day)
 //   while the trailer remains at the boat ramp. The previous formulation used
 //   crabber-hours with day_length (9-16 hrs), creating a unit mismatch that
@@ -17,8 +27,7 @@
 //
 //   Shore model is unchanged: lambda_E = crabbers, h = crabber-hours, L = day_length.
 //
-// SPARSE eps_E_H: Overdispersion allocated only for actual observations.
-// Single CPUE process shared across all gear types.
+// SPARSE eps_E_H: overdispersion allocated only for actual observations.
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
 // =============================================================================
