@@ -19,7 +19,45 @@ Three crabbing populations are estimated independently and summed for the port t
 2. **Private boat crabbers**, effort from trailer counts, BSS + PE.
 3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
 
-Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, and the modular R pipeline in `R_functions/`. They differ in how catch-per-unit-effort (CPUE) is modeled.
+Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, and the modular R pipeline in `03_R_functions/`. They differ in how catch-per-unit-effort (CPUE) is modeled.
+
+---
+
+## Repository Layout
+
+The repository is organized into numbered stage folders that follow the order of the pipeline, from analysis driver through model code, helper functions, inputs, outputs, diagnostics, and documentation. Each folder has its own `README.md` with a full file inventory.
+
+```
+FWC-estimation-method/
+├── 01_BSS_models/      Production .Rmd analysis drivers (pooled, gear-resolved)
+├── 02_stan_models/     Stan model code (.stan) called by the drivers
+├── 03_R_functions/     Modular R helpers, auto-sourced by every driver
+├── 04_input_files/     Raw season inputs (effort, interviews, tally, I/E)
+├── 05_output/          Per-run outputs, one dated folder per run (YYYYMMDD)
+├── 06_diagnostics/     Experimental / research .Rmd (weather-tide covariates)
+├── 07_documentation/   Technical docs, change logs, equations, instructions
+├── README.md           This file
+├── .gitignore
+└── FWC-estimation-method.Rproj
+```
+
+| Folder | Contents | README |
+|---|---|---|
+| `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
+| `02_stan_models/` | The three Stan models (pooled, gear-resolved, weather-adjusted) | [02_stan_models/README.md](02_stan_models/README.md) |
+| `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [03_R_functions/README.md](03_R_functions/README.md) |
+| `04_input_files/` | `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx` | [04_input_files/README.md](04_input_files/README.md) |
+| `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
+| `06_diagnostics/` | The experimental weather-tide covariate driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
+| `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
+
+### How paths work (important when moving files)
+
+Every file read or written by the drivers is resolved with `here::here()`, which anchors paths to the repository root (located via the `.Rproj` / `.git` sentinels), **not** to the location of the `.Rmd`. Consequences:
+
+- An `.Rmd` can sit in any subfolder (the drivers live in `01_BSS_models/` and `06_diagnostics/`) and still resolve `here("04_input_files", ...)` correctly, because `here()` walks up to the repo root regardless of the knit working directory.
+- The directory **names** inside `here(...)` must match the folder names on disk. The numbered reorganization therefore required updating every `here("R_functions"/"stan_models"/"input_files"/"output", ...)` call to its numbered equivalent (`03_R_functions`, `02_stan_models`, `04_input_files`, `05_output`). If a stage folder is ever renamed again, update the corresponding string in the drivers.
+- The weather-tide module also writes a runtime cache to `here("cache", "weather_tide")` at the repo root. This is regenerable and git-ignored, so it is intentionally **not** part of the numbered stage scheme.
 
 ---
 
@@ -33,9 +71,9 @@ Despite the name, the pooled model is not minimal: it includes adaptive AR(1) te
 
 | File | Description |
 |---|---|
-| `BSS-GH-pooled-CPUE-model.Rmd` | R analysis script |
-| `BSS-GH-pooled-CPUE-model-documentation.md` | Technical documentation |
-| `stan_models/crab_bss_pooled.stan` | Stan model (single CPUE process) |
+| `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd` | R analysis script |
+| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | Technical documentation |
+| `02_stan_models/crab_bss_pooled.stan` | Stan model (single CPUE process) |
 
 ### 2. Gear-Resolved CPUE Model (production)
 
@@ -43,9 +81,9 @@ Each gear type gets its own CPUE process with shared AR(1) dynamics, so gear-typ
 
 | File | Description |
 |---|---|
-| `BSS-GH-gear-type-CPUE-model.Rmd` | R analysis script |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | Technical documentation |
-| `stan_models/crab_bss_gear_resolved.stan` | Stan model (per-gear CPUE processes) |
+| `01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd` | R analysis script |
+| `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | Technical documentation |
+| `02_stan_models/crab_bss_gear_resolved.stan` | Stan model (per-gear CPUE processes) |
 
 ### 3. Weather & Tide Covariate Module (experimental)
 
@@ -55,9 +93,9 @@ This module is **experimental and not a production estimator on its own.** It is
 
 | File | Description |
 |---|---|
-| `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | R analysis and integration script |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | Technical documentation |
-| `stan_models/crab_bss_pooled_weather_adjusted.stan` | Augmented Stan model (baseline at K=0) |
+| `06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | R analysis and integration script |
+| `07_documentation/BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | Technical documentation |
+| `02_stan_models/crab_bss_pooled_weather_adjusted.stan` | Augmented Stan model (baseline at K=0) |
 
 ### Which Should I Use?
 
@@ -80,14 +118,14 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
 ## Quick Start
 
 1. Clone this repository.
-2. Place input data in `input_files/`:
+2. Place input data in `04_input_files/`:
    - `effort_combined.csv` (effort counts; re-exported with `QUOTE_ALL`)
    - `interview_combined.csv` (interviews; dates in M/D/YYYY format)
    - `wes_commercial_tally.csv` (daily vessel tally)
    - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
 3. Open the desired `.Rmd` file.
 4. Set `est_date_start` and `est_date_end` in the parameters block.
-5. Run all chunks (or Knit). Output is written to `output/YYYYMMDD/<model>/`.
+5. Run all chunks (or Knit). Output is written to `05_output/YYYYMMDD/<model>/`.
 
 **Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
 
@@ -95,7 +133,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
 
 ## Output Files
 
-Each run writes to `output/YYYYMMDD/<model>/`. Both models produce PE and combined PE+BSS port totals, monthly estimates, catch by mode and gear type, a per-fit `convergence_report.csv`, a `pe_vs_bss_comparison.csv`, daily BSS effort/catch series, and `run_parameters.txt`. The pooled model additionally writes the I/E and `L_effective` diagnostics (`ie_analysis.csv`, `bss_L_effective_*.csv`, `L_effective_ie_detail.csv`). The gear-resolved model additionally writes gear-type catch with posterior uncertainty (`catch_by_gear_type_detail.csv`) and the monthly/area/mode breakdowns. See each model's documentation for the exact file list.
+Each run writes to `05_output/YYYYMMDD/<model>/`. Both models produce PE and combined PE+BSS port totals, monthly estimates, catch by mode and gear type, a per-fit `convergence_report.csv`, a `pe_vs_bss_comparison.csv`, daily BSS effort/catch series, and `run_parameters.txt`. The pooled model additionally writes the I/E and `L_effective` diagnostics (`ie_analysis.csv`, `bss_L_effective_*.csv`, `L_effective_ie_detail.csv`). The gear-resolved model additionally writes gear-type catch with posterior uncertainty (`catch_by_gear_type_detail.csv`) and the monthly/area/mode breakdowns. See each model's documentation for the exact file list.
 
 ---
 

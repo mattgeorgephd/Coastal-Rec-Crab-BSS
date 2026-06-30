@@ -1,7 +1,7 @@
 # =============================================================================
-# R_functions/model_diagnostics.R
+# 03_R_functions/model_diagnostics.R
 # Per-fit model-behavior diagnostics for the pooled BSS. Auto-sourced by the
-# RMD (it sources everything in R_functions/). All functions are read-only on
+# RMD (it sources everything in 03_R_functions/). All functions are read-only on
 # the fit and safe to call on any stanfit from this model lineage.
 #
 # Produced per fit (see write_bss_diagnostics):

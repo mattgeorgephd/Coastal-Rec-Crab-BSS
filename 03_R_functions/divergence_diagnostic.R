@@ -11,7 +11,7 @@
 # Usage (in the same R session right after the pooled run, fit objects still
 # live in bss_all):
 #
-#   source(here::here("divergence_diagnostic.R"))
+#   source(here::here("03_R_functions/divergence_diagnostic.R"))
 #   diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
 #   diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
 #   diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)

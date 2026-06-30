@@ -81,12 +81,12 @@ rstan_options(auto_write = TRUE)
 if(!exists("%||%", mode = "function")) `%||%` <- function(a, b) if(is.null(a)) b else a
 
 # Source shared functions if present (matches main RMD structure)
-if(dir.exists(here("R_functions"))) {
-  purrr::walk(list.files(here("R_functions"), full.names = TRUE), source)
+if(dir.exists(here("03_R_functions"))) {
+  purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 }
 
 run_date   <- format(Sys.Date(), "%Y%m%d")
-output_dir <- here("output", run_date, "pooled-CPUE-covariates")
+output_dir <- here("05_output", run_date, "pooled-CPUE-covariates")
 cache_dir  <- here("cache", "weather_tide")
 for(d in c(output_dir, cache_dir)) if(!dir.exists(d)) dir.create(d, recursive = TRUE)
 
@@ -1537,10 +1537,10 @@ kfold_time_block_cv <- function(stan_data_baseline, stan_data_covariates,
     test_cov   <- extract_stan_data(stan_data_covariates, held_out)
 
     # Refit both
-    fit_b <- rstan::stan(file = here("stan_models", model_file_baseline),
+    fit_b <- rstan::stan(file = here("02_stan_models", model_file_baseline),
                          data = train_base, chains = 2, iter = 1500, warmup = 750,
                          cores = 2, refresh = 0, seed = params$bss_seed)
-    fit_c <- rstan::stan(file = here("stan_models", model_file_covariates),
+    fit_c <- rstan::stan(file = here("02_stan_models", model_file_covariates),
                          data = train_cov, chains = 2, iter = 1500, warmup = 750,
                          cores = 2, refresh = 0, seed = params$bss_seed)
 
@@ -1932,7 +1932,7 @@ for(cg in "Dungeness_Kept") {
       cat(sprintf("  Baseline (K_E=0, K_C=0): iter=%d warmup=%d treedepth=%d delta=%.2f AR=%s\n",
                   fit_iter, fit_warmup, fit_treedep, fit_delta, ar_res))
       fit_base <- rstan::stan(
-        file = here("stan_models", params$bss_model_file_covariates),
+        file = here("02_stan_models", params$bss_model_file_covariates),
         data = bss_data_base,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
@@ -1943,7 +1943,7 @@ for(cg in "Dungeness_Kept") {
       cat(sprintf("  Covariates (K_E=%d, K_C=%d): iter=%d warmup=%d treedepth=%d delta=%.2f\n",
                   bss_data_cov$K_E, bss_data_cov$K_C, fit_iter, fit_warmup, fit_treedep, fit_delta))
       fit_cov <- rstan::stan(
-        file = here("stan_models", params$bss_model_file_covariates),
+        file = here("02_stan_models", params$bss_model_file_covariates),
         data = bss_data_cov,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
@@ -2013,7 +2013,7 @@ if(length(bss_convergence_all) > 0) {
 # ---- PER-FIT MODEL DIAGNOSTICS (B1.6) ----
 # Structural parameters, divergence localization, and posterior predictive
 # calibration for every baseline and covariate fit. write_bss_diagnostics() is
-# sourced from R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so
+# sourced from 03_R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so
 # a diagnostic failure prints a note and never interrupts the run. The augmented
 # Stan shares lambda_E_S / lambda_C_S / r_E / r_C with the baseline, so the same
 # diagnostics apply to both; outputs use a _baseline / _covariates suffix.

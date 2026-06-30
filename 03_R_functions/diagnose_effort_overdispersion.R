@@ -74,7 +74,7 @@
 #   effort_overdispersion_byobs_<label>.csv   per-observation components (small;
 #     n_obs is in the low hundreds) for plotting or closer inspection.
 #
-# Auto-sourced by the RMD's purrr::walk(list.files(here("R_functions"), ...),
+# Auto-sourced by the RMD's purrr::walk(list.files(here("03_R_functions"), ...),
 # source). Every piece is tryCatch-wrapped so it cannot break a run.
 # =============================================================================
 

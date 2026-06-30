@@ -29,4 +29,10 @@ cache/
 Thumbs.db
 *~
 .RDataTmp
-output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData
+
+# --- Saved R workspaces ---
+# RMD runs may dump a *_workspace.RData into their output/<date>/<model>/ folder.
+# These are large, regenerable, and machine-local, so they are not tracked. This
+# general glob replaces an earlier rule that ignored a single dated workspace path
+# (output/20260619/...), which no longer matched after the 05_output/ rename.
+*.RData

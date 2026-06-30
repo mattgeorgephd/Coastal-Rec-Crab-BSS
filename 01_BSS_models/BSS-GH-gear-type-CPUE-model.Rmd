@@ -93,11 +93,11 @@ install.lib <- load.lib[!load.lib %in% installed.packages()]
 for(lib in install.lib) install.packages(lib, dependencies=TRUE)
 sapply(load.lib, require, character=TRUE)
 rstan_options(auto_write = TRUE)
-purrr::walk(list.files(here("R_functions"), full.names = TRUE), source)
+purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
 # Create dated output directory
 run_date <- format(Sys.Date(), "%Y%m%d")
-output_dir <- here("output", run_date, "gear-type-CPUE-model")
+output_dir <- here("05_output", run_date, "gear-type-CPUE-model")
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 
@@ -278,11 +278,11 @@ fetch_crab_data_v2 <- function(params) {
   cat("Reading data...\n")
 
   # --- Read effort CSV (dates in YYYY-MM-DD from re-exported file) ---
-  effort_raw <- read_csv(here("input_files","effort_combined.csv"), show_col_types=FALSE) |>
+  effort_raw <- read_csv(here("04_input_files","effort_combined.csv"), show_col_types=FALSE) |>
     filter(season == params$season_filter) |> mutate(date = as.Date(date))
 
   # --- Read interview CSV (dates in M/D/YYYY from iForm export) ---
-  interview_raw <- read_csv(here("input_files","interview_combined.csv"), show_col_types=FALSE,
+  interview_raw <- read_csv(here("04_input_files","interview_combined.csv"), show_col_types=FALSE,
     col_types = cols(date=col_date(format="%m/%d/%Y"), crabbers=col_double(),
       number_of_gear=col_double(), dungeness_kept=col_double(), red_rock_kept=col_double(),
       hours_fished=col_double(), crabber_hours=col_double(), gear_hours=col_double(),
@@ -391,7 +391,7 @@ fetch_crab_data_v2 <- function(params) {
     mutate(section_num=1, count_type="Trailer Count", population="private_boat")
 
   # --- COMMERCIAL TALLY ---
-  comm_tally <- read_csv(here("input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
+  comm_tally <- read_csv(here("04_input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
     mutate(date = as.Date(date))
 
   cat(sprintf("\n  Shore effort obs: %d (%d days)\n", nrow(shore_effort), n_distinct(shore_effort$event_date)))
@@ -1341,7 +1341,7 @@ for(cg in bss_catch_groups) {
 
       timer_start(paste0("BSS_", label))
       fit <- rstan::stan(
-        file = here("stan_models", params$bss_model_file),
+        file = here("02_stan_models", params$bss_model_file),
         data = bss_data,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),

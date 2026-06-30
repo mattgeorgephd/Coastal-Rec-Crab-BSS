@@ -42,7 +42,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #          E-BFMI, summed-quantity draws, and a prior-vs-posterior table. Run-
 #          level: monthly PE-vs-BSS by mode, gear proportions with interview
 #          support, and a per-fit data summary. Section 7.13b calls
-#          R_functions/save_run_diagnostics.R; each writer is tryCatch-wrapped
+#          03_R_functions/save_run_diagnostics.R; each writer is tryCatch-wrapped
 #          and writes only CSVs (no model change). The fit objects (.rds, O12)
 #          are intentionally not saved, to avoid output/ bloat. days_ss is now
 #          stored on each bss_all entry so the per-fit writers map periods to
@@ -57,7 +57,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #          scale sigma_eps_E) behind the effort over-dispersion the v7.0 PPC
 #          found (gear/trailer PIT central humps, coverage_50 ~ 0.63-0.75 vs
 #          the nominal 0.50), before any prior or model change is decided.
-#          Sourced from R_functions/diagnose_effort_overdispersion.R. It
+#          Sourced from 03_R_functions/diagnose_effort_overdispersion.R. It
 #          writes only CSVs and changes nothing in the model, so the estimates
 #          are unaffected.
 # Version: v7.0 (2026-06-22) - three changes.
@@ -87,7 +87,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #          population-aware (boats: mean_count * gear_per_group * 24, which is
 #          day-length-free in the normalized share; shore: unchanged). Affects
 #          the boat ring-net monthly DISTRIBUTION only; totals are unaffected.
-#          (3) PPC ROOT-CAUSE FIX (R_functions/model_diagnostics.R). The hardened
+#          (3) PPC ROOT-CAUSE FIX (03_R_functions/model_diagnostics.R). The hardened
 #          v6.9 PPC still wrote no ppc_calibration_/ppc_pit_ files: every fit
 #          aborted with "non-conformable arrays". rstan::extract returns a SCALAR
 #          (r_E, r_C, R_G, R_T) as a 1-D array that keeps a length-1 dim, which
@@ -109,7 +109,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #          level term forced the level to reconcile against the 289-state AR,
 #          saturating max_treedepth). Both Stan models are restored to the v6.8
 #          hierarchy. Retained v6.9 changes: hardened PPC calibration
-#          (R_functions/model_diagnostics.R) and, in the covariate module, a
+#          (03_R_functions/model_diagnostics.R) and, in the covariate module, a
 #          per-component tryCatch (v0.2.3). Boat stays on PE; the durable fix is a
 #          more informative boat effort series, not parameter surgery.
 #          v6.8 (2026-06-19) - sigma_IE proper prior unconditionally (B1.6, fixes
@@ -167,10 +167,10 @@ install.lib <- load.lib[!load.lib %in% installed.packages()]
 for(lib in install.lib) install.packages(lib, dependencies=TRUE)
 sapply(load.lib, require, character=TRUE)
 rstan_options(auto_write = TRUE)
-purrr::walk(list.files(here("R_functions"), full.names = TRUE), source)
+purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
 run_date <- format(Sys.Date(), "%Y%m%d")
-output_dir <- here("output", run_date, "pooled-CPUE")
+output_dir <- here("05_output", run_date, "pooled-CPUE")
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 timer_log <- list()
@@ -416,10 +416,10 @@ classify_day_type <- function(dates, weekends = params$days_wkend,
 fetch_crab_data <- function(params) {
   cat("Reading data...\n")
 
-  effort_raw <- read_csv(here("input_files","effort_combined.csv"), show_col_types=FALSE) |>
+  effort_raw <- read_csv(here("04_input_files","effort_combined.csv"), show_col_types=FALSE) |>
     filter(season == params$season_filter) |> mutate(date = as.Date(date))
 
-  interview_raw <- read_csv(here("input_files","interview_combined.csv"), show_col_types=FALSE,
+  interview_raw <- read_csv(here("04_input_files","interview_combined.csv"), show_col_types=FALSE,
     col_types = cols(date=col_date(format="%m/%d/%Y"), crabbers=col_double(),
       number_of_gear=col_double(), dungeness_kept=col_double(), red_rock_kept=col_double(),
       hours_fished=col_double(), crabber_hours=col_double(), gear_hours=col_double(),
@@ -527,7 +527,7 @@ fetch_crab_data <- function(params) {
     mutate(section_num=1, count_type="Trailer Count", population="private_boat")
 
   # --- COMMERCIAL TALLY ---
-  comm_tally <- read_csv(here("input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
+  comm_tally <- read_csv(here("04_input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
     mutate(date = as.Date(date))
 
   cat(sprintf("\n  Shore effort obs: %d (%d days)\n", nrow(shore_effort), n_distinct(shore_effort$event_date)))
@@ -562,7 +562,7 @@ fetch_crab_data <- function(params) {
 
 fetch_ie_data <- function(params) {
   cat("\n  Reading I/E data...\n")
-  ie_file <- here("input_files", params$ie_data_file)
+  ie_file <- here("04_input_files", params$ie_data_file)
   if(!file.exists(ie_file)) {
     cat("  WARNING: I/E file not found at", ie_file, "\n")
     return(tibble(
@@ -1522,7 +1522,7 @@ for(cg in bss_catch_groups) {
 
       timer_start(paste0("BSS_", label))
       fit <- rstan::stan(
-        file = here("stan_models", params$bss_model_file),
+        file = here("02_stan_models", params$bss_model_file),
         data = bss_data,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta=fit_delta, max_treedepth=fit_treedep),
@@ -2265,7 +2265,7 @@ write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.n
 # ---- 7.12 PER-FIT MODEL DIAGNOSTICS (B1.6) ----
 # Additive per-fit diagnostics: structural parameters, divergence localization,
 # and posterior predictive calibration. write_bss_diagnostics() is sourced from
-# R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so a diagnostic
+# 03_R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so a diagnostic
 # failure prints a note and never interrupts the run. Storing bss_data with each
 # fit (Section 7) is what enables the PPC; without it the PPC is skipped cleanly.
 cat("\n", strrep("=",60), "\n MODEL DIAGNOSTICS\n", strrep("=",60), "\n")
@@ -2289,7 +2289,7 @@ for(label in names(bss_all)) {
 # sigma_r_E lever), and the latent process variance Var(mu) (the sigma_eps_E /
 # single-cell level lever), and reports their shares so the lever is identified
 # before any prior or model change. write_effort_overdispersion_diag() is
-# sourced from R_functions/diagnose_effort_overdispersion.R and is fully
+# sourced from 03_R_functions/diagnose_effort_overdispersion.R and is fully
 # tryCatch-wrapped; it writes only CSVs (effort_overdispersion_decomp_<label>
 # and ..._byobs_<label>) and changes nothing in the model. It needs the in-
 # memory fit and its bss_data (stored with each fit in Section 7), which is why
@@ -2311,7 +2311,7 @@ for(label in names(bss_all)) {
 # daily CPUE, per-observation PPC residuals (exact randomized PIT), HMC sampler
 # diagnostics (E-BFMI), summed-quantity draws, prior-vs-posterior. Run-level (O7,
 # O10, O11): monthly PE-vs-BSS by mode, gear proportions, per-fit data summary.
-# Sourced from R_functions/save_run_diagnostics.R; every writer is tryCatch-
+# Sourced from 03_R_functions/save_run_diagnostics.R; every writer is tryCatch-
 # wrapped and writes only CSVs, so this changes no estimate. The fit objects
 # (O12) are deliberately not saved, to avoid output/ bloat.
 cat("\n", strrep("=",60), "\n EXTENDED RUN OUTPUTS (O1-O11)\n", strrep("=",60), "\n")
@@ -2512,7 +2512,7 @@ cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
 
 # load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
 
-source(here::here("R_functions/divergence_diagnostic.R"))
+source(here::here("03_R_functions/divergence_diagnostic.R"))
 diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)

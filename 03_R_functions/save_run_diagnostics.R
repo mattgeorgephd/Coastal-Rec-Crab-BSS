@@ -16,7 +16,7 @@
 #       run-level: O7 monthly PE-vs-BSS by mode, O10 gear proportions,
 #       O11 per-fit data summary.
 #
-# Sourced by the RMD's purrr::walk(list.files(here("R_functions"), ...), source).
+# Sourced by the RMD's purrr::walk(list.files(here("03_R_functions"), ...), source).
 # Base R + rstan:: / stats:: / utils:: only, so it does not depend on attached
 # packages.
 #
