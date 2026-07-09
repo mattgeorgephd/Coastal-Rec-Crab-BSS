@@ -24,7 +24,7 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "pooled"        # "pooled"  or  "gear_resolved"
+model       <- "gear_resolved"        # "pooled"  or  "gear_resolved"
 
 run_weather <- FALSE           # TRUE also runs the weather-tide covariate
                                # module AFTER the model. Only valid with

@@ -61,7 +61,26 @@ data {
   int<lower=1> period[D];
   vector<lower=0,upper=1>[D] w;
   vector<lower=0,upper=1>[D] holiday;
-  vector<lower=0>[D] L;
+
+  // 5b: shore day length. L_data is the point value (I/E-derived L_mu for shore,
+  // 24 for boats). When estimate_L = 1, L becomes a PARAMETER with a lognormal
+  // prior centred on L_data and log-scale SD L_prior_sigma, so the I/E prediction
+  // uncertainty propagates into the posterior instead of being asserted as known.
+  // When estimate_L = 0 (boats), L is fixed at L_data.
+  vector<lower=0>[D] L_data;
+  int<lower=0, upper=1> estimate_L;
+  vector<lower=0>[D] L_prior_sigma;
+
+  // 5b: ingress/egress observations, a SECOND observation stream on effort.
+  // IE_crabber_hours[i] measures total crabber-hours on day_IE[i]; the model
+  // predicts lambda_E * L, so these observations jointly identify L and effort.
+  // IE_n = 0 for boat fits (no shore I/E), which is why sigma_IE needs an
+  // unconditional prior (see B1.6 note in the model block).
+  int<lower=0> IE_n;
+  int<lower=1> day_IE[IE_n];
+  int<lower=1> section_IE[IE_n];
+  vector<lower=0>[IE_n] IE_crabber_hours;
+
   real<lower=0> O[D,S,G];
 
   // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
@@ -123,6 +142,13 @@ parameters {
   real B1;
   real B2;
   real B1_C;   // B1.9 parity: weekend/holiday effect on CPUE (pooled model L244)
+
+  // 5b: non-centered lognormal deviation for L. Size 0 when estimate_L = 0, so
+  // the boat fits carry no extra parameters at all.
+  vector[D * estimate_L] L_raw;
+
+  // 5b: lognormal SD of the I/E crabber-hour observations.
+  real<lower=0> sigma_IE;
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
   real<lower=0> sigma_r_E;
@@ -164,6 +190,7 @@ transformed parameters {
   matrix[G,S] mu_C;
   real<lower=-1,upper=1> phi_C;
   real<lower=0> r_C;
+  vector<lower=0>[D] L;   // 5b: parameter when estimate_L = 1, else fixed = L_data
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
@@ -172,6 +199,16 @@ transformed parameters {
   r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
+
+  // 5b: L ~ lognormal(log(L_data), L_prior_sigma), non-centered. Identical in
+  // distribution to the centered form, without the funnel.
+  if (estimate_L == 1) {
+    for (d in 1:D) {
+      L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]);
+    }
+  } else {
+    L = L_data;
+  }
 
   // B1.3: non-centered AR(1) initial state. omega_*_0 = stationary SD x raw,
   //       reproducing normal(0, sqrt(sigma_eps^2 / (1 - phi^2))) exactly while
@@ -224,6 +261,28 @@ model {
 
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
+
+  // 5b: prior on the non-centered L deviation. Vacuous when estimate_L = 0
+  // (L_raw has length 0).
+  if (estimate_L == 1) {
+    L_raw ~ std_normal();
+  }
+
+  // 5b / B1.6: sigma_IE gets a PROPER prior UNCONDITIONALLY. In the pooled model
+  // this prior originally sat inside `if (IE_n > 0)`, so a fit with no I/E data
+  // (the boat) left sigma_IE with neither prior nor likelihood: an improper flat
+  // direction that drifted to ~1e307 and became the boat's dominant divergence
+  // source. Do not move this inside the guard below.
+  sigma_IE ~ exponential(5);
+
+  if (IE_n > 0) {
+    for (i in 1:IE_n) {
+      IE_crabber_hours[i] ~ lognormal(
+        log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
+        sigma_IE
+      );
+    }
+  }
 
   R_G ~ lognormal(log(1.3), 0.3);
   if (T_n > 0 || IntA_trailer > 0) {
@@ -291,6 +350,8 @@ generated quantities {
   real<lower=0> E_sum;
   real R_G_out;
   real R_G_boat_out;
+  real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
+  vector<lower=0>[D] L_out;   // 5b: realized day length per day
 
   // Pointwise log-likelihood for PSIS-LOO (loo package), one entry per obs in
   // each stream, mirroring the model-block likelihood terms exactly. Empty when
@@ -303,6 +364,8 @@ generated quantities {
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
   R_G_boat_out = R_G_boat;
+  sigma_IE_out = sigma_IE;
+  L_out = L;
 
   // Mirror the model-block likelihood terms exactly (Gear_I, T_I, c).
   for (i in 1:Gear_n) {

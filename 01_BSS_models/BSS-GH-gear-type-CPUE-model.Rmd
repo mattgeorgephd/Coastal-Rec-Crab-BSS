@@ -688,7 +688,7 @@ run_pe <- function(summ, days, params, population_name) {
 # ===========================================================================
 
 prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, period_type,
-                          gear_exclude = character(0)) {
+                          gear_exclude = character(0), ie_data = NULL) {
 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
@@ -766,6 +766,24 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   } else {
     cat("  Incomplete trip filter OFF (v5.1 behavior)\n")
   }
+
+  # --- 5b: I/E observations for this population and sub-season ---------------
+  # Matched to day_index within the sub-season window. Shore only: the boat has no
+  # shore I/E stream, so IE_n = 0 and sigma_IE is identified by its prior alone
+  # (which is why that prior must be unconditional; see the Stan model's B1.6 note).
+  ie_match <- tibble(day_index = integer(), ie_crabber_hours = numeric())
+  if(!is.null(ie_data) && nrow(ie_data) > 0) {
+    ie_pop <- if(is_shore) "shore" else "private_boat"
+    ie_match <- ie_data |>
+      filter(population == ie_pop) |>
+      inner_join(days |> select(event_date, day_index), by = "event_date") |>
+      filter(!is.na(day_index), ie_crabber_hours > 0)
+  }
+  IE_n <- nrow(ie_match)
+  cat(sprintf("  I/E observations: %d%s\n", IE_n,
+              if(IE_n > 0) sprintf(" days (crabber-hrs %.0f-%.0f)",
+                                   min(ie_match$ie_crabber_hours),
+                                   max(ie_match$ie_crabber_hours)) else ""))
 
   intA <- int_d |> filter(!is.na(number_of_gear), number_of_gear>0, angler_count>0)
 
@@ -972,12 +990,18 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # v5.3: Pots fish continuously while the trailer sits at the ramp,
     # so the daily fishing window for boats is 24 h. Shore crabbers
     # actively tend their gear, so the window remains day_length.
-    # 5a: shore L is the I/E-derived effective day length (days$L_mu), matching
-    # the pooled driver. Boats keep L = 24 (gear soaks continuously).
-    # NOTE: this Stan model takes L as DATA, so L_prior_sigma is not propagated;
-    # the pooled model treats L as a parameter (estimate_L = 1). Point values
-    # agree; shore credible intervals here are correspondingly narrower. 5b.
-    L = if(is_shore) days$L_mu else rep(24.0, nrow(days)),
+    # 5a/5b: shore L is the I/E-derived effective day length (days$L_mu). For shore
+    # it is a PARAMETER (estimate_L = 1) with lognormal prior sd L_prior_sigma, so
+    # the I/E prediction uncertainty propagates. Boats keep L fixed at 24 h.
+    L_data        = if(is_shore) days$L_mu else rep(24.0, nrow(days)),
+    estimate_L    = as.integer(is_shore),
+    L_prior_sigma = if(is_shore) days$L_prior_sigma else rep(0.01, nrow(days)),
+
+    # 5b: ingress/egress observation stream (shore only; IE_n = 0 for boats).
+    IE_n             = IE_n,
+    day_IE           = if(IE_n > 0) ie_match$day_index else integer(0),
+    section_IE       = if(IE_n > 0) rep(1L, IE_n) else integer(0),
+    IE_crabber_hours = if(IE_n > 0) ie_match$ie_crabber_hours else numeric(0),
     O=array(1.0, dim=c(D,S,G)),
 
     # Sparse effort observation count
@@ -1426,7 +1450,8 @@ for(cg in bss_catch_groups) {
 
       # v5.1: Pass sub-season-specific period type
       bss_data <- prep_bss_crab(days_ss, summ_ss, cg, params, pop, ss$period_bss,
-                                gear_exclude = ss$gear_exclude %||% character(0))
+                                gear_exclude = ss$gear_exclude %||% character(0),
+                                ie_data = ie_data)
       ar_resolutions[[label]] <- bss_data$.ar_resolution
 
       is_shore <- (pop == "shore")
