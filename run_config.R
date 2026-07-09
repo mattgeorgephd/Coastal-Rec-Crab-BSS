@@ -78,13 +78,28 @@ run_config <- list(
   bss_max_count_seq = 3,              # cap on count sequences per day
 
   # --- AR resolution experiment toggle -------------------------------------
-  # PRODUCTION VALUE IS NULL. To run the experiment on purpose, 
-  # set this to list(private_boat = "daily").
+  # PRODUCTION VALUE IS NULL. The committed pooled driver currently has this set
+  # to list(private_boat = "daily") (the boat daily-vs-weekly experiment). Set
+  # here to NULL so an orchestrated run is production, not the experiment. To run
+  # the experiment on purpose, set this to list(private_boat = "daily").
   ar_force          = NULL,
 
-  # --- Ingress/egress input (pooled model only; harmless to the others) ----
+  # --- Ingress/egress input + shore day length (both models) ---------------
+  # Shore effort is expanded by the I/E-derived effective day length (~3.5-5 h),
+  # not civil twilight (9-17 h). Fallback is automatic: regression -> grand mean
+  # -> civil twilight (only when there is effectively no I/E data, with a
+  # warning). Boats always use L = 24 h (gear soaks continuously).
   ie_data_file      = "ingress_egress.xlsx",
   ie_sheet          = "data",
+  ie_shore_location = "WDF20",
+  ie_boat_location  = "WBL",
+  use_ie_day_length = TRUE,
+  ie_min_obs_for_regression = 5,
+
+  # Civil-twilight clamp. Binds only on the fallback rung and on the
+  # day_length_civil_twilight diagnostic column.
+  day_length_min_hours = 9.0,
+  day_length_max_hours = 17.0,
 
   # --- Crabbing holidays (single source of truth for all three drivers) ----
   # High-effort non-weekend days treated as weekend for day-typing. Update this

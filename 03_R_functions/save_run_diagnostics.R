@@ -108,9 +108,12 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   })
 
   # Draws shared by O2/O3/O4/O5/O8 ------------------------------------------
-  ex <- ok("extract", rstan::extract(fit, pars = c("omega_E", "omega_C", "lambda_C_S",
-                                                    "lambda_E_S", "r_E", "r_C", "R_G", "R_T",
-                                                    "C_sum", "C_expected_sum", "E_sum")))
+  # Model-agnostic trailer expansion (pooled R_T vs gear-resolved R_G_boat).
+  trailer_par <- bss_trailer_par(fit)
+  ex <- ok("extract", rstan::extract(fit, pars = bss_extract_pars(fit,
+                                     c("omega_E", "omega_C", "lambda_C_S",
+                                       "lambda_E_S", "r_E", "r_C", "R_G",
+                                       "C_sum", "C_expected_sum", "E_sum"))))
   if (is.null(ex)) return(invisible(NULL))
   ndraw <- length(ex$r_E)
   use_full <- seq_len(ndraw)
@@ -221,7 +224,8 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     lamE <- .srd_get_DG(ex$lambda_E_S, use_pit)
     lamC <- .srd_get_DG(ex$lambda_C_S, use_pit)
     rE <- as.numeric(ex$r_E[use_pit]); rC <- as.numeric(ex$r_C[use_pit])
-    RG <- as.numeric(ex$R_G[use_pit]); RT <- as.numeric(ex$R_T[use_pit])
+    RG <- as.numeric(ex$R_G[use_pit])
+    RT <- bss_trailer_multiplier(ex, trailer_par, use_pit)   # R_T or 1/R_G_boat
     pit_block <- function(days, y, mu_mat, size) {
       no <- length(y); pit <- fit_mean <- rep(NA_real_, no)
       for (i in seq_len(no)) {
@@ -243,7 +247,7 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       parts$gear <- cbind(data_type = "gear",
                           pit_block(stan_data$day_Gear, stan_data$Gear_I,
                                     lamE[, stan_data$day_Gear, drop = FALSE] * RG, rE))
-    if (!is.null(stan_data$T_n) && stan_data$T_n > 0)
+    if (!is.null(stan_data$T_n) && stan_data$T_n > 0 && !is.null(RT))
       parts$trailer <- cbind(data_type = "trailer",
                              pit_block(stan_data$day_T, stan_data$T_I,
                                        lamE[, stan_data$day_T, drop = FALSE] * RT, rE))
@@ -263,26 +267,27 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   ok("O9", {
     sd_norm <- function(s) s
     beta_sd <- function(a, b) sqrt(a * b / ((a + b)^2 * (a + b + 1)))
-    pars <- c("R_G", "R_T", "phi_E", "phi_C", "B1", "B2", "B1_C", "mu_mu_E[1]", "mu_mu_C[1]",
-              "sigma_eps_E", "sigma_eps_C", "sigma_r_E", "sigma_r_C", "sigma_mu_E", "sigma_mu_C")
-    post <- rstan::summary(fit, pars = pars)$summary
     sd_p <- stan_data
+    # Only summarize parameters this model declares. The pooled model carries R_T
+    # and B1_C; the gear-resolved model carries R_G_boat and no weekend-CPUE
+    # effect. Indexed names (mu_mu_E[1]) are checked on their base name.
+    has_par <- function(p) sub("\\[.*$", "", p) %in% fit@model_pars
     b_phiE <- sd_p$value_betashape_phi_E_scaled; b_phiC <- sd_p$value_betashape_phi_C_scaled
-    rg_mu <- sd_p$R_G_prior_mu; rg_s <- sd_p$R_G_prior_sigma
+    # Pooled passes the R_G prior through stan_data; the gear-resolved Stan model
+    # hardcodes lognormal(log(1.3), 0.3), so fall back to those values.
+    rg_mu <- sd_p$R_G_prior_mu %||% 1.3; rg_s <- sd_p$R_G_prior_sigma %||% 0.3
+    lnorm_mean <- function(mu, s) mu * exp(s^2 / 2)
+    lnorm_sd   <- function(mu, s) mu * exp(s^2 / 2) * sqrt(exp(s^2) - 1)
     prior_tbl <- list(
       R_G        = list(fam = sprintf("lognormal(log(%.3f), %.3f)", rg_mu, rg_s),
-                        mean = rg_mu * exp(rg_s^2 / 2),
-                        sd = rg_mu * exp(rg_s^2 / 2) * sqrt(exp(rg_s^2) - 1)),
-      R_T        = list(fam = sprintf("beta(%.1f, %.1f)", sd_p$R_T_alpha, sd_p$R_T_beta),
-                        mean = sd_p$R_T_alpha / (sd_p$R_T_alpha + sd_p$R_T_beta),
-                        sd = beta_sd(sd_p$R_T_alpha, sd_p$R_T_beta)),
+                        mean = lnorm_mean(rg_mu, rg_s),
+                        sd = lnorm_sd(rg_mu, rg_s)),
       phi_E      = list(fam = sprintf("2*beta(%.1f,%.1f)-1", b_phiE, b_phiE), mean = 0,
                         sd = 2 / (2 * sqrt(2 * b_phiE + 1))),
       phi_C      = list(fam = sprintf("2*beta(%.1f,%.1f)-1", b_phiC, b_phiC), mean = 0,
                         sd = 2 / (2 * sqrt(2 * b_phiC + 1))),
       B1         = list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1), mean = 0, sd = sd_p$value_normal_sigma_B1),
       B2         = list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B2), mean = 0, sd = sd_p$value_normal_sigma_B2),
-      B1_C       = list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_C), mean = 0, sd = sd_p$value_normal_sigma_B1_C),
       `mu_mu_E[1]` = list(fam = sprintf("normal(%.3f, %.1f)", sd_p$value_normal_mu_mu_E, sd_p$value_normal_sigma_mu_E), mean = sd_p$value_normal_mu_mu_E, sd = sd_p$value_normal_sigma_mu_E),
       `mu_mu_C[1]` = list(fam = sprintf("normal(%.3f, %.1f)", sd_p$value_normal_mu_mu_C, sd_p$value_normal_sigma_mu_C), mean = sd_p$value_normal_mu_mu_C, sd = sd_p$value_normal_sigma_mu_C),
       sigma_eps_E = list(fam = sprintf("half-cauchy(0, %.1f)", sd_p$value_cauchyDF_sigma_eps_E), mean = NA, sd = NA),
@@ -292,6 +297,28 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       sigma_mu_E = list(fam = sprintf("half-cauchy(0, %.1f)", sd_p$value_cauchyDF_sigma_mu_E), mean = NA, sd = NA),
       sigma_mu_C = list(fam = sprintf("half-cauchy(0, %.1f)", sd_p$value_cauchyDF_sigma_mu_C), mean = NA, sd = NA)
     )
+
+    # --- Model-specific priors, added only when the model declares them -------
+    # Pooled: R_T ~ beta(alpha, beta) passed through stan_data; B1_C ~ normal.
+    if (!is.null(sd_p$R_T_alpha) && !is.null(sd_p$R_T_beta)) {
+      prior_tbl$R_T <- list(fam = sprintf("beta(%.1f, %.1f)", sd_p$R_T_alpha, sd_p$R_T_beta),
+                            mean = sd_p$R_T_alpha / (sd_p$R_T_alpha + sd_p$R_T_beta),
+                            sd = beta_sd(sd_p$R_T_alpha, sd_p$R_T_beta))
+    }
+    if (!is.null(sd_p$value_normal_sigma_B1_C)) {
+      prior_tbl$B1_C <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_C),
+                             mean = 0, sd = sd_p$value_normal_sigma_B1_C)
+    }
+    # Gear-resolved: R_G_boat ~ lognormal(log(4), 0.5), hardcoded in the Stan model.
+    if (has_par("R_G_boat")) {
+      prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",
+                                 mean = lnorm_mean(4, 0.5), sd = lnorm_sd(4, 0.5))
+    }
+
+    pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]
+    if (length(pars) == 0) return(NULL)
+    post <- rstan::summary(fit, pars = pars)$summary
+
     rows <- lapply(pars, function(pn) {
       pr <- prior_tbl[[pn]]; po <- post[pn, ]
       contraction <- if (is.finite(pr$sd) && pr$sd > 0) 1 - po["sd"] / pr$sd else NA_real_

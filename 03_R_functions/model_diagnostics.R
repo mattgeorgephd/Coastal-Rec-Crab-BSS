@@ -81,8 +81,11 @@ bss_divergence_localization <- function(fit, candidate_pars = NULL) {
 # extracted quantities (no RNG added to Stan), capped at n_draws_use for speed.
 bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   set.seed(seed)
-  ex <- rstan::extract(fit, pars = c("lambda_E_S", "lambda_C_S",
-                                     "r_E", "r_C", "R_G", "R_T"))
+  # Model-agnostic trailer expansion: pooled carries R_T, gear-resolved carries
+  # R_G_boat. bss_extract_pars() requests only the one this fit declares.
+  trailer_par <- bss_trailer_par(fit)
+  ex <- rstan::extract(fit, pars = bss_extract_pars(fit, c("lambda_E_S", "lambda_C_S",
+                                                           "r_E", "r_C", "R_G")))
   ndraw <- length(ex$r_E)
   use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use)) else seq_len(ndraw)
   nd  <- length(use)
@@ -120,7 +123,12 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   # A two-line check on any fit: dim(rstan::extract(fit, "R_G")$R_G) returns the
   # iteration count (length-1 dim), not NULL.
   rE <- as.numeric(ex$r_E[use]); rC <- as.numeric(ex$r_C[use])
-  RG <- as.numeric(ex$R_G[use]); RT <- as.numeric(ex$R_T[use])
+  RG <- as.numeric(ex$R_G[use])
+  # RT is the per-draw MULTIPLIER m with mu_trailer = lambda_E * m:
+  #   pooled        m = R_T
+  #   gear-resolved m = 1 / R_G_boat
+  # NULL when the fit declares no trailer expansion parameter.
+  RT <- bss_trailer_multiplier(ex, trailer_par, use)
 
   # B1.7 fix: score each observation on its finite predictive draws only. An
   # extreme lambda draw (exp() overflow in a weakly-identified fit) yields a
@@ -154,7 +162,7 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   if (stan_data$Gear_n > 0)
     parts$gear    <- calib(lamE[, stan_data$day_Gear, drop = FALSE] * RG,
                            stan_data$Gear_I, rE)
-  if (stan_data$T_n > 0)
+  if (stan_data$T_n > 0 && !is.null(RT))
     parts$trailer <- calib(lamE[, stan_data$day_T, drop = FALSE] * RT,
                            stan_data$T_I, rE)
   if (stan_data$IntC > 0)

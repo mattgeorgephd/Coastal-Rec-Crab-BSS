@@ -198,13 +198,81 @@ params <- list(
   # FALSE = include all trips (v5.1 behavior).
   filter_incomplete_trips = TRUE,
 
+  # --- B1.9 parity: weekend/holiday effect on CPUE (pooled has this; v5.4 did not) ---
+  # TRUE  = lambda_C = exp(mu_C + omega_C + B1_C * weekend), matching the pooled model.
+  # FALSE = lambda_C = exp(mu_C + omega_C), the v5.4 behavior (CPUE constrained
+  #         identical on weekends and weekdays).
+  # B1_C is sampled either way; when FALSE it drops out of the likelihood, so
+  # log_lik_catch is the reduced model's and elpd_loo from a TRUE/FALSE pair of
+  # runs is directly comparable. Adjudicate with loo_summary_*.csv, or read the
+  # B1_C posterior directly (does its 95% CI exclude zero?).
+  estimate_B1_C = TRUE,
+
+  # --- Ingress/egress shore day length (shared: 03_R_functions/bss_day_length.R) ---
+  # Shore effort is expanded by an effective day length derived from I/E surveys
+  # (~3.5-5.0 h), not civil twilight (9-17 h), which overestimates it by ~2x.
+  # The fallback ladder is automatic: regression (n >= ie_min_obs_for_regression)
+  # -> grand mean (3 <= n < threshold) -> civil twilight (n < 3, with a warning).
+  # These values are identical to the pooled driver's so the two agree exactly.
+  ie_data_file      = "ingress_egress.xlsx",
+  ie_sheet          = "data",
+  ie_shore_location = "WDF20",
+  ie_boat_location  = "WBL",
+  use_ie_day_length = TRUE,
+  ie_min_obs_for_regression = 5,
+
+  # Civil-twilight clamp; only binds on the fallback rung.
+  day_length_min_hours = 9.0,
+  day_length_max_hours = 17.0,
+
+  # Project centroid (Westport), used for the civil-twilight computation.
+  centroid_lat = 46.904,
+  centroid_lon = -124.105,
+  local_tz     = "America/Los_Angeles",
+
   # --- v5.2: Convergence divergence criterion ---
   # Maximum number of divergent transitions allowed for BSS to pass.
   # 0 = strict (any divergence fails), 5 = permissive (a handful of
   # divergences in 4000+ post-warmup draws is tolerable when R-hat and
   # ESS are clean). Set higher for exploratory runs, lower for production.
-  max_divergences = 5
+  max_divergences = 5,
+
+  # --- B1.8 scale-aware convergence gate (ported from pooled) ---
+  # These SUPERSEDE the count-based max_divergences for the PE/BSS decision. A
+  # fit passes only if R-hat/n_eff pass AND the divergence fraction is below
+  # max_divergence_fraction AND the divergences do not move the reported totals
+  # by more than max_divergence_total_impact_sd (in posterior-SD units).
+  max_divergence_total_impact_sd = 0.10,
+  max_divergence_fraction        = 0.05,
+
+  # --- AR temporal resolution (shared selector: 03_R_functions/bss_ar_resolution.R) ---
+  # ar_adaptive = FALSE (default) preserves v5.x behavior EXACTLY: each sub-season
+  # uses its declared period_bss (biweekly for ring-net, monthly for all-gear).
+  # Setting TRUE hands the choice to the data-driven selector, subject to
+  # ar_max_resolution. That is INFERENCE-CHANGING (it changes the latent AR
+  # dimension P_n, hence the posterior), so it is opt-in and should be validated
+  # against a fixed-period run before adoption.
+  ar_adaptive = FALSE,
+
+  # Caps used ONLY when ar_adaptive = TRUE. Conservative for this model because
+  # the gear-resolved latent AR is P_n x (G*S): with 4 gear types a daily AR is
+  # ~4x the pooled latent dimension at the same P_n.
+  ar_max_resolution      = list(shore = "weekly", private_boat = "monthly"),
+  ar_daily_min_coverage  = 0.25,   # fraction of days with effort obs
+  ar_daily_min_obs       = 20,     # absolute minimum for daily
+  ar_weekly_min_per_week = 1.5,    # average obs per week for weekly
+
+  # Experiment toggle: force a population's AR resolution, bypassing both the
+  # fixed period_bss and the cap. NULL (production) is a no-op.
+  ar_force = NULL
 )
+
+# --- Run-level overrides from run_estimation.R (single source of truth) -------
+# When launched via the orchestrator, `run_config` exists in this render
+# environment and overrides ONLY the run-level keys it defines (season window,
+# seed, chains/cores, ...). All model-specific tuning above is left untouched.
+# Knit this .Rmd standalone (no run_config) and the in-file defaults are used.
+if (exists("run_config")) params <- modifyList(params, run_config)
 
 # Crabbing holidays for 2024-25 season (high-effort days)
 crabbing_holiday_dates <- as.Date(c(
@@ -219,6 +287,13 @@ crabbing_holiday_dates <- as.Date(c(
   "2025-07-04",  # Independence Day (Friday = weekend, counts as holiday)
   "2025-09-01"   # Labor Day
 ))
+
+# Run-level override: when launched via run_estimation.R, use the config's
+# holiday list so pooled / gear-resolved / weather never drift. Standalone knit
+# keeps the in-file list above.
+if (exists("run_config") && !is.null(run_config$crabbing_holiday_dates)) {
+  crabbing_holiday_dates <- run_config$crabbing_holiday_dates
+}
 
 # --- Derived: catch groups vector used throughout ---
 catch_groups <- if(params$estimate_red_rock) {
@@ -428,7 +503,8 @@ fetch_crab_data_v2 <- function(params) {
 #        Day length cap raised to 17h (was 16h) for summer at 46.9°N
 # ===========================================================================
 
-prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period_pe, sections) {
+prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period_pe, sections,
+                           L_eff_model = NULL) {
   date_begin <- as.Date(date_begin); date_end <- as.Date(date_end)
   days <- tibble(
     event_date = seq.Date(date_begin, date_end, by="day"),
@@ -460,16 +536,12 @@ prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period
                   levels=unique(paste(year,sprintf("%02d",month))))),
     day_length = NA_real_
   )
-  # Compute day length from dawn to dusk via suncalc at Westport coordinates
-  sun <- suncalc::getSunlightTimes(
-    date = days$event_date,
-    lat = 46.904, lon = -124.105,
-    tz = "America/Los_Angeles"
-  )
-  days$day_length <- as.numeric(difftime(sun$dusk, sun$dawn, units = "hours"))
-  # v5.1: Cap at 9–17h (was 9–16h). Civil twilight at 46.9°N reaches ~17h
-  # at summer solstice; 16h cap slightly underestimated peak-season effort.
-  days$day_length <- pmax(pmin(days$day_length, 17.0), 9.0)
+  # Civil twilight + L_effective assignment. Shared with the pooled driver:
+  # 03_R_functions/bss_day_length.R. Sets day_length, day_length_civil_twilight,
+  # L_mu and L_prior_sigma. Falls back to civil twilight (clamped to
+  # [day_length_min_hours, day_length_max_hours], default [9, 17]) only when
+  # L_eff_model is NULL, i.e. no usable I/E data.
+  days <- bss_assign_day_length(days, L_eff_model, params)
 
   for(s in sections) days[[paste0("open_section_",s)]] <- TRUE
   days
@@ -527,14 +599,32 @@ run_pe <- function(summ, days, params, population_name) {
       filter(trip_status == "Complete" | is.na(trip_status))
   }
 
+  # Day-length basis for the PE effort expansion.
+  # bss_assign_day_length() overwrites days$day_length with the SHORE-derived
+  # L_effective (~4 h) whenever an I/E model exists. That is correct for shore
+  # and wrong for boats, whose gear soaks continuously. run_pe() is
+  # population-agnostic, so select the basis explicitly here: shore gets the
+  # effective day length, boats keep civil twilight (their prior behavior),
+  # which isolates the 5a change to the shore component.
+  #
+  # KNOWN ISSUE (not fixed here): the boat PE below still expands with
+  # crabber-hours (est_crabbers * L) via summ$crabbers_per_gear. The pooled
+  # driver moved the boat PE to gear-hours (mean_count * gear_per_group * 24)
+  # and replaced crabbers_per_gear with crabbers_per_group. Porting that is a
+  # separate change with its own validation; until then the boat PE is expected
+  # to disagree with the boat BSS.
+  is_shore_pe <- (population_name == "shore")
+  days <- days |>
+    mutate(L_pe = if(is_shore_pe) day_length else day_length_civil_twilight)
+
   daily_effort <- summ$effort_index |>
     filter(count_sequence <= params$bss_max_count_seq) |>
     group_by(event_date, section_num) |>
     summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
     mutate(est_crabbers = mean_count * summ$crabbers_per_gear) |>
-    left_join(days |> select(event_date,day_type,day_length,period), by="event_date") |>
-    mutate(est_daily_crabber_hours = est_crabbers * day_length,
-           est_daily_gear_hours = mean_count * day_length)
+    left_join(days |> select(event_date,day_type,L_pe,period), by="event_date") |>
+    mutate(est_daily_crabber_hours = est_crabbers * L_pe,
+           est_daily_gear_hours = mean_count * L_pe)
 
   total_days_strat <- days |> filter(open_section_1) |>
     group_by(period, day_type) |> summarise(n_total_days=n(), .groups="drop")
@@ -603,20 +693,24 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
 
-  # --- BSS period assignment (v5.1: biweekly option) ---
-  if(tolower(period_type) == "week") {
-    P_n <- max(days$week_index, na.rm=TRUE)
-    pvec <- days$week_index
-  } else if(tolower(period_type) == "biweekly") {
-    pvec <- as.integer(ceiling(days$day_index / 14))
-    P_n <- max(pvec)
-    cat(sprintf("  Using biweekly periods: %d periods for %d days\n", P_n, D))
-  } else {
-    P_n <- max(days$month_index)
-    pvec <- days$month_index
-  }
-
+  # --- BSS period / AR temporal resolution ---------------------------------
+  # Shared selector: 03_R_functions/bss_ar_resolution.R. eff_d is built first
+  # because the selector reports effort coverage. Default (params$ar_adaptive =
+  # FALSE) passes the sub-season's explicit period_bss, reproducing the v5.x
+  # fixed-period behavior exactly. Setting ar_adaptive = TRUE lets the data
+  # choose, subject to params$ar_max_resolution. params$ar_force overrides both.
   eff_d <- eff |> left_join(days |> select(event_date,day_index), by="event_date") |> filter(!is.na(day_index))
+
+  ar_sel <- bss_select_ar_resolution(
+    days             = days,
+    eff_d            = eff_d,
+    population_name  = population_name,
+    params           = params,
+    fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else period_type
+  )
+  ar_resolution <- ar_sel$resolution
+  P_n  <- ar_sel$P_n
+  pvec <- ar_sel$pvec
 
   # v5.3: is_shore is computed early so that the boat-specific
   # gear_time_total filter and the L/h branches below can use it.
@@ -858,9 +952,7 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   n_trailer <- if(!is_shore) nrow(eff_d) else 0L
   n_effort_obs <- n_gear + n_trailer
 
-  cat(sprintf("  Sparse eps_E_H: %d effort obs (was %d×%d=%d in old model)\n",
-              n_effort_obs, D, max(c(eff$count_sequence, 1L)),
-              D * max(c(eff$count_sequence, 1L))))
+  cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
   # v5.3: Defensive check. Stan declares Gear_A_boat as int<lower=1>.
   # number_of_gear is stored as numeric (load_creel_data line ~305), so a
@@ -880,7 +972,12 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # v5.3: Pots fish continuously while the trailer sits at the ramp,
     # so the daily fishing window for boats is 24 h. Shore crabbers
     # actively tend their gear, so the window remains day_length.
-    L = if(is_shore) days$day_length else rep(24.0, nrow(days)),
+    # 5a: shore L is the I/E-derived effective day length (days$L_mu), matching
+    # the pooled driver. Boats keep L = 24 (gear soaks continuously).
+    # NOTE: this Stan model takes L as DATA, so L_prior_sigma is not propagated;
+    # the pooled model treats L as a parameter (estimate_L = 1). Point values
+    # agree; shore credible intervals here are correspondingly narrower. 5b.
+    L = if(is_shore) days$L_mu else rep(24.0, nrow(days)),
     O=array(1.0, dim=c(D,S,G)),
 
     # Sparse effort observation count
@@ -945,13 +1042,16 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
     value_normal_sigma_B1=1,
     value_normal_sigma_B2=1,
+    value_normal_sigma_B1_C=1,
+    use_B1_C = as.integer(isTRUE(params$estimate_B1_C)),
     value_normal_mu_mu_C=log(0.5), value_normal_sigma_mu_C=2,
     value_normal_mu_mu_E=if(is_shore) log(25) else log(10),
     value_normal_sigma_mu_E=2,
     value_cauchyDF_sigma_mu_C=2, value_cauchyDF_sigma_mu_E=2,
 
     # Metadata for output (not passed to Stan)
-    .gear_type_labels = gear_type_labels
+    .gear_type_labels = gear_type_labels,
+    .ar_resolution    = ar_resolution
   )
 }
 
@@ -1087,6 +1187,21 @@ estimate_comm_charter <- function(dwg, params) {
 timer_start("1_load_data")
 cat("\n", strrep("=",60), "\n LOADING DATA\n", strrep("=",60), "\n")
 dwg <- fetch_crab_data_v2(params)
+
+# --- Ingress/egress data + L_effective model (shared with the pooled driver) ---
+# fetch_ie_data() and estimate_L_effective() live in 03_R_functions/bss_day_length.R.
+# L_eff_model is NULL when I/E data are absent or fewer than 3 shore days exist;
+# prep_days_crab() then falls back to civil twilight and warns.
+ie_data <- fetch_ie_data(params)
+
+L_eff_model <- NULL
+if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
+  L_eff_model <- estimate_L_effective(ie_data, params$pot_open_date, params)
+  if(!is.null(L_eff_model) && !is.null(L_eff_model$detail)) {
+    write.csv(L_eff_model$detail,
+              file.path(output_dir, "L_effective_ie_detail.csv"), row.names = FALSE)
+  }
+}
 timer_stop("1_load_data")
 
 
@@ -1096,7 +1211,7 @@ cat("\n", strrep("=",60), "\n DIAGNOSTIC PLOTS\n", strrep("=",60), "\n")
 
 days_full <- prep_days_crab(params$est_date_start, params$est_date_end,
                             params$days_wkend, crabbing_holiday_dates,
-                            params$period_pe, params$sections)
+                            params$period_pe, params$sections, L_eff_model)
 
 # Plot 1: Shore gear count timeseries
 p_shore_effort <- dwg$shore_effort |>
@@ -1198,7 +1313,7 @@ for(pop in c("shore","private_boat")) {
   for(ss in list(subseason_1, subseason_2)) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                              params$period_pe, params$sections)
+                              params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
     pe_all[[label]] <- run_pe(summ_ss, days_ss, params, label)
   }
@@ -1213,7 +1328,7 @@ for(pop in c("shore","private_boat")) {
   for(ss in list(subseason_1, subseason_2)) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                              params$period_pe, params$sections)
+                              params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
     de <- summ_ss$effort_index |>
@@ -1287,6 +1402,7 @@ bss_catch_groups <- catch_groups
 cat(sprintf("Running BSS for: %s\n", paste(bss_catch_groups, collapse=", ")))
 
 bss_all <- list()
+ar_resolutions <- list()   # AR resolution actually used, per fit (for the gate report)
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
     for(ss in list(subseason_1, subseason_2)) {
@@ -1294,7 +1410,7 @@ for(cg in bss_catch_groups) {
       cat(sprintf("\n--- BSS: %s ---\n", label))
 
       days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                                params$period_pe, params$sections)
+                                params$period_pe, params$sections, L_eff_model)
       summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
       n_int <- nrow(summ_ss$interview)
@@ -1311,6 +1427,7 @@ for(cg in bss_catch_groups) {
       # v5.1: Pass sub-season-specific period type
       bss_data <- prep_bss_crab(days_ss, summ_ss, cg, params, pop, ss$period_bss,
                                 gear_exclude = ss$gear_exclude %||% character(0))
+      ar_resolutions[[label]] <- bss_data$.ar_resolution
 
       is_shore <- (pop == "shore")
       is_allgear <- (ss$name == "all_gear")
@@ -1369,6 +1486,10 @@ for(cg in bss_catch_groups) {
         C_gear_draws = C_gear_draws,
         gear_type_labels = gear_labels,
         fit = fit, pe_fallback = FALSE,
+        # Carried for the shared diagnostics in 03_R_functions (PPC, effort
+        # overdispersion decomposition, O1-O13, PSIS-LOO). Without these the
+        # writers silently skip, so they are stored on the fit entry.
+        bss_data = bss_data, days_ss = days_ss,
         population = pop, subseason = ss$name, catch_group = cg
       )
 
@@ -1443,12 +1564,33 @@ for(cg in bss_catch_groups) {
 timer_stop("5_BSS_model_runs")
 
 
+# ---- 7.6b CONVERGENCE GATE (B1.8, scale-aware; shared in 03_R_functions) ----
+# Decide PE-vs-BSS per fit BEFORE any reported total is assembled. bss_compute_gate
+# and bss_use_pe_for live in 03_R_functions/bss_convergence_gate.R (shared with the
+# pooled track). A fit reports BSS only if it passes the gate; otherwise the
+# reported-estimate sections below fall back to PE. Diagnostic sections still key
+# off pe_fallback so a fitted-but-gate-failed component keeps its per-fit outputs.
+cat("\n", strrep("=",60), "\n CONVERGENCE GATE\n", strrep("=",60), "\n")
+for(label in names(bss_all)) {
+  gi <- bss_compute_gate(
+    bss_all[[label]], label,
+    catch_par        = "C_expected_sum",
+    effort_par       = "E_sum",
+    max_impact_sd    = params$max_divergence_total_impact_sd %||% 0.10,
+    max_div_fraction = params$max_divergence_fraction %||% 0.05,
+    ar_resolution    = ar_resolutions[[label]] %||% NA_character_
+  )
+  bss_all[[label]]$gate_info <- gi
+  bss_all[[label]]$use_bss   <- isTRUE(gi$pass_convergence)
+}
+
+
 # ---- 7.7 COMBINED BSS PORT TOTAL ----
 timer_start("6_outputs")
 cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
 
 n_draws_max <- max(sapply(bss_all, function(b) {
-  if(!is.null(b$pe_fallback) && b$pe_fallback) return(0)
+  if(bss_use_pe_for(b)) return(0)   # B1.8: a gate-failed fit contributes no BSS draws
   length(b$C_draws)
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
@@ -1463,7 +1605,7 @@ for(cg in bss_catch_groups) {
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
 
-      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+      if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
         bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
         bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
       } else {
@@ -1501,7 +1643,7 @@ cat("\n", strrep("=",60), "\n MONTHLY ESTIMATES\n", strrep("=",60), "\n")
 
 days_full <- prep_days_crab(params$est_date_start, params$est_date_end,
                             params$days_wkend, crabbing_holiday_dates,
-                            params$period_pe, params$sections)
+                            params$period_pe, params$sections, L_eff_model)
 
 month_lookup <- days_full |>
   mutate(month_label = format(event_date, "%Y-%m")) |>
@@ -1521,10 +1663,10 @@ for(cg in bss_catch_groups) {
       b <- bss_all[[label]]
 
       days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                                params$period_pe, params$sections)
+                                params$period_pe, params$sections, L_eff_model)
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
-      if(!is.null(b$pe_fallback) && b$pe_fallback) {
+      if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
         pe_daily <- summ_ss$effort_index |>
           filter(count_sequence <= params$bss_max_count_seq) |>
@@ -1698,7 +1840,7 @@ for(pop in c("shore","private_boat")) {
 
     if(is.null(b)) next
 
-    if(!is.null(b$pe_fallback) && b$pe_fallback) {
+    if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
       pe_catch_total <- pe_all[[pe_label]]$Dungeness_Kept %||% 0
       # v5.1: Word-boundary regex consistent with BSS classification
       int_ss <- dwg$interview |>
@@ -1861,9 +2003,14 @@ for(label in names(bss_all)) {
 
     pass_rhat <- max(all_rhats, na.rm=TRUE) < 1.01  # v5.4: tightened from 1.05 (Vehtari et al. 2021)
     pass_neff <- min(all_neffs, na.rm=TRUE) > 400
-    # v5.2 Fix 4: Divergent transitions now part of convergence criterion
-    pass_divergence <- (n_divergent <= params$max_divergences)
-    pass <- pass_rhat & pass_neff & pass_divergence
+    # B1.8: the PE/BSS decision is the scale-aware gate (bss_compute_gate),
+    # already computed and stored on the fit. Use it here so the report's
+    # pass_convergence / method_selected match what actually selected PE vs BSS.
+    # The gear-type diagnostics above are retained for insight; the divergence
+    # fraction and impact values that drove the decision are printed to the
+    # console by the gate and stored in b$gate_info.
+    gi <- b$gate_info
+    pass <- isTRUE(gi$pass_convergence)
 
     # v5.2: Warn on treedepth exceedances
     if(n_treedepth / n_total > 0.05) {
@@ -1906,6 +2053,45 @@ write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.n
 
 
 # ===========================================================================
+# 7.11b EXTENDED DIAGNOSTICS + PSIS-LOO
+# Shared writers auto-sourced from 03_R_functions/:
+#   write_bss_diagnostics()            structural params, divergence localization,
+#                                      PPC calibration + PIT histogram
+#   write_effort_overdispersion_diag()  Poisson / NB / latent variance decomposition
+#   write_fit_extended_diagnostics()    O1-O9 (E-BFMI, AR paths, per-obs PIT,
+#                                      prior-vs-posterior contraction, ...)
+#   write_loo_diagnostics()             O13 PSIS-LOO + Pareto-k, from the
+#                                      log_lik_gear/trailer/catch added to the
+#                                      gear-resolved Stan model.
+#
+# These run for every fit that PRODUCED draws, including fits the convergence
+# gate rejected. That is deliberate: a gate-failed fit reports PE in the totals,
+# but its diagnostics are exactly what identify WHY it failed.
+# ===========================================================================
+
+cat("\n", strrep("=",60), "\n EXTENDED DIAGNOSTICS\n", strrep("=",60), "\n")
+
+for(label in names(bss_all)) {
+  b <- bss_all[[label]]
+  if(is.null(b$fit)) next   # PE-only (insufficient data): no draws to diagnose
+
+  cat(sprintf("\n--- diagnostics: %s (%s) ---\n", label,
+              if(isTRUE(b$use_bss)) "gate PASS" else "gate FAIL -> reporting PE"))
+
+  write_bss_diagnostics(b$fit, b$bss_data, label, output_dir)
+  write_effort_overdispersion_diag(b$fit, b$bss_data, label, output_dir)
+  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+}
+
+# Run-level rollups (O10-O12). gear_props = NULL: the gear-resolved model carries
+# gear composition inside the Stan model (pi_gear_data), not as a separate
+# run-level object, so O10 is skipped for this track.
+write_run_level_diagnostics(bss_all, pe_all, gear_props = NULL,
+                            params = params, output_dir = output_dir)
+
+
+# ===========================================================================
 # 7.12 DAILY COMBINED ESTIMATE
 # v5.1: Uses C_total instead of C[S][D,G]
 # ===========================================================================
@@ -1921,7 +2107,7 @@ for(pop in c("shore","private_boat")) {
     b <- bss_all[[label_cg]]
 
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                              params$period_pe, params$sections)
+                              params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
     pe_daily <- summ_ss$effort_index |>
@@ -1950,7 +2136,7 @@ for(pop in c("shore","private_boat")) {
       left_join(pe_cpue |> select(event_date, pe_cpue), by = "event_date") |>
       mutate(pe_catch = pe_crabber_hours * pe_cpue)
 
-    if(!is.null(b) && (is.null(b$pe_fallback) || !b$pe_fallback)) {
+    if(!is.null(b) && !bss_use_pe_for(b)) {   # B1.8: BSS only if it passed the gate
       E_bss <- rstan::extract(b$fit, "E")$E
       # v5.2: C_total is now expected value (smooth, no Poisson noise).
       # Good for daily trajectory plots. Season totals use C_gear_pred.
@@ -2001,7 +2187,7 @@ coverage <- list()
 for(pop in c("shore","private_boat")) {
   for(ss in list(subseason_1, subseason_2)) {
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                              params$period_pe, params$sections)
+                              params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
     days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
@@ -2349,7 +2535,7 @@ for(pop in c("shore","private_boat")) {
   for(ss in list(subseason_1, subseason_2)) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                              params$period_pe, params$sections)
+                              params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
     # Count trip status

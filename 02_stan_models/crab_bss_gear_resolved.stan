@@ -23,13 +23,34 @@
 //     - For boats: R_G_boat (gear per group) replaces R_T (trailers per crabber)
 //     - CPUE denominator h = gear-hours (boats) or crabber-hours (shore)
 //     - L[d] = 24 for boats (gear fishes 24/7), day_length for shore
-//     - Trailer obs: T_I ~ Poisson(lambda_E / R_G_boat * eps)
+//     - Trailer obs: T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E)
 //
 //   Shore model is unchanged: lambda_E = crabbers, h = crabber-hours, L = day_length.
 //
-// SPARSE eps_E_H: overdispersion allocated only for actual observations.
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
+//
+// PORTED FROM THE POOLED MODEL (parity work):
+//   B1.3  Non-centered AR(1) initial state. omega_*_0 = stationary_SD * raw with
+//         raw ~ std_normal(), replacing the centered
+//         omega_*_0 ~ normal(0, sqrt(sigma_eps^2 / (1 - phi^2))). Reproduces the
+//         same prior exactly while removing the funnel. Inference-preserving.
+//
+//   B1.5  Effort-count overdispersion marginalized to neg_binomial_2. The former
+//         Poisson-Gamma mixture (per-observation latent eps_E_H_obs ~
+//         Gamma(r_E, r_E)) is integrated out analytically, giving identical mean
+//         and variance with r_E = 1 / sigma_r_E^2 unchanged. Removes n_effort_obs
+//         latent parameters and their funnel. n_effort_obs is retained in the
+//         data block for R-interface compatibility only; it is unused here.
+//
+//   B1.8  C_expected_sum: deterministic expected-catch total. The scale-aware
+//         convergence gate (03_R_functions/bss_convergence_gate.R) tests whether
+//         divergent draws move this total, so it must not carry the Poisson
+//         predictive noise that C_sum does.
+//
+//   log_lik_gear / log_lik_trailer / log_lik_catch: pointwise log-likelihood for
+//         PSIS-LOO (loo package) and Pareto-k influence diagnostics. Empty when a
+//         stream is absent (trailer for shore, gear for the boat).
 // =============================================================================
 
 data {
@@ -84,6 +105,12 @@ data {
   real value_betashape_phi_C_scaled;
   real value_normal_sigma_B1;
   real value_normal_sigma_B2;
+  real value_normal_sigma_B1_C;
+  // B1.9 parity: switch the weekend CPUE effect on (1) or off (0). When 0, B1_C
+  // is still sampled from its prior but drops out of the likelihood, so
+  // log_lik_catch is that of the reduced model and elpd_loo is directly
+  // comparable across a use_B1_C = 1 vs 0 pair of runs.
+  int<lower=0, upper=1> use_B1_C;
   real value_normal_mu_mu_C;
   real value_normal_sigma_mu_C;
   real value_normal_mu_mu_E;
@@ -95,18 +122,22 @@ data {
 parameters {
   real B1;
   real B2;
+  real B1_C;   // B1.9 parity: weekend/holiday effect on CPUE (pooled model L244)
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
   real<lower=0> sigma_r_E;
   real<lower=0,upper=1> phi_E_scaled;
   matrix[P_n-1, G*S] eps_E;
-  matrix[G,S] omega_E_0;
+  matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
   matrix[G,S] eps_mu_E;
 
-  // Sparse overdispersion: one per actual effort observation
-  vector<lower=0>[n_effort_obs] eps_E_H_obs;
+  // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
+  //       now marginalized into neg_binomial_2 in the model block, so the per-
+  //       observation latent effects (and their funnel) no longer exist as
+  //       parameters. n_effort_obs is retained in the data block only for
+  //       R-interface compatibility; it is no longer referenced here.
 
   real<lower=0> R_G;
   real<lower=0> R_G_boat;  // gear per boat group (replaces R_T)
@@ -116,7 +147,7 @@ parameters {
   real<lower=0,upper=1> phi_C_scaled;
   real<lower=0> sigma_r_C;
   matrix[P_n-1, G*S] eps_C;
-  matrix[G,S] omega_C_0;
+  matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
   matrix[G,S] eps_mu_C;
@@ -126,6 +157,7 @@ transformed parameters {
   matrix[G,S] mu_E;
   real<lower=-1,upper=1> phi_E;
   matrix[P_n, G*S] omega_E;
+  matrix[G,S] omega_E_0;        // B1.3: scaled from omega_E_0_raw below
   matrix<lower=0>[D,G] lambda_E_S[S];
   real<lower=0> r_E;
 
@@ -133,12 +165,19 @@ transformed parameters {
   real<lower=-1,upper=1> phi_C;
   real<lower=0> r_C;
   matrix[P_n, G*S] omega_C;
+  matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
 
   r_E = 1 / square(sigma_r_E);
   r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
+
+  // B1.3: non-centered AR(1) initial state. omega_*_0 = stationary SD x raw,
+  //       reproducing normal(0, sqrt(sigma_eps^2 / (1 - phi^2))) exactly while
+  //       removing the centered funnel. Inference-preserving.
+  omega_E_0 = sqrt(square(sigma_eps_E) / (1 - square(phi_E))) * omega_E_0_raw;
+  omega_C_0 = sqrt(square(sigma_eps_C) / (1 - square(phi_C))) * omega_C_0_raw;
 
   omega_E[1,] = to_row_vector(omega_E_0);
   omega_C[1,] = to_row_vector(omega_C_0);
@@ -159,7 +198,8 @@ transformed parameters {
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
-          to_matrix(omega_C[period[d],], G, S)[g,s]) * O[d,s,g];
+          to_matrix(omega_C[period[d],], G, S)[g,s]
+          + use_B1_C * B1_C * w[d]) * O[d,s,g];
       }
     }
   }
@@ -178,6 +218,9 @@ model {
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
+  // Proper prior regardless of use_B1_C. When use_B1_C = 0 this parameter does
+  // not enter the likelihood, so it simply samples its prior.
+  B1_C ~ normal(0, value_normal_sigma_B1_C);
 
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
@@ -191,28 +234,32 @@ model {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
     mu_mu_C[g] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
     for (s in 1:S) {
-      omega_E_0[g,s] ~ normal(0, sqrt(square(sigma_eps_E) / (1 - square(phi_E))));
-      omega_C_0[g,s] ~ normal(0, sqrt(square(sigma_eps_C) / (1 - square(phi_C))));
+      omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
+      omega_C_0_raw[g,s] ~ std_normal();
       eps_mu_E[g,s] ~ std_normal();
       eps_mu_C[g,s] ~ std_normal();
     }
   }
 
-  // Sparse overdispersion prior: vectorized over actual observations only
-  eps_E_H_obs ~ gamma(r_E, r_E);
+  // B1.5: effort-count overdispersion marginalized to neg_binomial_2. The prior
+  //       form was Gear_I ~ Poisson(lambda * eps_E_H_obs * R_G) with
+  //       eps_E_H_obs ~ Gamma(r_E, r_E); integrating out eps_E_H_obs gives
+  //       neg_binomial_2(lambda * R_G, r_E) exactly (identical mean and variance).
+  //       r_E = 1 / sigma_r_E^2 is unchanged, so the overdispersion is the same;
+  //       only the per-observation latent eps parameters (and their funnel) are
+  //       removed. The trailer keeps the gear-resolved / R_G_boat structure.
 
-  // --- Gear counts: obs indices 1..Gear_n ---
+  // --- Gear counts ---
   for (i in 1:Gear_n) {
-    Gear_I[i] ~ poisson(
-      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * eps_E_H_obs[i] * R_G
+    Gear_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
     );
   }
 
-  // --- Trailer counts: obs indices Gear_n+1..Gear_n+T_n ---
-  // lambda_E = gear in water; trailers = gear / R_G_boat = groups
+  // --- Trailer counts: lambda_E = gear in water; trailers = gear / R_G_boat = groups ---
   for (i in 1:T_n) {
-    T_I[i] ~ poisson(
-      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat * eps_E_H_obs[Gear_n + i]
+    T_I[i] ~ neg_binomial_2(
+      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
     );
   }
 
@@ -240,21 +287,49 @@ generated quantities {
   matrix<lower=0>[D,G] C[S];
   matrix<lower=0>[D,G] E[S];
   real<lower=0> C_sum;
+  real<lower=0> C_expected_sum;   // B1.8 gate: expected (deterministic) catch sum
   real<lower=0> E_sum;
   real R_G_out;
   real R_G_boat_out;
+
+  // Pointwise log-likelihood for PSIS-LOO (loo package), one entry per obs in
+  // each stream, mirroring the model-block likelihood terms exactly. Empty when
+  // a stream is absent (log_lik_trailer for shore, log_lik_gear for the boat).
+  vector[Gear_n] log_lik_gear;
+  vector[T_n] log_lik_trailer;
+  vector[IntC] log_lik_catch;
 
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
   R_G_boat_out = R_G_boat;
+
+  // Mirror the model-block likelihood terms exactly (Gear_I, T_I, c).
+  for (i in 1:Gear_n) {
+    log_lik_gear[i] = neg_binomial_2_lpmf(
+      Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+    );
+  }
+  for (i in 1:T_n) {
+    log_lik_trailer[i] = neg_binomial_2_lpmf(
+      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
+    );
+  }
+  for (a in 1:IntC) {
+    log_lik_catch[a] = neg_binomial_2_lpmf(
+      c[a] | lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
+    );
+  }
+
   C_sum = 0;
+  C_expected_sum = 0;
   E_sum = 0;
 
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
         lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
+        C_expected_sum = C_expected_sum + lambda_Ctot_S[s][d,g];
         if (lambda_Ctot_S[s][d,g] < 1e9) {
           C[s][d,g] = poisson_rng(lambda_Ctot_S[s][d,g]);
         } else {

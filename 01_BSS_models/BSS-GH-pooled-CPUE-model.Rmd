@@ -331,7 +331,7 @@ params <- list(
   # weekly baseline using O7 (monthly PE-vs-BSS), O2 (AR path identification),
   # O13 (catch elpd_loo), and the convergence report. See
   # BOAT_RESOLUTION_EXPERIMENT.md.
-  ar_force = NULL, #list(private_boat = "daily")
+  ar_force = list(private_boat = "daily"), #NULL
 
   # --- I/E integration ---
   ie_data_file      = "ingress_egress.xlsx",
@@ -347,8 +347,26 @@ params <- list(
   use_ie_day_length = TRUE,
 
   # --- Minimum I/E observations for regression (else use grand mean) ---
-  ie_min_obs_for_regression = 5
+  ie_min_obs_for_regression = 5,
+
+  # --- Civil-twilight clamp (shared with the gear-resolved driver) ---
+  # Only used on the civil-twilight fallback rung and for the
+  # day_length_civil_twilight diagnostic column; whenever an L_effective model
+  # exists, day_length is overwritten by its prediction. Raised from 16.0 to
+  # 17.0 to match the gear-resolved driver: civil twilight at 46.9N reaches
+  # ~17 h at the summer solstice and a 16 h cap slightly underestimated
+  # peak-season effort.
+  day_length_min_hours = 9.0,
+  day_length_max_hours = 17.0
 )
+
+# --- Run-level overrides from run_estimation.R (single source of truth) -------
+# When launched via the orchestrator, `run_config` exists in this render
+# environment and overrides ONLY the run-level keys it defines (season window,
+# seed, chains/cores, ar_force, ...). All model-specific tuning above is left
+# untouched. Knit this .Rmd standalone (no run_config) and the in-file defaults
+# above are used unchanged.
+if (exists("run_config")) params <- modifyList(params, run_config)
 
 # Crabbing holidays for 2024-25 season (high-effort days)
 crabbing_holiday_dates <- as.Date(c(
@@ -363,6 +381,13 @@ crabbing_holiday_dates <- as.Date(c(
   "2025-07-04",  # Independence Day (Friday = weekend, counts as holiday)
   "2025-09-01"   # Labor Day
 ))
+
+# Run-level override: when launched via run_estimation.R, use the config's
+# holiday list so pooled / gear-resolved / weather never drift. Standalone knit
+# keeps the in-file list above.
+if (exists("run_config") && !is.null(run_config$crabbing_holiday_dates)) {
+  crabbing_holiday_dates <- run_config$crabbing_holiday_dates
+}
 
 
 catch_groups <- if(params$estimate_red_rock) {
@@ -560,91 +585,10 @@ fetch_crab_data <- function(params) {
 # 1.5 INGRESS/EGRESS DATA
 # ===========================================================================
 
-fetch_ie_data <- function(params) {
-  cat("\n  Reading I/E data...\n")
-  ie_file <- here("04_input_files", params$ie_data_file)
-  if(!file.exists(ie_file)) {
-    cat("  WARNING: I/E file not found at", ie_file, "\n")
-    return(tibble(
-      event_date = Date(), location_name = character(), population = character(),
-      ie_crabber_hours = numeric(), n_intervals = integer(), max_present = numeric(),
-      survey_hours = numeric(), total_arrivals = numeric(), total_departures = numeric(),
-      mean_present = numeric(), L_effective = numeric()
-    ))
-  }
-
-  ie_raw <- read_excel(ie_file, sheet = params$ie_sheet) |>
-    mutate(event_date = as.Date(date))
-
-  ie_shore <- ie_raw |>
-    filter(location_name == params$ie_shore_location) |>
-    mutate(
-      crabbers_on = replace_na(as.numeric(crabbers_on), 0),
-      crabbers_off = replace_na(as.numeric(crabbers_off), 0),
-      crabber_flow = replace_na(as.numeric(crabber_flow), 0)
-    ) |>
-    group_by(event_date) |>
-    summarise(
-      location_name = first(location_name),
-      ie_crabber_hours = sum(crabber_flow * 0.25),
-      n_intervals = n(),
-      max_present = max(crabber_flow),
-      survey_hours = n() * 0.25,
-      total_arrivals = sum(crabbers_on),
-      total_departures = sum(crabbers_off),
-      day_type = first(day_type),
-      season = first(season),
-      .groups = "drop"
-    ) |>
-    mutate(
-      population = "shore",
-      mean_present = ie_crabber_hours / survey_hours,
-      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0)
-    )
-
-  ie_boat <- ie_raw |>
-    filter(location_name == params$ie_boat_location) |>
-    mutate(
-      boats_in = replace_na(as.numeric(boats_in), 0),
-      boats_out = replace_na(as.numeric(boats_out), 0),
-      boat_flow = replace_na(as.numeric(boat_flow), 0)
-    ) |>
-    group_by(event_date) |>
-    summarise(
-      location_name = first(location_name),
-      ie_crabber_hours = sum(boat_flow * 0.25),
-      n_intervals = n(),
-      max_present = max(boat_flow),
-      survey_hours = n() * 0.25,
-      total_arrivals = sum(boats_in),
-      total_departures = sum(boats_out),
-      day_type = first(day_type),
-      season = first(season),
-      .groups = "drop"
-    ) |>
-    mutate(
-      population = "private_boat",
-      mean_present = ie_crabber_hours / survey_hours,
-      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0)
-    )
-
-  ie_all <- bind_rows(ie_shore, ie_boat) |>
-    filter(ie_crabber_hours > 0)
-
-  cat(sprintf("  I/E survey days: %d shore (WDF20), %d boat (WBL)\n",
-              sum(ie_all$population == "shore"),
-              sum(ie_all$population == "private_boat")))
-  if(nrow(ie_all) > 0)
-    cat(sprintf("  Date range: %s to %s\n", min(ie_all$event_date), max(ie_all$event_date)))
-
-  if(nrow(ie_all |> filter(population == "shore")) > 0) {
-    shore_ie <- ie_all |> filter(population == "shore")
-    cat(sprintf("  Shore L_effective: mean=%.1f hrs (range %.1f–%.1f)\n",
-                mean(shore_ie$L_effective), min(shore_ie$L_effective), max(shore_ie$L_effective)))
-  }
-
-  return(ie_all)
-}
+# fetch_ie_data() now lives in 03_R_functions/bss_day_length.R, shared with the
+# gear-resolved driver so the two cannot drift. It is auto-sourced by the
+# purrr::walk over 03_R_functions/ near the top of this file. Function body
+# moved verbatim; behavior unchanged.
 
 
 # ===========================================================================
@@ -662,103 +606,10 @@ fetch_ie_data <- function(params) {
 #   $summary: model coefficients and fit statistics
 # ===========================================================================
 
-estimate_L_effective <- function(ie_data, pot_open_date, params) {
-  cat("\n  Fitting L_effective regression from historical I/E data...\n")
-
-  ie_shore <- ie_data |>
-    filter(population == "shore", L_effective > 0)
-
-  if(nrow(ie_shore) < 3) {
-    cat("  WARNING: Fewer than 3 shore I/E days. Cannot fit L_effective model.\n")
-    return(NULL)
-  }
-
-  # Prepare regression data
-  ie_shore <- ie_shore |>
-    mutate(
-      yday = yday(event_date),
-      day_type_group = if_else(day_type %in% c("Weekend", "weekend"), "weekend", "weekday"),
-      log_L = log(L_effective)
-    )
-
-  n_ie <- nrow(ie_shore)
-  cat(sprintf("  I/E observations for regression: %d\n", n_ie))
-
-  if(n_ie >= params$ie_min_obs_for_regression) {
-    # --- Fit quadratic regression on day-of-year + day type ---
-    # log(L_effective) = b0 + b1*yday + b2*yday^2 + b3*weekend + error
-    L_fit <- lm(log_L ~ poly(yday, 2) + day_type_group, data = ie_shore)
-
-    cat("  L_effective regression summary:\n")
-    cat(sprintf("    R² = %.3f, residual SE = %.3f (log scale)\n",
-                summary(L_fit)$r.squared, sigma(L_fit)))
-    cat(sprintf("    Coefficients:\n"))
-    coefs <- coef(L_fit)
-    for(nm in names(coefs)) {
-      cat(sprintf("      %s: %.4f\n", nm, coefs[nm]))
-    }
-
-    sigma_resid <- sigma(L_fit)  # residual SD on log scale
-
-    # Create prediction function
-    predict_L <- function(event_dates, day_types) {
-      newdata <- tibble(
-        yday = yday(event_dates),
-        day_type_group = if_else(day_types %in% c("weekend","holiday"), "weekend", "weekday")
-      )
-      pred <- predict(L_fit, newdata = newdata, se.fit = TRUE)
-
-      tibble(
-        L_mu = exp(pred$fit),  # predicted median on natural scale
-        # Total prediction uncertainty = sqrt(regression SE² + residual variance)
-        L_sigma = pmax(sqrt(pred$se.fit^2 + sigma_resid^2), 0.1),
-        L_fit_only = exp(pred$fit),  # same as L_mu (for diagnostics)
-        L_se_regression = pred$se.fit,
-        L_se_total = pmax(sqrt(pred$se.fit^2 + sigma_resid^2), 0.1)
-      )
-    }
-
-  } else {
-    # --- Fallback: grand mean with empirical SD ---
-    cat(sprintf("  Fewer than %d I/E obs - using grand mean fallback.\n",
-                params$ie_min_obs_for_regression))
-    grand_mean_log <- mean(ie_shore$log_L)
-    grand_sd_log <- max(sd(ie_shore$log_L), 0.2)
-
-    predict_L <- function(event_dates, day_types) {
-      n <- length(event_dates)
-      tibble(
-        L_mu = rep(exp(grand_mean_log), n),
-        L_sigma = rep(grand_sd_log, n),
-        L_fit_only = rep(exp(grand_mean_log), n),
-        L_se_regression = rep(grand_sd_log / sqrt(nrow(ie_shore)), n),
-        L_se_total = rep(grand_sd_log, n)
-      )
-    }
-    L_fit <- NULL
-  }
-
-  # Predict for I/E days (for diagnostics)
-  ie_pred <- predict_L(ie_shore$event_date, ie_shore$day_type)
-  ie_shore <- bind_cols(ie_shore, ie_pred |> rename(pred_L_mu = L_mu, pred_L_sigma = L_sigma))
-
-  cat(sprintf("\n  Predicted L_effective range: %.1f–%.1f hrs\n",
-              min(ie_shore$pred_L_mu), max(ie_shore$pred_L_mu)))
-  cat(sprintf("  Prediction uncertainty (sigma on log scale): %.2f–%.2f\n",
-              min(ie_shore$pred_L_sigma), max(ie_shore$pred_L_sigma)))
-
-  result <- list(
-    predict_fn = predict_L,
-    model = L_fit,
-    detail = ie_shore |> select(event_date, day_type, day_type_group, yday,
-                                 ie_crabber_hours, max_present, L_effective,
-                                 pred_L_mu, pred_L_sigma),
-    n_obs = n_ie,
-    method = if(!is.null(L_fit)) "regression" else "grand_mean"
-  )
-
-  return(result)
-}
+# estimate_L_effective() now lives in 03_R_functions/bss_day_length.R, shared
+# with the gear-resolved driver so the two cannot drift. It is auto-sourced by
+# the purrr::walk over 03_R_functions/ near the top of this file. Function body
+# moved verbatim; behavior unchanged.
 
 
 # ===========================================================================
@@ -799,28 +650,12 @@ prep_days_crab <- function(date_begin, date_end, weekends, holiday_dates, period
     day_length = NA_real_
   )
 
-  # Civil twilight day length
-  sun <- suncalc::getSunlightTimes(
-    date = days$event_date,
-    lat = 46.904, lon = -124.105,
-    tz = "America/Los_Angeles"
-  )
-  days$day_length <- as.numeric(difftime(sun$dusk, sun$dawn, units = "hours"))
-  days$day_length <- pmax(pmin(days$day_length, 16.0), 9.0)
-  days$day_length_civil_twilight <- days$day_length
-
-  # --- L_effective regression predictions ---
-  # Store L_mu (median on natural scale) and L_prior_sigma (uncertainty on log scale)
-  # Default: civil twilight with moderate uncertainty
-  days$L_mu <- days$day_length
-  days$L_prior_sigma <- rep(0.3, nrow(days))  # default ~30% uncertainty
-
-  if(!is.null(L_eff_model)) {
-    L_pred <- L_eff_model$predict_fn(days$event_date, days$day_type)
-    days$L_mu <- L_pred$L_mu
-    days$L_prior_sigma <- L_pred$L_sigma
-    days$day_length <- L_pred$L_mu  # for PE method: use predicted median
-  }
+  # Civil twilight + L_effective assignment. Shared with the gear-resolved driver:
+  # 03_R_functions/bss_day_length.R. Sets day_length, day_length_civil_twilight,
+  # L_mu and L_prior_sigma; falls back to civil twilight (with a warning) only
+  # when L_eff_model is NULL. Cap is params$day_length_min/max_hours, default
+  # [9, 17].
+  days <- bss_assign_day_length(days, L_eff_model, params)
 
   for(s in sections) days[[paste0("open_section_",s)]] <- TRUE
   days
@@ -1367,11 +1202,9 @@ if(nrow(ie_data) > 0) {
     filter(!is.na(mean_gear), mean_gear > 0)
 
   if(nrow(ie_validation) > 0) {
-    ie_sun <- suncalc::getSunlightTimes(
-      date = ie_validation$event_date, lat = 46.904, lon = -124.105, tz = "America/Los_Angeles"
-    )
-    ie_validation$day_length_ct <- pmax(pmin(
-      as.numeric(difftime(ie_sun$dusk, ie_sun$dawn, units = "hours")), 16.0), 9.0)
+    # Shared helper (03_R_functions/bss_day_length.R) so the [9, 17] cap lives in
+    # exactly one place; this previously hardcoded a 16.0 cap.
+    ie_validation$day_length_ct <- bss_day_length_civil(ie_validation$event_date, params)
 
     summ_shore_full <- prep_population_summary(dwg, "shore", params$est_date_start, params$est_date_end, params)
     cpg <- summ_shore_full$crabbers_per_gear

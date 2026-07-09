@@ -138,7 +138,9 @@ write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
       return(invisible(NULL))
     }
 
-    ex <- rstan::extract(fit, pars = c("lambda_E_S", "r_E", "R_G", "R_T"))
+    # Model-agnostic trailer expansion (pooled R_T vs gear-resolved R_G_boat).
+    trailer_par <- bss_trailer_par(fit)
+    ex <- rstan::extract(fit, pars = bss_extract_pars(fit, c("lambda_E_S", "r_E", "R_G")))
     ndraw <- length(ex$r_E)
     use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use)) else seq_len(ndraw)
     nd  <- length(use)
@@ -160,7 +162,11 @@ write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
     # (the Fix-3 lesson) so the column-wise recycling in .eod_decompose is correct.
     rE <- as.numeric(ex$r_E[use])
     RG <- as.numeric(ex$R_G[use])
-    RT <- as.numeric(ex$R_T[use])
+    # .eod_decompose computes mu = lam_obs * Rdraws, so the trailer stream needs
+    # the MULTIPLIER form: R_T (pooled) or 1/R_G_boat (gear-resolved). The
+    # reported R_median for the trailer is therefore that multiplier, not
+    # R_G_boat itself, on the gear-resolved model.
+    RT <- bss_trailer_multiplier(ex, trailer_par, use)
 
     # Optionally attach the PPC miscalibration for side-by-side reading.
     ppc_path <- file.path(output_dir, sprintf("ppc_calibration_%s.csv", label))
@@ -185,7 +191,7 @@ write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
     types <- list()
     if (!is.null(stan_data$Gear_n) && stan_data$Gear_n > 0)
       types[["gear"]]    <- list(days = as.integer(stan_data$day_Gear), R = RG)
-    if (!is.null(stan_data$T_n) && stan_data$T_n > 0)
+    if (!is.null(stan_data$T_n) && stan_data$T_n > 0 && !is.null(RT))
       types[["trailer"]] <- list(days = as.integer(stan_data$day_T),    R = RT)
 
     if (length(types) == 0) {
