@@ -1,0 +1,5 @@
+"fit","divergences","treedepth_pct","C_sum_rhat","E_sum_rhat","C_sum_neff","E_sum_neff","max_gear_rhat","min_gear_neff","max_r_C_rhat","max_sigma_C_rhat","pass_convergence","method_selected"
+"shore_ring_net_only_Dungeness_Kept",7818,0,1.0616,1.0183,61,969,1.0616,61,1.0494,1.0575,FALSE,"PE (convergence fail)"
+"shore_all_gear_Dungeness_Kept",7807,0,1.0013,1.0038,1280,368,1.0013,1280,1.006,1.0102,FALSE,"PE (convergence fail)"
+"private_boat_ring_net_only_Dungeness_Kept",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,FALSE,"PE (insufficient data)"
+"private_boat_all_gear_Dungeness_Kept",109,0,1.0011,0.9996,2037,4031,1.0011,2037,0.9995,1.0019,TRUE,"BSS"

@@ -772,10 +772,18 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   # shore I/E stream, so IE_n = 0 and sigma_IE is identified by its prior alone
   # (which is why that prior must be unconditional; see the Stan model's B1.6 note).
   ie_match <- tibble(day_index = integer(), ie_crabber_hours = numeric())
-  if(!is.null(ie_data) && nrow(ie_data) > 0) {
-    ie_pop <- if(is_shore) "shore" else "private_boat"
+  # I/E stream is SHORE ONLY. The boat's ie_crabber_hours is boat-hours
+  # (sum(boat_flow * 0.25)), but the likelihood predicts lambda_E * L, and for
+  # boats lambda_E is GEAR in the water with L = 24, i.e. gear-hours. The two
+  # differ by R_G_boat (~4 gear per group), so feeding boat I/E in would pull
+  # boat effort down ~4x, and with estimate_L = 0 there is no L to absorb it.
+  # This is behavior-neutral for the 2024-25 window (the only positive WBL days
+  # are 2023-12-20 and 2025-12-19, both outside it) but NOT for 2025-26, which
+  # contains 2025-12-19. Boat I/E can be used only once the model predicts
+  # boat-hours (lambda_E * L / R_G_boat) rather than gear-hours.
+  if(!is.null(ie_data) && nrow(ie_data) > 0 && is_shore) {
     ie_match <- ie_data |>
-      filter(population == ie_pop) |>
+      filter(population == "shore") |>
       inner_join(days |> select(event_date, day_index), by = "event_date") |>
       filter(!is.na(day_index), ie_crabber_hours > 0)
   }
@@ -906,6 +914,25 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     gear_weight_matrix <- gear_weight_matrix / rowSums(gear_weight_matrix)
   }
 
+  # --- Option B: the Stan model runs with G = 1 ------------------------------
+  # crab_bss_gear_resolved.stan supports G > 1 structurally, but its only effort
+  # observation touches g = 1 while E_sum / C_expected_sum sum over all g, so
+  # raising G would add effort processes identified by their priors alone. Until
+  # the gear-resolved reconstruction (Option A: effort shares in O[d,s,g] from
+  # pi_gear_data, plus a multi-gear interview rule), collapse the Stan-facing gear
+  # dimension to a single "All" category. The gear-composition diagnostics above
+  # are retained for reporting.
+  if(G_gear > 1) {
+    cat(sprintf("  NOTE: %d gear types qualify (%s), but this Stan model runs with\n",
+                G_gear, paste(gear_type_labels, collapse=", ")))
+    cat("        G = 1. Collapsing to a single 'All' CPUE process. Gear-type catch\n")
+    cat("        is reported by PE apportionment, not by the BSS. See Option A.\n")
+    gear_type_labels <- "All"
+    G_gear <- 1L
+    gear_weight_matrix <- matrix(1.0, nrow = nrow(int_d), ncol = 1)
+    colnames(gear_weight_matrix) <- "All"
+  }
+
   cat(sprintf("  Gear types (%d): %s\n", G_gear, paste(gear_type_labels, collapse=", ")))
   cat(sprintf("  Effective N per gear type: %s\n",
     paste(sapply(1:G_gear, function(g) sprintf("%s=%.1f", gear_type_labels[g],
@@ -1007,10 +1034,6 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # Sparse effort observation count
     n_effort_obs = n_effort_obs,
 
-    # Gear-type dimensions
-    G_gear = G_gear,
-    n_day_types = n_day_types,
-    day_type_idx = day_type_idx_vec,
 
     # Gear counts (shore only)
     Gear_n = n_gear,
@@ -1034,7 +1057,6 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),
     section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count),
     h = if(is_shore) int_d$fishing_time_total else int_d$gear_time_total,
-    gear_weights = gear_weight_matrix,
 
     # Gear-per-crabber expansion (shore only)
     IntA_gear = if(is_shore) nrow(intA) else 0L,
@@ -1050,13 +1072,11 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     IntA_trailer = if(!is_shore) nrow(intA) else 0L,
     Gear_A_boat  = if(!is_shore) as.integer(intA$number_of_gear) else integer(0),
 
-    # Gear-type proportions (v5.1 Issue 1+3: DATA, not parameter)
-    pi_gear_data = pi_gear_data,
 
-    # v5.2 Fix B: Raw weighted counts for Dirichlet pi_gear uncertainty
-    n_weighted_gear = n_weighted_gear,
 
     # R_G estimation control (v5.1 Issue 5)
+    # NOTE: estimate_R_G / R_G_fixed are not declared in the Stan model; R_G is
+    # always a parameter with a proper lognormal prior. Retained for Option A.
     estimate_R_G = as.integer(is_shore),
     R_G_fixed = params$R_G_fixed_boat,
 
@@ -1487,12 +1507,15 @@ for(cg in bss_catch_groups) {
         data = bss_data,
         chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
         control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
+        seed = params$bss_seed,   # was missing: gear-resolved fits were not reproducible
         cores = params$bss_cores
       )
       timer_stop(paste0("BSS_", label))
 
       # --- Extract and save BSS summary ---
-      # v5.2: C_sum and C_sum_gear now include Dirichlet pi_gear uncertainty
+      # C_sum_gear is the predictive season total per gear. With G = 1 it is a
+      # single 'All' column and sum(C_sum_gear) == C_sum. The Dirichlet pi_gear
+      # machinery described in older comments is not present in the Stan model.
       bss_summ <- summary(fit, pars=c("C_sum","E_sum","C_sum_gear","B1","B2",
                                        "r_C_gear_out","sigma_eps_C_gear_out"))$summary
       cat("  BSS Summary:\n"); print(bss_summ)
@@ -1717,8 +1740,8 @@ for(cg in bss_catch_groups) {
         }
 
       } else {
-        # v5.2: Use C_gear_pred (with Dirichlet pi + Poisson noise) for monthly
-        # totals so that gear-proportion uncertainty propagates into monthly CIs.
+        # Use C_gear_pred (predictive, carries Poisson noise) for monthly
+        # totals so predictive uncertainty propagates into monthly CIs.
         # C_total is now expected value (smooth) — good for daily plots but
         # would underestimate monthly CI widths.
         C_pred_mat <- rstan::extract(b$fit, "C_gear_pred")$C_gear_pred  # [draws, D, G_gear]
@@ -2110,8 +2133,8 @@ for(label in names(bss_all)) {
 }
 
 # Run-level rollups (O10-O12). gear_props = NULL: the gear-resolved model carries
-# gear composition inside the Stan model (pi_gear_data), not as a separate
-# run-level object, so O10 is skipped for this track.
+# gear composition via PE apportionment, not as a run-level Stan object, so O10
+# is skipped for this track.
 write_run_level_diagnostics(bss_all, pe_all, gear_props = NULL,
                             params = params, output_dir = output_dir)
 

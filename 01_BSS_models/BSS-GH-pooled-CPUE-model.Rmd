@@ -888,10 +888,18 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name,
 
   # --- I/E observations ---
   ie_match <- tibble(event_date = Date(), ie_crabber_hours = numeric())
-  if(!is.null(ie_data) && nrow(ie_data) > 0) {
-    ie_pop <- if(is_shore) "shore" else "private_boat"
+  # I/E stream is SHORE ONLY. The boat's ie_crabber_hours is boat-hours
+  # (sum(boat_flow * 0.25)), but the likelihood predicts lambda_E * L, and for
+  # boats lambda_E is GEAR in the water with L = 24, i.e. gear-hours. The two
+  # differ by R_G_boat (~4 gear per group), so feeding boat I/E in would pull
+  # boat effort down ~4x, and with estimate_L = 0 there is no L to absorb it.
+  # This is behavior-neutral for the 2024-25 window (the only positive WBL days
+  # are 2023-12-20 and 2025-12-19, both outside it) but NOT for 2025-26, which
+  # contains 2025-12-19. Boat I/E can be used only once the model predicts
+  # boat-hours (lambda_E * L / R_G_boat) rather than gear-hours.
+  if(!is.null(ie_data) && nrow(ie_data) > 0 && is_shore) {
     ie_match <- ie_data |>
-      filter(population == ie_pop) |>
+      filter(population == "shore") |>
       inner_join(days |> select(event_date, day_index), by = "event_date") |>
       filter(!is.na(day_index), ie_crabber_hours > 0)
   }

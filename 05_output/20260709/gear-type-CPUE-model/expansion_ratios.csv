@@ -1,0 +1,4 @@
+"fit","R_G_median","R_G_lo95","R_G_hi95","R_G_status","R_G_interpretation","R_G_boat_median","R_G_boat_lo95","R_G_boat_hi95","R_G_boat_interpretation"
+"shore_ring_net_only_Dungeness_Kept",1.322,1.275,1.385,"estimated","1.32 gear per crabber (1.27-1.39) [estimated]",NA,NA,NA,"not applicable (shore fit)"
+"shore_all_gear_Dungeness_Kept",1.281,1.247,1.316,"estimated","1.28 gear per crabber (1.25-1.32) [estimated]",NA,NA,NA,"not applicable (shore fit)"
+"private_boat_all_gear_Dungeness_Kept",1.294,0.707,2.387,"fixed at 1.30","1.29 gear per crabber (0.71-2.39) [fixed at 1.30]",3.557,3.229,3.885,"3.56 gear per boat group (3.23-3.88)"

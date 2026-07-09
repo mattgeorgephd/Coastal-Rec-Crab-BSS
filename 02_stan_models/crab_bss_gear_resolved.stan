@@ -2,15 +2,17 @@
 // Gear-Resolved CPUE Crab Creel Model - Gear-Hours Formulation
 // (crab_bss_gear_resolved.stan)
 //
-// CPUE STRUCTURE: one CPUE process PER GEAR TYPE, not a single pooled process.
+// CPUE STRUCTURE: the model is WRITTEN for one CPUE process per gear type.
 //   mu_C is a [G, S] matrix and each gear g carries its own hierarchical mean
 //   mu_mu_C[g]; the AR(1) deviations omega_C run over G*S with a Cholesky
 //   correlation across the gear-by-section blocks, and the interview catch
-//   likelihood is indexed by each interview's gear type (gear_IntC). Gear-type
-//   catch therefore carries full posterior uncertainty, rather than being
-//   apportioned after the fact from interview proportions (which is what the
-//   pooled model, crab_bss_pooled.stan, does). This is the only structural
-//   difference from the pooled model; everything below is shared with it.
+//   likelihood is indexed by each interview's gear type (gear_IntC).
+//
+//   AS CURRENTLY DRIVEN, HOWEVER, G = 1 AND THIS MACHINERY IS INERT: the model
+//   behaves as a pooled-CPUE model with a gear dimension of length one, and
+//   gear-type catch is apportioned after the fact by the R driver's point
+//   estimator rather than carrying posterior uncertainty. See the
+//   "G (GEAR DIMENSION)" block below before changing G.
 //
 // GEAR-HOURS (boat populations):
 //   For boat crabbers using pots, gear is deployed continuously (24 hrs/day)
@@ -22,10 +24,26 @@
 //     - lambda_E represents GEAR IN THE WATER (shore: via R_G; boats: directly)
 //     - For boats: R_G_boat (gear per group) replaces R_T (trailers per crabber)
 //     - CPUE denominator h = gear-hours (boats) or crabber-hours (shore)
-//     - L[d] = 24 for boats (gear fishes 24/7), day_length for shore
+//     - L[d] = 24 for boats (gear fishes 24/7); for shore, L is the I/E-derived
+//       EFFECTIVE day length (~3.5-5 h), estimated as a parameter (5b), not
+//       civil twilight
 //     - Trailer obs: T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E)
 //
-//   Shore model is unchanged: lambda_E = crabbers, h = crabber-hours, L = day_length.
+//   Shore model: lambda_E = crabbers, h = crabber-hours, L = effective day length.
+//
+// G (GEAR DIMENSION) -- READ THIS BEFORE USING THIS MODEL
+//   The structure below supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over
+//   G*S, gear_IntC indexing). The R driver currently passes G = 1 and
+//   gear_IntC = 1 for every interview, so the per-gear machinery is INERT and the
+//   model is, in effect, a pooled-CPUE model with a gear dimension of length one.
+//
+//   It cannot simply be run with G > 1: the only effort observation is
+//   Gear_I ~ NB2(lambda_E[.,1] * R_G, r_E), which touches g = 1 alone, while
+//   E_sum and C_expected_sum sum lambda_E over all g. With G > 1 the unobserved
+//   effort processes would enter the totals identified by their priors only.
+//   Making this genuinely gear-resolved requires effort shares (the O[d,s,g]
+//   offset, fed by pi_gear_data) and a rule for multi-gear interviews. Tracked
+//   as Option A; do not raise G without it.
 //
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
@@ -353,6 +371,25 @@ generated quantities {
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
 
+  // Option B: quantities the R driver extracts. With G = 1 (see the G note in the
+  // header) the "gear" dimension has length 1 and these collapse to totals.
+  //   C_total       expected daily catch, summed over sections and gear. Smooth
+  //                 (no Poisson noise); used for daily trajectory plots.
+  //   C_gear_pred   PREDICTIVE daily catch by gear (carries Poisson noise); used
+  //                 for monthly and season totals so predictive uncertainty
+  //                 propagates into the CIs.
+  //   C_sum_gear    predictive season total by gear. sum(C_sum_gear) == C_sum.
+  //   r_C_gear_out, sigma_eps_C_gear_out
+  //                 this model has a single scalar r_C and sigma_eps_C, so these
+  //                 are constant across g. They are emitted per-gear for driver
+  //                 compatibility and become genuinely per-gear only under the
+  //                 gear-resolved reconstruction (Option A).
+  vector<lower=0>[D] C_total;
+  matrix<lower=0>[D,G] C_gear_pred;
+  vector<lower=0>[G] C_sum_gear;
+  vector<lower=0>[G] r_C_gear_out;
+  vector<lower=0>[G] sigma_eps_C_gear_out;
+
   // Pointwise log-likelihood for PSIS-LOO (loo package), one entry per obs in
   // each stream, mirroring the model-block likelihood terms exactly. Empty when
   // a stream is absent (log_lik_trailer for shore, log_lik_gear for the boat).
@@ -387,18 +424,26 @@ generated quantities {
   C_sum = 0;
   C_expected_sum = 0;
   E_sum = 0;
+  C_total     = rep_vector(0, D);
+  C_gear_pred = rep_matrix(0, D, G);
+  C_sum_gear  = rep_vector(0, G);
+  r_C_gear_out         = rep_vector(r_C, G);
+  sigma_eps_C_gear_out = rep_vector(sigma_eps_C, G);
 
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
         lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
         C_expected_sum = C_expected_sum + lambda_Ctot_S[s][d,g];
+        C_total[d] = C_total[d] + lambda_Ctot_S[s][d,g];
         if (lambda_Ctot_S[s][d,g] < 1e9) {
           C[s][d,g] = poisson_rng(lambda_Ctot_S[s][d,g]);
         } else {
           C[s][d,g] = lambda_Ctot_S[s][d,g];
         }
         C_sum = C_sum + C[s][d,g];
+        C_gear_pred[d,g] = C_gear_pred[d,g] + C[s][d,g];
+        C_sum_gear[g]    = C_sum_gear[g] + C[s][d,g];
         E[s][d,g] = lambda_E_S[s][d,g] * L[d];
         E_sum = E_sum + E[s][d,g];
       }

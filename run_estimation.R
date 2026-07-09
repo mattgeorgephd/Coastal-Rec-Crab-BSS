@@ -31,6 +31,14 @@ suppressPackageStartupMessages({
   library(rmarkdown)
 })
 
+load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib, dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+rstan_options(auto_write = TRUE)
+purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
+
+
 # ---- 1. Load run configuration ------------------------------------------------
 source(here::here("run_config.R"))     # defines: model, run_weather, run_config
 

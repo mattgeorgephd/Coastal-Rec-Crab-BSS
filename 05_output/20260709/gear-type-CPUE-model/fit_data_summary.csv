@@ -1,0 +1,5 @@
+"fit","population","subseason","method","ar_resolution","P_n","D","n_effort_obs","n_interviews","n_ie_obs","date_start","date_end","pct_days_with_effort","pct_days_with_interview","mean_interviews_per_month","pe_catch","pe_effort"
+"shore_ring_net_only_Dungeness_Kept","shore","ring_net_only","PE (gate)",NA,6,76,52,627,2,"2024-09-16","2024-11-30",68.4,67.1,209,13403.4162685285,23350.8439765363
+"shore_all_gear_Dungeness_Kept","shore","all_gear","PE (gate)",NA,10,289,311,1651,4,"2024-12-01","2025-09-15",50.2,50.2,165.1,36577.7658086814,116219.588034714
+"private_boat_ring_net_only_Dungeness_Kept","private_boat","ring_net_only","PE (insufficient data)",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,944.546445828573,1687.34337962963
+"private_boat_all_gear_Dungeness_Kept","private_boat","all_gear","BSS",NA,10,289,195,131,0,"2024-12-01","2025-09-15",49.5,22.8,13.1,11162.0949555325,34667.9057739572
