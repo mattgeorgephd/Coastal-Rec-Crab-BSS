@@ -1,0 +1,2 @@
+"fit","n_obs","h_min","h_median","h_max","cpue_ratio_of_sums","cpue_model_implied","cpue_mean_of_ratios","model_position_0rs_1mor","estimator_drift_flag","effort_unit","implied_catch_per_day"
+"shore_all_gear_Dungeness_Kept",1651,0.5,6,102,0.302545839443422,0.366015766113358,0.386613003356525,0.754990696909238,TRUE,"crabber-hours",68.1217545561538

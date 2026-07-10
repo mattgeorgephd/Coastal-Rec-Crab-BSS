@@ -1,0 +1,70 @@
+List of 67
+ $ project_name                  : chr "Coastal Recreational Crab"
+ $ fishery_name                  : chr "Rec Crab Grays Harbor 2024-25"
+ $ est_date_start                : chr "2024-09-16"
+ $ est_date_end                  : chr "2025-09-15"
+ $ season_filter                 : chr "2024-25"
+ $ pot_open_date                 : chr "2024-12-01"
+ $ commercial_opener             : chr "2025-01-01"
+ $ census_start_date             : chr "2024-12-01"
+ $ census_end_date               : chr "2025-02-08"
+ $ estimate_red_rock             : logi FALSE
+ $ days_wkend                    : chr [1:3] "Friday" "Saturday" "Sunday"
+ $ min_fishing_time              : num 0.5
+ $ period_pe                     : chr "week"
+ $ period_bss                    : chr "month"
+ $ sections                      : num 1
+ $ bss_model_file                : chr "crab_bss_gear_resolved.stan"
+ $ bss_chains                    : num 4
+ $ bss_cores                     : num 4
+ $ bss_max_interviews            : NULL
+ $ bss_max_count_seq             : num 3
+ $ bss_iter_default              : num 2000
+ $ bss_warmup_default            : num 1000
+ $ bss_max_treedepth_default     : num 10
+ $ bss_adapt_delta_default       : num 0.9
+ $ bss_iter_shore_allgear        : num 4000
+ $ bss_warmup_shore_allgear      : num 2000
+ $ bss_treedepth_shore_allgear   : num 14
+ $ bss_delta_shore_allgear       : num 0.95
+ $ bss_iter_ringnet              : num 4000
+ $ bss_warmup_ringnet            : num 2000
+ $ bss_treedepth_ringnet         : num 12
+ $ bss_delta_ringnet             : num 0.95
+ $ bss_min_interviews            : num 20
+ $ bss_min_gear_effective_n      : num 15
+ $ R_G_fixed_boat                : num 1.3
+ $ filter_incomplete_trips       : logi TRUE
+ $ estimate_B1_C                 : logi TRUE
+ $ shore_effort_unit             : chr "crabber-hours"
+ $ loo_effort_unit_comparison    : logi FALSE
+ $ tau_shore_prior_mu            : num 1.7
+ $ tau_shore_prior_sigma         : num 0.3
+ $ tau_boat_prior_mu             : num 1.2
+ $ tau_boat_prior_sigma          : num 0.3
+ $ gear_per_group_default        : num 4
+ $ use_boat_ie                   : logi TRUE
+ $ ie_min_obs_boat               : num 2
+ $ ie_data_file                  : chr "ingress_egress.xlsx"
+ $ ie_sheet                      : chr "data"
+ $ ie_shore_location             : chr "WDF20"
+ $ ie_boat_location              : chr "WBL"
+ $ use_ie_day_length             : logi TRUE
+ $ ie_min_obs_for_regression     : num 5
+ $ day_length_min_hours          : num 9
+ $ day_length_max_hours          : num 17
+ $ centroid_lat                  : num 46.9
+ $ centroid_lon                  : num -124
+ $ local_tz                      : chr "America/Los_Angeles"
+ $ max_divergences               : num 5
+ $ max_divergence_total_impact_sd: num 0.1
+ $ max_divergence_fraction       : num 0.05
+ $ ar_adaptive                   : logi FALSE
+ $ ar_max_resolution             :List of 2
+  ..$ shore       : chr "weekly"
+  ..$ private_boat: chr "monthly"
+ $ ar_daily_min_coverage         : num 0.25
+ $ ar_daily_min_obs              : num 20
+ $ ar_weekly_min_per_week        : num 1.5
+ $ bss_seed                      : num 20260619
+ $ crabbing_holiday_dates        : Date[1:10], format: "2024-11-29" "2024-12-31" ...

@@ -1,0 +1,8 @@
+"population","subseason","gear_type","BSS_median","BSS_lo95","BSS_hi95","PE_catch","method"
+"shore","ring_net_only","All",6936,5706,8413,NA,"BSS"
+"shore","all_gear","All",19684,17541,22167,NA,"BSS"
+"private_boat","ring_net_only","Ring Net",NA,NA,NA,802,"PE (weighted proportional)"
+"private_boat","ring_net_only","Trap",NA,NA,NA,56,"PE (weighted proportional)"
+"private_boat","ring_net_only","Snare",NA,NA,NA,56,"PE (weighted proportional)"
+"private_boat","all_gear","All",43314,30960,61143,NA,"BSS"
+"comm_charter","census","Pot",NA,NA,NA,12007,"Census"

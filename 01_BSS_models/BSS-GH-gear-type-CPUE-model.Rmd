@@ -218,6 +218,31 @@ params <- list(
   #     E    = lambda_E * tau        (gear deployments per day)
   # tau is prior-centred below and identified by boat I/E ingress counts when
   # they exist. Empirical tau from WBL I/E is 1.14 (2 days: 1.00, 1.29).
+  # --- P1: shore effort unit, to be decided by PSIS-LOO, not by symmetry ------
+  # cpue_linearity_*.csv showed shore catch scales as h^0.571 (CI 0.500-0.641)
+  # against crabber-hours, i.e. crabber-hours is NOT a valid effort unit. Three
+  # candidates, each with a matching expansion so E and h always share a unit:
+  #
+  #   "crabber-hours"    h = fishing_time_total  E = crabbers x L_eff (hours)
+  #   "gear-hours"       h = gear_time_total     E = gear     x L_eff (hours)
+  #   "gear-deployments" h = number_of_gear      E = gear     x tau_shore
+  #
+  # Compare by elpd_loo on the CATCH stream (loo_summary_*.csv). Same c[a],
+  # different h[a], so the comparison is valid. Do not choose on aesthetics.
+  shore_effort_unit = "crabber-hours",
+
+  # Set TRUE for the effort-unit comparison runs: restricts interviews to those
+  # where every candidate denominator is valid, so elpd_loo is computed on the
+  # same c[a] in every run and the comparison is legitimate.
+  loo_effort_unit_comparison = FALSE,
+
+  # Shore deployment turnover: trips per gear-slot per day. From 30 WDF20 I/E
+  # days, arrivals/peak = 1.72 (median 1.69, sd 0.45). Cross-check: L_eff/tau =
+  # 5.26/1.72 = 3.06 h, against an interview mean trip length of 3.23 h. Only
+  # used when shore_effort_unit = "gear-deployments".
+  tau_shore_prior_mu    = 1.7,
+  tau_shore_prior_sigma = 0.3,
+
   tau_boat_prior_mu    = 1.2,
   tau_boat_prior_sigma = 0.3,
 
@@ -611,8 +636,24 @@ prep_population_summary <- function(dwg, population_name, date_start, date_end, 
 # 4. PE METHOD — Point estimate using stratified expansion
 # ===========================================================================
 
-run_pe <- function(summ, days, params, population_name) {
+run_pe <- function(summ, days, params, population_name, population = NULL) {
   results <- list()
+
+  # P0 BUGFIX (2026-07): the caller passes `label` (e.g. "shore_all_gear") as
+  # population_name, not the bare population. The old `is_shore_pe <-
+  # (population_name == "shore")` was therefore ALWAYS FALSE, so every shore
+  # component silently ran the boat branch: shore effort was expanded as
+  # gear-deployments (gear x mean(number_of_gear) x tau) and its CPUE was
+  # computed per gear rather than per crabber-hour. The PE was internally
+  # consistent but on the wrong scale, and it was then compared against a BSS in
+  # crabber-hours. Take the population explicitly, and fail loudly if absent.
+  if (is.null(population)) {
+    population <- if (grepl("^shore", population_name)) "shore"
+                  else if (grepl("^private_boat", population_name)) "private_boat"
+                  else stop("run_pe(): cannot infer population from '", population_name,
+                            "'. Pass population = explicitly.", call. = FALSE)
+  }
+  stopifnot(population %in% c("shore", "private_boat"))
 
   # v5.2 Fix 1: Filter incomplete trips for CPUE estimation (PE method)
   interview_for_cpue <- summ$interview
@@ -630,18 +671,27 @@ run_pe <- function(summ, days, params, population_name) {
   #          deployment is. This puts the boat PE on the SAME scale as the boat
   #          BSS, so the BSS-PE gap is a model-disagreement diagnostic again
   #          rather than a unit artifact.
-  is_shore_pe <- (population_name == "shore")
+  is_shore_pe <- (population == "shore")
 
   if(is_shore_pe) {
-    days <- days |> mutate(L_pe = day_length)
-    effort_unit_pe <- "crabber-hours"
+    # P1: mirror the BSS's effort unit exactly, so the PE-BSS gap is a model
+    # disagreement rather than a unit artifact, and so the assertion below holds.
+    #   crabber-hours   : crabbers (= gear x crabbers_per_gear) x L_eff
+    #   gear-hours      : gear                                   x L_eff
+    #   gear-deployments: gear                                   x tau_shore
+    eff_spec_pe <- bss_effort_spec(TRUE, days, params)
+    effort_unit_pe <- eff_spec_pe$unit
+    tau_shore_pe <- params$tau_shore_prior_mu %||% 1.7
+    days <- days |> mutate(
+      L_pe = if(effort_unit_pe == "gear-deployments") tau_shore_pe else day_length)
+    gear_mult <- if(eff_spec_pe$effort_scale_gear == 1L) 1.0 else summ$crabbers_per_gear
     daily_effort <- summ$effort_index |>
       filter(count_sequence <= params$bss_max_count_seq) |>
       group_by(event_date, section_num) |>
       summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
-      mutate(est_crabbers = mean_count * summ$crabbers_per_gear) |>
+      mutate(est_units = mean_count * gear_mult) |>
       left_join(days |> select(event_date,day_type,L_pe,period), by="event_date") |>
-      mutate(est_daily_effort = est_crabbers * L_pe)
+      mutate(est_daily_effort = est_units * L_pe)
   } else {
     # Gear per boat group, from interviews where recorded (matches the BSS's
     # R_G_boat, which is learned from Gear_A_boat ~ Poisson(R_G_boat)).
@@ -683,24 +733,61 @@ run_pe <- function(summ, days, params, population_name) {
     # F2: CPUE denominator matches the effort unit above. Ratio-of-sums within a
     # day (sum catch / sum denominator), which is the estimator consistent with a
     # Poisson/NB rate; do NOT switch this to a mean of per-interview ratios.
+    # P1: CPUE denominator must be the same unit as the effort above.
+    h_col_pe <- if(is_shore_pe) bss_effort_spec(TRUE, days, params)$h_col else "number_of_gear"
     daily_cpue <- interview_for_cpue |>
+      mutate(.h_pe = suppressWarnings(as.numeric(.data[[h_col_pe]]))) |>
+      # Numerator and denominator must come from the SAME interviews. Without this
+      # filter, sum(.h_pe, na.rm = TRUE) silently drops rows from the denominator
+      # while sum(catch) keeps them in the numerator. Currently inert (every boat
+      # interview lacking number_of_gear has zero kept crab), but it is exactly the
+      # failure mode that would bias CPUE upward the moment that stops being true.
+      # This mirrors the CPUE denominator filter in prep_bss_crab().
+      filter(is.finite(.h_pe), .h_pe > 0) |>
       group_by(event_date, section_num) |>
       summarise(catch = sum(.data[[cg]], na.rm=TRUE),
-                hrs = if(is_shore_pe) sum(fishing_time_total, na.rm=TRUE)
-                      else sum(suppressWarnings(as.numeric(number_of_gear)), na.rm=TRUE),
+                hrs = sum(.h_pe, na.rm=TRUE),
                 n_int=n(), .groups="drop") |>
       mutate(cpue=if_else(hrs>0, catch/hrs, 0)) |>
       left_join(days |> select(event_date,day_type,period), by="event_date")
 
+    # P0: stratum CPUE is a RATIO-OF-SUMS within the stratum, sum(catch)/sum(h),
+    # not a weighted mean of per-day ratios. The latter is a mean-of-ratios
+    # estimator: with weekly strata and ~50% day coverage many strata rest on one
+    # or two days, and a day with very little sampled effort produces an extreme
+    # daily ratio that is then multiplied by the full stratum effort. The
+    # ratio-of-sums is the estimator consistent with a Poisson/NB rate and is what
+    # the BSS's lambda_C converges to as r_C -> Inf.
     cpue_strat <- daily_cpue |>
       group_by(section_num, period, day_type) |>
-      summarise(mean_cpue=weighted.mean(cpue,w=n_int,na.rm=TRUE), .groups="drop")
+      summarise(catch_s = sum(catch, na.rm=TRUE),
+                hrs_s   = sum(hrs,   na.rm=TRUE),
+                n_int_s = sum(n_int, na.rm=TRUE), .groups="drop") |>
+      mutate(mean_cpue = if_else(hrs_s > 0, catch_s / hrs_s, NA_real_))
 
     catch_strat <- effort_strat |>
       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
       mutate(est_catch = est_total * replace_na(mean_cpue, 0))
 
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
+
+    # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
+    # over the interviews it was built from. If it does not, catch and effort are
+    # on different scales, which is exactly the failure this fix removes.
+    implied <- if (results$effort_total > 0) results[[cg]] / results$effort_total else NA_real_
+    ros     <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
+                 sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else NA_real_
+    if (is.finite(implied) && is.finite(ros) && ros > 0) {
+      rel <- implied / ros
+      cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
+                  population_name, cg, implied, ros, rel, effort_unit_pe))
+      if (rel < 0.5 || rel > 2.0) {
+        stop(sprintf(paste0("run_pe(): PE implied CPUE (%.4f) is %.2fx the interview ",
+                            "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
+                            "the same scale."),
+                     implied, rel, ros, population_name, cg), call. = FALSE)
+      }
+    }
   }
 
   rr_str <- if(params$estimate_red_rock) sprintf(", RR=%s", format(round(results$Red_Rock_Kept),big.mark=",")) else ""
@@ -812,6 +899,11 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   # Matched to day_index within the sub-season window. Shore only: the boat has no
   # shore I/E stream, so IE_n = 0 and sigma_IE is identified by its prior alone
   # (which is why that prior must be unconditional; see the Stan model's B1.6 note).
+  # --- P1: effort-unit specification (shared with run_pe via bss_effort_spec) --
+  eff_spec <- bss_effort_spec(is_shore, days, params)
+  cat(sprintf("  Effort unit: %s (effort_scale_gear=%d)\n",
+              eff_spec$unit, eff_spec$effort_scale_gear))
+
   # --- F2: I/E observation stream, population-aware ---------------------------
   #   shore: observation = crabber-hours; predicted = lambda_E * L        (hours)
   #   boat : observation = boat trips;    predicted = (lambda_E/R_G_boat) * tau
@@ -854,16 +946,30 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   # gear_time_total is computed in load_creel_data() from gear_hours (preferred)
   # or hours_fished * number_of_gear (fallback). Drop boat interviews lacking it
   # so the IntC likelihood (c ~ NegBin(lambda_C * h, r_C)) is well-defined.
-  if(!is_shore) {
-    # F2: the boat CPUE denominator is DEPLOYMENTS (number_of_gear), not
-    # gear-hours. gear_time_total is retained on int_d for the saturation
-    # diagnostic but no longer enters the likelihood.
-    n_before_gh <- nrow(int_d)
-    int_d <- int_d |> filter(!is.na(number_of_gear), number_of_gear > 0)
-    cat(sprintf("  Boat deployment filter: %d -> %d interviews (require number_of_gear > 0)\n",
-                n_before_gh, nrow(int_d)))
-    intA <- intA |> filter(interview_id %in% int_d$interview_id)
+  # P1: generic CPUE-denominator filter. The likelihood needs a finite, positive
+  # h[a] for every interview, whatever effort unit is selected. Previously only
+  # the boat had a filter, so a shore run under a non-default unit would have
+  # pushed NA into stan_data.
+  #
+  # loo_effort_unit_comparison = TRUE additionally requires EVERY candidate
+  # denominator to be valid, so the retained c[a] are identical across units and
+  # elpd_loo is a valid model comparison. Set it TRUE for the comparison runs.
+  # For 2024-25 shore this costs 2 of 2,869 interviews.
+  h_cols_req <- if (isTRUE(params$loo_effort_unit_comparison))
+                  bss_effort_h_candidates(is_shore) else eff_spec$h_col
+  n_before_h <- nrow(int_d)
+  for (hc in h_cols_req) {
+    if (!hc %in% names(int_d)) stop("prep_bss_crab(): interview column '", hc,
+                                    "' is missing; required for effort unit '",
+                                    eff_spec$unit, "'.", call. = FALSE)
+    v <- suppressWarnings(as.numeric(int_d[[hc]]))
+    int_d <- int_d[is.finite(v) & v > 0, , drop = FALSE]
   }
+  cat(sprintf("  CPUE denominator filter [%s%s]: %d -> %d interviews\n",
+              eff_spec$unit,
+              if (isTRUE(params$loo_effort_unit_comparison)) "; LOO-common subset" else "",
+              n_before_h, nrow(int_d)))
+  intA <- intA |> filter(interview_id %in% int_d$interview_id)
 
   # v5.1: bss_max_interviews = NULL means use full dataset (Issue 8)
   if(!is.null(params$bss_max_interviews) && nrow(int_d)>params$bss_max_interviews) {
@@ -1075,15 +1181,14 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # v5.3: Pots fish continuously while the trailer sits at the ramp,
     # so the daily fishing window for boats is 24 h. Shore crabbers
     # actively tend their gear, so the window remains day_length.
-    # 5a/5b/F2: per-day effort expansion factor L, a PARAMETER in both
+    # 5a/5b/F2/P1: per-day effort expansion factor L, a PARAMETER in both
     # populations (estimate_L = 1) with lognormal prior sd L_prior_sigma so its
-    # uncertainty propagates.
-    #   shore: L = I/E-derived effective day length in HOURS (days$L_mu)
-    #   boat : L = tau, deployment turnover per day (dimensionless)
-    L_data        = if(is_shore) days$L_mu else rep(params$tau_boat_prior_mu %||% 1.2, nrow(days)),
+    # uncertainty propagates. effort_scale_gear converts lambda_E (crabbers for
+    # shore, gear for the boat) into the unit of h. See .effort_unit below.
+    L_data        = eff_spec$L_data,
     estimate_L    = 1L,
-    L_prior_sigma = if(is_shore) days$L_prior_sigma
-                    else rep(params$tau_boat_prior_sigma %||% 0.3, nrow(days)),
+    L_prior_sigma = eff_spec$L_prior_sigma,
+    effort_scale_gear = eff_spec$effort_scale_gear,
 
     # F2: I/E observation stream. shore obs = crabber-hours, boat obs = trips.
     IE_n           = IE_n,
@@ -1118,8 +1223,8 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # For shore, h remains crabber-hours.
     IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),
     section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count),
-    # F2: boat CPUE denominator is DEPLOYMENTS (number_of_gear), not gear-hours.
-    h = if(is_shore) int_d$fishing_time_total else as.numeric(int_d$number_of_gear),
+    # P1/F2: CPUE denominator, matched to the effort unit (see bss_effort_spec()).
+    h = eff_spec$h_fun(int_d),
 
     # Gear-per-crabber expansion (shore only)
     IntA_gear = if(is_shore) nrow(intA) else 0L,
@@ -1159,8 +1264,8 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
     # Metadata for output (not passed to Stan)
     .gear_type_labels = gear_type_labels,
     .ar_resolution    = ar_resolution,
-    .effort_unit      = if(is_shore) "crabber-hours" else "gear-deployments",
-    .h_unit           = if(is_shore) "crabber-hours" else "gear-deployments"
+    .effort_unit      = eff_spec$unit,
+    .h_unit           = eff_spec$unit
   )
 
   # F4: minimal interview frame for the CPUE-estimator and saturation diagnostics.
@@ -1177,8 +1282,7 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   }
   attr(stan_data, "cpue_data") <- tibble(
     catch           = .col_num(int_d, "fish_count"),
-    h               = if(is_shore) .col_num(int_d, "fishing_time_total")
-                      else .col_num(int_d, "number_of_gear"),
+    h               = as.numeric(eff_spec$h_fun(int_d)),
     number_of_gear  = .col_num(int_d, "number_of_gear"),
     gear_time_total = .col_num(int_d, "gear_time_total")
   )
@@ -1187,7 +1291,7 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name, 
   # (the pooled convention). Set it as well as the dot-prefixed element so both
   # readers work.
   attr(stan_data, "ar_resolution") <- ar_resolution
-  attr(stan_data, "effort_unit")   <- if(is_shore) "crabber-hours" else "gear-deployments"
+  attr(stan_data, "effort_unit")   <- eff_spec$unit
 
   # F4: fail in seconds, not after hours of sampling. C = E * lambda_C is catch
   # only if E and h carry the same unit.
@@ -1455,7 +1559,7 @@ for(pop in c("shore","private_boat")) {
     days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
                               params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
-    pe_all[[label]] <- run_pe(summ_ss, days_ss, params, label)
+    pe_all[[label]] <- run_pe(summ_ss, days_ss, params, label, population = pop)
   }
 }
 
@@ -1471,13 +1575,31 @@ for(pop in c("shore","private_boat")) {
                               params$period_pe, params$sections, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
+    # P1: this daily PE series must use the SAME effort basis as run_pe(), or the
+    # daily plots contradict the totals. It previously applied the shore
+    # crabber-hours formula (crabbers x day_length) to the boat as well.
+    is_shore_d <- (pop == "shore")
+    spec_d <- bss_effort_spec(is_shore_d, days_ss, params)
+    if(is_shore_d) {
+      mult_d <- if(spec_d$effort_scale_gear == 1L) 1.0 else summ_ss$crabbers_per_gear
+      Lcol_d <- if(spec_d$unit == "gear-deployments") (params$tau_shore_prior_mu %||% 1.7) else NA
+    } else {
+      ng_d   <- suppressWarnings(as.numeric(summ_ss$interview$number_of_gear))
+      ng_d   <- ng_d[!is.na(ng_d) & ng_d > 0]
+      mult_d <- if(length(ng_d) > 0) mean(ng_d) else (params$gear_per_group_default %||% 4.0)
+      Lcol_d <- params$tau_boat_prior_mu %||% 1.2
+    }
+
     de <- summ_ss$effort_index |>
       filter(count_sequence <= params$bss_max_count_seq) |>
       group_by(event_date, section_num) |>
       summarise(mean_count = mean(count_quantity), .groups = "drop") |>
-      mutate(est_crabbers = mean_count * summ_ss$crabbers_per_gear) |>
+      mutate(est_units = mean_count * mult_d) |>
       left_join(days_ss |> select(event_date, day_type, day_length), by = "event_date") |>
-      mutate(est_daily_crabber_hours = est_crabbers * day_length,
+      mutate(L_d = if(is.na(Lcol_d)) day_length else Lcol_d,
+             est_daily_effort = est_units * L_d,
+             est_daily_crabber_hours = est_daily_effort,   # legacy name kept for plots
+             effort_unit = spec_d$unit,
              population = pop, subseason = ss$name)
     pe_daily_all[[label]] <- de
   }
@@ -2720,14 +2842,16 @@ for(pop in c("shore","private_boat")) {
 
     # PE with all trips
     params_all <- params; params_all$filter_incomplete_trips <- FALSE
-    pe_all_trips <- run_pe(summ_ss, days_ss, params_all, paste0(label, " [all trips]"))
+    pe_all_trips <- run_pe(summ_ss, days_ss, params_all, paste0(label, " [all trips]"),
+                           population = pop)
 
     # PE with completed trips only
     params_comp <- params; params_comp$filter_incomplete_trips <- TRUE
     summ_comp <- summ_ss
     summ_comp$interview <- summ_ss$interview |>
       filter(trip_status == "Complete" | is.na(trip_status))
-    pe_complete <- run_pe(summ_comp, days_ss, params_comp, paste0(label, " [complete only]"))
+    pe_complete <- run_pe(summ_comp, days_ss, params_comp, paste0(label, " [complete only]"),
+                          population = pop)
 
     diff_pct <- if(pe_all_trips$Dungeness_Kept > 0) {
       (pe_complete$Dungeness_Kept - pe_all_trips$Dungeness_Kept) /

@@ -1,5 +1,5 @@
 // =============================================================================
-// Gear-Resolved CPUE Crab Creel Model - Gear-Hours Formulation
+// Gear-Resolved CPUE Crab Creel Model - Configurable Effort Units
 // (crab_bss_gear_resolved.stan)
 //
 // CPUE STRUCTURE: the model is WRITTEN for one CPUE process per gear type.
@@ -106,6 +106,18 @@ data {
   // the posterior instead of being asserted as known.
   vector<lower=0>[D] L_data;
   int<lower=0, upper=1> estimate_L;
+
+  // P1: does the effort expansion count CRABBERS (lambda_E, scale 0) or GEAR
+  // (lambda_E * R_G, scale 1)? The gear counts identify lambda_E as crabbers for
+  // shore (Gear_I ~ NB2(lambda_E * R_G, r_E)), and as gear for the boat. So:
+  //   shore + h = crabber-hours     -> effort_scale_gear = 0, L = hours
+  //   shore + h = gear-hours        -> effort_scale_gear = 1, L = hours
+  //   shore + h = gear-deployments  -> effort_scale_gear = 1, L = tau_shore
+  //   boat  + h = gear-deployments  -> effort_scale_gear = 0, L = tau_boat
+  // E and the catch expansion are multiplied by E_scale so that E always carries
+  // the same unit as h. The catch LIKELIHOOD is untouched, which is what makes an
+  // elpd_loo comparison across effort units valid: same c[a], different h[a].
+  int<lower=0, upper=1> effort_scale_gear;
   vector<lower=0>[D] L_prior_sigma;
 
   // 5b / F2: ingress/egress observations, a SECOND observation stream on effort.
@@ -185,6 +197,18 @@ data {
   real value_cauchyDF_sigma_mu_E;
 }
 
+transformed data {
+  // P2: with G * S == 1 the hierarchical mean layer is NOT IDENTIFIED.
+  //   mu_E[1,1] = mu_mu_E[1] + sigma_mu_E * eps_mu_E[1,1]
+  // has a single element, so only the SUM enters the likelihood: mu_mu_E and
+  // sigma_mu_E * eps_mu_E trade off exactly. That is a textbook funnel, and it
+  // showed up in the divergence localization of every fit (sigma_mu_E SMD 0.16
+  // to -0.15) with sigma_mu_E's posterior equal to its half-Cauchy prior
+  // (median ~1.1, hi95 ~7.5). Collapsing the layer removes a redundant funnel at
+  // zero inferential cost: with one gear and one section there is nothing to pool.
+  int<lower=0, upper=1> use_mu_hier = (G * S > 1) ? 1 : 0;
+}
+
 parameters {
   real B1;
   real B2;
@@ -204,7 +228,7 @@ parameters {
   matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
-  matrix[G,S] eps_mu_E;
+  matrix[G * use_mu_hier, S] eps_mu_E;   // P2: 0 rows when G*S == 1
 
   // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
   //       now marginalized into neg_binomial_2 in the model block, so the per-
@@ -223,7 +247,7 @@ parameters {
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
-  matrix[G,S] eps_mu_C;
+  matrix[G * use_mu_hier, S] eps_mu_C;   // P2: 0 rows when G*S == 1
 }
 
 transformed parameters {
@@ -238,9 +262,12 @@ transformed parameters {
   real<lower=-1,upper=1> phi_C;
   real<lower=0> r_C;
   vector<lower=0>[D] L;   // 5b: parameter when estimate_L = 1, else fixed = L_data
+  real<lower=0> E_scale;  // P1: 1 (crabbers) or R_G (gear)
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
+
+  E_scale = (effort_scale_gear == 1) ? R_G : 1.0;
 
   r_E = 1 / square(sigma_r_E);
   r_C = 1 / square(sigma_r_C);
@@ -274,8 +301,14 @@ transformed parameters {
 
   for (g in 1:G) {
     for (s in 1:S) {
-      mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
-      mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
+      // P2: collapse the (unidentified) hierarchical layer when G*S == 1.
+      if (use_mu_hier == 1) {
+        mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
+        mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
+      } else {
+        mu_E[g,s] = mu_mu_E[g];
+        mu_C[g,s] = mu_mu_C[g];
+      }
     }
     for (d in 1:D) {
       for (s in 1:S) {
@@ -298,6 +331,10 @@ model {
   phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
   sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
+  // Proper half-Cauchy priors, UNCONDITIONAL. When use_mu_hier == 0 these enter
+  // no likelihood term, so they sample their prior; they are bounded below at 0
+  // and their prior is proper, so unlike R_G_boat they cannot run away. They no
+  // longer multiply anything, so the funnel is gone.
   sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
@@ -352,8 +389,10 @@ model {
     for (s in 1:S) {
       omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
       omega_C_0_raw[g,s] ~ std_normal();
-      eps_mu_E[g,s] ~ std_normal();
-      eps_mu_C[g,s] ~ std_normal();
+      if (use_mu_hier == 1) {
+        eps_mu_E[g,s] ~ std_normal();
+        eps_mu_C[g,s] ~ std_normal();
+      }
     }
   }
 
@@ -472,7 +511,8 @@ generated quantities {
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
+        // P1: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g];
         C_expected_sum = C_expected_sum + lambda_Ctot_S[s][d,g];
         C_total[d] = C_total[d] + lambda_Ctot_S[s][d,g];
         if (lambda_Ctot_S[s][d,g] < 1e9) {
@@ -483,7 +523,7 @@ generated quantities {
         C_sum = C_sum + C[s][d,g];
         C_gear_pred[d,g] = C_gear_pred[d,g] + C[s][d,g];
         C_sum_gear[g]    = C_sum_gear[g] + C[s][d,g];
-        E[s][d,g] = lambda_E_S[s][d,g] * L[d];
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d];
         E_sum = E_sum + E[s][d,g];
       }
     }

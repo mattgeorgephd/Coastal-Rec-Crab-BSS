@@ -1,0 +1,2 @@
+"fit","n_obs","beta_h","beta_h_se","beta_h_lo95","beta_h_hi95","assumed_beta_h","linearity_flag","effort_unit"
+"shore_ring_net_only_Dungeness_Kept",627,0.620158625010948,0.0460353934255269,0.529929253896915,0.71038799612498,1,TRUE,"crabber-hours"
