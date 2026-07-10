@@ -37,7 +37,7 @@ List of 67
  $ filter_incomplete_trips       : logi TRUE
  $ estimate_B1_C                 : logi TRUE
  $ shore_effort_unit             : chr "crabber-hours"
- $ loo_effort_unit_comparison    : logi FALSE
+ $ loo_effort_unit_comparison    : logi TRUE
  $ tau_shore_prior_mu            : num 1.7
  $ tau_shore_prior_sigma         : num 0.3
  $ tau_boat_prior_mu             : num 1.2

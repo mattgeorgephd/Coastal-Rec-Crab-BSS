@@ -234,7 +234,7 @@ params <- list(
   # Set TRUE for the effort-unit comparison runs: restricts interviews to those
   # where every candidate denominator is valid, so elpd_loo is computed on the
   # same c[a] in every run and the comparison is legitimate.
-  loo_effort_unit_comparison = FALSE,
+  loo_effort_unit_comparison = TRUE,
 
   # Shore deployment turnover: trips per gear-slot per day. From 30 WDF20 I/E
   # days, arrivals/peak = 1.72 (median 1.69, sd 0.45). Cross-check: L_eff/tau =

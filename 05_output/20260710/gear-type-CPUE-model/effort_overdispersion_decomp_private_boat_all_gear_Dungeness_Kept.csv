@@ -1,2 +1,2 @@
 "fit","data_type","n_obs","n_obs_dropped","n_draws_used","rE_median","R_median","mean_mu","share_poisson","share_nb_overdisp","share_latent","pred_vmr_mean","nb_vmr_mean","ppc_coverage_50","ppc_pit_sd","lever"
-"private_boat_all_gear_Dungeness_Kept","trailer",195,0,2000,1.16049261118628,0.281611637630321,12.635,0.0333,0.9013,0.0654,13.605,12.774,0.6923,0.2682,"observation NB over-dispersion dominates: lever is r_E / sigma_r_E prior (T1.5 5a; pair with T1.3)"
+"private_boat_all_gear_Dungeness_Kept","trailer",195,0,2000,1.15355448807599,0.28209556638389,12.668,0.0332,0.9007,0.0662,13.654,12.817,0.6923,0.2686,"observation NB over-dispersion dominates: lever is r_E / sigma_r_E prior (T1.5 5a; pair with T1.3)"
