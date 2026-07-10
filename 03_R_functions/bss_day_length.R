@@ -96,7 +96,9 @@ fetch_ie_data <- function(params) {
     mutate(
       population = "shore",
       mean_present = ie_crabber_hours / survey_hours,
-      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0)
+      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0),
+      ie_trips    = total_arrivals,   # crabber arrivals; unused by the shore model
+      ie_turnover = if_else(max_present > 0, total_arrivals / max_present, NA_real_)
     )
 
   ie_boat <- ie_raw |>
@@ -122,7 +124,14 @@ fetch_ie_data <- function(params) {
     mutate(
       population = "private_boat",
       mean_present = ie_crabber_hours / survey_hours,
-      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0)
+      L_effective = if_else(max_present > 0, ie_crabber_hours / max_present, 0),
+      # F2: the boat model expands on the DEPLOYMENT scale, so what it needs from
+      # I/E is the number of boat trips (ingress count) and the turnover
+      # tau = trips / peak boats present. ie_crabber_hours here is boat-hours and
+      # is retained for diagnostics only; it is NOT the boat observation model's
+      # predicted quantity (see the F2 note in crab_bss_gear_resolved.stan).
+      ie_trips    = total_arrivals,
+      ie_turnover = if_else(max_present > 0, total_arrivals / max_present, NA_real_)
     )
 
   ie_all <- bind_rows(ie_shore, ie_boat) |>

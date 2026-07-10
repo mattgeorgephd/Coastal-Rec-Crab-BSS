@@ -1,5 +1,5 @@
 "component","n_interviews_total","n_complete","n_incomplete","n_missing_status","pct_incomplete","PE_catch_all_trips","PE_catch_complete_only","diff_pct","filter_applied"
-"shore_ring_net_only",856,627,229,0,26.8,12645,13403,6,TRUE
-"shore_all_gear",2743,1647,1091,5,39.8,33617,36578,8.8,TRUE
-"private_boat_ring_net_only",17,17,0,0,0,945,945,0,TRUE
-"private_boat_all_gear",145,131,14,0,9.7,11524,11162,-3.1,TRUE
+"shore_ring_net_only",856,627,229,0,26.8,11133,12308,10.6,TRUE
+"shore_all_gear",2743,1647,1091,5,39.8,29368,31853,8.5,TRUE
+"private_boat_ring_net_only",17,17,0,0,0,971,971,0,TRUE
+"private_boat_all_gear",145,131,14,0,9.7,24262,22057,-9.1,TRUE

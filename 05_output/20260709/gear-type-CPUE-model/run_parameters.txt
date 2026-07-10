@@ -1,4 +1,4 @@
-List of 58
+List of 63
  $ project_name                  : chr "Coastal Recreational Crab"
  $ fishery_name                  : chr "Rec Crab Grays Harbor 2024-25"
  $ est_date_start                : chr "2024-09-16"
@@ -36,6 +36,11 @@ List of 58
  $ R_G_fixed_boat                : num 1.3
  $ filter_incomplete_trips       : logi TRUE
  $ estimate_B1_C                 : logi TRUE
+ $ tau_boat_prior_mu             : num 1.2
+ $ tau_boat_prior_sigma          : num 0.3
+ $ gear_per_group_default        : num 4
+ $ use_boat_ie                   : logi TRUE
+ $ ie_min_obs_boat               : num 2
  $ ie_data_file                  : chr "ingress_egress.xlsx"
  $ ie_sheet                      : chr "data"
  $ ie_shore_location             : chr "WDF20"

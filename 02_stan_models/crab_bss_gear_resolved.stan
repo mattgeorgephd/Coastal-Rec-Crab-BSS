@@ -14,22 +14,39 @@
 //   estimator rather than carrying posterior uncertainty. See the
 //   "G (GEAR DIMENSION)" block below before changing G.
 //
-// GEAR-HOURS (boat populations):
-//   For boat crabbers using pots, gear is deployed continuously (24 hrs/day)
-//   while the trailer remains at the boat ramp. The previous formulation used
-//   crabber-hours with day_length (9-16 hrs), creating a unit mismatch that
-//   systematically underestimated boat catch by ~2x.
+// BOAT EFFORT STATE VARIABLE
+//   lambda_E represents GEAR IN THE WATER (shore: crabbers, via R_G; boats: gear,
+//   via R_G_boat). Trailer obs: T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E),
+//   so lambda_E / R_G_boat is the number of boat groups present.
 //
-//   This version:
-//     - lambda_E represents GEAR IN THE WATER (shore: via R_G; boats: directly)
-//     - For boats: R_G_boat (gear per group) replaces R_T (trailers per crabber)
-//     - CPUE denominator h = gear-hours (boats) or crabber-hours (shore)
-//     - L[d] = 24 for boats (gear fishes 24/7); for shore, L is the I/E-derived
-//       EFFECTIVE day length (~3.5-5 h), estimated as a parameter (5b), not
-//       civil twilight
-//     - Trailer obs: T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E)
+//   HISTORY: an earlier formulation expanded boat effort as crabber-hours with a
+//   civil-twilight day length, which was a unit mismatch. It was replaced by
+//   gear-hours with L = 24 (gear assumed to soak continuously). That is ALSO
+//   wrong, for a different reason: see the F2 block below. Boat effort is now
+//   measured in gear DEPLOYMENTS and L is the turnover tau, not 24 hours.
 //
-//   Shore model: lambda_E = crabbers, h = crabber-hours, L = effective day length.
+// F2: BOAT EFFORT IS MEASURED IN GEAR DEPLOYMENTS, NOT GEAR-HOURS
+//   The 2024-25 interviews show that boat catch is NOT linear in soak time:
+//   binned by hours-per-gear, crab per gear-HOUR falls 43x (2.88 -> 0.068) while
+//   crab per GEAR per trip rises only 1.8x across a 64x soak range. A log-log fit
+//   over 1,532 interviews gives crab_per_gear ~ h^0.133, i.e. pots saturate and
+//   soak time is nearly irrelevant. Modelling c ~ NB2(lambda_C * gear_hours)
+//   therefore forces a 43x gradient onto one constant, and with r_C ~ 0.8 the NB2
+//   behaves multiplicatively and drags lambda_C toward mean-of-ratios. The
+//   2026-07-09 run inflated boat catch to 155,038 versus ~90,700 from two
+//   independent soak-free expansions.
+//
+//   The model now uses, for boats:
+//     h[a]  = number_of_gear      (deployments in that interview)
+//     L[d]  = tau                 (deployment turnover: trips per present group
+//                                  per day; a PARAMETER with a lognormal prior,
+//                                  identified by boat I/E ingress counts when
+//                                  available)
+//     E     = lambda_E * tau      (gear deployments per day)
+//     lambda_C = crab per gear deployment  (stable: 4.0-7.6 across all soaks)
+//
+//   Shore is unchanged: lambda_E = crabbers, h = crabber-hours, L = the I/E
+//   derived EFFECTIVE day length in hours (~3.5-5 h), estimated as a parameter.
 //
 // G (GEAR DIMENSION) -- READ THIS BEFORE USING THIS MODEL
 //   The structure below supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over
@@ -80,24 +97,36 @@ data {
   vector<lower=0,upper=1>[D] w;
   vector<lower=0,upper=1>[D] holiday;
 
-  // 5b: shore day length. L_data is the point value (I/E-derived L_mu for shore,
-  // 24 for boats). When estimate_L = 1, L becomes a PARAMETER with a lognormal
-  // prior centred on L_data and log-scale SD L_prior_sigma, so the I/E prediction
-  // uncertainty propagates into the posterior instead of being asserted as known.
-  // When estimate_L = 0 (boats), L is fixed at L_data.
+  // 5b/F2: the per-day effort expansion factor L.
+  //   shore: effective day length in HOURS (I/E-derived L_mu).
+  //   boat : tau, the deployment TURNOVER (dimensionless), prior-centred on
+  //          L_data and identified by boat I/E ingress counts when present.
+  // When estimate_L = 1, L is a PARAMETER with a lognormal prior centred on
+  // L_data with log-scale SD L_prior_sigma, so its uncertainty propagates into
+  // the posterior instead of being asserted as known.
   vector<lower=0>[D] L_data;
   int<lower=0, upper=1> estimate_L;
   vector<lower=0>[D] L_prior_sigma;
 
-  // 5b: ingress/egress observations, a SECOND observation stream on effort.
-  // IE_crabber_hours[i] measures total crabber-hours on day_IE[i]; the model
-  // predicts lambda_E * L, so these observations jointly identify L and effort.
-  // IE_n = 0 for boat fits (no shore I/E), which is why sigma_IE needs an
-  // unconditional prior (see B1.6 note in the model block).
+  // 5b / F2: ingress/egress observations, a SECOND observation stream on effort.
+  // The observed quantity and its predicted mean depend on the population:
+  //
+  //   shore (ie_group_scale = 0): IE_obs = crabber-hours on day_IE[i].
+  //       predicted = lambda_E * L, with lambda_E = crabbers and L = effective
+  //       day length in hours.
+  //
+  //   boat  (ie_group_scale = 1): IE_obs = boat trips (ingress count) on day.
+  //       predicted = (lambda_E / R_G_boat) * L, with lambda_E = gear in the
+  //       water, lambda_E / R_G_boat = boat groups present, and L = tau, the
+  //       deployment turnover (trips per present group per day).
+  //
+  // Either way the stream identifies L jointly with effort. IE_n = 0 is fine
+  // (sigma_IE keeps its unconditional prior; see the B1.6 note below).
   int<lower=0> IE_n;
   int<lower=1> day_IE[IE_n];
   int<lower=1> section_IE[IE_n];
-  vector<lower=0>[IE_n] IE_crabber_hours;
+  vector<lower=0>[IE_n] IE_obs;
+  int<lower=0, upper=1> ie_group_scale;
 
   real<lower=0> O[D,S,G];
 
@@ -295,17 +324,27 @@ model {
 
   if (IE_n > 0) {
     for (i in 1:IE_n) {
-      IE_crabber_hours[i] ~ lognormal(
-        log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
-        sigma_IE
-      );
+      real ie_pred = lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]];
+      // Boat: lambda_E is GEAR; divide by R_G_boat to predict boat groups, so
+      // groups * tau = trips, matching the ingress count that IE_obs holds.
+      if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;
+      IE_obs[i] ~ lognormal(log(ie_pred), sigma_IE);
     }
   }
 
   R_G ~ lognormal(log(1.3), 0.3);
-  if (T_n > 0 || IntA_trailer > 0) {
-    R_G_boat ~ lognormal(log(4), 0.5);  // ~4 gear per group, with range ~2-8
-  }
+
+  // F1 (B1.10): R_G_boat gets a PROPER prior UNCONDITIONALLY. It previously sat
+  // inside `if (T_n > 0 || IntA_trailer > 0)`. In a shore fit both are zero, so
+  // R_G_boat had no prior and no likelihood (its T_I and Gear_A_boat loops run
+  // zero iterations). Because it is declared real<lower=0>, Stan samples exp(z)
+  // and adds the Jacobian +z to the log density, so the log posterior INCREASES
+  // without bound as z -> inf: improper and divergent, not merely flat. The
+  // sampler ran z to the numerical ceiling (R_G_boat ~ 1e307) and 97.6% of
+  // shore transitions diverged. Pooled's analogous guard on R_T is harmless only
+  // because R_T is <lower=0,upper=1>, where a flat prior is proper.
+  // Do not move this inside a guard.
+  R_G_boat ~ lognormal(log(4), 0.5);  // ~4 gear per group, with range ~2-8
 
   for (g in 1:G) {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
