@@ -178,6 +178,7 @@ Each run writes to `05_output/YYYYMMDD/pooled-CPUE/`. Files tagged with a popula
 | `catch_by_mode.csv` | Catch by crabbing mode (shore, boat, commercial) |
 | `catch_by_gear_type.csv` | Approximate catch by gear type (proportional allocation) |
 | `season_summary.csv` | Season totals roll-up |
+| `sensitivity_incomplete_trips.csv` | PE catch with the incomplete-trip filter off vs on, and the % change (v7.5; the harvest impact of `filter_incomplete_trips`) |
 
 **Convergence and structure (per fit)**
 
@@ -197,6 +198,7 @@ Each run writes to `05_output/YYYYMMDD/pooled-CPUE/`. Files tagged with a popula
 | `ppc_byobs_<label>.csv` | Per-observation PPC residuals (exact randomized PIT) |
 | `effort_overdispersion_decomp_<label>.csv`, `effort_overdispersion_byobs_<label>.csv` | Effort-variance decomposition (Section 11) |
 | `loo_summary_<label>.csv`, `loo_pointwise_*_<label>.csv` | PSIS-LOO summaries and pointwise contributions by likelihood component |
+| `cpue_estimators_<label>.csv`, `cpue_saturation_<label>.csv`, `cpue_linearity_<label>.csv` | CPUE effort-unit checks (v7.5): estimator triad (ratio-of-sums vs model-implied vs mean-of-ratios), saturation exponent, and effort linearity; flag when catch does not scale with the chosen effort denominator (Section 11) |
 
 **Effort, day length, and parameters**
 
@@ -234,6 +236,12 @@ Var(Y) = E[mu]            (Poisson floor: irreducible, not a lever)
 The `lever` column reports the verdict. The decision rule: if the NB-overdispersion share dominates, the lever is the `r_E` / `sigma_r_E` prior (the cheaper, exact change); if the latent share dominates, the lever is the AR innovation scale, which is a more delicate change (the boat tends to show a larger latent share). The analytic decomposition was checked against a brute-force Monte Carlo predictive variance and matches within Monte Carlo noise. Two standing cautions apply: any such correction is a prior/inference change that needs a guarded test run, and tightening the effort dispersion narrows the reported intervals (including the headline summer intervals), which is a change to reported uncertainty and needs explicit sign-off. The target is calibration (50% coverage near 0.50), not zero over-dispersion; some over-dispersion is real.
 
 **PSIS-LOO.** `loo_summary_<label>.csv` reports out-of-sample predictive performance (expected log predictive density, `elpd_loo`) and the Pareto-k influence diagnostic per likelihood component (gear/trailer/catch). This is the basis for principled model comparison; it is what was used to evaluate, and reject, weather covariates (Section 17).
+
+**CPUE effort-unit checks (v7.5).** `cpue_estimators_<label>.csv`, `cpue_saturation_<label>.csv`, and `cpue_linearity_<label>.csv` test the likelihood's core assumption that catch is proportional to the chosen effort denominator `h`. The estimator triad reports the model-implied CPUE (`C_expected_sum / E_sum`) against the ratio-of-sums and the mean-of-ratios; a model sitting near the mean-of-ratios is a warning that the negative-binomial dispersion is pulling `lambda_C` off the rate scale. The saturation exponent fits `catch_per_gear ~ (hours_per_gear)^beta` (boat only) and the linearity check fits `glm(catch ~ log(h))`; the likelihood assumes `beta = 1`, so a value well below 1 means the effort unit is not valid (for pots, catch is nearly flat in soak time). The run also asserts that effort `E` and the CPUE denominator `h` carry the same unit. These are diagnostic only; they are what would surface a boat or shore effort-unit defect before its total is trusted.
+
+**Incomplete-trip filter and its sensitivity (v7.5).** CPUE is computed from completed trips only (`filter_incomplete_trips`, default on): incomplete trips have soak-time gear that has not finished and read systematically low (about -20% for pots and traps). `sensitivity_incomplete_trips.csv` reports the PE catch with the filter off vs on so the harvest impact is explicit each run. Missing trip status is kept (a blank `completed_trip` may still be a complete trip).
+
+**Config levers.** Two experiment toggles default to production behavior and are documented in the driver's `params`: `collapse_mu_hier` (default off) collapses the single-cell mu-hierarchy per population for the funnel investigation, and `ar_force` (default null) forces a population's AR resolution. Both leave the default posterior unchanged.
 
 ------------------------------------------------------------------------
 
@@ -435,6 +443,7 @@ Method v1.0 corresponds to pipeline code **v7.4**. The model began as an adaptat
 - **v6.9-v6.9.1:** a single-cell scale collapse (B1.7) was attempted and reverted after it hung the shore all-gear fit (the standing lesson: the durable boat fix is a better effort series, not parameter surgery); PPC calibration was hardened; monthly catch by mode was added.
 - **v7.0:** the scale-aware convergence gate (impact measured in posterior standard deviations, not as a percentage of level), which moved the boat onto its BSS posterior and made the gate control the selection rather than merely label it; a PE monthly effort-share fix; a PPC extraction fix.
 - **v7.1-v7.4:** the effort over-dispersion decomposition diagnostic; an extended set of persisted per-fit outputs (the O-series); pointwise `log_lik` enabling PSIS-LOO on the pooled model; and the `ar_force` experiment toggle (a tight-pin attempt in v7.3 was reverted in v7.4 after it tipped the shore funnel into failure).
+- **v7.5 (2026-07-10):** the pooled backlog fixes POOL-2/4/5/6. The R layer was de-duplicated onto the shared gate and AR selector (POOL-6, behavior-preserving); the CPUE effort-unit diagnostics were wired in (POOL-5); a `collapse_mu_hier` lever was added for the funnel investigation (POOL-4, default off); and the incomplete-trip filter was added (POOL-2, default on), which raises the shore estimate, so a re-run is needed to refresh these numbers. The boat-structure items POOL-1 and POOL-3 were held for a validated session because they move the publication boat number. See `development_notes/20260710-OUTSTANDING_ISSUES.md`.
 
 The full change log, with the per-version rationale, the divergence-diagnostic narrative, and the detailed B1.5 / B1.6 working notes, is in **`BSS-GH-pooled-CPUE-model-development-history.md`**.
 

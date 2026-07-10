@@ -4,6 +4,8 @@
 **Repo state at audit:** commit `564071b` ("7/9 gear resolved run"), plus the uncommitted P0/P1/P2 changes delivered 2026-07-10 (a run using those was in flight at audit time).
 **Scope:** three pipelines (pooled CPUE, gear-resolved CPUE, weather/tide covariate module), plus the orchestrator and repo hygiene.
 
+**Update 2026-07-10 (v7.5, branch `pooled-CPUE-fixes`):** POOL-6, POOL-5, POOL-4, and POOL-2 are implemented (see the per-item **Resolution status** block below the pooled table). POOL-1 and POOL-3 are HELD by decision: they are one entangled fix, they move the publication boat number, and validating them needs a run that cannot be done offline, so they stay open with a full implementation spec below.
+
 This file is a living backlog. Each issue has an ID, a severity, the concrete evidence (file and line where possible), and enough mechanism to act on it without re-deriving it. Severity is about consequence for a publishable harvest estimate, not effort.
 
 ---
@@ -32,6 +34,20 @@ Note two things pooled does NOT have, to avoid re-investigating them:
 | POOL-4 | Medium | **`sigma_mu_E` / `sigma_mu_C` funnel at G*S = 1**, known and currently unfixed. B1.7 (v6.9, 2026-06-21) collapsed the single-cell hierarchy and it cleared the boat funnel offline, but in production the shore all-gear fit (daily AR, 289 days, ~50% unobserved) hung beyond 24 h: removing the decoupled level term forced the level to reconcile directly against the high-dimensional AR ridge, saturating `max_treedepth`. Reverted to v6.8 structure. The durable fix is a more informative boat effort series, not parameter surgery. Evidence: Stan L48-60, L234. |
 | POOL-5 | Medium | **No F4 diagnostics wired.** `write_cpue_diagnostics`, `bss_effort_spec`, and the linearity/saturation/estimator-triad checks are absent (0 call sites). Pooled cannot currently detect the effort-unit defect that these found in gear-resolved. This is the highest information-per-hour item: diagnostic-only, changes no estimates, and would immediately show whether pooled's boat and shore units are as broken as gear-resolved's were. |
 | POOL-6 | Medium | **R-layer duplication.** Pooled defines its own `compute_gate` (L1487), `use_pe_for` (L1616), and inline AR-resolution logic (L811-829), while gear-resolved uses the shared `03_R_functions/` versions. Two implementations of the same logic, guaranteed to drift. Port pooled onto the shared modules and delete the inline copies. |
+
+### Resolution status — v7.5 (2026-07-10, branch `pooled-CPUE-fixes`)
+
+Four of the six pooled items are implemented; two are held by decision. Every change carries inline `POOL-<n>` comments. The pipeline could not be run offline (a full pooled run is a multi-hour rstan job), so the changes were validated by R static parse checks and an adversarial code review, **not** by a before/after harvest comparison. Re-run the pooled model to refresh the numbers and emit the new diagnostics.
+
+- **POOL-6 — DONE (behavior-preserving).** Deleted the inline `compute_gate()`, `use_pe_for()`, and adaptive-AR block in `prep_bss_crab`; the driver now calls the shared `bss_compute_gate()`, `bss_use_pe_for()`, and `bss_select_ar_resolution(..., fixed_resolution = NULL)`. Identical gating quantities (`C_expected_sum`, `E_sum`) and thresholds (`params$max_divergence_total_impact_sd`, `params$max_divergence_fraction`); the report-only `B1_C_rhat` column is re-attached at the call site so `convergence_report.csv` keeps its schema. No estimate change.
+- **POOL-5 — DONE (diagnostic-only).** `prep_bss_crab` attaches `attr(stan_data, "cpue_data")` and the `.effort_unit` / `.h_unit` tags; the extended-diagnostics loop calls `write_cpue_diagnostics()` (tryCatch-wrapped). Writes `cpue_estimators_`, `cpue_saturation_`, `cpue_linearity_<label>.csv` per fit. Unit labels are set equal per population (shore crabber-hours; boat gear-hours) so `bss_assert_effort_units()` passes and the run is not halted; the saturation/linearity CSVs carry the real signal (catch is roughly flat in soak time for pots). No estimate change.
+- **POOL-4 — DONE (lever, default off).** Added `int<lower=0,upper=1> collapse_mu_hier;` to `crab_bss_pooled.stan` and guarded the `mu_E`/`mu_C` computation; the driver passes it from `params$collapse_mu_hier` (default `FALSE`; accepts a per-population named list). `collapse_mu_hier = 0` reproduces the v6.8 hierarchy exactly (default posterior unchanged); `= 1` collapses the single-cell level (the B1.7 experiment) and can now be tested per population from config without editing Stan mid-run. The durable funnel fix remains a more informative boat effort series; this is only a safe lever. Note: the `= 1` path is syntax/review-validated, not run-validated.
+- **POOL-2 — DONE (default ON, toggleable). CHANGES THE SHORE NUMBER.** Added `params$filter_incomplete_trips` (default `TRUE`) and applied `trip_status == "Complete" | is.na(trip_status)` to the PE CPUE (`run_pe`) and the BSS CPUE (`prep_bss_crab`, which propagates to the gear-per-group `intA` set), matching gear-resolved. New section 7.2b writes `sensitivity_incomplete_trips.csv` (PE catch filter-off vs on) to quantify the move. Removing incomplete trips (~40% of shore all-gear interviews, ~-20% CPUE bias) raises the shore CPUE, so the shore harvest estimate rises. Set to `FALSE` for pre-POOL-2 behavior.
+
+**POOL-1 + POOL-3 — HELD (2026-07-10 decision).** One entangled fix that moves the publication boat number (BSS all-gear ~56,266 in the 20260708 run), so validating it needs a before/after run that cannot be done offline. Confirmed evidence and the implementation spec for the validated session:
+
+- *Evidence.* In `05_output/20260708/pooled-CPUE`, boat `R_T` posterior is mean 0.993 / median 0.995 / 95% CI [0.975, 1.000] (pinned at the bound), exactly as POOL-1 predicts. With `R_T ~ 1`, `lambda_E` counts boat GROUPS while `L = 24` and `h = gear_time_total` are gear-hours, so `E_sum` is group-hours mislabelled as gear-hours; the boat total is right only through the compensating cancellation of "groups (~4x too few)" against "L = 24 h vs a true ~6 h soak (~4x too many)".
+- *The fix (port the boat onto the gear-resolved structure).* In `crab_bss_pooled.stan`: replace parameter `R_T` with `R_G_boat ~ lognormal(log(4), 0.5)`; change the trailer likelihood to `T_I[i] ~ neg_binomial_2(lambda_E / R_G_boat, r_E)` (so `lambda_E` becomes GEAR and `lambda_E / R_G_boat` is boat groups); replace `T_A_int[a] ~ bernoulli(R_T)` with `Gear_A_boat[a] ~ poisson(R_G_boat)`; rename the data `T_A_int` / `A_A_trailer` to `Gear_A_boat` (gear per interviewed group); update the trailer `log_lik` and the `R_T_out` generated quantity; and optionally activate the boat I/E stream on the group scale (`ie_pred / R_G_boat`). In the driver `prep_bss_crab` (boat branch): `h = number_of_gear` (deployments), `L_data = rep(tau_boat_prior_mu ~ 1.2, D)`, `estimate_L = 1`, `L_prior_sigma = rep(tau_boat_prior_sigma ~ 0.3, D)`, `Gear_A_boat = as.integer(intA$number_of_gear)`, and `.effort_unit = .h_unit = "gear-deployments"`. This mirrors F1 + F2 on `crab_bss_gear_resolved.stan`; `03_R_functions/bss_trailer_expansion.R` already handles both conventions. Land it behind a boat-mode flag defaulting to current behavior, run pooled with the flag off then on, and adjudicate with the POOL-5 `cpue_saturation_*` / `cpue_linearity_*` diagnostics plus the boat catch total before adopting it as the default.
 
 ---
 
@@ -89,9 +105,10 @@ For trap and pot gear, catch per unit soak time is not a stable parameter, so an
 
 ---
 
-## Suggested next actions (all safe during a live run: `.Rmd` and `03_R_functions/` only)
+## Suggested next actions
 
-1. **POOL-5** — wire `write_cpue_diagnostics` into pooled. Diagnostic-only, changes no estimate, and will likely reorder the rest of this list by revealing whether pooled's units are broken.
-2. **POOL-6** — port pooled onto the shared gate and AR selector; delete inline copies.
-3. **ORCH-25** — create `renv.lock`.
-4. **POOL-1** — the `T_A_int` fix, specified but held until sign-off because it moves the publication boat number.
+POOL-5, POOL-6, POOL-4, and POOL-2 are DONE (v7.5, branch `pooled-CPUE-fixes`). Remaining, in priority order:
+
+1. **Re-run pooled under v7.5** to refresh the published totals (POOL-2 raises the shore number) and to emit the new `cpue_saturation_*` / `cpue_linearity_*` diagnostics; read `sensitivity_incomplete_trips.csv` to see the shore move.
+2. **ORCH-25** — create `renv.lock` (about a five-minute job with a large reproducibility payoff for a publication method).
+3. **POOL-1 + POOL-3** — the boat `R_G_boat` / `tau` deployment port, fully specified in the Resolution status block above and held until a validated session because it moves the publication boat number.

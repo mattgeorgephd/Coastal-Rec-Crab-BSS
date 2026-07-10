@@ -70,6 +70,16 @@ data {
   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
   real<lower=0> O[D,S,G];               // Open/closed
 
+  // POOL-4: single-cell mu-hierarchy collapse lever. 0 (default) keeps the v6.8
+  // decoupled level term (mu = mu_mu + eps_mu * sigma_mu); 1 collapses it to
+  // mu = mu_mu, i.e. the B1.7 experiment that cleared the boat funnel offline but
+  // hung the shore all-gear fit in production (289-day daily AR; see header v6.9
+  // note and documentation Section 14). Exposed as data so the collapse can be
+  // toggled PER FIT from the driver (params$collapse_mu_hier) without editing this
+  // file mid-investigation. The durable fix for the funnel is a more informative
+  // boat effort series, not this parameter surgery; this is only a safe lever.
+  int<lower=0,upper=1> collapse_mu_hier;
+
   // --- Day length ---
   vector<lower=0>[D] L_data;
   int<lower=0,upper=1> estimate_L;
@@ -231,8 +241,18 @@ transformed parameters {
 
   for (g in 1:G) {
     for (s in 1:S) {
-      mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
-      mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
+      // POOL-4 lever: collapse_mu_hier == 1 removes the decoupled single-cell
+      // level (mu = mu_mu), the B1.7 collapse. Default 0 reproduces the v6.8
+      // hierarchy EXACTLY, so the default posterior is unchanged. When collapsed,
+      // eps_mu_* and sigma_mu_* keep their priors (below) but enter no likelihood,
+      // so they are proper and decoupled (like sigma_IE at IE_n = 0), not a funnel.
+      if (collapse_mu_hier == 1) {
+        mu_E[g,s] = mu_mu_E[g];
+        mu_C[g,s] = mu_mu_C[g];
+      } else {
+        mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
+        mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
+      }
     }
     for (d in 1:D) {
       for (s in 1:S) {

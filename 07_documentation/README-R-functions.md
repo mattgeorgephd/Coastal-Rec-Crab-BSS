@@ -12,7 +12,7 @@ For the project overview and the PE-vs-BSS split these functions implement, see 
 
 ## Function groups
 
-The 44 files fall into seven groups. Several in the data-fetch and PE groups carry over from the WDFW freshwater-creel codebase this project was forked from; they are retained because the Point Estimator (PE) path and the optional database export reuse that machinery.
+The files fall into eight groups (the shared `bss_*` driver modules were centralized in the v6.5 to v7.5 refactors so the pooled and gear-resolved tracks share one implementation). Several in the data-fetch and PE groups carry over from the WDFW freshwater-creel codebase this project was forked from; they are retained because the Point Estimator (PE) path and the optional database export reuse that machinery.
 
 | Group | Files | Role |
 |---|---|---|
@@ -22,6 +22,7 @@ The 44 files fall into seven groups. Several in the data-fetch and PE groups car
 | PE estimation | `est_pe_effort`, `est_pe_catch`, `process_estimates_pe` | Compute the Point Estimator effort and catch, then collate into the PE result tables used for the convergence-gate fallback and the PE-vs-BSS comparison. |
 | BSS | `prep_inputs_bss`, `fit_bss`, `get_bss_overview`, `get_bss_effort_daily`, `get_bss_cpue_daily`, `get_bss_catch_daily`, `process_estimates_bss` | Assemble the Stan data list, extract the fitted posterior into daily effort/CPUE/catch series, and collate BSS results. (See the `fit_bss` flag below.) |
 | Plotting | `plot_census_index_counts`, `plot_est_pe_effort`, `plot_est_pe_catch`, `plot_inputs_pe_census_vs_index`, `plot_inputs_pe_cpue_period`, `plot_inputs_pe_index_effort_counts` | Input-diagnostic and PE-result plots written to the run's output folder. |
+| Shared driver modules (pooled + gear-resolved) | `bss_convergence_gate`, `bss_ar_resolution`, `bss_cpue_diagnostics`, `bss_trailer_expansion`, `bss_day_length` | One implementation each of the scale-aware convergence gate and PE-vs-BSS selector (`bss_compute_gate` / `bss_use_pe_for`), the adaptive AR-resolution selector (`bss_select_ar_resolution`), the CPUE effort-unit diagnostics (`write_cpue_diagnostics`), the trailer-expansion adapter, and the I/E effective-day-length model. Both production drivers call these so the two tracks cannot drift; as of pooled v7.5 the pooled driver uses the shared gate, AR selector, and CPUE diagnostics rather than inline copies (POOL-5 / POOL-6). |
 | Crab-specific BSS diagnostics | `model_diagnostics`, `diagnose_effort_overdispersion`, `divergence_diagnostic`, `save_run_diagnostics` | Convergence reporting, effort-overdispersion decomposition, divergence localization, and the per-run diagnostic bundle. These write the convergence/divergence/overdispersion files catalogued in [05_output/README.md](../05_output/README.md). |
 
 ## Path handling
