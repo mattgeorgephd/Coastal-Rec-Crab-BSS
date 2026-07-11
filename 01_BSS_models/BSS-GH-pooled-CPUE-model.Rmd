@@ -13,6 +13,29 @@ knitr::opts_chunk$set(echo = TRUE)
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor
 # 2024-25 Season | Pooled CPUE Model
+# Version: v7.7 (2026-07-11) - SHORE MOVED TO THE GEAR-DEPLOYMENT SCALE, matching the
+#          boat (v7.6) and the gear-resolved model, so BOTH components now run on
+#          gear-deployments. MOVES THE PUBLICATION SHORE NUMBER; confirm with a run.
+#          Shore CPUE denominator becomes h = number_of_gear (deployments) with
+#          E_scale = R_G (lambda_E is crabbers -> gear via R_G) and L = tau_shore
+#          (~1.7 turnover, a parameter), replacing crabber-hours. Rationale: the
+#          pipeline's own linearity diagnostic flags every time-denominated shore unit
+#          as invalid for pots. On the 2026-07-10 shore LOO comparison (shore all_gear,
+#          n = 1649): crabber-hours beta_h = 0.57 (95% CI 0.50-0.64) and gear-hours
+#          beta_h = 0.73 (0.67-0.80), both < 1, while gear-deployments is the ONLY unit
+#          whose CI covers 1 (beta_h = 1.05, 0.94-1.15, flag FALSE). Deployments is
+#          therefore the only shore unit on which harvest = effort x CPUE is unbiased
+#          (catch proportional to h) and the only one with no estimator-triad drift
+#          (ratio-of-sums 0.87 ~= mean-of-ratios 0.85 ~= model 0.85 crab/deployment).
+#          Trade-off, stated plainly: gear-hours had a marginally higher catch-stream
+#          elpd_loo (-3131 vs -3190 for deployments), but that predictive edge comes
+#          from lambda_C absorbing the sub-linearity, which is exactly what biases the
+#          season expansion; the decision prioritizes harvest-unbiasedness over
+#          marginal predictive fit (resolves GR-16). Mechanics: params gains
+#          shore_effort_unit / tau_shore_prior_mu / tau_shore_prior_sigma, all routed
+#          through the shared 03_R_functions/bss_effort_spec.R. Set shore_effort_unit =
+#          "crabber-hours" to revert. NO Stan change and NO recompile: the v7.6
+#          effort_scale_gear / E_scale machinery already supports the shore path.
 # Version: v7.6 (2026-07-10) - POOL-1 + POOL-3: BOAT MOVED TO THE GEAR-DEPLOYMENT
 #          SCALE (matches crab_bss_gear_resolved.stan). MOVES THE PUBLICATION BOAT
 #          NUMBER; confirm with a run before adopting.
@@ -412,6 +435,24 @@ params <- list(
   ie_shore_location = "WDF20",
   ie_boat_location  = "WBL",
   ie_use_all_dates_for_diagnostics = TRUE,
+
+  # --- POOL-7 (v7.7): shore effort on the gear-DEPLOYMENT scale ---
+  # Shore CPUE denominator becomes number_of_gear (deployments), matching the boat.
+  # lambda_E is crabbers for shore, so the Stan model forms gear via E_scale = R_G
+  # (effort_scale_gear = 1) and expands by L = tau_shore (shore deployment turnover).
+  # This replaces crabber-hours, which the pipeline's own linearity diagnostic flags
+  # as invalid: on the 2026-07-10 shore run (all_gear, n = 1649) beta_h = 0.57 (95% CI
+  # 0.50-0.64) for crabber-hours and 0.73 (0.67-0.80) for gear-hours, both < 1, while
+  # gear-deployments is the ONLY unit whose CI covers 1 (beta_h = 1.05, 0.94-1.15).
+  # Deployments is therefore the only shore unit on which harvest = effort x CPUE is
+  # unbiased (catch proportional to h). Trade-off: gear-hours had a marginally higher
+  # catch-stream elpd_loo (-3131 vs -3190), but that better point-prediction comes from
+  # lambda_C absorbing the sub-linearity, which is what biases the season expansion.
+  # Set to "crabber-hours" to restore the pre-v7.7 shore scale. Routed through the
+  # shared 03_R_functions/bss_effort_spec.R (used by run_pe too, so BSS and PE agree).
+  shore_effort_unit      = "gear-deployments",  # "crabber-hours" | "gear-hours" | "gear-deployments"
+  tau_shore_prior_mu     = 1.7,
+  tau_shore_prior_sigma  = 0.3,
 
   # --- POOL-1/POOL-3: boat effort on the gear-DEPLOYMENT scale ---
   # The boat CPUE denominator is number_of_gear (deployments) and L is tau_boat, the
@@ -892,11 +933,13 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name,
 
   is_shore <- (population_name == "shore")
 
-  # --- P1/POOL-3: effort-unit specification (shared with run_pe via the module
+  # --- P1/POOL-3/POOL-7: effort-unit specification (shared with run_pe via the module
   # 03_R_functions/bss_effort_spec.R, so the BSS and PE can never land on different
-  # scales). Shore -> crabber-hours (E_scale = 0, L = I/E effective day length).
-  # Boat -> gear-deployments (E_scale = 0, h = number_of_gear, L = tau_boat): the
-  # POOL-1/POOL-3 fix replacing the old flat gear-hours (L = 24) boat scale.
+  # scales). As of v7.7 BOTH components are on gear-deployments (h = number_of_gear):
+  #   shore -> E_scale = R_G (lambda_E is crabbers -> gear), L = tau_shore   (POOL-7)
+  #   boat  -> E_scale = 1   (lambda_E is already gear),     L = tau_boat    (POOL-1/3)
+  # replacing the old crabber-hours (shore) and flat gear-hours L = 24 (boat) scales.
+  # Set params$shore_effort_unit = "crabber-hours" to revert shore only.
   eff_spec <- bss_effort_spec(is_shore, days, params)
   cat(sprintf("  Effort unit: %s (effort_scale_gear=%d)\n",
               eff_spec$unit, eff_spec$effort_scale_gear))
@@ -921,8 +964,9 @@ prep_bss_crab <- function(days, summ, est_catch_group, params, population_name,
   int_cg <- summ$interview |>
     mutate(fish_count = .data[[est_catch_group]])
 
-  # P1/POOL-3: the CPUE denominator is the effort unit's h column (boat:
-  # number_of_gear = deployments; shore: fishing_time_total = crabber-hours). Drop
+  # P1/POOL-3/POOL-7: the CPUE denominator is the effort unit's h column (boat and,
+  # as of v7.7, shore: number_of_gear = deployments; shore reverts to
+  # fishing_time_total = crabber-hours if shore_effort_unit is changed back). Drop
   # interviews lacking a finite positive h so c[a] ~ NB2(lambda_C * h, r_C) is
   # well-defined, whatever effort unit is selected.
   h_vec_name <- eff_spec$h_col

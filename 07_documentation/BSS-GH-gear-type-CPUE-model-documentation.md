@@ -211,14 +211,17 @@ Effort from trailer counts. Boat crabbers have 2–5× higher CPUE than shore cr
 
 R_G is fixed at 1.3 for boat fits (not estimated) because no gear-count data informs this parameter for boats. Allowing R_G to float at its prior in boat fits would waste parameter space and potentially interact with other parameters.
 
-**Gear-hours formulation (v5.3):** Pots and traps soak continuously, 24 hours per day, while the crabbing party is away from the boat (the trailer remains at the ramp). Because gear in the water — not crabber-hours — is what generates catch for these populations, the BSS for boats treats `lambda_E` as the daily count of *gear units* in the water rather than crabbers. Consequences:
+**Gear-deployment formulation (current; supersedes the v5.3 gear-hours formulation):** Pots and traps do not fish harder the longer they soak; a pot lift returns roughly the same catch whether it soaked two hours or eight (see the saturation note below). Effort is therefore counted in gear-deployments (pot lifts), not soak-hours. The BSS for boats treats `lambda_E` as the daily count of *gear units* in the water rather than crabbers. Consequences:
 
-- The daily fishing window `L[d]` is 24 h for boat fits (vs day_length for shore).
-- The CPUE denominator `h` is gear-hours (`gear_time_total` in the interview frame) rather than crabber-hours.
+- The daily expansion `L[d]` is `tau_boat` (the deployment turnover, about 1.2 lifts per gear-slot per day), a parameter, not a fixed 24-hour soak.
+- The CPUE denominator `h` is gear-deployments (`number_of_gear` in the interview frame), not gear-hours or crabber-hours.
+- Effort is formed as `E = lambda_E * E_scale * L` with `E_scale = 1` for the boat (`lambda_E` is already gear), so `E` and `h` carry the same deployment unit; the run asserts this match before sampling.
 - Trailer counts relate to `lambda_E` through `lambda_E / R_G_boat`, where `R_G_boat` is the number of gear units deployed per boat group (the boat-side analog of `R_G`).
 - `R_G_boat` is learned from observed `number_of_gear` in boat interviews via `Gear_A_boat[a] ~ Poisson(R_G_boat)`.
 
-The earlier formulation (≤ v5.2) used crabber-hours and `day_length` for boats and modeled trailers per group (`R_T`). Because pots fish ~24 h but day_length is 9–17 h, that formulation systematically underestimated boat catch by roughly a factor of 2.
+Two earlier formulations were superseded. The v5.2-and-earlier version used crabber-hours and `day_length` for boats and modeled trailers per group (`R_T`); because pots keep fishing while the party is away but `day_length` is only 9 to 17 h, it underestimated boat catch by roughly a factor of two. The v5.3 version fixed that underestimate by switching to gear-hours with `L = 24`, but over-corrected in the opposite direction: with catch nearly flat in soak time, a fixed 24-hour denominator inflates effort for gear that is checked and re-set several times a day. The gear-deployment scale removes both biases by denominating effort in pot lifts, on which CPUE is a stable rate. The same reasoning moved the shore component onto gear-deployments (see the change log, v5.5).
+
+**Saturation, quantified.** Binned by soak time, crab per gear-HOUR falls about 43-fold across the range of soak durations, while crab per gear per trip rises only about 1.8-fold; a log-log fit gives catch per gear scaling as soak-hours to the power ~0.13. In plain terms, soak time barely matters, so a pot lift is a pot lift whether it soaked two hours or eight. That makes the deployment the unit on which catch-per-unit-effort is a stable rate: roughly 4 to 7 crab per pot lift, steady across soak times. A stable rate is exactly what the harvest method needs, because harvest is effort multiplied by that rate, and the multiplication is only unbiased if the rate does not drift with the effort denominator.
 
 **Assumptions:** Every crabbing boat trailers a vehicle. Trailer counts capture all private boat crabbing. Boat interviews are representative. `R_G_boat` is constant within a sub-season.
 
@@ -428,6 +431,10 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 - Commercial/charter harvest estimation lacks formal uncertainty quantification.
 - The incomplete trip filter reduces CPUE sample size by approximately 35% for shore crabbers. The sensitivity analysis output quantifies the resulting harvest difference. In populations where the incomplete fraction is low (private boat: ~9%), the filter has minimal impact.
 
+### Addressed in v5.5
+
+1. ~~Shore ran on crabber-hours, a unit the pipeline's own linearity diagnostic flags as invalid for pots (`beta_h = 0.57`), and the effort-unit LOO decision had never been run (backlog GR-16)~~ → Shore moved to gear-deployments, the only shore unit whose linearity coefficient covers 1 (`beta_h = 1.05`); both components now share the deployment unit. `loo_effort_unit_comparison` set to FALSE for production. See the change log (v5.5).
+
 ### Addressed in v5.3
 
 1. ~~Boat CPUE used crabber-hours and day_length while pots fish 24 h, biasing boat catch downward by ~2x~~ → Gear-hours formulation for boats: `L=24`, `h=gear_time_total`, `lambda_E` represents gear in water.
@@ -515,7 +522,11 @@ Total: 19 CSV files, 10+ plots, and run parameters.
 
 ## 13. Change Log
 
-### v5.4 (current)
+### v5.5 (current)
+- **Shore effort unit moved to gear-deployments**, matching the boat; both components now share one effort unit with each other and with the pooled track (v7.7). Shore CPUE denominator is `number_of_gear` with `E_scale = R_G` and `L = tau_shore` (~1.7), replacing crabber-hours. Chosen from the 2026-07-10 shore LOO comparison (shore all_gear, n = 1649): gear-deployments is the only shore unit whose linearity coefficient covers 1 (`beta_h = 1.05`, 95% CI 0.94 to 1.15), against crabber-hours (0.57) and gear-hours (0.73), and the only one with no estimator-triad drift (ratio-of-sums 0.87 ~= mean-of-ratios 0.85 ~= model-implied 0.85 crab per deployment). gear-hours had a marginally higher catch-stream `elpd_loo` (-3131 vs -3190 for deployments), but that edge comes from the CPUE process absorbing the sub-linearity, which is what biases the season expansion; the choice prioritizes harvest-unbiasedness (unbiased `E x CPUE`) over marginal predictive fit. Resolves backlog GR-16. `loo_effort_unit_comparison` set to FALSE for production.
+- **Effort-unit module (P1), recorded here retroactively.** The boat effort unit was moved from the v5.3 gear-hours formulation (`L = 24`, `h = gear_time_total`) to gear-deployments (`L = tau_boat`, `h = number_of_gear`) when the shared `03_R_functions/bss_effort_spec.R` module and the Stan `effort_scale_gear` / `E_scale` machinery were introduced. That refactor was not previously carried in this log; Section 6.2 has been corrected to describe the deployment formulation. The gear-hours step had removed the ~2x underestimate of the v5.2 crabber-hours formulation but over-corrected because catch is nearly flat in soak time; the deployment scale removes both biases.
+
+### v5.4
 - R-hat convergence threshold tightened from 1.05 to 1.01 for the aggregates (`C_sum`, `E_sum`) and all per-gear-type quantities, following Vehtari et al. (2021). Applied in step with the pooled track (v6.4) so both gates use one threshold. Outcome-neutral for the 2024-25 run, where every fit already falls back to PE on divergent transitions.
 
 ### v5.3

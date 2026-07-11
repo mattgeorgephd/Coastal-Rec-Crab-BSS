@@ -25,6 +25,18 @@ knitr::opts_chunk$set(echo = TRUE)
 #
 # Port total = sum of all components
 #
+# v5.5 CHANGES (from v5.4): SHORE moved to the gear-deployment effort unit
+# (shore_effort_unit = "gear-deployments"), matching the boat, so both components now
+# run on gear-deployments. Chosen 2026-07-11 from the 2026-07-10 shore LOO comparison:
+# gear-deployments is the only shore unit whose linearity beta_h covers 1 (1.05, vs
+# 0.57 crabber-hours and 0.73 gear-hours), hence the only harvest-unbiased unit;
+# gear-hours had a marginally higher elpd_loo but that edge is lambda_C absorbing the
+# sub-linearity. Resolves backlog GR-16. Also sets loo_effort_unit_comparison = FALSE
+# for production (the comparison is done). NOTE: the boat has run on gear-deployments
+# since the shared P1 effort module (03_R_functions/bss_effort_spec.R); v5.3's
+# "gear-hours / L = 24" boat description was superseded by that refactor and is
+# corrected in documentation Section 6.2.
+#
 # v5.4 CHANGES (from v5.3): R-hat convergence gate tightened from 1.05 to 1.01
 # (Vehtari et al. 2021), in step with the pooled track. See documentation
 # Section 13.
@@ -229,12 +241,19 @@ params <- list(
   #
   # Compare by elpd_loo on the CATCH stream (loo_summary_*.csv). Same c[a],
   # different h[a], so the comparison is valid. Do not choose on aesthetics.
-  shore_effort_unit = "gear-deployments", #"crabber-hours" or "gear-hours"
+  shore_effort_unit = "gear-deployments", # "crabber-hours" | "gear-hours" | "gear-deployments"; chosen 2026-07-11 as the only harvest-unbiased unit (beta_h ~ 1.0; resolves GR-16)
 
   # Set TRUE for the effort-unit comparison runs: restricts interviews to those
   # where every candidate denominator is valid, so elpd_loo is computed on the
-  # same c[a] in every run and the comparison is legitimate.
-  loo_effort_unit_comparison = TRUE,
+  # same c[a] in every run and the comparison is legitimate. Set FALSE for a
+  # PRODUCTION run of the chosen unit (2026-07-11: gear-deployments). The common-
+  # subset restriction exists only to make the comparison runs mutually comparable;
+  # leaving it ON in production would needlessly drop shore interviews that have a
+  # valid number_of_gear but lack fishing_time_total or gear_time_total, shrinking the
+  # sample and biasing the estimate toward the intersection. Flip back to TRUE only to
+  # re-run a comparison. NOTE: with this FALSE, elpd_loo is no longer comparable to the
+  # three 2026-07-10 comparison runs (different c[a] subset) -- that comparison is done.
+  loo_effort_unit_comparison = FALSE,
 
   # Shore deployment turnover: trips per gear-slot per day. From 30 WDF20 I/E
   # days, arrivals/peak = 1.72 (median 1.69, sd 0.45). Cross-check: L_eff/tau =
