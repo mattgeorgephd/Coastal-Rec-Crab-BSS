@@ -1,0 +1,5 @@
+"component","n_interviews_total","n_complete","n_incomplete","n_missing_status","pct_incomplete","PE_catch_all_trips","PE_catch_complete_only","diff_pct","filter_applied"
+"shore_ring_net_only",856,627,229,0,26.8,5405,5630,4.2,TRUE
+"shore_all_gear",2743,1647,1091,5,39.8,11760,12612,7.3,TRUE
+"private_boat_ring_net_only",17,17,0,0,0,914,914,0,TRUE
+"private_boat_all_gear",145,131,14,0,9.7,24093,21897,-9.1,TRUE

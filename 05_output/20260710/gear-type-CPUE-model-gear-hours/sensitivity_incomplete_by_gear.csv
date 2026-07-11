@@ -1,0 +1,5 @@
+"gear_type","cpue_complete","n_complete","cpue_incomplete","n_incomplete","bias_pct"
+"Pot",0.298,386,0.235,261,-21
+"Ring Net",0.38,422,0.396,228,4.4
+"Trap",0.733,583,0.563,314,-23.2
+"Snare",0.44,194,0.353,98,-19.9

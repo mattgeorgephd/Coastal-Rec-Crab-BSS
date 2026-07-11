@@ -3,7 +3,7 @@
 ## Development History
 
 **Companion to:** `BSS-GH-pooled-CPUE-model-documentation.md` (the published Method v1.0 reference).
-**Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run.
+**Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted.
 **Convention:** no em dashes.
 
 This file is the provenance record for the pooled model. The published method document summarizes this history in one screen (its Section 19) and refers here for the detail. Entries are newest-first. The model's first published, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
@@ -13,6 +13,16 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 ------------------------------------------------------------------------
 
 ## Version log
+
+### v7.6 (2026-07-10), POOL-1 + POOL-3: boat moved to the gear-deployment scale
+
+Implements the two held boat-structure items, reversing the v7.5 hold after the 2026-07-10 gear-resolved run supplied the missing validation (boat saturation `beta = 0.249` proving gear-hours invalid for pots; the correctly-scaled gear-resolved boat at 43,314 versus the pooled boat's 56,266 on gear-hours). The pooled boat is ported onto the gear-deployment scale exactly as `crab_bss_gear_resolved.stan` does. This MOVES the publication boat number and must be confirmed by a run; it was validated here only by R parse checks and an adversarial review against the gear-resolved reference (the Stan likelihood and generated-quantity lines are byte-identical to it).
+
+-   **POOL-1, trailer expansion (`crab_bss_pooled.stan`).** The degenerate `R_T` (pinned at ~1 by `T_A_int` all-ones bernoulli) is replaced by `R_G_boat` (gear per boat group) with a proper unconditional prior `R_G_boat ~ lognormal(log(4), 0.5)` (the F1 fix). Trailer counts become `T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E)`, so `lambda_E` is now GEAR in the water rather than groups, and interviews learn the ratio via `Gear_A_boat[a] ~ poisson(R_G_boat)` (the data `T_A_int` / `A_A_trailer` become `Gear_A_boat = number_of_gear`). `R_T_alpha` / `R_T_beta` are removed; `R_G_boat_out` is emitted and the expansion reporting reads it.
+-   **POOL-3, boat effort unit (`crab_bss_pooled.stan` + driver).** The boat CPUE denominator is `h = number_of_gear` (deployments) and `L = tau_boat` (~1.2 turnover, now a parameter with `estimate_L = 1`), replacing `h = gear_time_total` and the flat `L = 24` gear-hours. The Stan model gains `effort_scale_gear` and `E_scale` so `E = lambda_E * E_scale * L` always carries `h`'s unit (boat: `E_scale = 1`, `E = gear-deployments`; shore crabber-hours: `E_scale = 1`, unchanged).
+-   **Driver mechanics.** `prep_bss_crab` and `run_pe` adopt the shared `03_R_functions/bss_effort_spec.R` (boat -> gear-deployments, shore -> crabber-hours), so the BSS and PE can never drift onto different scales. The monthly PE effort share uses the same deployment scale (`gear_per_group * tau_boat`, not `* 24`). New params `tau_boat_prior_mu` (1.2), `tau_boat_prior_sigma` (0.3), `gear_per_group_default` (4.0); the obsolete `boat_use_gear_hours` flag is removed. Shore is unchanged.
+-   **Expected effect.** The pooled boat all-gear BSS total should fall from ~56,266 (gear-hours) toward the gear-resolved ~43,314 (deployments), roughly -25%. Confirm with a run; if the boat single-cell `sigma_mu` funnel appears, set `collapse_mu_hier = list(private_boat = TRUE)` (the POOL-4 lever) and/or cap the boat AR at monthly, as gear-resolved does.
+-   Files changed: `02_stan_models/crab_bss_pooled.stan`; `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd`; shared `03_R_functions/model_diagnostics.R` and `bss_trailer_expansion.R` (add `R_G_boat` to the reported parameters; refresh stale `R_T` comments); this history; the method document; `development_notes/20260710-OUTSTANDING_ISSUES.md`.
 
 ### v7.5 (2026-07-10), Pooled backlog fixes POOL-2/4/5/6 (POOL-1/3 held)
 

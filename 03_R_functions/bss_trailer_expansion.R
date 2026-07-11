@@ -1,22 +1,25 @@
 ###############################################################################
 # bss_trailer_expansion.R
 #
-# Model adapter for the shared diagnostics. The two Stan models expand a trailer
-# count to gear/crabbers in mathematically different ways:
+# Model adapter for the shared diagnostics. Two trailer-expansion conventions exist
+# across model versions:
 #
-#   crab_bss_pooled.stan         T_I[i] ~ NB2(lambda_E[d_i] * R_T,        r_E)
-#   crab_bss_gear_resolved.stan  T_I[i] ~ NB2(lambda_E[d_i] / R_G_boat,   r_E)
+#   crab_bss_pooled.stan (<= v7.5)   T_I[i] ~ NB2(lambda_E[d_i] * R_T,      r_E)
+#   crab_bss_pooled.stan (v7.6+)     T_I[i] ~ NB2(lambda_E[d_i] / R_G_boat, r_E)
+#   crab_bss_gear_resolved.stan      T_I[i] ~ NB2(lambda_E[d_i] / R_G_boat, r_E)
 #
-# R_T is trailers-per-crabber (in [0,1]); R_G_boat is gear-per-boat-group (~4).
-# They are NOT a rename of one another: one multiplies, the other divides.
+# R_T was trailers-per-crabber (in [0,1]); R_G_boat is gear-per-boat-group (~4).
+# They are NOT a rename of one another: one multiplies, the other divides. Pooled
+# v7.6 (POOL-1) adopted the gear-resolved / R_G_boat convention, so current fits of
+# BOTH models carry R_G_boat; this adapter still handles R_T for pre-v7.6 fits.
 #
 # Every shared diagnostic that reconstructs the trailer predictive mean (PPC
 # calibration, per-observation PIT, effort overdispersion decomposition) needs
 # mu_trailer = lambda_E * m for a per-draw multiplier m. These helpers supply
 # that m for whichever model produced the fit:
 #
-#     m = R_T            (pooled)
-#     m = 1 / R_G_boat   (gear-resolved)
+#     m = R_T            (pooled <= v7.5 fits)
+#     m = 1 / R_G_boat   (pooled v7.6+ and gear-resolved fits)
 #
 # so every downstream `lamE * m` expression stays correct and unchanged.
 ###############################################################################

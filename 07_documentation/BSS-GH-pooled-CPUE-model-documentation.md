@@ -185,7 +185,7 @@ Each run writes to `05_output/YYYYMMDD/pooled-CPUE/`. Files tagged with a popula
 | File | Contents |
 |---|---|
 | `convergence_report.csv` | Per-fit R-hat, n_eff, divergent count and fraction, tree-depth, AR resolution, the SD-normalized divergence impact (`impact_C_sd`, `impact_E_sd`; the gating criterion), and the retained level-distortion (`distortion_C`, `distortion_E`; reported only, no longer gating) |
-| `structural_params_<label>.csv` | Posterior summary of scale/structural parameters (sigma_eps, phi, r, sigma_mu, sigma_IE, R_G, R_T) with CI, n_eff, R-hat |
+| `structural_params_<label>.csv` | Posterior summary of scale/structural parameters (sigma_eps, phi, r, sigma_mu, sigma_IE, R_G, R_G_boat) with CI, n_eff, R-hat |
 | `divergence_localization_<label>.csv` | Where divergent draws sit relative to the bulk, per parameter |
 | `sampler_diagnostics_<label>.csv` | HMC sampler diagnostics including E-BFMI |
 | `prior_vs_posterior_<label>.csv` | Prior vs posterior comparison per fit |
@@ -205,7 +205,7 @@ Each run writes to `05_output/YYYYMMDD/pooled-CPUE/`. Files tagged with a popula
 | File | Contents |
 |---|---|
 | `effort_cpue_multipliers.csv` | B1, B2, B1_C posteriors |
-| `expansion_ratios.csv` | R_G, R_T posteriors |
+| `expansion_ratios.csv` | R_G, R_G_boat posteriors |
 | `bss_L_effective_<label>.csv` | Daily effective-day-length posteriors (prior, median, 95% CI) |
 | `L_effective_ie_detail.csv`, `ie_analysis.csv` | I/E regression predictions vs observed, and I/E validation |
 | `bss_daily_effort_<label>.csv`, `bss_daily_cpue_<label>.csv`, `bss_daily_catch_<label>.csv` | Posterior daily series |
@@ -257,14 +257,14 @@ Method v1.0 is built for one fishery under one sampling design. It can be re-run
 
 **Assumptions that allow a straight re-run:**
 
-- **Same location.** Westport / Grays Harbor access points (docks Floats 17-21, the jetty, beaches, the boat launch, the marina). The gear-per-crabber prior `R_G`, the trailer-per-group prior `R_T`, and the effective-day-length regression are all calibrated to this site.
+- **Same location.** Westport / Grays Harbor access points (docks Floats 17-21, the jetty, beaches, the boat launch, the marina). The gear-per-crabber prior `R_G`, the gear-per-boat-group prior `R_G_boat`, and the effective-day-length regression are all calibrated to this site.
 - **Same input streams, same schema.** The four input files in the same form (Section 7).
 - **Same sampling design.** Instantaneous effort counts, dockside interviews, the commercial tally, and I/E surveys, collected as in 2024-25. The 2024-25 protocol of three randomized effort counts per day is the design the gear-hours expansion assumes (it measures mean daily effort).
 - **Same sub-season structure.** Ring-net only Sep 16 to Nov 30; all-gear Dec 1 to Sep 15, tied to the pot closure.
 
 **Conditions that require re-derivation, not just new data:**
 
-- **A different port.** `R_G`, `R_T`, and the L_effective regression would have to be re-estimated from that port's I/E and interview data; the access-point structure differs.
+- **A different port.** `R_G`, `R_G_boat`, and the L_effective regression would have to be re-estimated from that port's I/E and interview data; the access-point structure differs.
 - **A change in the effort-count protocol.** Reverting to a single peak-time count per day measures a different quantity (peak, not mean daily effort) and would bias the effort level high. Mixing protocols across years is a genuine confound, addressable only with a protocol fixed effect and a peak-to-mean calibration (the multi-year question in Section 17).
 - **A structural change in participation.** For example, a change in how commercial/charter vessels participate pre-season, or the opening of a new major access point (a jetty effort count, currently absent), would change what the components represent.
 - **A season with large sampling gaps coinciding with anomalous weather.** The routine model interpolates gaps with its time-series process and deliberately excludes weather (Section 17). A season with extended unsampled stretches under unusual conditions is the one case where the shelved parsimonious weather-effort contingency (Section 17) should be considered, evaluated by leave-one-week-out block cross-validation.
@@ -312,7 +312,7 @@ log(lambda_C[d]) = mu_C + omega_C[period(d)] + B1_C * w[d]
 ### 14.3 Observation models
 
 - Gear counts (shore): `Gear_I ~ NegBinomial2(lambda_E[d] * R_G, r_E)`
-- Trailer counts (boats): `T_I ~ NegBinomial2(lambda_E[d] * R_T, r_E)`
+- Trailer counts (boats): `T_I ~ NegBinomial2(lambda_E[d] / R_G_boat, r_E)` (POOL-1; lambda_E is gear, lambda_E / R_G_boat is boat groups)
 - Interview catch: `c ~ NegBinomial2(lambda_C[d] * h, r_C)`, where `h` = crabber-hours (shore) or gear-hours (boats)
 - I/E crabber-hours: `IE_crabber_hours ~ Lognormal(log(lambda_E[d] * L[d]), sigma_IE)`
 
@@ -348,13 +348,13 @@ The quadratic captures the seasonal arc. Effective day length at the docks avera
 | B2 | Holiday effort multiplier (log) | Normal(0, 1) |
 | B1_C | Weekend CPUE effect (log) | Normal(0, 1) |
 | R_G | Gear per crabber | Lognormal(log(R_G_empirical), 0.3), data-driven |
-| R_T | Trailers per boat group | Beta(5, 1) |
+| R_G_boat | Gear per boat group | Lognormal(log 4, 0.5) |
 | phi_E, phi_C | AR(1) autocorrelation | Beta(2, 2) rescaled to [-1, 1] |
 | r_E, r_C | Overdispersion | Half-Cauchy(0, 1) |
 | sigma_IE | I/E measurement error (log) | Exponential(5) |
 | L[d] | Effective day length (shore) | Lognormal from the I/E regression |
 
-Prior rationale: `R_G` is centered on the empirical gear-per-crabber ratio in the relevant population by sub-season, eliminating prior-posterior conflict; `R_T` Beta(5, 1) concentrates near 1 (most groups bring one trailer); the Half-Cauchy(0, 1) variance priors are weakly informative (Gelman 2006).
+Prior rationale: `R_G` is centered on the empirical gear-per-crabber ratio in the relevant population by sub-season, eliminating prior-posterior conflict; `R_G_boat` Lognormal(log 4, 0.5) is centered on ~4 gear per boat group (POOL-1; replaces the old R_T Beta(5, 1), which was pinned at 1 by a degenerate bernoulli term); the Half-Cauchy(0, 1) variance priors are weakly informative (Gelman 2006).
 
 ### 14.7 Generated quantities
 
@@ -388,6 +388,8 @@ For seasonal totals the Poisson noise largely averages out, so the two are simil
 
 **The private boat.** The private-boat all-gear fit rests on a thin, weakly informative trailer-count series, and is the component most prone to wide posteriors and to PE-vs-BSS disagreement. A sequence of fixes was applied to make the fit converge: dedicated sampler tuning, a per-population AR cap to weekly, non-centering of the AR initial state, an unconditional `sigma_IE` prior (the boat has no I/E data, so this removed an improper flat direction that had inflated divergences), and finally the scale-aware convergence gate. Under that gate the boat all-gear component is reported on its BSS posterior, with a wide 95% interval and a catch CV around 27%, rather than the narrower PE point. The wide interval is not a defect to be hidden by substituting the PE point; it is the effort and CPUE data honestly reporting their own uncertainty for a component identified by only a handful of interviews per month. The PE-vs-BSS gap for the boat is a real disagreement between the design-based trailer expansion (which assigns every trailer-day a full gear-per-group times 24 hours) and the model's reconciliation against interview-reported soak times (which include zero-hour deployment-day interviews and real soak durations), not an arithmetic error; the BSS is the better-reconciled of the two. The durable fix is a more informative effort series (for example, access-point or camera exit counts), not further parameter surgery on the shared model.
 
+**v7.6 update (POOL-1 + POOL-3).** The effort-UNIT half of this caveat has now been fixed. The boat is moved onto the gear-deployment scale (Section 19): the trailer expansion becomes `T_I ~ NB2(lambda_E / R_G_boat)` with gear-per-group learned as `R_G_boat` from interviews, and the CPUE denominator becomes `number_of_gear` (deployments) with `L = tau_boat`, replacing the gear-per-group-times-24-hours expansion described above. This is justified because catch is not linear in soak time for pots (the saturation diagnostic gives catch per gear ~ soak-hours^0.25), so any time-denominated effort unit is invalid; the gear-resolved model on this scale reports a boat total ~25% below the old gear-hours figure. The DATA-THINNESS half of the caveat remains: the boat still rests on a sparse trailer-count series, and `tau_boat` leans on its prior until boat ingress/egress counts accumulate, so the wide posterior and the "more informative effort series" recommendation still stand. The v7.6 boat total must be confirmed by a run.
+
 ------------------------------------------------------------------------
 
 ## 17. Weather and tide covariates: evaluated and excluded
@@ -416,7 +418,7 @@ A known reconciliation item: the covariate module's absolute boat effort is well
 | P_n | Number of AR periods (= D for daily, fewer for weekly/monthly) |
 | period(d) | Mapping from day d to its AR period index |
 | R_G | Gear-per-crabber ratio |
-| R_T | Trailers per boat group |
+| R_G_boat | Gear per boat group |
 | B1 / B2 | Weekend / holiday effort multipliers (log) |
 | B1_C | Weekend CPUE multiplier; exp(B1_C) = weekend/weekday CPUE ratio |
 | C_expected | Expected daily catch (no Poisson noise); E[C | data] |
@@ -444,6 +446,7 @@ Method v1.0 corresponds to pipeline code **v7.4**. The model began as an adaptat
 - **v7.0:** the scale-aware convergence gate (impact measured in posterior standard deviations, not as a percentage of level), which moved the boat onto its BSS posterior and made the gate control the selection rather than merely label it; a PE monthly effort-share fix; a PPC extraction fix.
 - **v7.1-v7.4:** the effort over-dispersion decomposition diagnostic; an extended set of persisted per-fit outputs (the O-series); pointwise `log_lik` enabling PSIS-LOO on the pooled model; and the `ar_force` experiment toggle (a tight-pin attempt in v7.3 was reverted in v7.4 after it tipped the shore funnel into failure).
 - **v7.5 (2026-07-10):** the pooled backlog fixes POOL-2/4/5/6. The R layer was de-duplicated onto the shared gate and AR selector (POOL-6, behavior-preserving); the CPUE effort-unit diagnostics were wired in (POOL-5); a `collapse_mu_hier` lever was added for the funnel investigation (POOL-4, default off); and the incomplete-trip filter was added (POOL-2, default on), which raises the shore estimate, so a re-run is needed to refresh these numbers. The boat-structure items POOL-1 and POOL-3 were held for a validated session because they move the publication boat number. See `development_notes/20260710-OUTSTANDING_ISSUES.md`.
+- **v7.6 (2026-07-10):** POOL-1 + POOL-3. The private boat is moved onto the gear-deployment scale, matching the gear-resolved model: `R_T` (pinned at ~1) is replaced by `R_G_boat` with `T_I ~ NB2(lambda_E / R_G_boat)` and `Gear_A_boat ~ poisson(R_G_boat)`, and the boat CPUE denominator becomes `number_of_gear` with `L = tau_boat` instead of gear-hours with `L = 24`. This resolves the private-boat effort-unit caveat in Section 16 and moves the publication boat total (expected ~-25%, toward the gear-resolved boat), so v7.6 must be re-run before the totals are trusted. Shore is unchanged.
 
 The full change log, with the per-version rationale, the divergence-diagnostic narrative, and the detailed B1.5 / B1.6 working notes, is in **`BSS-GH-pooled-CPUE-model-development-history.md`**.
 

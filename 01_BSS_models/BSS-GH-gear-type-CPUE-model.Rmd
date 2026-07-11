@@ -229,7 +229,7 @@ params <- list(
   #
   # Compare by elpd_loo on the CATCH stream (loo_summary_*.csv). Same c[a],
   # different h[a], so the comparison is valid. Do not choose on aesthetics.
-  shore_effort_unit = "crabber-hours",
+  shore_effort_unit = "gear-deployments", #"crabber-hours" or "gear-hours"
 
   # Set TRUE for the effort-unit comparison runs: restricts interviews to those
   # where every candidate denominator is valid, so elpd_loo is computed on the

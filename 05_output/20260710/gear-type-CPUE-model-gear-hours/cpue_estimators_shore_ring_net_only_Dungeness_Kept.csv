@@ -1,0 +1,2 @@
+"fit","n_obs","h_min","h_median","h_max","cpue_ratio_of_sums","cpue_model_implied","cpue_mean_of_ratios","model_position_0rs_1mor","estimator_drift_flag","effort_unit","implied_catch_per_day"
+"shore_ring_net_only_Dungeness_Kept",627,0.5,7.5,84,0.361522264197684,0.42853357379583,0.459336165393727,0.685089836707764,TRUE,"gear-hours",83.0473571373487

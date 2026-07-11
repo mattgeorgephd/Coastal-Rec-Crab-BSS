@@ -14,12 +14,22 @@
 //
 // Additional features:
 //   - B1_C: weekend CPUE effect
-//   - L_effective as parameter with lognormal prior (shore only)
+//   - L_effective / turnover tau as a parameter with lognormal prior
 //   - Data-driven R_G prior from interview data
-//   - Informative R_T prior Beta(alpha, beta)
+//   - R_G_boat (gear per boat group) with a lognormal prior (POOL-1)
+//   - effort_scale_gear: E carries the unit of h (P1 / POOL-3)
 //   - Sparse overdispersion (observation-indexed)
 //   - I/E direct effort integration
 //   - Dual reporting: expected catch + predictive draws
+//
+// v7.6 (POOL-1 + POOL-3, 2026-07-10): the BOAT is moved onto the gear-deployment
+//   scale, matching crab_bss_gear_resolved.stan. R_T is replaced by R_G_boat with
+//   trailer counts T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E) and interviews
+//   Gear_A_boat ~ poisson(R_G_boat), so lambda_E is GEAR (not groups). effort_scale_gear
+//   / E_scale generalize E = lambda_E * E_scale * L; the driver sends h = number_of_gear
+//   and L = tau_boat for the boat. This removes the POOL-1 (R_T pinned at 1) and
+//   POOL-3 (flat L = 24 gear-hours) defects; the boat number moves and must be
+//   confirmed by a run. Shore is unchanged (crabber-hours, E_scale = 1).
 //
 // v6.6 (B1.3): the AR(1) initial states omega_E_0 / omega_C_0 are non-centered
 //   (omega_*_0 = stationary SD x raw) to remove the centered funnel that drove
@@ -80,10 +90,21 @@ data {
   // boat effort series, not this parameter surgery; this is only a safe lever.
   int<lower=0,upper=1> collapse_mu_hier;
 
-  // --- Day length ---
+  // --- Day length / effort expansion factor L ---
+  //   shore: effective day length in HOURS (I/E-derived L_mu).
+  //   boat (POOL-3): tau, the gear-deployment TURNOVER (dimensionless), a
+  //         PARAMETER (estimate_L = 1) prior-centred on L_data with log-scale SD
+  //         L_prior_sigma, replacing the old flat L = 24 h.
   vector<lower=0>[D] L_data;
   int<lower=0,upper=1> estimate_L;
   vector<lower=0>[D] L_prior_sigma;
+
+  // P1 (POOL-3): does the effort expansion count CRABBERS (lambda_E, scale 0) or
+  // GEAR (lambda_E * R_G, scale 1)? Shore crabber-hours and the boat (lambda_E is
+  // already gear, via R_G_boat) use 0; the shore gear-hours / gear-deployments
+  // options use 1. E and the catch expansion are multiplied by E_scale so E always
+  // carries the same unit as the CPUE denominator h.
+  int<lower=0, upper=1> effort_scale_gear;
 
   // --- Effort observations (sparse overdispersion) ---
   int<lower=0> n_effort_obs;
@@ -117,10 +138,12 @@ data {
   int<lower=0> Gear_A[IntA_gear];
   int<lower=1> A_A_gear[IntA_gear];
 
-  // --- Trailer-per-group interviews ---
+  // --- Gear-per-boat-group interviews (POOL-1) ---
+  // Replaces T_A_int / A_A_trailer. The model learns R_G_boat (mean gear deployed
+  // per boat group) directly from observed number_of_gear via
+  // Gear_A_boat[a] ~ poisson(R_G_boat), mirroring crab_bss_gear_resolved.stan.
   int<lower=0> IntA_trailer;
-  int<lower=0> T_A_int[IntA_trailer];
-  int<lower=1> A_A_trailer[IntA_trailer];
+  int<lower=1> Gear_A_boat[IntA_trailer];
 
   // --- I/E direct effort observations ---
   int<lower=0> IE_n;
@@ -148,8 +171,8 @@ data {
   // --- Data-driven priors ---
   real<lower=0> R_G_prior_mu;
   real<lower=0> R_G_prior_sigma;
-  real<lower=0> R_T_alpha;
-  real<lower=0> R_T_beta;
+  // POOL-1: R_T_alpha / R_T_beta removed. R_G_boat now carries a fixed lognormal
+  // prior (see model block), matching crab_bss_gear_resolved.stan.
 }
 
 parameters {
@@ -174,7 +197,7 @@ parameters {
   //       R-interface compatibility; it is no longer referenced.
 
   real<lower=0> R_G;
-  real<lower=0,upper=1> R_T;
+  real<lower=0> R_G_boat;   // POOL-1: gear per boat group (replaces R_T)
 
   real<lower=0> sigma_IE;
 
@@ -207,6 +230,12 @@ transformed parameters {
   matrix<lower=0>[D,G] lambda_C_S[S];
 
   vector<lower=0>[D] L;
+  real<lower=0> E_scale;   // P1/POOL-3: 1 (crabbers) or R_G (gear); see effort_scale_gear
+
+  // P1/POOL-3: convert lambda_E into the unit of the CPUE denominator h. For the
+  // boat, lambda_E is already gear (via R_G_boat) so effort_scale_gear = 0 and
+  // E_scale = 1; for shore crabber-hours it is also 0. E = lambda_E * E_scale * L.
+  E_scale = (effort_scale_gear == 1) ? R_G : 1.0;
 
   // --- Compute L ---
   if (estimate_L == 1) {
@@ -285,26 +314,20 @@ model {
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
 
-  // v7.4: REVERTED the v7.3 tight pin on the unused expansion parameters. The
-  //       sd=0.01 pin made R_G/R_T scale-disparate (0.01) versus sigma_mu_E
-  //       (~1-10) in the diagonal mass matrix; with a fixed seed this aggravated
-  //       the shore all-gear sigma_mu_E funnel from 444 to 1640 divergences and a
-  //       convergence failure (divergence localization put smd=2.4 on sigma_mu_E,
-  //       0.36 on R_T: the pin, not the funnel itself, was the trigger). A scale-
-  //       matched prior is harmless; a stiff one is not. R_G keeps its lognormal
-  //       prior unconditionally (the unused boat case sits at the prior, ~0.4
-  //       wide, scale-matched and harmless). The real fix for the funnel is the
-  //       non-centered mu/sigma_mu reparameterization (T2.5).
+  // R_G (shore gear-per-crabber) keeps its data-driven lognormal prior
+  // unconditionally. In a boat fit R_G enters no likelihood term (Gear_n = 0,
+  // IntA_gear = 0, and effort_scale_gear = 0 so E_scale = 1), so it simply samples
+  // its prior; the prior is proper and scale-matched, so it is harmless.
   R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
 
-  // v7.4: R_T keeps its conditional beta prior (uniform on [0,1] when unused in
-  //       shore fits). The uniform is cosmetically loose but scale-matched and
-  //       harmless (v7.2 shore all-gear passed at 444 divergences with it); a
-  //       tidier scale-matched prior can be added once the funnel is reparameter-
-  //       ized (T2.5).
-  if (T_n > 0 || IntA_trailer > 0) {
-    R_T ~ beta(R_T_alpha, R_T_beta);
-  }
+  // F1 / POOL-1: R_G_boat (gear per boat group) gets a PROPER prior UNCONDITIONALLY;
+  // it replaces R_T. Because R_G_boat is declared real<lower=0>, an unguarded flat
+  // prior would be IMPROPER (Stan samples exp(z) with a +z Jacobian, so the log
+  // density rises without bound as z -> inf; that is the run-away bug F1 fixed for
+  // gear-resolved). A lognormal is proper. In a shore fit R_G_boat enters no
+  // likelihood (T_n = 0, IntA_trailer = 0) and simply samples this prior. Do NOT
+  // move it inside a guard.
+  R_G_boat ~ lognormal(log(4), 0.5);   // ~4 gear per group, range ~2-8
 
   if (estimate_L == 1) {
     L_raw ~ std_normal();
@@ -334,9 +357,12 @@ model {
     );
   }
 
+  // POOL-1: trailer counts. lambda_E is gear in the water; trailers = groups =
+  //         lambda_E / R_G_boat. (Was lambda_E * R_T, which pinned R_T at ~1 and
+  //         left lambda_E in group units mismatched to gear-hours h.)
   for (i in 1:T_n) {
     T_I[i] ~ neg_binomial_2(
-      lambda_E_S[section_T[i]][day_T[i], G] * R_T, r_E
+      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
     );
   }
 
@@ -350,8 +376,11 @@ model {
     Gear_A[a] ~ poisson(A_A_gear[a] * R_G);
   }
 
+  // POOL-1: learn R_G_boat (mean gear per boat group) from interview data. Was
+  //         T_A_int[a] ~ bernoulli(R_T) on a vector of literal ones, which pinned
+  //         R_T at 1.00 and made the trailer expansion degenerate.
   for (a in 1:IntA_trailer) {
-    T_A_int[a] ~ bernoulli(R_T);
+    Gear_A_boat[a] ~ poisson(R_G_boat);
   }
 
   // B1.6: sigma_IE gets a proper prior unconditionally. When IE_n = 0 (the boat
@@ -387,6 +416,7 @@ generated quantities {
   real<lower=0> E_sum;
 
   real R_G_out;
+  real R_G_boat_out;   // POOL-1: gear per boat group (replaces R_T reporting)
   real sigma_IE_out;
   real B1_C_out;
   vector[D] L_out;
@@ -407,6 +437,7 @@ generated quantities {
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
+  R_G_boat_out = R_G_boat;
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
   L_out = L;
@@ -419,7 +450,7 @@ generated quantities {
   }
   for (i in 1:T_n) {
     log_lik_trailer[i] = neg_binomial_2_lpmf(
-      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] * R_T, r_E
+      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
     );
   }
   for (a in 1:IntC) {
@@ -435,7 +466,8 @@ generated quantities {
   for (g in 1:G) {
     for (d in 1:D) {
       for (s in 1:S) {
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * L[d] * lambda_C_S[s][d,g];
+        // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g];
         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
         C_expected_sum = C_expected_sum + C_expected[s][d,g];
 
@@ -446,7 +478,7 @@ generated quantities {
         }
         C_sum = C_sum + C[s][d,g];
 
-        E[s][d,g] = lambda_E_S[s][d,g] * L[d];
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d];
         E_sum = E_sum + E[s][d,g];
       }
     }

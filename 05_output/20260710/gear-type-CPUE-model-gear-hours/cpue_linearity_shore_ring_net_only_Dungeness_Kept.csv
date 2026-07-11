@@ -1,0 +1,2 @@
+"fit","n_obs","beta_h","beta_h_se","beta_h_lo95","beta_h_hi95","assumed_beta_h","linearity_flag","effort_unit"
+"shore_ring_net_only_Dungeness_Kept",627,0.695950721467991,0.0402313114599786,0.617097351006433,0.774804091929549,1,TRUE,"gear-hours"

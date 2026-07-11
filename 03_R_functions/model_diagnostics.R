@@ -21,7 +21,7 @@ bss_structural_summary <- function(fit) {
             "phi_E", "phi_C",
             "sigma_r_E", "sigma_r_C", "r_E", "r_C",
             "sigma_mu_E", "sigma_mu_C",
-            "sigma_IE", "R_G", "R_T",
+            "sigma_IE", "R_G", "R_T", "R_G_boat",
             "B1", "B2", "B1_C")
   pars <- pars[pars %in% fit@model_pars]
   s <- summary(fit, pars = pars)$summary
@@ -49,7 +49,7 @@ bss_divergence_localization <- function(fit, candidate_pars = NULL) {
   if (is.null(candidate_pars))
     candidate_pars <- c("sigma_eps_E", "sigma_eps_C", "sigma_r_E", "sigma_r_C",
                         "r_E", "r_C", "phi_E", "phi_C", "sigma_mu_E",
-                        "sigma_mu_C", "sigma_IE", "R_T", "R_G")
+                        "sigma_mu_C", "sigma_IE", "R_T", "R_G_boat", "R_G")
   candidate_pars <- candidate_pars[candidate_pars %in% fit@model_pars]
   flat <- function(p) as.vector(as.array(fit, pars = p)[, , 1])  # chain-major
 
@@ -81,8 +81,9 @@ bss_divergence_localization <- function(fit, candidate_pars = NULL) {
 # extracted quantities (no RNG added to Stan), capped at n_draws_use for speed.
 bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   set.seed(seed)
-  # Model-agnostic trailer expansion: pooled carries R_T, gear-resolved carries
-  # R_G_boat. bss_extract_pars() requests only the one this fit declares.
+  # Model-agnostic trailer expansion: current pooled (v7.6+) and gear-resolved both
+  # carry R_G_boat; pre-v7.6 pooled fits carry R_T. bss_extract_pars() requests only
+  # the one this fit declares.
   trailer_par <- bss_trailer_par(fit)
   ex <- rstan::extract(fit, pars = bss_extract_pars(fit, c("lambda_E_S", "lambda_C_S",
                                                            "r_E", "r_C", "R_G")))
