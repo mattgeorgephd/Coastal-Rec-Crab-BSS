@@ -416,7 +416,7 @@ params <- list(
   # weekly baseline using O7 (monthly PE-vs-BSS), O2 (AR path identification),
   # O13 (catch elpd_loo), and the convergence report. See
   # BOAT_RESOLUTION_EXPERIMENT.md.
-  ar_force = list(private_boat = "daily"), #NULL
+  ar_force = NULL, # list(private_boat = "daily"),
 
   # POOL-4 EXPERIMENT LEVER: collapse the single-cell mu-hierarchy (mu = mu_mu),
   # the B1.7 change that cleared the boat funnel offline but hung the shore
