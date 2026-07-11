@@ -1,4 +1,0 @@
-"fit","R_G_median","R_G_lo95","R_G_hi95","R_G_interpretation","R_T_median","R_T_lo95","R_T_hi95","R_T_interpretation"
-"shore_ring_net_only_Dungeness_Kept",1.324,1.268,1.369,"1.32 gear per crabber (1.27-1.37)",0.465,0.024,0.971,"0.47 trailers per group (0.02-0.97)"
-"shore_all_gear_Dungeness_Kept",1.287,1.243,1.334,"1.29 gear per crabber (1.24-1.33)",0.495,0.025,0.972,"0.49 trailers per group (0.03-0.97)"
-"private_boat_all_gear_Dungeness_Kept",1.284,0.718,2.31,"1.28 gear per crabber (0.72-2.31)",0.998,0.983,1,"1.00 trailers per group (0.98-1.00)"
