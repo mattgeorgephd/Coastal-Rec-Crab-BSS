@@ -1,0 +1,5 @@
+"component","PE_Dungeness_all_trips","PE_Dungeness_complete_only","diff_pct","filter_applied_in_run"
+"shore_ring_net_only",6070,6409,5.6,TRUE
+"shore_all_gear",12733,13896,9.1,TRUE
+"private_boat_ring_net_only",971,971,0,TRUE
+"private_boat_all_gear",24262,22070,-9,TRUE
