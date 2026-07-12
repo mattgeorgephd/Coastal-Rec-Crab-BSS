@@ -99,16 +99,24 @@ render_stage <- function(rmd, label) {
   } else {
     dirname(html)
   }
+  # MOVE (not copy) the rendered HTML into the dated run folder, so no stale copy
+  # is left in 01_BSS_models/. On any error the original render is kept as a
+  # fallback, so relocation can never turn a successful render into a failure.
+  final_html <- html
   tryCatch({
     if (dir.exists(outdir) &&
         normalizePath(dirname(html)) != normalizePath(outdir)) {
-      file.copy(html, outdir, overwrite = TRUE)
+      dest <- file.path(outdir, basename(html))
+      if (isTRUE(file.copy(html, dest, overwrite = TRUE))) {
+        suppressWarnings(file.remove(html))
+        final_html <- dest
+      }
     }
-  }, error = function(e) message("  (note: could not co-locate HTML: ",
+  }, error = function(e) message("  (note: could not relocate HTML: ",
                                  conditionMessage(e), ")"))
   mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
   banner(sprintf("%s DONE in %s min  ->  %s", label, mins, outdir))
-  list(html = html, outdir = outdir, minutes = mins)
+  list(html = final_html, outdir = outdir, minutes = mins)
 }
 
 write_manifest <- function(stages, base_dir) {

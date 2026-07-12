@@ -1,15 +1,44 @@
 ---
-title: "BSS-GH-pooled-CPUE-model"
-author: "Matt George"
+title: "Grays Harbor Recreational Crab Harvest Estimate"
+subtitle: "Pooled CPUE Model - 2024-25 Season Results Report"
+author: "Washington Department of Fish and Wildlife"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: false
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+knit: >
+  (function(input, ...) {
+    d <- format(Sys.Date(), "%Y%m%d")
+    outdir <- file.path(dirname(dirname(normalizePath(input))), "05_output", d, "pooled-CPUE")
+    dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+    rmarkdown::render(input, output_dir = outdir, envir = new.env())
+  })
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 10, fig.height = 6)
+# A small helper to render a data frame as a clean, captioned report table.
+report_table <- function(df, caption = NULL, digits = 2) {
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(invisible(NULL))
+  knitr::kable(df, caption = caption, digits = digits, format.args = list(big.mark = ","))
+}
 ```
 
-```{r}
+> **How to read this report.** This is the results report for one seasonal harvest estimate from the pooled CPUE model. Code is hidden by default; use the **Code** buttons (or *Code > Show All Code* at the top right) to reveal any step. Each section states what it does, shows the notable tables and figures, and, for the diagnostic sections, notes what a healthy run should look like. The headline number is the port total in the Results section; always read it together with the convergence and PE-vs-BSS sections, which say how much to trust it.
+
+
+## 1. Setup and configuration
+
+Loads packages, sources the helper functions in `03_R_functions/`, applies the run configuration from `run_config.R`, and defines the two sub-seasons (ring-net-only and all-gear). Every user-selectable toggle for this run lives in `run_config.R`.
+
+```{r config, results='hide'}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor  |  Pooled CPUE Model
 # 2024-25 Season  |  Pipeline code v7.8 (2026-07-11)
@@ -301,6 +330,13 @@ cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
 # 7. RUN EVERYTHING
 # ===========================================================================
 
+```
+
+## 2. Data ingestion
+
+Reads the season's effort counts, crabber interviews, commercial tally, and ingress/egress (I/E) surveys, and classifies each interview into shore, private-boat, or commercial/charter.
+
+```{r load-data, results='hide'}
 # ---- 7.0 LOAD DATA ----
 timer_start("1_load_data")
 cat("\n", strrep("=",60), "\n LOADING DATA\n", strrep("=",60), "\n")
@@ -322,6 +358,13 @@ if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
 timer_stop("1_load_data")
 
 
+```
+
+## 3. Input diagnostics: effort, CPUE, and day length
+
+Diagnostic views of the raw inputs before any modeling: sampled effort over the season by day type, interview CPUE over time, and the effective day length derived from the I/E surveys. Use these to spot data gaps or anomalies (for example a run of unsampled weekends, or an implausible CPUE spike).
+
+```{r input-figures, results='hide', fig.show='hide'}
 # ---- 7.1 DIAGNOSTIC PLOTS ----
 timer_start("2_diagnostic_plots")
 cat("\n", strrep("=",60), "\n DIAGNOSTIC PLOTS\n", strrep("=",60), "\n")
@@ -434,6 +477,17 @@ cat("  Diagnostic plots saved.\n")
 timer_stop("2_diagnostic_plots")
 
 
+```
+
+```{r input-figures-show, echo=TRUE, fig.height=6, fig.cap=c('Shore effort (gear counts) over the season by day type.','Private-boat effort (trailer counts) over the season by day type.','Interview CPUE over the season.','Effort by month.')}
+for (nm in c('p_shore_effort','p_boat_effort','p_cpue','p_effort_month')) if (exists(nm)) print(get(nm))
+```
+
+### 3.1 Ingress/egress and effective day length
+
+The I/E surveys measure how long crabbers are actually present, which sets the effective day length used to expand snapshot effort counts. Civil twilight (9 to 17 hours) would overstate active fishing time by roughly a factor of two, so the I/E-derived length is used instead.
+
+```{r ie-analysis, results='hide', fig.show='hide'}
 # ---- 7.1b I/E ANALYSIS ----
 cat("\n", strrep("=",60), "\n I/E ANALYSIS\n", strrep("=",60), "\n")
 
@@ -480,6 +534,17 @@ if(nrow(ie_data) > 0) {
 }
 
 
+```
+
+```{r ie-analysis-show, echo=TRUE, fig.height=5}
+for (nm in c('p_L_regression','p_day_length')) if (exists(nm)) print(get(nm))
+```
+
+## 4. Point Estimator (PE)
+
+The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the unsampled days. The PE is fast and transparent, and it is the fallback whenever a Bayesian fit does not pass the convergence gate.
+
+```{r pe-estimates, results='hide'}
 # ---- 7.2 PE ESTIMATES ----
 timer_start("3_PE_estimates")
 cat("\n", strrep("=",60), "\n PE ESTIMATES\n", strrep("=",60), "\n")
@@ -496,6 +561,13 @@ for(pop in c("shore","private_boat")) {
 timer_stop("3_PE_estimates")
 
 
+```
+
+### 4.1 Incomplete-trip sensitivity
+
+Incomplete trips (gear not yet retrieved at the interview) read systematically low for pots and traps. This section quantifies the harvest difference between keeping and dropping them; the production default drops them (`filter_incomplete_trips = TRUE`).
+
+```{r pe-sensitivity, results='hide'}
 # ---- 7.2b POOL-2: INCOMPLETE-TRIP SENSITIVITY ----
 # Quantify the harvest impact of the incomplete-trip filter: re-run the fast,
 # design-based PE estimator with the filter OFF vs ON for each shore/boat
@@ -531,12 +603,26 @@ tryCatch({
 }, error = function(e) cat(sprintf("  Incomplete-trip sensitivity skipped: %s\n", conditionMessage(e))))
 
 
+```
+
+### 4.2 Commercial and charter census
+
+The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity.
+
+```{r pe-comm, results='hide'}
 # ---- 7.4 COMMERCIAL/CHARTER ----
 timer_start("4_commercial_charter")
 pe_all$comm_charter <- estimate_comm_charter(dwg, params)
 timer_stop("4_commercial_charter")
 
 
+```
+
+### 4.3 PE port totals
+
+The Point Estimator port total, summed across the three population components. Compare it against the Bayesian total below.
+
+```{r pe-port, results='hide'}
 # ---- 7.5 PE PORT TOTALS ----
 cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
 
@@ -563,6 +649,17 @@ print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
 write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FALSE)
 
 
+```
+
+```{r pe-port-show, echo=TRUE}
+report_table(pe_summary, 'Point Estimator (PE) port totals by component.')
+```
+
+## 5. Bayesian state-space model fits
+
+Each population by sub-season is fit independently with a Bayesian state-space (BSS) model that treats daily effort and catch rate as smoothly evolving latent series, fills the gaps between sampled days, and returns full credible intervals. **What a healthy fit looks like:** R-hat below 1.01, effective sample size above 400, and few or no divergent transitions on every monitored quantity. Fits are checked against these criteria in the next section.
+
+```{r bss-fits, results='hide', fig.show='hide'}
 # ---- 7.6 BSS MODEL RUNS ----
 timer_start("5_BSS_model_runs")
 cat("\n", strrep("=",60), "\n BSS MODEL RUNS (Adaptive AR)\n", strrep("=",60), "\n")
@@ -750,6 +847,13 @@ for(cg in bss_catch_groups) {
 timer_stop("5_BSS_model_runs")
 
 
+```
+
+## 6. Convergence gate and model selection
+
+The scale-aware gate decides, per fit, whether to report the Bayesian posterior or fall back to the PE. A fit passes only if R-hat is below 1.01, effective sample size is above 400, the divergent fraction is under the 15 percent backstop, and the divergent draws do not move the reported totals by more than 0.10 posterior standard deviations. **If a component reads PE here, its Bayesian fit did not clear the gate;** that is expected for data-thin components (historically the private boat) and is not an error.
+
+```{r gate, results='hide'}
 # ---- 7.6b SCALE-AWARE CONVERGENCE GATE (B1.8) ----
 # Compute the pass/fail gate ONCE per fit here, immediately after fitting, and
 # store the decision (use_bss) plus a full diagnostic row (gate_info) on each
@@ -801,6 +905,13 @@ for(label in names(bss_all)) {
 # ran OR failed the gate. Sections 7.7 / 7.8 / 7.8b call bss_use_pe_for() below.
 
 
+```
+
+## 7. Headline result: port total
+
+The season harvest estimate: the sum of all components, reported as expected catch with a 95 percent credible interval. This is the number to cite, read together with the convergence and PE-vs-BSS sections. Components that passed the gate contribute their Bayesian posterior; components that did not contribute their PE point.
+
+```{r port-total, results='hide'}
 # ---- 7.7 COMBINED BSS PORT TOTAL ----
 timer_start("6_outputs")
 cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
@@ -856,6 +967,17 @@ for(cg in bss_catch_groups) {
 }
 
 
+```
+
+```{r port-total-show, echo=TRUE}
+report_table(final_table, 'Port total harvest estimate (expected catch with 95% credible interval), by component and combined.')
+```
+
+## 8. Monthly estimates
+
+The season total broken out by month, with per-month credible intervals, showing the within-season harvest trajectory.
+
+```{r monthly, results='hide', fig.show='hide'}
 # ---- 7.8 MONTHLY ESTIMATES ----
 cat("\n", strrep("=",60), "\n MONTHLY ESTIMATES\n", strrep("=",60), "\n")
 
@@ -990,6 +1112,17 @@ ggsave(file.path(output_dir, "plot_monthly_catch.png"), p_monthly, width = 12, h
 
 
 # ===========================================================================
+```
+
+```{r monthly-show, echo=TRUE, fig.height=6, fig.cap='Monthly Dungeness catch with 95% intervals.'}
+report_table(monthly_summary, 'Monthly harvest estimates with 95% intervals.'); if (exists('p_monthly')) print(p_monthly)
+```
+
+### 8.1 Monthly catch by crabbing mode
+
+The monthly trajectory split by mode (shore, private boat, commercial/charter). The uncertainty source matches the method selected for each component, so the boat interval here is a lower bound when the boat is on PE.
+
+```{r monthly-mode, results='hide', fig.show='hide'}
 # 7.8b MONTHLY ESTIMATES BY CRABBING MODE (with per-mode uncertainty)
 # ===========================================================================
 # Companion to plot_monthly_catch.png. Breaks the monthly Dungeness catch out by
@@ -1173,6 +1306,17 @@ ggsave(file.path(output_dir, "plot_monthly_catch_by_mode_facet.png"), p_bymode_f
 
 
 # ===========================================================================
+```
+
+```{r monthly-mode-show, echo=TRUE, fig.height=7}
+for (nm in c('p_bymode_dodge','p_bymode_facet')) if (exists(nm)) print(get(nm))
+```
+
+## 9. Catch by crabbing mode
+
+Total season catch attributed to each crabbing mode.
+
+```{r catch-mode, results='hide'}
 # 7.9 CATCH BY CRABBING MODE
 # ===========================================================================
 
@@ -1198,6 +1342,17 @@ write.csv(mode_table, file.path(output_dir, "catch_by_mode.csv"), row.names = FA
 
 
 # ===========================================================================
+```
+
+```{r catch-mode-show, echo=TRUE}
+report_table(mode_table, 'Season catch by crabbing mode.')
+```
+
+### 9.1 Catch by gear type
+
+In the pooled model, gear-type catch is derived after estimation by applying interview-based gear proportions to the total (the gear-resolved model estimates it directly with uncertainty). Read these as proportional allocations, not independently modeled quantities.
+
+```{r catch-gear, results='hide', fig.show='hide'}
 # 7.10 CATCH BY GEAR TYPE (proportional allocation from interviews)
 #
 # Pooled model: uses interview data to estimate the proportion of catch
@@ -1270,6 +1425,17 @@ p_gear <- gear_summary |>
 ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10, height = 6)
 
 
+```
+
+```{r catch-gear-show, echo=TRUE, fig.height=6, fig.cap='Catch by gear type.'}
+report_table(gear_summary, 'Season catch allocated by gear type (interview-proportion based).'); if (exists('p_gear')) print(p_gear)
+```
+
+## 10. Convergence report
+
+The per-fit diagnostic table behind the gate decision: R-hat and effective sample size for the summed effort and catch, the divergent fraction, and the pass/fail flag. **Healthy:** `pass_convergence` TRUE with R-hat near 1.00 and effective sample size well above 400 on every fit that had sufficient data.
+
+```{r convergence-report, results='hide'}
 # ---- 7.11 CONVERGENCE REPORT ----
 # v7.0 (B1.8): the pass/fail decision and every diagnostic column are computed once
 # in 7.6b (bss_compute_gate) and stored as bss_all[[label]]$gate_info, so this section
@@ -1285,6 +1451,17 @@ print(convergence_df)
 write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.names = FALSE)
 
 
+```
+
+```{r convergence-report-show, echo=TRUE}
+report_table(convergence_df, 'Per-fit convergence report (the basis for the PE-vs-BSS gate decision).', digits=4)
+```
+
+## 11. Model diagnostics
+
+Per-fit diagnostics are written to the run folder: structural-parameter summaries, divergence localization, and posterior-predictive calibration (PPC/PIT). **Healthy:** PPC coverage near nominal (about 0.95 at the 95 percent level) and PIT means near 0.5. These files are the deeper check behind the gate.
+
+```{r diag-perfit, results='hide'}
 # ---- 7.12 PER-FIT MODEL DIAGNOSTICS (B1.6) ----
 # Additive per-fit diagnostics: structural parameters, divergence localization,
 # and posterior predictive calibration. write_bss_diagnostics() is sourced from
@@ -1302,6 +1479,13 @@ for(label in names(bss_all)) {
 }
 
 
+```
+
+### 11.1 Effort over-dispersion decomposition
+
+Splits each effort-count predictive variance into its Poisson floor, negative-binomial observation over-dispersion, and latent-process parts, written per fit. It identifies which lever drives any excess effort variance before a prior or model change is considered.
+
+```{r diag-overdisp, results='hide'}
 # ---- 7.13 EFFORT OVER-DISPERSION DECOMPOSITION (T1.5) ----
 # Additive per-fit diagnostic. The v7.0 PPC showed the negative-binomial
 # effort model is over-dispersed (gear/trailer PIT central humps, coverage_50
@@ -1327,6 +1511,13 @@ for(label in names(bss_all)) {
 }
 
 
+```
+
+### 11.2 Extended per-fit outputs and PSIS-LOO
+
+The extended output series (parameter posteriors, AR paths, coverage maps, PPC residuals, sampler diagnostics, prior-vs-posterior tables) and PSIS-LOO cross-validation are written to the run folder for later analysis; nothing here changes an estimate.
+
+```{r diag-extended, results='hide'}
 # ---- 7.13b EXTENDED RUN OUTPUTS (O1-O11) ----
 # Additive persistence of in-memory quantities not previously saved, so the R
 # workspace is rarely needed for later diagnosis. Per-fit (O1-O6, O8, O9): full
@@ -1358,6 +1549,13 @@ write_run_level_diagnostics(bss_all, pe_all,
                             params, output_dir)
 
 
+```
+
+## 12. Effort and CPUE multipliers
+
+The fitted effort and CPUE structural quantities (day-type effects, the CPUE weekend effect B1_C, and the effort multipliers) that shape the daily series.
+
+```{r multipliers, results='hide'}
 # ---- 7.14 EFFORT & CPUE MULTIPLIERS ----
 cat("\n", strrep("=",60), "\n EFFORT & CPUE MULTIPLIERS\n", strrep("=",60), "\n")
 
@@ -1401,6 +1599,17 @@ if(length(multiplier_results) > 0) {
 }
 
 
+```
+
+```{r multipliers-show, echo=TRUE}
+if (exists('multiplier_df')) report_table(multiplier_df, 'Fitted effort and CPUE multipliers.')
+```
+
+### 12.1 Expansion ratios (R_G and R_G_boat)
+
+The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale.
+
+```{r expansion, results='hide'}
 # ---- 7.16 R_G AND R_G_boat POSTERIORS ----
 cat("\n", strrep("=",60), "\n EXPANSION RATIOS (R_G, R_G_boat)\n", strrep("=",60), "\n")
 
@@ -1433,6 +1642,17 @@ if(length(expansion_results) > 0) {
 }
 
 
+```
+
+```{r expansion-show, echo=TRUE}
+if (exists('expansion_df')) report_table(expansion_df, 'Expansion-ratio posteriors (R_G, R_G_boat).')
+```
+
+## 13. PE vs BSS comparison
+
+Side by side, the design-based PE and the Bayesian BSS for each component. **How to read it:** close agreement is reassuring; a large gap on a component means the two methods disagree there, usually because that component is data-thin, and the BSS interval width tells you how well-identified it is. Since both now run on the same effort unit, a remaining gap is a genuine model disagreement, not a unit artifact.
+
+```{r pe-vs-bss, results='hide'}
 # ---- 7.17 PE VS BSS COMPARISON ----
 cat("\n", strrep("=",60), "\n PE VS BSS COMPARISON\n", strrep("=",60), "\n")
 
@@ -1480,6 +1700,17 @@ print(comparison_df)
 write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.names = FALSE)
 
 
+```
+
+```{r pe-vs-bss-show, echo=TRUE}
+report_table(comparison_df, 'Point Estimator versus Bayesian state-space estimate, by component.')
+```
+
+## 14. Season summary
+
+Run-level metadata: the season window, sampling coverage, interview count, how many fits passed convergence, and the model configuration used.
+
+```{r season-summary, results='hide'}
 # ---- 7.18 SEASON SUMMARY ----
 cat("\n", strrep("=",60), "\n SEASON SUMMARY\n", strrep("=",60), "\n")
 
@@ -1507,6 +1738,17 @@ season_summary <- tibble(
 write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names = FALSE)
 
 
+```
+
+```{r season-summary-show, echo=TRUE}
+report_table(season_summary, 'Season summary and run configuration.')
+```
+
+## 15. Run parameters and timing
+
+Writes the full run parameters and the timing summary to the run folder for reproducibility.
+
+```{r save-params, results='hide'}
 # ---- 7.19 SAVE PARAMETERS ----
 timer_stop("6_outputs")
 writeLines(capture.output(str(params)), file.path(output_dir, "run_parameters.txt"))
@@ -1536,13 +1778,13 @@ cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
             as.numeric(run_total), as.numeric(run_total)/60))
 
 # save.image(file = file.path(output_dir, "BSS-GH-pooled-CPUE-model_workspace.RData"))
-
 ```
 
+## Appendix: divergence diagnostics (manual)
 
+These are run by hand after a fit to localize any divergences; they are not part of the automated pipeline.
 
-# Diagnose source of BSS error
-```{r}
+```{r divergence-diagnostics, results='hide'}
 
 # load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
 

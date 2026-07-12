@@ -3,6 +3,13 @@ title: "BSS-GH-gear-type-CPUE-model"
 author: "Matt George"
 date: "`r Sys.Date()`"
 output: html_document
+knit: >
+  (function(input, ...) {
+    d <- format(Sys.Date(), "%Y%m%d")
+    outdir <- file.path(dirname(dirname(normalizePath(input))), "05_output", d, "gear-type-CPUE-model")
+    dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+    rmarkdown::render(input, output_dir = outdir, envir = new.env())
+  })
 ---
 
 ```{r setup, include=FALSE}
