@@ -29,6 +29,33 @@ report_table <- function(df, caption = NULL, digits = 2) {
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(invisible(NULL))
   knitr::kable(df, caption = caption, digits = digits, format.args = list(big.mark = ","))
 }
+
+# Short, HTML-friendly fit labels for display tables (e.g. "boat all-gear").
+short_fit <- function(x) gsub("_Dungeness_Kept$", "",
+                         gsub("private_boat", "boat",
+                           gsub("_ring_net_only", " ring-net",
+                             gsub("_all_gear", " all-gear", x))))
+
+# Read the per-fit CSVs a section wrote to output_dir (files named prefix_<label>.csv)
+# and row-bind them for on-page display, tagging each row with a short fit_lbl label from
+# the filename. Display-only and defensive: returns NULL if output_dir or the files are
+# absent (a PE-only fit writes none), so a display chunk can never break the knit.
+read_fit_outputs <- function(prefix, dir = NULL) {
+  if (is.null(dir)) {
+    if (!exists("output_dir", inherits = TRUE)) return(NULL)
+    dir <- get("output_dir", inherits = TRUE)
+  }
+  fs <- list.files(dir, pattern = paste0("^", prefix, "_.*\\.csv$"), full.names = TRUE)
+  if (!length(fs)) return(NULL)
+  tryCatch(
+    dplyr::bind_rows(lapply(fs, function(f) {
+      d <- suppressWarnings(utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE))
+      d$fit_lbl <- short_fit(sub(paste0("^", prefix, "_"), "",
+                              tools::file_path_sans_ext(basename(f))))
+      d
+    })),
+    error = function(e) NULL)
+}
 ```
 
 > **How to read this report.** This is the results report for one seasonal harvest estimate from the pooled CPUE model. Code is hidden by default; use the **Code** buttons (or *Code > Show All Code* at the top right) to reveal any step. Each section states what it does, shows the notable tables and figures, and, for the diagnostic sections, notes what a healthy run should look like. The headline number is the port total in the Results section; always read it together with the convergence and PE-vs-BSS sections, which say how much to trust it.
@@ -588,6 +615,7 @@ Incomplete trips (gear not yet retrieved at the interview) read systematically l
 # changes no reported total, and is tryCatch-wrapped so it can never break the
 # run. Output: sensitivity_incomplete_trips.csv.
 cat("\n", strrep("=",60), "\n INCOMPLETE-TRIP SENSITIVITY (POOL-2)\n", strrep("=",60), "\n")
+sens_df <- NULL   # persists to the display chunk below even if the tryCatch errors
 tryCatch({
   sens_rows <- list()
   for(pop in c("shore","private_boat")) {
@@ -609,11 +637,31 @@ tryCatch({
   }
   sens_df <- bind_rows(sens_rows)
   sens_df$filter_applied_in_run <- isTRUE(params$filter_incomplete_trips)
-  print(sens_df)
   write.csv(sens_df, file.path(output_dir, "sensitivity_incomplete_trips.csv"), row.names = FALSE)
 }, error = function(e) cat(sprintf("  Incomplete-trip sensitivity skipped: %s\n", conditionMessage(e))))
 
 
+```
+
+```{r pe-sensitivity-show, echo=FALSE}
+# Display the incomplete-trip sensitivity so the section shows a result on the page
+# (previously it only wrote a CSV). Positive "Change (%)" is the upward CPUE/harvest
+# correction from dropping the low-biased incomplete trips (the production default).
+if (!is.null(sens_df) && nrow(sens_df) > 0) {
+  report_table(
+    dplyr::transmute(sens_df,
+      Component                 = gsub("_", " ", component),
+      `PE catch, all trips`     = PE_Dungeness_all_trips,
+      `PE catch, complete only` = PE_Dungeness_complete_only,
+      `Change (%)`              = diff_pct,
+      `Filter applied in run`   = filter_applied_in_run),
+    caption = paste("Incomplete-trip filter sensitivity: design-based (PE) Dungeness catch by",
+                    "component and sub-season, all trips vs complete-only. The production run drops",
+                    "incomplete trips (Filter applied in run = TRUE); a positive Change (%) is the",
+                    "upward correction from removing the low-biased incomplete trips. Diagnostic only."))
+} else {
+  cat("_Incomplete-trip sensitivity produced no output this run._")
+}
 ```
 
 ### 4.2 Commercial and charter census
@@ -1465,7 +1513,30 @@ write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.n
 ```
 
 ```{r convergence-report-show, echo=TRUE}
-report_table(convergence_df, 'Per-fit convergence report (the basis for the PE-vs-BSS gate decision).', digits=4)
+# Curated, HTML-friendly view of the convergence report: short fit labels and the key
+# gate columns only. The full ~20-column table (treedepth, level-distortion, and the
+# per-criterion pass flags) is written to convergence_report.csv.
+conv_disp <- tryCatch(
+  dplyr::transmute(convergence_df,
+    Fit             = short_fit(fit),
+    AR              = ar_resolution,
+    Div             = divergences,
+    `Div frac`      = round(divergence_fraction, 3),
+    `R-hat C`       = round(C_sum_rhat, 3),
+    `R-hat E`       = round(E_sum_rhat, 3),
+    `min n_eff`     = pmin(C_sum_neff, E_sum_neff),
+    `Impact C (SD)` = round(impact_C_sd, 3),
+    `Impact E (SD)` = round(impact_E_sd, 3),
+    Pass            = pass_convergence,
+    Method          = method_selected),
+  error = function(e) convergence_df)
+report_table(conv_disp,
+  paste("Per-fit convergence summary (key gate columns; full detail in",
+        "convergence_report.csv). Div frac is the divergent-transition fraction (backstop",
+        "0.05); Impact C/E (SD) is the scale-aware gating criterion (threshold 0.10);",
+        "Method is what the totals actually use. Healthy: R-hat near 1.00, min n_eff",
+        "above 400, Pass = TRUE."),
+  digits = 3)
 ```
 
 ## 11. Model diagnostics
@@ -1490,6 +1561,28 @@ for(label in names(bss_all)) {
 }
 
 
+```
+
+```{r diag-perfit-show, echo=FALSE}
+# Surface the posterior-predictive calibration written above so the health check is on
+# the page, not only in ppc_calibration_<fit>.csv. Healthy: 95% coverage near 0.95 and
+# PIT mean near 0.50; a coverage far from nominal or a PIT far from 0.50 flags a
+# mis-calibrated (usually over-dispersed) predictive for that data stream.
+ppc <- read_fit_outputs("ppc_calibration")
+ppc_disp <- if (!is.null(ppc)) tryCatch(
+  dplyr::transmute(ppc,
+    Fit         = fit_lbl,
+    Stream      = data_type,
+    `Cover 50%` = round(coverage_50, 2),
+    `Cover 95%` = round(coverage_95, 2),
+    `PIT mean`  = round(pit_mean, 2),
+    `PIT sd`    = round(pit_sd, 2),
+    n           = n_obs),
+  error = function(e) NULL) else NULL
+report_table(ppc_disp,
+  paste("Posterior-predictive calibration by fit and data stream. Healthy: Cover 95%",
+        "near 0.95 and PIT mean near 0.50; coverage well above nominal means the",
+        "predictive is too wide (over-dispersed), the effort streams are the known case."))
 ```
 
 ### 11.1 Effort over-dispersion decomposition
@@ -1522,6 +1615,26 @@ for(label in names(bss_all)) {
 }
 
 
+```
+
+```{r diag-overdisp-show, echo=FALSE}
+# Surface the effort over-dispersion decomposition written above. Shares sum to 1 and
+# name the lever for any excess effort variance: the Poisson floor, NB observation
+# over-dispersion (r_E / sigma_r_E), or latent AR-process variance (sigma_eps_E).
+od <- read_fit_outputs("effort_overdispersion_decomp")
+od_disp <- if (!is.null(od)) tryCatch(
+  dplyr::transmute(od,
+    Fit           = fit_lbl,
+    Stream        = data_type,
+    Poisson       = round(share_poisson, 2),
+    `NB overdisp` = round(share_nb_overdisp, 2),
+    `Latent AR`   = round(share_latent, 2),
+    `Cover 50%`   = round(ppc_coverage_50, 2)),
+  error = function(e) NULL) else NULL
+report_table(od_disp,
+  paste("Effort-count predictive variance decomposition (shares sum to 1): Poisson floor,",
+        "negative-binomial observation over-dispersion, and latent AR-process variance.",
+        "The dominant share is the lever to tune if the effort predictive is too wide."))
 ```
 
 ### 11.2 Extended per-fit outputs and PSIS-LOO
@@ -1560,6 +1673,72 @@ write_run_level_diagnostics(bss_all, pe_all,
                             params, output_dir)
 
 
+```
+
+```{r diag-extended-show, echo=FALSE}
+# CPUE effort-unit validity, per-fit data coverage, and PSIS-LOO, read back from the
+# CSVs written above so the key diagnostics render on the page instead of only on disk.
+
+# (a) CPUE estimator triad + linearity + saturation: is the effort unit harvest-valid?
+.est <- read_fit_outputs("cpue_estimators")
+.lin <- read_fit_outputs("cpue_linearity")
+.sat <- read_fit_outputs("cpue_saturation")
+cpue_disp <- if (!is.null(.est)) tryCatch({
+  d <- dplyr::select(.est, fit_lbl, effort_unit, n_obs, cpue_ratio_of_sums, cpue_model_implied)
+  if (!is.null(.lin)) d <- dplyr::left_join(d, dplyr::select(.lin, fit_lbl, beta_h, linearity_flag), by = "fit_lbl")
+  if (!is.null(.sat)) d <- dplyr::left_join(d, dplyr::select(.sat, fit_lbl, sat_beta = beta, saturation_flag), by = "fit_lbl")
+  dplyr::transmute(d,
+    Fit          = fit_lbl,
+    Unit         = effort_unit,
+    n            = n_obs,
+    `CPUE RoS`   = round(cpue_ratio_of_sums, 2),
+    `CPUE model` = round(cpue_model_implied, 2),
+    beta_h       = round(beta_h, 2),
+    `linear?`    = dplyr::if_else(linearity_flag, "FLAG", "ok", missing = "-"),
+    `sat beta`   = round(sat_beta, 2),
+    `sat?`       = dplyr::if_else(saturation_flag, "FLAG", "ok", missing = "-"))
+}, error = function(e) NULL) else NULL
+report_table(cpue_disp,
+  paste("CPUE effort-unit validity. beta_h is the catch-vs-effort elasticity (harvest-",
+        "unbiased when it covers 1, shown as 'linear? = ok'); the model CPUE should track",
+        "the design-based ratio-of-sums (RoS). 'sat? = FLAG' (catch sub-linear in soak",
+        "time) is expected for pots and is the reason the unit is deployments, not hours."))
+
+# (b) Per-fit data coverage: how much the BSS must lean on the process model.
+.fds <- tryCatch(utils::read.csv(file.path(output_dir, "fit_data_summary.csv"),
+                                 stringsAsFactors = FALSE), error = function(e) NULL)
+fds_disp <- if (!is.null(.fds)) tryCatch(
+  dplyr::transmute(.fds,
+    Fit          = short_fit(fit),
+    Method       = method,
+    AR           = ar_resolution,
+    Days         = D,
+    `Eff obs`    = n_effort_obs,
+    Interviews   = n_interviews,
+    `I/E obs`    = n_ie_obs,
+    `% days eff` = round(pct_days_with_effort, 0),
+    `% days int` = round(pct_days_with_interview, 0)),
+  error = function(e) NULL) else NULL
+report_table(fds_disp,
+  paste("Per-fit data coverage: latent days, effort observations, interviews, and I/E",
+        "observations, with the percent of days carrying any effort/interview data. Thin",
+        "coverage is where the BSS leans hardest on the AR process and priors."))
+
+# (c) PSIS-LOO by stream: predictive fit and reliability (Pareto k).
+.loo <- read_fit_outputs("loo_summary")
+loo_disp <- if (!is.null(.loo)) tryCatch(
+  dplyr::transmute(.loo,
+    Fit             = fit_lbl,
+    Stream          = stream,
+    n               = n_obs,
+    elpd_loo        = round(elpd_loo, 1),
+    p_loo           = round(p_loo, 1),
+    `Pareto k>0.7`  = `n_pareto_k_gt_0.7`),
+  error = function(e) NULL) else NULL
+report_table(loo_disp,
+  paste("PSIS-LOO by data stream. p_loo is the effective number of parameters; a large",
+        "'Pareto k>0.7' count means LOO is unreliable for that stream (the model is near-",
+        "saturated there), so read its elpd_loo with caution."))
 ```
 
 ## 12. Effort and CPUE multipliers
@@ -1803,6 +1982,31 @@ source(here::here("03_R_functions/divergence_diagnostic.R"))
 diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
 diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)
+```
+
+### 11.3 Divergence localization
+
+Where the divergent transitions (if any) concentrate. **Healthy:** small `|SMD|` across the board, meaning divergences are diffuse and not biasing any particular parameter or total.
+
+```{r divergence-diagnostics-show, echo=FALSE}
+# Surface the top divergence-localization drivers written by the per-fit diagnostics.
+# Large |SMD| (standardized median difference between divergent and bulk draws) points
+# at the parameter/geometry the divergences concentrate in (e.g. a hierarchical funnel).
+dl <- read_fit_outputs("divergence_localization")
+dl_disp <- if (!is.null(dl) && "smd" %in% names(dl)) tryCatch(
+  dl |>
+    dplyr::filter(!is.na(smd)) |>
+    dplyr::group_by(fit_lbl) |>
+    dplyr::slice_max(abs(smd), n = 3, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(Fit = fit_lbl, Parameter = param, SMD = round(smd, 2),
+                     `median (bulk)` = round(median_bulk, 2),
+                     `median (div)`  = round(median_div, 2)),
+  error = function(e) NULL) else NULL
+report_table(dl_disp,
+  paste("Top divergence-localization drivers per fit (largest |SMD|). A large |SMD| is",
+        "where divergent draws depart most from the bulk; it names the geometry to watch.",
+        "Small values across the board mean divergences are diffuse, not biasing a total."))
 ```
 
 
