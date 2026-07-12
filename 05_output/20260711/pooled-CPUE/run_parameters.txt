@@ -1,24 +1,6 @@
-List of 60
- $ project_name                    : chr "Coastal Recreational Crab"
- $ fishery_name                    : chr "Rec Crab Grays Harbor 2024-25"
- $ est_date_start                  : chr "2024-09-16"
- $ est_date_end                    : chr "2025-09-15"
- $ season_filter                   : chr "2024-25"
- $ pot_open_date                   : chr "2024-12-01"
- $ commercial_opener               : chr "2025-01-01"
- $ census_start_date               : chr "2024-12-01"
- $ census_end_date                 : chr "2025-02-08"
- $ estimate_red_rock               : logi FALSE
- $ days_wkend                      : chr [1:3] "Friday" "Saturday" "Sunday"
- $ min_fishing_time                : num 0.5
- $ filter_incomplete_trips         : logi TRUE
- $ period_pe                       : chr "week"
- $ sections                        : num 1
+List of 64
  $ bss_model_file                  : chr "crab_bss_pooled.stan"
- $ bss_chains                      : num 4
  $ bss_adapt_delta                 : num 0.9
- $ bss_cores                       : num 4
- $ bss_max_count_seq               : num 3
  $ bss_iter_default                : num 3000
  $ bss_warmup_default              : num 1500
  $ bss_max_treedepth_default       : num 10
@@ -37,27 +19,49 @@ List of 60
  $ max_divergence_fraction         : num 0.15
  $ max_divergences                 : num 5
  $ max_divergence_distortion       : num 0.02
- $ bss_seed                        : num 20260619
  $ ar_daily_min_coverage           : num 0.25
  $ ar_daily_min_obs                : num 20
  $ ar_weekly_min_per_week          : num 1.5
  $ ar_max_resolution               :List of 2
   ..$ shore       : chr "daily"
   ..$ private_boat: chr "weekly"
- $ collapse_mu_hier                : logi FALSE
- $ ie_data_file                    : chr "ingress_egress.xlsx"
- $ ie_sheet                        : chr "data"
- $ ie_shore_location               : chr "WDF20"
- $ ie_boat_location                : chr "WBL"
  $ ie_use_all_dates_for_diagnostics: logi TRUE
+ $ project_name                    : chr "Coastal Recreational Crab"
+ $ fishery_name                    : chr "Rec Crab Grays Harbor 2024-25"
+ $ est_date_start                  : chr "2024-09-16"
+ $ est_date_end                    : chr "2025-09-15"
+ $ season_filter                   : chr "2024-25"
+ $ pot_open_date                   : chr "2024-12-01"
+ $ commercial_opener               : chr "2025-01-01"
+ $ census_start_date               : chr "2024-12-01"
+ $ census_end_date                 : chr "2025-02-08"
+ $ estimate_red_rock               : logi FALSE
+ $ days_wkend                      : chr [1:3] "Friday" "Saturday" "Sunday"
+ $ min_fishing_time                : num 0.5
+ $ period_pe                       : chr "week"
+ $ sections                        : num 1
+ $ filter_incomplete_trips         : logi TRUE
  $ shore_effort_unit               : chr "gear-deployments"
  $ tau_shore_prior_mu              : num 1.7
  $ tau_shore_prior_sigma           : num 0.3
  $ tau_boat_prior_mu               : num 1.2
  $ tau_boat_prior_sigma            : num 0.3
  $ gear_per_group_default          : num 4
+ $ bss_chains                      : num 4
+ $ bss_cores                       : num 4
+ $ bss_seed                        : num 20260619
+ $ bss_max_count_seq               : num 3
+ $ ie_data_file                    : chr "ingress_egress.xlsx"
+ $ ie_sheet                        : chr "data"
+ $ ie_shore_location               : chr "WDF20"
+ $ ie_boat_location                : chr "WBL"
  $ use_ie_day_length               : logi TRUE
  $ ie_min_obs_for_regression       : num 5
  $ day_length_min_hours            : num 9
  $ day_length_max_hours            : num 17
  $ crabbing_holiday_dates          : Date[1:10], format: "2024-11-29" "2024-12-31" "2025-01-01" "2025-02-08" ...
+ $ collapse_mu_hier                : logi FALSE
+ $ estimate_B1_C                   : logi TRUE
+ $ ar_adaptive                     : logi FALSE
+ $ loo_effort_unit_comparison      : logi FALSE
+ $ use_boat_ie                     : logi TRUE

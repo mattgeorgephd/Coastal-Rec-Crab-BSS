@@ -1,7 +1,7 @@
 "Mode","Month","median","lo95","hi95"
-"Shore","2024-09",1285,965,1789
-"Shore","2024-10",2650,2098,3431
-"Shore","2024-11",2627,2039,3441
+"Shore","2024-09",1286,967,1789
+"Shore","2024-10",2654,2108,3431
+"Shore","2024-11",2630,2040,3441
 "Shore","2024-12",2567,1960,3483
 "Shore","2025-01",1418,1064,1974
 "Shore","2025-02",789,530,1226
@@ -12,9 +12,9 @@
 "Shore","2025-07",2916,1961,4579
 "Shore","2025-08",2878,2111,4215
 "Shore","2025-09",1637,1147,2509
-"Private Boat","2024-09",327,262,410
-"Private Boat","2024-10",541,434,678
-"Private Boat","2024-11",96,77,120
+"Private Boat","2024-09",328,262,413
+"Private Boat","2024-10",542,434,683
+"Private Boat","2024-11",96,77,121
 "Private Boat","2024-12",972,568,1728
 "Private Boat","2025-01",700,399,1259
 "Private Boat","2025-02",281,130,582
@@ -28,9 +28,9 @@
 "Commercial/Charter","2024-09",0,0,0
 "Commercial/Charter","2024-10",0,0,0
 "Commercial/Charter","2024-11",0,0,0
-"Commercial/Charter","2024-12",6161,5626,6754
-"Commercial/Charter","2025-01",5134,4689,5628
-"Commercial/Charter","2025-02",706,645,774
+"Commercial/Charter","2024-12",6160,5615,6742
+"Commercial/Charter","2025-01",5133,4679,5618
+"Commercial/Charter","2025-02",706,643,773
 "Commercial/Charter","2025-03",0,0,0
 "Commercial/Charter","2025-04",0,0,0
 "Commercial/Charter","2025-05",0,0,0
