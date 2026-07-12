@@ -2,8 +2,8 @@
 # run_config.R  --  the single control surface for a production run.
 #
 # This is the ONE file you edit to run the estimation. Set the RUN SELECTION
-# block (which model, and whether to run the weather module), set the SEASON
-# PARAMETERS, then launch with either:
+# block (which model, and whether to run the weather module), then set the
+# toggles below, then launch with either:
 #
 #     source("run_estimation.R")          # in RStudio (Source, not Knit)
 #   or
@@ -12,12 +12,19 @@
 #
 # How the override works: run_estimation.R injects `run_config` (defined below)
 # into the render environment of the chosen .Rmd. Each model does
-# `params <- modifyList(params, run_config)`, so the keys listed here OVERRIDE
-# the model's in-file defaults, and every key you do NOT list is left at the
-# model's own default (per-fit sampler tuning, convergence-gate thresholds,
-# I/E flags, weather stations, and so on). That is deliberate: this file holds
-# only what must be identical across models and what you change season to
-# season. It is not a dump of every parameter.
+# `params <- modifyList(params, run_config)`, so every key listed here OVERRIDES
+# the model's in-file default. As of the 2026-07-11 consolidation this file is
+# the SINGLE SOURCE OF TRUTH for every user-selectable toggle: the two model
+# .Rmd files no longer carry their own copies of these keys, so there is nothing
+# to keep in sync. Each .Rmd keeps only its own model-internal tuning (per-fit
+# sampler settings, convergence-gate thresholds, AR-selector thresholds, and a
+# few model constants), which you rarely touch and which legitimately differ
+# between the two models.
+#
+# Standalone knit: each .Rmd sources THIS file automatically when `run_config`
+# is not already present (the `if (!exists("run_config")) source(...)` guard in
+# its setup chunk), so knitting a model .Rmd directly in RStudio uses exactly
+# the same toggles as an orchestrated run. You never have to edit the .Rmd.
 ###############################################################################
 
 
@@ -36,18 +43,20 @@ run_weather <- FALSE           # TRUE also runs the weather-tide covariate
 # =========================================================================== #
 
 
-# ======================= SEASON / RUN PARAMETERS =========================== #
-# Change these when you move to a new season. Everything here is applied to the
-# model (and, under Option A, to the weather module) as a run-level override.
+# ===================== USER TOGGLES (single source) ======================== #
+# Everything a user changes season to season or to steer the model lives here.
+# Keys are applied to whichever model runs; a key a model does not read is simply
+# ignored by that model (harmless), so the model-specific toggles at the bottom
+# can sit in this one shared list without affecting the other model.
 
 run_config <- list(
 
   # --- Identifiers ---------------------------------------------------------
-  # NOTE: these unify the two models. The committed gear-resolved driver used
-  # "Rec Crab Grays Harbor Westport 2024-25" while pooled used the string below;
-  # centralizing here makes both use one value. If either string feeds an output
-  # identifier you need to preserve verbatim, drop these two keys and let each
-  # model keep its own.
+  # These unify the two models onto one set of strings. The committed gear-
+  # resolved driver used "Rec Crab Grays Harbor Westport 2024-25" while pooled
+  # used the string below; centralizing here makes both use one value. If either
+  # string must be preserved verbatim as an output identifier, give that model
+  # its own value in its .Rmd instead.
   project_name      = "Coastal Recreational Crab",
   fishery_name      = "Rec Crab Grays Harbor 2024-25",
 
@@ -71,17 +80,38 @@ run_config <- list(
   period_pe         = "week",         # PE temporal stratum
   sections          = c(1),
 
-  # --- BSS run-level sampler settings (NOT per-fit tuning) ------------------
+  # --- Incomplete-trip filter (both models) --------------------------------
+  # Incomplete trips (soak-time gear not yet retrieved) read systematically low
+  # (about -20% CPUE for pots/traps), biasing CPUE and hence the harvest estimate
+  # low. TRUE excludes them from CPUE estimation (PE and BSS), keeping Complete +
+  # NA; FALSE keeps all trips (pre-filter behavior). Missing trip_status is kept.
+  filter_incomplete_trips = TRUE,
+
+  # --- Effort unit (both models) -------------------------------------------
+  # Shore and boat CPUE denominators. As of pooled v7.7 / gear-resolved v5.5 both
+  # components run on gear-DEPLOYMENTS: the pipeline's own linearity diagnostic
+  # flags every time-denominated unit as invalid for pots (shore beta_h 0.57 for
+  # crabber-hours, 0.73 for gear-hours, 1.05 for deployments; deployments is the
+  # only harvest-unbiased unit). Routed through 03_R_functions/bss_effort_spec.R
+  # so the BSS and PE always share a unit. Set shore_effort_unit = "crabber-hours"
+  # to revert shore only.
+  shore_effort_unit      = "gear-deployments",  # "crabber-hours" | "gear-hours" | "gear-deployments"
+  tau_shore_prior_mu     = 1.7,       # shore deployment turnover (trips/gear-slot/day)
+  tau_shore_prior_sigma  = 0.3,
+  tau_boat_prior_mu      = 1.2,       # boat deployment turnover
+  tau_boat_prior_sigma   = 0.3,
+  gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
+
+  # --- BSS run-level settings (NOT per-fit tuning) -------------------------
   bss_chains        = 4,
   bss_cores         = 4,
   bss_seed          = 20260619,       # fixed seed for reproducible fits
   bss_max_count_seq = 3,              # cap on count sequences per day
 
   # --- AR resolution experiment toggle -------------------------------------
-  # PRODUCTION VALUE IS NULL. The committed pooled driver currently has this set
-  # to list(private_boat = "daily") (the boat daily-vs-weekly experiment). Set
-  # here to NULL so an orchestrated run is production, not the experiment. To run
-  # the experiment on purpose, set this to list(private_boat = "daily").
+  # PRODUCTION VALUE IS NULL. Forces a population's AR resolution, bypassing both
+  # the data-driven selection and the per-population cap for the named population.
+  # To run the boat daily-vs-weekly experiment, set list(private_boat = "daily").
   ar_force          = NULL,
 
   # --- Ingress/egress input + shore day length (both models) ---------------
@@ -115,7 +145,27 @@ run_config <- list(
     "2025-06-15",  # Father's Day
     "2025-07-04",  # Independence Day
     "2025-09-01"   # Labor Day
-  ))
+  )),
+
+  # --- Model-specific toggles (centralized here; each is read only by its own
+  #     model and ignored by the other, so they are safe to keep in one list) --
+  collapse_mu_hier           = FALSE, # (pooled) collapse the single-cell mu-hierarchy
+                                       #   (B1.7/POOL-4 experiment lever). FALSE = current
+                                       #   hierarchy, posterior unchanged. Accepts a per-
+                                       #   population named list, e.g. list(private_boat = TRUE).
+  estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
+                                       #   TRUE matches the pooled model; FALSE drops B1_C
+                                       #   from the likelihood (v5.4 behavior).
+  ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
+                                       #   season period_bss (biweekly ring-net, monthly all-
+                                       #   gear) EXACTLY. TRUE hands AR choice to the data-driven
+                                       #   selector; that is inference-changing, so validate first.
+  loo_effort_unit_comparison = FALSE,  # (gear-resolved) TRUE restricts interviews to the common
+                                       #   valid-denominator subset for a legitimate cross-unit
+                                       #   elpd_loo comparison. FALSE for a production run of the
+                                       #   chosen unit (the comparison is done).
+  use_boat_ie                = TRUE    # (gear-resolved) use WBL boat I/E ingress counts to
+                                       #   identify tau once enough days exist. IE_n = 0 is safe.
 )
 
 # =========================================================================== #

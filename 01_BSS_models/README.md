@@ -16,13 +16,9 @@ The experimental weather-tide covariate driver lives separately in `06_diagnosti
 ## How a driver runs
 
 1. **Setup chunk.** Loads packages, sets `run_date <- format(Sys.Date(), "%Y%m%d")`, sources every file in `03_R_functions/` with `purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)`, and sets `output_dir <- here("05_output", run_date, "<model>")`.
-2. **Parameters.** A `params <- list(...)` chunk holds the run configuration. The ones you normally touch:
-   - `est_date_start`, `est_date_end`: the season (or sub-season) window.
-   - `bss_model_file`: the Stan filename (just the name; the folder `02_stan_models/` is supplied by the `here()` call at the fit step).
-   - `ie_data_file`, `ie_sheet`: the I/E workbook and sheet (pooled driver only).
-   - Sampler controls (`adapt_delta`, `max_treedepth`, iterations) and the convergence-gate thresholds.
+2. **Configuration.** User-selectable toggles (season window, structural dates, catch groups, effort unit, filters, I/E settings, holidays, and the model-behavior levers) live in `run_config.R` at the repository root, the single control surface for a run. The setup chunk sources `run_config.R` automatically when the orchestrator has not already defined `run_config`, then applies it as an override with `params <- modifyList(params, run_config)`. The driver's own `params <- list(...)` chunk holds only this model's internal tuning: `bss_model_file` (the Stan filename), the per-fit sampler controls (`adapt_delta`, `max_treedepth`, iterations), the convergence-gate thresholds, and the AR-selector thresholds. For a routine run you edit `run_config.R`, not the `.Rmd`.
 3. **Data prep.** Reads `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv` from `04_input_files/`, plus `ingress_egress.xlsx` (pooled).
-4. **Fit.** Each population × sub-season is fit independently by calling `rstan::stan(file = here("02_stan_models", params$bss_model_file), ...)`.
+4. **Fit.** Each population x sub-season is fit independently by calling `rstan::stan(file = here("02_stan_models", params$bss_model_file), ...)`.
 5. **Convergence gate.** Each fit is checked (R-hat, divergences, treedepth). A fit that fails the gate falls back to its PE estimate for that population; the boat all-gear fit is the usual fallback case.
 6. **Outputs.** Per-population daily series, port and monthly totals, PE-vs-BSS comparison, and a large set of diagnostics are written to `output_dir`. See [05_output/README.md](../05_output/README.md) for the file catalog.
 

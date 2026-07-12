@@ -19,7 +19,7 @@ Three crabbing populations are estimated independently and summed for the port t
 2. **Private boat crabbers**, effort from trailer counts, BSS + PE.
 3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
 
-Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, and the modular R pipeline in `03_R_functions/`. They differ in how catch-per-unit-effort (CPUE) is modeled.
+Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, the modular R pipeline in `03_R_functions/`, and a single run configuration in `run_config.R`. They differ in how catch-per-unit-effort (CPUE) is modeled.
 
 ---
 
@@ -28,7 +28,7 @@ Both BSS models share the same effort model, the PE estimator, the I/E (ingress/
 The repository is organized into numbered stage folders that follow the order of the pipeline, from analysis driver through model code, helper functions, inputs, outputs, diagnostics, and documentation. Each folder has its own `README.md` with a full file inventory.
 
 ```
-FWC-estimation-method/
+Coastal-Rec-Crab-BSS/
 ├── 01_BSS_models/      Production .Rmd analysis drivers (pooled, gear-resolved)
 ├── 02_stan_models/     Stan model code (.stan) called by the drivers
 ├── 03_R_functions/     Modular R helpers, auto-sourced by every driver
@@ -38,7 +38,7 @@ FWC-estimation-method/
 ├── 07_documentation/   Technical docs, change logs, equations, instructions
 ├── README.md           This file
 ├── .gitignore
-└── FWC-estimation-method.Rproj
+└── Coastal-Rec-Crab-BSS.Rproj
 ```
 
 | Folder | Contents | README |
@@ -123,9 +123,9 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
    - `interview_combined.csv` (interviews; dates in M/D/YYYY format)
    - `wes_commercial_tally.csv` (daily vessel tally)
    - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
-3. Open the desired `.Rmd` file.
-4. Set `est_date_start` and `est_date_end` in the parameters block.
-5. Run all chunks (or Knit). Output is written to `05_output/YYYYMMDD/<model>/`.
+3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
+4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
+5. Output is written to `05_output/YYYYMMDD/<model>/`.
 
 **Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
 
@@ -155,26 +155,24 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 - **Interview dates:** M/D/YYYY (`col_date(format="%m/%d/%Y")`).
 - **Boat type typo:** iForm exports "Commerical" (one 'm'), handled by regex.
 - **Windows MAX_PATH:** with OneDrive and long paths the output directory may exceed 260 characters; the code detects this and falls back to a short path.
-- **Boat all-gear convergence:** the private boat all-gear BSS fit is prone to non-convergence (sparse trailer-count effort series); v6.2 adds dedicated sampler tuning, and the boat component falls back to PE when the fit fails the gate. See the pooled model documentation.
+- **Boat all-gear convergence:** the private boat all-gear BSS fit was historically prone to non-convergence (sparse trailer-count effort series). Dedicated sampler tuning (v6.2), the scale-aware convergence gate (v7.0), and moving the boat onto the gear-deployment effort scale (v7.6) have largely resolved this; the boat now typically reports its BSS posterior and falls back to PE only if a fit fails the gate. See the pooled model documentation.
 
 ---
 
 ## Development History
 
-Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently in their own documentation change logs, and the weather-tide module has its own version line.
+Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently, each with its own detailed development-history document; the weather-tide module has its own version line. The table below is a one-line-per-milestone summary. See the two development-history documents for the full change log with working notes:
+
+- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.8)
+- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.5)
 
 | Version | Track | Key Changes |
 |---|---|---|
-| v1 | shared | Single-population dock-only prototype |
-| v2 | shared | Bug fixes (CSV columns, Stan dimensions, output folder) |
-| v3 | pooled | Three populations, two sub-seasons, convergence tuning |
-| v4 | pooled | Dawn/dusk day length, stat-week PE, census dates, team review |
-| v5.0 to v5.4 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions, divergence-aware gate, gear-hours boat formulation, R-hat gate tightened to 1.01 |
-| v6.0 | pooled | Post-critique upgrades: adaptive AR(1), `L_effective` from I/E, `B1_C` day-type CPUE effect, data-driven `R_G` prior, sparse overdispersion |
-| v6.1 | pooled | Divergence-aware convergence gate (`max_divergences`, treedepth warnings, per-fit tuning) |
-| v6.2 | pooled | Boat all-gear sampler tuning |
-| v6.3 | pooled | Documentation corrections |
-| v6.4 | pooled | R-hat convergence threshold tightened to 1.01 (gear-resolved track tightened in step, v5.4) |
+| v1 to v2 | shared | Single-population dock-only prototype; bug fixes (CSV columns, Stan dimensions, output folders) |
+| v3 to v4 | pooled | Three populations, two sub-seasons, convergence tuning; dawn/dusk day length, stat-week PE, census dates, team review |
+| v5.0 to v5.5 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions; empirical `pi_gear`; divergence-aware then R-hat < 1.01 gate; boat and shore moved onto the gear-deployment effort scale (v5.5) |
+| v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
+| v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
 
-See each model's documentation change log for details.
+See each model's development-history document for details.

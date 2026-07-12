@@ -232,6 +232,9 @@ crabbing_holiday_dates <- as.Date(c(
   "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15",
   "2025-07-04", "2025-09-01"
 ))
+# The shared prep_days_crab() (03_R_functions/prep_days_crab.R) reads holidays and
+# day-typing inputs from params, so mirror them onto params for this module.
+params$crabbing_holiday_dates <- crabbing_holiday_dates
 
 subseason_1 <- list(name = "ring_net_only",
                     start = as.Date(params$est_date_start),
@@ -1709,8 +1712,7 @@ if(!exists("ie_data")) ie_data <- tibble()
 # ---- Build per-day calendar from main model's prep_days ---------------------
 days_full <- prep_days_crab(
   params$est_date_start, params$est_date_end,
-  params$days_wkend, crabbing_holiday_dates,
-  params$period_pe, params$sections,
+  params,
   L_eff_model = if(exists("L_eff_model")) L_eff_model else NULL
 )
 
@@ -1869,8 +1871,7 @@ for(cg in "Dungeness_Kept") {
       label <- paste0(pop, "_", ss$name, "_", cg)
       cat(sprintf("\n--- %s ---\n", label))
 
-      days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
-                                 params$period_pe, params$sections,
+      days_ss <- prep_days_crab(ss$start, ss$end, params,
                                  L_eff_model = if(exists("L_eff_model")) L_eff_model else NULL)
       summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 

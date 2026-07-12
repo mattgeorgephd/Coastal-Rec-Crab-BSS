@@ -6,33 +6,66 @@ Helper functions for the estimation pipeline. There is no entry point here; the 
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 ```
 
-Because the whole folder is sourced, every `.R` file here is expected to define functions only and to have no side effects at source time (no reads, writes, or plotting at the top level). Sourcing order is not guaranteed, so a function in one file may not assume another file has already run anything beyond defining its functions.
+Because the whole folder is sourced by BOTH drivers, every `.R` file here must define functions only, with no side effects at source time (no reads, writes, or plotting at the top level), and no assumption about sourcing order. Two consequences follow, and both are load-bearing:
 
-For the project overview and the PE-vs-BSS split these functions implement, see the [root README](../README.md).
+1. **Pure functions.** A helper takes everything it needs as arguments (or derives it from a passed `params` list). It does not read driver globals such as `catch_groups` or `crabbing_holiday_dates`. Config is passed, not captured.
+2. **No name collisions.** Since both drivers source every file, two files cannot define the same function name with different bodies. Functions that are genuinely shared keep one name and one definition; functions that differ between the pooled and gear-resolved tracks carry distinct names (the `_pooled` / `_gear` suffix), so both can coexist in the sourced environment and each driver calls its own.
+
+For the project overview and the PE-vs-BSS split these functions implement, see the [root README](README.md).
 
 ## Function groups
 
-The files fall into eight groups (the shared `bss_*` driver modules were centralized in the v6.5 to v7.5 refactors so the pooled and gear-resolved tracks share one implementation). Several in the data-fetch and PE groups carry over from the WDFW freshwater-creel codebase this project was forked from; they are retained because the Point Estimator (PE) path and the optional database export reuse that machinery.
+The 2026-07-11 refactor pulled the per-driver data-prep, PE, BSS-prep, and utility functions out of the two `.Rmd` drivers and into this folder (previously they were inline in each `.Rmd`). The files now fall into four groups.
 
-| Group | Files | Role |
+### Shared driver modules (pooled + gear-resolved)
+
+One implementation each, called by both production drivers, so the two tracks cannot drift.
+
+| File | Public function(s) | Role |
 |---|---|---|
-| Database / ETL (creel lineage) | `establish_db_con`, `fetch_db_table`, `fetch_dwg`, `write_db_tables`, `confirm_db_upload`, `export_estimates`, `prep_export`, `JSON_conversion`, `generate_analysis_lut`, `map_data_grade`, `transform_estimates` | Connect to the warehouse, pull raw tables, and push or serialize finished estimates. Used by the PE/export path; not required for a local BSS-only run. |
-| PE data prep | `prep_days`, `prep_dwg_census_expan`, `prep_dwg_effort_census`, `prep_dwg_effort_index`, `prep_dwg_interview_angler_types`, `prep_dwg_interview_catch`, `prep_dwg_interview_fishing_time` | Reshape raw effort-count and interview pulls into the per-day, per-stratum frames the PE consumes. |
-| PE input assembly | `prep_inputs_pe_df`, `prep_inputs_pe_ang_hrs`, `prep_inputs_pe_days_total`, `prep_inputs_pe_int_ang_per_object`, `prep_inputs_pe_paired_census_index_counts`, `prep_inputs_pe_daily_cpue_catch_est` | Build the specific input objects the PE estimators need (angler-hours, day totals, paired census/index counts, daily CPUE/catch). |
-| PE estimation | `est_pe_effort`, `est_pe_catch`, `process_estimates_pe` | Compute the Point Estimator effort and catch, then collate into the PE result tables used for the convergence-gate fallback and the PE-vs-BSS comparison. |
-| BSS | `prep_inputs_bss`, `fit_bss`, `get_bss_overview`, `get_bss_effort_daily`, `get_bss_cpue_daily`, `get_bss_catch_daily`, `process_estimates_bss` | Assemble the Stan data list, extract the fitted posterior into daily effort/CPUE/catch series, and collate BSS results. (See the `fit_bss` flag below.) |
-| Plotting | `plot_census_index_counts`, `plot_est_pe_effort`, `plot_est_pe_catch`, `plot_inputs_pe_census_vs_index`, `plot_inputs_pe_cpue_period`, `plot_inputs_pe_index_effort_counts` | Input-diagnostic and PE-result plots written to the run's output folder. |
-| Shared driver modules (pooled + gear-resolved) | `bss_convergence_gate`, `bss_ar_resolution`, `bss_cpue_diagnostics`, `bss_trailer_expansion`, `bss_day_length` | One implementation each of the scale-aware convergence gate and PE-vs-BSS selector (`bss_compute_gate` / `bss_use_pe_for`), the adaptive AR-resolution selector (`bss_select_ar_resolution`), the CPUE effort-unit diagnostics (`write_cpue_diagnostics`), the trailer-expansion adapter, and the I/E effective-day-length model. Both production drivers call these so the two tracks cannot drift; as of pooled v7.5 the pooled driver uses the shared gate, AR selector, and CPUE diagnostics rather than inline copies (POOL-5 / POOL-6). |
-| Crab-specific BSS diagnostics | `model_diagnostics`, `diagnose_effort_overdispersion`, `divergence_diagnostic`, `save_run_diagnostics` | Convergence reporting, effort-overdispersion decomposition, divergence localization, and the per-run diagnostic bundle. These write the convergence/divergence/overdispersion files catalogued in [05_output/README.md](../05_output/README.md). |
+| `bss_convergence_gate.R` | `bss_compute_gate`, `bss_use_pe_for` | Scale-aware convergence gate (B1.8): the per-fit PE-vs-BSS pass/fail decision and its report row. Thresholds are arguments, so each driver passes its own. |
+| `bss_ar_resolution.R` | `bss_select_ar_resolution` | Adaptive AR(1) temporal-resolution selector (daily / weekly / biweekly / monthly), with the per-population cap and the `ar_force` override. |
+| `bss_cpue_diagnostics.R` | `write_cpue_diagnostics` (+ `bss_cpue_estimator_triad`, `bss_saturation_exponent`, `bss_effort_linearity`, `bss_assert_effort_units`) | Per-fit CPUE effort-unit diagnostics (estimator triad, saturation exponent, linearity slope) and the effort-unit assertion. |
+| `bss_effort_spec.R` | `bss_effort_spec`, `bss_effort_h_candidates` | The single effort-unit specification (crabber-hours / gear-hours / gear-deployments) that both the BSS prep and the PE read, so effort and CPUE always share a unit. |
+| `bss_trailer_expansion.R` | `bss_trailer_par`, `bss_extract_pars`, `bss_trailer_multiplier` | Boat trailer-expansion adapter that abstracts the `R_T` (legacy) vs `R_G_boat` (current) split so downstream expansion code is unchanged. |
+| `bss_day_length.R` | `fetch_ie_data`, `estimate_L_effective`, `bss_day_length_civil`, `bss_assign_day_length` | I/E ingest and the effective-day-length (`L_effective`) model with the civil-twilight fallback ladder. |
+| `bss_timers.R` | `timer_start`, `timer_stop`, `bss_timer_log` | Section timers for the end-of-run timing summary. State lives in a module-local environment (reset on source), so no driver global is needed. |
+| `prep_days_crab.R` | `prep_days_crab` | Builds the per-day calendar (indices, day type, day-type integer, effective day length). Takes `params` and derives day-typing inputs from it. |
+| `prep_population_summary.R` | `prep_population_summary` | Filters the data bundle to one population x sub-season and builds its effort, interview, and catch frames plus the gear/crabber ratios. |
+| `estimate_comm_charter.R` | `estimate_comm_charter` | Day-type-stratified census expansion of the commercial/charter vessel tally (with optional red-rock, guarded by `params$estimate_red_rock`). |
+| `classify_day_type.R` | `classify_day_type` | Standalone day-type classifier for any date, used by diagnostic plots outside the estimation window. |
 
-## Path handling
+### Pooled-CPUE driver functions
 
-The four diagnostic files in the last group write their outputs through `here("05_output", ...)` and were updated when the stage folders were renumbered. The rest of the functions either take paths as arguments from the driver or operate purely in memory, so they did not need path edits. If a stage folder is renamed again, check these four files plus the drivers (see "How paths work" in the root README).
+Called only by `BSS-GH-pooled-CPUE-model.Rmd`; named to avoid a collision with the gear-resolved equivalents.
 
-## Known issue: `fit_bss.R` is dead code
+| File | Function | Role |
+|---|---|---|
+| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. |
+| `run_pe_pooled.R` | `run_pe_pooled` | Pooled Point Estimator (stratified effort and catch). The shore branch reads its effort unit and CPUE denominator from `bss_effort_spec`, so the shore PE matches the shore BSS (2026-07-11 fix). |
+| `prep_bss_crab_pooled.R` | `prep_bss_crab_pooled` | Build the Stan data list for `crab_bss_pooled.stan`. |
 
-> **Flag (not a path issue).** `fit_bss.R` has **zero call sites** anywhere in the repo; the production drivers fit the model with a direct `rstan::stan(file = here("02_stan_models", params$bss_model_file), ...)` call instead. On top of being unused, its default argument still points at the old, un-prefixed folder **and** a retired model that no longer exists:
-> ```r
-> model_file_name = here::here("stan_models/BSS_creel_model_02_2024-04-03.stan")
-> ```
-> Neither `stan_models/` nor that `.stan` file exists in the reorganized tree. This path was deliberately left unedited: "fixing" it would make a non-functional helper look usable. Recommend either deleting `fit_bss.R` or repairing it to call the current `02_stan_models/` models if you intend to revive a reusable fit wrapper. No impact on current runs.
+### Gear-resolved driver functions
+
+Called only by `BSS-GH-gear-type-CPUE-model.Rmd`.
+
+| File | Function | Role |
+|---|---|---|
+| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. |
+| `run_pe_gear.R` | `run_pe_gear` | Gear-resolved Point Estimator, with the P0/P1/P2 fixes (explicit population argument, `bss_effort_spec` effort unit, ratio-of-sums stratum CPUE, and a scale-consistency assertion). |
+| `prep_bss_crab_gear.R` | `prep_bss_crab_gear` | Build the Stan data list for `crab_bss_gear_resolved.stan`. |
+
+### Crab-specific BSS diagnostics
+
+Per-fit and per-run diagnostic writers, all `tryCatch`-wrapped so one fit cannot abort a run. They write the convergence, divergence, over-dispersion, PPC, and extended-output files catalogued in [05_output/README.md](05_output/README.md).
+
+| File | Public function(s) | Role |
+|---|---|---|
+| `model_diagnostics.R` | `bss_structural_summary`, `bss_divergence_localization`, `bss_ppc_calibration`, `write_bss_diagnostics` | Structural-parameter summary, divergence localization, and posterior-predictive calibration per fit. |
+| `diagnose_effort_overdispersion.R` | `write_effort_overdispersion_diag` | Law-of-total-variance decomposition of each effort-count predictive variance (Poisson floor / NB over-dispersion / latent process). |
+| `divergence_diagnostic.R` | `diagnose_divergences` | Interactive, console divergence funnel-neck ranking (run by hand post-fit). |
+| `save_run_diagnostics.R` | `write_fit_extended_diagnostics`, `write_loo_diagnostics`, `write_run_level_diagnostics` | The extended per-fit output series (O1-O13) and the run-level PE-vs-BSS and gear-proportion summaries. |
+
+## Configuration and paths
+
+User-selectable toggles live in [`run_config.R`](run_config.R), the single source of truth; these functions read them through the `params` list the driver passes. Path-writing helpers (the diagnostic writers above) resolve outputs through `here("05_output", ...)`. If a stage folder is renamed, check those writers plus the drivers (see "How paths work" in the root README).

@@ -1,0 +1,2225 @@
+---
+title: "BSS-GH Weather & Tide Covariate Analysis and Integration"
+author: "Matt George"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+```
+
+```{r}
+###############################################################################
+# Crab Creel Estimation, Westport / Grays Harbor
+# Weather & Tide Covariate Module
+# Version: 0.2.3 (2026-06-20). See BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md
+#          Section 9 for the change history.
+#          v0.2.3 inherits pooled-model v6.9 (B1.7, single-cell hierarchical scale
+#          collapsed in the shared augmented Stan model) and wraps each component's
+#          fit + LOO in a tryCatch so one failing component no longer aborts the
+#          whole module run.
+#          v0.2.2 brings the BSS engine to pooled-model v6.8 parity (B1.5
+#          neg-binomial effort marginalization, B1.6 unconditional sigma_IE
+#          prior), adds a fixed RNG seed for reproducible baseline/covariate/CV
+#          fits, per-fit model diagnostics (structural params, divergence
+#          localization, posterior predictive calibration), and session capture.
+#          The module's LOO-reliability convergence gate is unchanged; the pooled
+#          model's distortion-aware gate does not apply here because LOO is more
+#          sensitive to divergences than the summed totals.
+#          v0.2.0 brings the BSS engine to pooled-model v6.5 parity (divergence
+#          gate, boat sampler tuning, per-population AR cap) and fixes the
+#          interview schema mismatch (departure-time proxy for completed trips).
+#
+# PURPOSE
+#   Test hypotheses about tide and weather effects on recreational Dungeness
+#   crab effort and CPUE; integrate supported covariates into the BSS model
+#   via linear predictors on mu_E and mu_C.
+#
+# HYPOTHESES TESTED
+#   H1  Daily boat effort varies with tide phase during daylight hours, after
+#       accounting for weekend/holiday and weather. Tested via (a) trailer
+#       count ~ tide features and (b) fraction of interview departures that
+#       fall on rising/flood tide vs. uniform expectation.
+#   H2  Daily shore CPUE varies with tide features (range, daytime high-tide
+#       hour, etc.) after accounting for weekend/holiday and weather.
+#   H3  Boat effort and CPUE depend on sea state (wind, wave height) due to
+#       bar-crossing constraints at Grays Harbor.
+#
+# DESIGN
+#   Layer B  Daily-level GAM screening of candidate covariates.
+#   Layer C  Covariate-augmented BSS vs baseline BSS; compare via PSIS-LOO
+#            with k-fold time-block CV fallback when Pareto-k diagnostics
+#            are unreliable.
+#
+# RUNS ANNUALLY
+#   All parameters key off est_date_start / est_date_end inherited from the
+#   main model run. Tide/weather data are cached locally to avoid repeated
+#   API calls. Station availability is tested at runtime with automatic
+#   failover to backup stations ranked by proximity.
+#
+# DEPENDENCIES
+#   Must be run AFTER BSS-GH-pooled-CPUE-model.Rmd (uses same interview
+#   and effort pipelines). The covariate fits use the augmented Stan model
+#   crab_bss_pooled_weather_adjusted.stan, which adds covariate blocks to the
+#   pooled model and collapses to the baseline when K_E = K_C = 0.
+###############################################################################
+
+# ===========================================================================
+# 0. SETUP
+# ===========================================================================
+
+load.lib <- c("tidyverse","lubridate","suncalc","mgcv","loo","rstan","here",
+              "readxl","httr","jsonlite","geosphere","patchwork")
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib, dependencies = TRUE)
+sapply(load.lib, require, character = TRUE)
+rstan_options(auto_write = TRUE)
+
+# Null-coalescing operator (base R >= 4.4 provides this natively; define it if
+# absent so the module is robust on older R and when run standalone).
+if(!exists("%||%", mode = "function")) `%||%` <- function(a, b) if(is.null(a)) b else a
+
+# Source shared functions if present (matches main RMD structure)
+if(dir.exists(here("03_R_functions"))) {
+  purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
+}
+
+run_date   <- format(Sys.Date(), "%Y%m%d")
+output_dir <- here("05_output", run_date, "pooled-CPUE-covariates")
+cache_dir  <- here("cache", "weather_tide")
+for(d in c(output_dir, cache_dir)) if(!dir.exists(d)) dir.create(d, recursive = TRUE)
+
+# ===========================================================================
+# 0.1 PARAMETERS
+# These mirror the main model so the covariate run uses the same date window,
+# populations, and sub-seasons. Add tide/weather specific parameters.
+# ===========================================================================
+
+params <- list(
+  # --- Inherit from main model ---
+  project_name      = "Coastal Recreational Crab",
+  fishery_name      = "Rec Crab Grays Harbor 2024-25",
+  est_date_start    = "2024-09-16",
+  est_date_end      = "2025-09-15",
+  season_filter     = "2024-25",
+  pot_open_date     = "2024-12-01",
+  days_wkend        = c("Friday","Saturday","Sunday"),
+  min_fishing_time  = 0.5,
+  period_pe         = "week",
+  sections          = c(1),
+
+  # --- BSS pass-through ---
+  # Both the baseline and covariate fits use the augmented Stan model below.
+  # The baseline is obtained by zeroing the covariate blocks (K_E = K_C = 0),
+  # not by loading crab_bss_pooled.stan, so that the baseline and covariate
+  # log_lik are produced by the same model and stay comparable for PSIS-LOO.
+  bss_model_file_covariates  = "crab_bss_pooled_weather_adjusted.stan",
+  bss_chains                 = 4,
+  bss_iter_default           = 3000,
+  bss_warmup_default         = 1500,
+  bss_iter_shore_allgear     = 5000,
+  bss_warmup_shore_allgear   = 2500,
+  bss_adapt_delta            = 0.9,
+  bss_cores                  = 4,
+  bss_max_treedepth_default  = 10,
+  bss_min_interviews         = 20,
+  bss_max_count_seq          = 3,
+  ar_daily_min_coverage      = 0.25,
+  ar_daily_min_obs           = 20,
+  ar_weekly_min_per_week     = 1.5,
+
+  # --- v6.x BSS parity (ported from BSS-GH-pooled-CPUE-model.Rmd) -----------
+  # The module fits its own BSS, so the convergence machinery the main model
+  # gained in v6.1-v6.5 must be mirrored here, or the boat fit diverges and the
+  # baseline-vs-covariate LOO comparison is untrustworthy.
+  # v6.5 per-population AR resolution cap: the boat trailer-count series cannot
+  # identify a daily AR(1), so it is capped at weekly (cuts the latent AR
+  # dimension ~7x). Shore stays at daily, where it converges.
+  ar_max_resolution          = list(shore = "daily", private_boat = "weekly"),
+  boat_use_gear_hours        = TRUE,
+  # v6.2 per-fit sampler tuning. Boat all-gear needs adapt_delta 0.99 /
+  # treedepth 13 (it diverged ~100% at the defaults); shore all-gear 14 / 0.95;
+  # ring-net 12 / 0.95; everything else the defaults (10 / 0.9).
+  bss_iter_boat_allgear      = 5000,
+  bss_warmup_boat_allgear    = 2500,
+  bss_treedepth_boat_allgear = 13,
+  bss_delta_boat_allgear     = 0.99,
+  bss_treedepth_shore_allgear= 14,
+  bss_delta_shore_allgear    = 0.95,
+  bss_treedepth_ringnet      = 12,
+  bss_delta_ringnet          = 0.95,
+  # v6.1 divergence gate: a fit with more than this many divergent transitions
+  # is flagged as non-converged, so its LOO elpd is treated as unreliable.
+  max_divergences            = 5,
+
+  # B1.6: fixed RNG seed for reproducible baseline, covariate, and CV fits.
+  bss_seed                   = 20260619,
+
+  # --- Departure-time proxy (boat departure-on-flood hypothesis) ------------
+  # The crab interview export records interview_time and hours_fished but no
+  # fishing start time. With this TRUE, departure is approximated as
+  # interview_time - hours_fished for completed trips, which assumes the
+  # interview is taken at trip end (a returning crabber at the access point).
+  # Set FALSE to skip the interview-derived departure-tide features entirely;
+  # the daily tide/weather covariates and the GAM screens are unaffected either
+  # way. The rigorous alternative is interval-level I/E departure data.
+  use_interview_departure_proxy = TRUE,
+
+  # --- Tide stations (ordered by priority; proximity-ranked backups) ---
+  # Coordinates are approximate CO-OPS station locations. The fetch routine
+  # probes metadata at runtime to confirm status.
+  tide_stations = tibble::tribble(
+    ~id,        ~name,             ~lat,      ~lon,       ~priority,
+    "9441102",  "Westport, WA",    46.9043,   -124.1051,   1,
+    "9440910",  "Toke Point, WA",  46.7076,   -123.9672,   2,
+    "9442396",  "La Push, WA",     47.9133,   -124.6367,   3
+  ),
+  tide_datum      = "MLLW",
+  tide_units      = "metric",
+  tide_interval   = "h",   # hourly. "6" = 6-min if available and needed.
+  tide_timezone   = "lst_ldt",  # local standard + daylight saving; avoid GMT surprises
+
+  # --- NDBC buoys (offshore wind/wave) ---
+  ndbc_buoys = tibble::tribble(
+    ~id,      ~name,                  ~lat,     ~lon,     ~priority,
+    "46211",  "Grays Harbor",          46.857,  -124.244,   1,
+    "46029",  "Columbia River Bar",    46.144,  -124.510,   2,
+    "46041",  "Cape Elizabeth, WA",    47.353,  -124.731,   3,
+    "46087",  "Neah Bay",              48.494,  -124.728,   4
+  ),
+
+  # --- ASOS land stations ---
+  asos_stations = tibble::tribble(
+    ~id,      ~name,                ~lat,      ~lon,      ~priority,
+    "KHQM",   "Hoquiam/Bowerman",    46.9728,  -123.9364,   1,
+    "KAST",   "Astoria, OR",         46.1581,  -123.8831,   2,
+    "KOLM",   "Olympia, WA",         46.9691,  -122.9027,   3
+  ),
+
+  # --- GSOD fallback station codes ---
+  gsod_stations = c("727923-24227", "727910-24227"),  # KHQM, KAST
+
+  # --- Caching ---
+  cache_tide   = TRUE,
+  cache_ndbc   = TRUE,
+  cache_asos   = TRUE,
+  force_refetch = FALSE,
+
+  # --- Exploratory GAM thresholds (Layer B screen) ---
+  gam_p_threshold    = 0.10,  # loose at screen; LOO confirms at BSS step
+  gam_min_edf_smooth = 1.5,   # min effective df to consider a smooth non-linear
+  vif_max            = 5.0,   # collinearity cap among covariates at the same level
+
+  # --- BSS covariate inclusion rule ---
+  cov_elpd_margin_in_se = 4,    # dELPD > 4*SE to include
+  cov_prior_sd          = 0.35, # normal prior SD on gamma (log scale)
+
+  # --- LOO diagnostics ---
+  loo_k_threshold      = 0.7,
+  loo_k_pct_trigger    = 0.10,  # if >10% have k>0.7, trigger k-fold fallback
+  cv_folds             = 5,
+
+  # --- Project location (for sun times) ---
+  centroid_lat = 46.904,
+  centroid_lon = -124.105,
+  local_tz     = "America/Los_Angeles"
+)
+
+# Crabbing holidays, copy from main model for day-type assignment
+crabbing_holiday_dates <- as.Date(c(
+  "2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08",
+  "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15",
+  "2025-07-04", "2025-09-01"
+))
+
+subseason_1 <- list(name = "ring_net_only",
+                    start = as.Date(params$est_date_start),
+                    end   = as.Date(params$pot_open_date) - 1)
+subseason_2 <- list(name = "all_gear",
+                    start = as.Date(params$pot_open_date),
+                    end   = as.Date(params$est_date_end))
+
+cat(sprintf("Covariate run window: %s to %s (%d days)\n",
+            params$est_date_start, params$est_date_end,
+            as.integer(as.Date(params$est_date_end) - as.Date(params$est_date_start) + 1)))
+
+
+# ===========================================================================
+# 1. NOAA CO-OPS TIDE DATA — availability check + chunked fetch + fallback
+#
+# CO-OPS API docs: https://api.tidesandcurrents.noaa.gov/api/prod/
+# Metadata API:    https://api.tidesandcurrents.noaa.gov/mdapi/prod/
+#
+# Limits:
+#   - "water_level" (verified observations): max 31 days per request
+#   - "predictions": max 365 days per request, but hourly is fine
+#
+# Strategy:
+#   - Try verified observations first (actual measurements, most accurate)
+#   - If gaps, fill with predictions from same station
+#   - If entire station unavailable, fall through to next station by priority
+# ===========================================================================
+
+coops_station_metadata <- function(station_id) {
+  url <- sprintf("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/%s.json",
+                 station_id)
+  resp <- tryCatch(httr::GET(url, httr::timeout(15)), error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) return(NULL)
+  content <- tryCatch(jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
+                                          simplifyDataFrame = FALSE),
+                      error = function(e) NULL)
+  if(is.null(content)) return(NULL)
+  content$stations
+}
+
+coops_fetch_chunk <- function(station_id, begin_date, end_date, product,
+                              datum = "MLLW", units = "metric",
+                              time_zone = "lst_ldt", interval = NULL) {
+  # CO-OPS API: dates as YYYYMMDD in URL
+  url <- "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+  query <- list(
+    product      = product,
+    application  = "WDFW_creel",
+    begin_date   = format(as.Date(begin_date), "%Y%m%d"),
+    end_date     = format(as.Date(end_date), "%Y%m%d"),
+    datum        = datum,
+    station      = station_id,
+    time_zone    = time_zone,
+    units        = units,
+    format       = "json"
+  )
+  if(!is.null(interval)) query$interval <- interval
+
+  resp <- tryCatch(httr::GET(url, query = query, httr::timeout(30)),
+                   error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) {
+    return(tibble(t = as.POSIXct(character()), v = numeric(), station = character(),
+                  product = character(), error = TRUE))
+  }
+  txt <- httr::content(resp, "text", encoding = "UTF-8")
+  js  <- tryCatch(jsonlite::fromJSON(txt), error = function(e) NULL)
+  if(is.null(js)) {
+    return(tibble(t = as.POSIXct(character()), v = numeric(), station = character(),
+                  product = character(), error = TRUE))
+  }
+  # API returns either $data (success) or $error (failure)
+  if(!is.null(js$error)) {
+    return(tibble(t = as.POSIXct(character()), v = numeric(), station = character(),
+                  product = character(), error = TRUE))
+  }
+  dat <- as_tibble(js$data)
+  if(nrow(dat) == 0) {
+    return(tibble(t = as.POSIXct(character()), v = numeric(), station = character(),
+                  product = character(), error = FALSE))
+  }
+  dat <- dat |>
+    mutate(
+      t       = as.POSIXct(t, tz = params$local_tz, format = "%Y-%m-%d %H:%M"),
+      v       = suppressWarnings(as.numeric(v)),
+      station = station_id,
+      product = product,
+      error   = FALSE
+    ) |>
+    filter(!is.na(v)) |>
+    select(t, v, station, product, error)
+  dat
+}
+
+coops_fetch_range <- function(station_id, begin_date, end_date,
+                              product = "water_level",
+                              chunk_days = 30) {
+  # Break into 30-day chunks for verified water_level; predictions can go longer
+  begin_date <- as.Date(begin_date); end_date <- as.Date(end_date)
+  chunks <- seq(begin_date, end_date, by = paste(chunk_days, "days"))
+  if(tail(chunks, 1) < end_date) chunks <- c(chunks, end_date)
+  starts <- head(chunks, -1); ends <- pmin(tail(chunks, -1), end_date)
+  # ensure pairs cover full range exactly once
+  starts[1] <- begin_date
+
+  interval <- if(product == "predictions") "h" else NULL  # hourly predictions
+  out <- purrr::map2_dfr(starts, ends, function(s, e) {
+    Sys.sleep(0.1)  # be polite to the API
+    coops_fetch_chunk(station_id, s, e, product = product, interval = interval,
+                      datum = params$tide_datum, units = params$tide_units,
+                      time_zone = params$tide_timezone)
+  })
+  out
+}
+
+fetch_tide_with_fallback <- function(stations_df, begin_date, end_date,
+                                     cache_dir = NULL, force_refetch = FALSE) {
+  # Ordered by priority; loop until we have a complete time series
+  cache_key <- sprintf("tide_%s_%s.rds", as.Date(begin_date), as.Date(end_date))
+  cache_file <- file.path(cache_dir, cache_key)
+  if(!force_refetch && !is.null(cache_dir) && file.exists(cache_file)) {
+    cat(sprintf("  Tide: loading from cache %s\n", basename(cache_file)))
+    return(readRDS(cache_file))
+  }
+
+  stations_df <- stations_df |> arrange(priority)
+  all_obs <- tibble()
+  station_log <- tibble()
+
+  for(i in seq_len(nrow(stations_df))) {
+    st <- stations_df[i, ]
+    cat(sprintf("  Trying CO-OPS station %s (%s)...\n", st$id, st$name))
+
+    meta <- coops_station_metadata(st$id)
+    if(is.null(meta)) {
+      station_log <- bind_rows(station_log, tibble(station = st$id, status = "metadata_unavailable"))
+      next
+    }
+
+    # Fetch verified observations
+    obs <- coops_fetch_range(st$id, begin_date, end_date, product = "water_level")
+    if(nrow(obs) > 0 && !any(obs$error)) {
+      obs$source <- "verified"
+      all_obs <- bind_rows(all_obs, obs)
+      station_log <- bind_rows(station_log,
+                               tibble(station = st$id, status = "verified_ok",
+                                      n_obs = nrow(obs)))
+
+      # Expected hourly obs for this window
+      expected_n <- as.integer(as.Date(end_date) - as.Date(begin_date) + 1) * 24
+      coverage <- nrow(obs) / expected_n
+      cat(sprintf("    Got %d verified hourly obs (%.0f%% of expected)\n",
+                  nrow(obs), coverage * 100))
+      if(coverage > 0.9) break  # good enough
+    } else {
+      station_log <- bind_rows(station_log, tibble(station = st$id, status = "verified_failed"))
+    }
+  }
+
+  # If still have gaps, supplement with predictions from primary station
+  if(nrow(all_obs) == 0) {
+    # Fall back entirely to predictions from primary
+    st <- stations_df[1, ]
+    cat(sprintf("  All verified fetches failed. Using predictions from %s.\n", st$id))
+    preds <- coops_fetch_range(st$id, begin_date, end_date, product = "predictions")
+    preds$source <- "prediction"
+    all_obs <- preds
+  } else {
+    # Fill gaps: any hour missing from verified -> add prediction
+    have_hours <- all_obs |>
+      mutate(hour_key = format(t, "%Y-%m-%d %H:00")) |>
+      pull(hour_key) |> unique()
+    all_hours <- format(seq(as.POSIXct(begin_date, tz = params$local_tz),
+                            as.POSIXct(paste(end_date, "23:00"), tz = params$local_tz),
+                            by = "hour"), "%Y-%m-%d %H:00")
+    missing_n <- sum(!all_hours %in% have_hours)
+    if(missing_n > 0) {
+      cat(sprintf("  Filling %d missing hours with predictions...\n", missing_n))
+      st <- stations_df[1, ]
+      preds <- coops_fetch_range(st$id, begin_date, end_date, product = "predictions")
+      if(nrow(preds) > 0) {
+        preds <- preds |>
+          mutate(hour_key = format(t, "%Y-%m-%d %H:00")) |>
+          filter(!hour_key %in% have_hours) |>
+          select(-hour_key) |>
+          mutate(source = "prediction")
+        all_obs <- bind_rows(all_obs, preds) |> arrange(t)
+      }
+    }
+  }
+
+  result <- list(obs = all_obs, station_log = station_log)
+  if(!is.null(cache_dir)) saveRDS(result, cache_file)
+  result
+}
+
+
+# ===========================================================================
+# 2. NDBC BUOY DATA — offshore wind and wave
+#
+# NDBC serves fixed-width text files by buoy and year.
+# URL: https://www.ndbc.noaa.gov/view_text_file.php?filename={id}h{year}.txt.gz&dir=data/historical/stdmet/
+# For the current year (still active): https://www.ndbc.noaa.gov/data/realtime2/{id}.txt
+# ===========================================================================
+
+ndbc_fetch_historical <- function(buoy_id, year) {
+  url <- sprintf("https://www.ndbc.noaa.gov/view_text_file.php?filename=%sh%d.txt.gz&dir=data/historical/stdmet/",
+                 tolower(buoy_id), year)
+  resp <- tryCatch(httr::GET(url, httr::timeout(30)), error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) return(NULL)
+  txt <- httr::content(resp, "text", encoding = "UTF-8")
+  if(nchar(txt) < 100 || grepl("not found", tolower(txt))) return(NULL)
+
+  # NDBC format: two header rows (names and units), then space-separated data
+  lines <- strsplit(txt, "\n", fixed = TRUE)[[1]]
+  if(length(lines) < 3) return(NULL)
+  hdr <- strsplit(sub("^#", "", lines[1]), "\\s+")[[1]]
+  hdr <- hdr[nchar(hdr) > 0]
+
+  body <- paste(lines[3:length(lines)], collapse = "\n")
+  df <- tryCatch(read.table(textConnection(body), header = FALSE,
+                             col.names = hdr, stringsAsFactors = FALSE,
+                             na.strings = c("MM", "99", "999", "9999")),
+                 error = function(e) NULL)
+  if(is.null(df)) return(NULL)
+
+  # Columns can be YY MM DD hh mm or #YY MM DD hh mm; normalize
+  time_cols <- intersect(c("YY","YYYY","MM","DD","hh","mm"), names(df))
+  if(all(c("MM","DD","hh","mm") %in% names(df))) {
+    yr_col <- if("YYYY" %in% names(df)) df$YYYY else df$YY
+    # Older format uses YY (2-digit), newer uses YYYY (4-digit)
+    if(max(yr_col, na.rm = TRUE) < 100) yr_col <- yr_col + 1900L + (yr_col < 50) * 100L
+    df$t <- as.POSIXct(sprintf("%04d-%02d-%02d %02d:%02d",
+                               yr_col, df$MM, df$DD, df$hh, df$mm),
+                       tz = "UTC")
+    df$t <- with_tz(df$t, params$local_tz)
+  }
+
+  # Standardized fields we care about; column names vary year-to-year
+  df |>
+    mutate(
+      wind_dir_deg = suppressWarnings(as.numeric(.data[[first(intersect(c("WDIR","WD"), names(df)))]])),
+      wind_ms      = suppressWarnings(as.numeric(.data[[first(intersect(c("WSPD"), names(df)))]])),
+      gust_ms      = suppressWarnings(as.numeric(.data[[first(intersect(c("GST"), names(df)))]])),
+      wave_h_m     = suppressWarnings(as.numeric(.data[[first(intersect(c("WVHT"), names(df)))]])),
+      dom_pd_s     = suppressWarnings(as.numeric(.data[[first(intersect(c("DPD"), names(df)))]])),
+      avg_pd_s     = suppressWarnings(as.numeric(.data[[first(intersect(c("APD"), names(df)))]])),
+      mean_dir_deg = suppressWarnings(as.numeric(.data[[first(intersect(c("MWD"), names(df)))]])),
+      air_temp_c   = suppressWarnings(as.numeric(.data[[first(intersect(c("ATMP"), names(df)))]])),
+      sst_c        = suppressWarnings(as.numeric(.data[[first(intersect(c("WTMP"), names(df)))]])),
+      pressure_hpa = suppressWarnings(as.numeric(.data[[first(intersect(c("PRES"), names(df)))]]))
+    ) |>
+    select(t, any_of(c("wind_dir_deg","wind_ms","gust_ms","wave_h_m","dom_pd_s",
+                       "avg_pd_s","mean_dir_deg","air_temp_c","sst_c","pressure_hpa"))) |>
+    mutate(buoy = buoy_id) |>
+    filter(!is.na(t))
+}
+
+ndbc_fetch_realtime <- function(buoy_id) {
+  url <- sprintf("https://www.ndbc.noaa.gov/data/realtime2/%s.txt", toupper(buoy_id))
+  resp <- tryCatch(httr::GET(url, httr::timeout(20)), error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) return(NULL)
+  txt <- httr::content(resp, "text", encoding = "UTF-8")
+  lines <- strsplit(txt, "\n", fixed = TRUE)[[1]]
+  if(length(lines) < 3) return(NULL)
+  hdr <- strsplit(sub("^#", "", lines[1]), "\\s+")[[1]]
+  hdr <- hdr[nchar(hdr) > 0]
+  body <- paste(lines[3:length(lines)], collapse = "\n")
+  df <- tryCatch(read.table(textConnection(body), header = FALSE,
+                             col.names = hdr, stringsAsFactors = FALSE,
+                             na.strings = c("MM", "99", "999", "9999")),
+                 error = function(e) NULL)
+  if(is.null(df) || nrow(df) == 0) return(NULL)
+  if(all(c("MM","DD","hh","mm") %in% names(df))) {
+    yr <- df$YY
+    if(max(yr, na.rm = TRUE) < 100) yr <- yr + 2000L
+    df$t <- with_tz(as.POSIXct(sprintf("%04d-%02d-%02d %02d:%02d",
+                                       yr, df$MM, df$DD, df$hh, df$mm), tz = "UTC"),
+                    params$local_tz)
+  }
+  df |>
+    transmute(
+      t,
+      wind_dir_deg = suppressWarnings(as.numeric(.data[["WDIR"]])),
+      wind_ms      = suppressWarnings(as.numeric(.data[["WSPD"]])),
+      gust_ms      = suppressWarnings(as.numeric(.data[["GST"]])),
+      wave_h_m     = suppressWarnings(as.numeric(.data[["WVHT"]])),
+      air_temp_c   = suppressWarnings(as.numeric(.data[["ATMP"]])),
+      sst_c        = suppressWarnings(as.numeric(.data[["WTMP"]])),
+      pressure_hpa = suppressWarnings(as.numeric(.data[["PRES"]])),
+      buoy         = buoy_id
+    ) |>
+    filter(!is.na(t))
+}
+
+fetch_buoy_with_fallback <- function(buoys_df, begin_date, end_date,
+                                     cache_dir = NULL, force_refetch = FALSE) {
+  cache_file <- file.path(cache_dir, sprintf("ndbc_%s_%s.rds", begin_date, end_date))
+  if(!force_refetch && !is.null(cache_dir) && file.exists(cache_file)) {
+    cat(sprintf("  NDBC: loading from cache %s\n", basename(cache_file)))
+    return(readRDS(cache_file))
+  }
+
+  buoys_df <- buoys_df |> arrange(priority)
+  years <- year(as.Date(begin_date)):year(as.Date(end_date))
+  current_year <- year(Sys.Date())
+
+  all_obs <- tibble()
+  station_log <- tibble()
+
+  for(i in seq_len(nrow(buoys_df))) {
+    bu <- buoys_df[i, ]
+    cat(sprintf("  Trying NDBC buoy %s (%s)...\n", bu$id, bu$name))
+    buoy_obs <- tibble()
+
+    for(yr in years) {
+      if(yr < current_year) {
+        d <- ndbc_fetch_historical(bu$id, yr)
+        if(!is.null(d) && nrow(d) > 0) buoy_obs <- bind_rows(buoy_obs, d)
+      } else {
+        # Realtime feed for current/recent data
+        d <- ndbc_fetch_realtime(bu$id)
+        if(!is.null(d) && nrow(d) > 0) buoy_obs <- bind_rows(buoy_obs, d)
+      }
+    }
+
+    if(nrow(buoy_obs) > 0) {
+      buoy_obs <- buoy_obs |> filter(t >= as.POSIXct(begin_date, tz = params$local_tz),
+                                      t <= as.POSIXct(paste(end_date, "23:59"),
+                                                       tz = params$local_tz))
+    }
+
+    if(nrow(buoy_obs) == 0) {
+      station_log <- bind_rows(station_log,
+                               tibble(buoy = bu$id, status = "unavailable", n_obs = 0))
+      next
+    }
+
+    station_log <- bind_rows(station_log,
+                             tibble(buoy = bu$id, status = "ok", n_obs = nrow(buoy_obs)))
+    # Assess coverage; if under 50%, keep trying next buoy
+    expected_n <- as.integer(as.Date(end_date) - as.Date(begin_date) + 1) * 24
+    coverage <- nrow(buoy_obs) / expected_n
+    cat(sprintf("    %d obs (%.0f%% of expected)\n", nrow(buoy_obs), coverage * 100))
+
+    all_obs <- bind_rows(all_obs, buoy_obs)
+    if(coverage > 0.5) break  # primary buoy has acceptable coverage
+  }
+
+  result <- list(obs = all_obs, station_log = station_log)
+  if(!is.null(cache_dir)) saveRDS(result, cache_file)
+  result
+}
+
+
+# ===========================================================================
+# 3. ASOS / GSOD LAND STATION WEATHER
+#
+# ASOS via Iowa State IEM (free, public): https://mesonet.agron.iastate.edu/
+#   Endpoint: https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?...
+#
+# GSOD via NCEI: https://www.ncei.noaa.gov/access/services/data/v1
+#   Fallback: daily summaries only; sufficient if sub-hourly ASOS fails.
+# ===========================================================================
+
+iem_asos_fetch <- function(station_id, begin_date, end_date) {
+  url <- "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
+  query <- list(
+    station = toupper(station_id),
+    data    = "tmpc,dwpc,sknt,gust,drct,p01m,vsby,skyc1",
+    year1   = year(as.Date(begin_date)),  month1 = month(as.Date(begin_date)),
+    day1    = day(as.Date(begin_date)),
+    year2   = year(as.Date(end_date)),    month2 = month(as.Date(end_date)),
+    day2    = day(as.Date(end_date)),
+    tz      = "Etc/UTC",
+    format  = "onlycomma",
+    latlon  = "no",
+    missing = "M",
+    trace   = "T",
+    direct  = "no",
+    report_type = 3
+  )
+  resp <- tryCatch(httr::GET(url, query = query, httr::timeout(60)),
+                   error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) return(NULL)
+  txt <- httr::content(resp, "text", encoding = "UTF-8")
+  df <- tryCatch(read.csv(textConnection(txt), na.strings = c("M","")),
+                 error = function(e) NULL)
+  if(is.null(df) || nrow(df) == 0) return(NULL)
+
+  df |>
+    transmute(
+      t           = with_tz(as.POSIXct(valid, tz = "UTC"), params$local_tz),
+      temp_c      = suppressWarnings(as.numeric(tmpc)),
+      dewpt_c     = suppressWarnings(as.numeric(dwpc)),
+      wind_ms     = suppressWarnings(as.numeric(sknt)) * 0.514444,  # knots to m/s
+      gust_ms     = suppressWarnings(as.numeric(gust)) * 0.514444,
+      wind_dir_deg = suppressWarnings(as.numeric(drct)),
+      precip_mm   = suppressWarnings(as.numeric(p01m)),
+      visibility_mi = suppressWarnings(as.numeric(vsby)),
+      station_id  = station_id
+    ) |>
+    filter(!is.na(t))
+}
+
+gsod_fetch <- function(station_id, begin_date, end_date) {
+  # NCEI v1 data access. GSOD station IDs are typically "USAF-WBAN" (e.g., 727923-24227)
+  url <- "https://www.ncei.noaa.gov/access/services/data/v1"
+  query <- list(
+    dataset    = "global-summary-of-the-day",
+    stations   = station_id,
+    startDate  = format(as.Date(begin_date), "%Y-%m-%d"),
+    endDate    = format(as.Date(end_date), "%Y-%m-%d"),
+    format     = "json",
+    units      = "metric"
+  )
+  resp <- tryCatch(httr::GET(url, query = query, httr::timeout(60)),
+                   error = function(e) NULL)
+  if(is.null(resp) || httr::status_code(resp) != 200) return(NULL)
+  txt <- httr::content(resp, "text", encoding = "UTF-8")
+  js  <- tryCatch(jsonlite::fromJSON(txt), error = function(e) NULL)
+  if(is.null(js) || length(js) == 0) return(NULL)
+  as_tibble(js) |>
+    mutate(
+      date = as.Date(DATE),
+      temp_c_mean = suppressWarnings(as.numeric(TEMP)),
+      wind_ms_mean = suppressWarnings(as.numeric(WDSP)) * 0.514444,
+      wind_ms_max  = suppressWarnings(as.numeric(MXSPD)) * 0.514444,
+      gust_ms_max  = suppressWarnings(as.numeric(GUST))  * 0.514444,
+      precip_mm    = suppressWarnings(as.numeric(PRCP)) * 25.4,  # inches to mm
+      station_id   = station_id
+    ) |>
+    select(any_of(c("date","temp_c_mean","wind_ms_mean","wind_ms_max",
+                    "gust_ms_max","precip_mm","station_id")))
+}
+
+fetch_asos_with_fallback <- function(asos_df, gsod_fallback_ids,
+                                     begin_date, end_date,
+                                     cache_dir = NULL, force_refetch = FALSE) {
+  cache_file <- file.path(cache_dir, sprintf("asos_%s_%s.rds", begin_date, end_date))
+  if(!force_refetch && !is.null(cache_dir) && file.exists(cache_file)) {
+    cat(sprintf("  ASOS: loading from cache %s\n", basename(cache_file)))
+    return(readRDS(cache_file))
+  }
+
+  asos_df <- asos_df |> arrange(priority)
+  station_log <- tibble()
+  hourly <- tibble()
+
+  for(i in seq_len(nrow(asos_df))) {
+    st <- asos_df[i, ]
+    cat(sprintf("  Trying ASOS %s (%s)...\n", st$id, st$name))
+    d <- iem_asos_fetch(st$id, begin_date, end_date)
+    if(!is.null(d) && nrow(d) > 0) {
+      hourly <- d
+      station_log <- bind_rows(station_log,
+                               tibble(station = st$id, status = "ok_asos", n_obs = nrow(d)))
+      break
+    } else {
+      station_log <- bind_rows(station_log,
+                               tibble(station = st$id, status = "failed_asos", n_obs = 0))
+    }
+  }
+
+  daily_gsod <- tibble()
+  if(nrow(hourly) == 0) {
+    # GSOD fallback
+    for(sid in gsod_fallback_ids) {
+      cat(sprintf("  Trying GSOD %s...\n", sid))
+      d <- gsod_fetch(sid, begin_date, end_date)
+      if(!is.null(d) && nrow(d) > 0) {
+        daily_gsod <- d
+        station_log <- bind_rows(station_log,
+                                 tibble(station = sid, status = "ok_gsod", n_obs = nrow(d)))
+        break
+      } else {
+        station_log <- bind_rows(station_log,
+                                 tibble(station = sid, status = "failed_gsod", n_obs = 0))
+      }
+    }
+  }
+
+  result <- list(hourly = hourly, daily_gsod = daily_gsod, station_log = station_log)
+  if(!is.null(cache_dir)) saveRDS(result, cache_file)
+  result
+}
+
+
+# ===========================================================================
+# 4. DAILY COVARIATE CONSTRUCTION
+#
+# Inputs: hourly tide obs, hourly buoy met, hourly ASOS met (or daily GSOD)
+# Output: one row per date with named covariates.
+# ===========================================================================
+
+build_sun_calendar <- function(dates, lat, lon, tz) {
+  sun <- suncalc::getSunlightTimes(date = as.Date(dates), lat = lat, lon = lon, tz = tz)
+  tibble(
+    event_date     = as.Date(dates),
+    dawn           = as.POSIXct(sun$dawn, tz = tz),
+    dusk           = as.POSIXct(sun$dusk, tz = tz),
+    daylight_hours = as.numeric(difftime(sun$dusk, sun$dawn, units = "hours"))
+  )
+}
+
+# ---- Tide daily features ----
+# Strategy: identify local max/min (high/low tide) per day; derive features.
+# Daytime is "between dawn and dusk."
+#
+# Features (all daily):
+#   tide_max_m            Max tide height (m) over 24h
+#   tide_min_m            Min tide height (m) over 24h
+#   tide_range_m          tide_max_m - tide_min_m (spring-neap proxy)
+#   daytime_tide_max_m
+#   daytime_tide_min_m
+#   daytime_tide_range_m
+#   daytime_high_hour     Hour of the maximum tide within daylight
+#   n_high_tides_daytime  Count of local maxima during daylight
+#   flood_hours_daytime   Hours during daylight when tide is rising
+#   tidal_energy          sqrt(sum of squared dh/dt), proxy for current energy
+# ---------------------------------------------------------------------------
+compute_tide_daily_features <- function(tide_obs, sun_cal) {
+  if(nrow(tide_obs) == 0) {
+    warning("No tide observations; returning NA features.")
+    return(sun_cal |>
+             mutate(tide_max_m = NA_real_, tide_min_m = NA_real_, tide_range_m = NA_real_,
+                    daytime_tide_max_m = NA_real_, daytime_tide_min_m = NA_real_,
+                    daytime_tide_range_m = NA_real_, daytime_high_hour = NA_real_,
+                    n_high_tides_daytime = NA_real_, flood_hours_daytime = NA_real_,
+                    tidal_energy = NA_real_) |>
+             select(-dawn, -dusk, -daylight_hours))
+  }
+
+  td <- tide_obs |>
+    mutate(
+      event_date = as.Date(format(t, "%Y-%m-%d")),
+      hour = hour(t) + minute(t) / 60
+    ) |>
+    arrange(t)
+
+  # Full-day extrema
+  daily_full <- td |>
+    group_by(event_date) |>
+    summarise(
+      tide_max_m = max(v, na.rm = TRUE),
+      tide_min_m = min(v, na.rm = TRUE),
+      tide_range_m = tide_max_m - tide_min_m,
+      .groups = "drop"
+    )
+
+  # Daytime subset
+  td_with_sun <- td |> left_join(sun_cal, by = "event_date") |>
+    mutate(in_daylight = t >= dawn & t <= dusk)
+  daytime <- td_with_sun |> filter(in_daylight) |>
+    group_by(event_date) |>
+    summarise(
+      daytime_tide_max_m = if(n() > 0) max(v, na.rm = TRUE) else NA_real_,
+      daytime_tide_min_m = if(n() > 0) min(v, na.rm = TRUE) else NA_real_,
+      daytime_tide_range_m = daytime_tide_max_m - daytime_tide_min_m,
+      daytime_high_hour = hour[which.max(v)],
+      .groups = "drop"
+    )
+
+  # Local maxima and flood (rising) hours during daylight
+  flood_flags <- td_with_sun |>
+    arrange(event_date, t) |>
+    group_by(event_date) |>
+    mutate(
+      dv = c(NA_real_, diff(v)),
+      is_rising = dv > 0
+    ) |>
+    ungroup()
+
+  flood_daytime <- flood_flags |> filter(in_daylight, !is.na(is_rising)) |>
+    group_by(event_date) |>
+    summarise(
+      flood_hours_daytime = sum(is_rising),  # assuming hourly sampling
+      .groups = "drop"
+    )
+
+  # Detect local maxima via sign change in dv; count daytime peaks
+  peaks <- flood_flags |>
+    group_by(event_date) |>
+    mutate(
+      next_dv = lead(dv),
+      is_peak = (dv > 0) & (!is.na(next_dv) & next_dv < 0)
+    ) |>
+    filter(in_daylight, is_peak) |>
+    summarise(n_high_tides_daytime = n(), .groups = "drop")
+
+  # Tidal energy: sqrt(sum dv^2)
+  energy <- flood_flags |>
+    group_by(event_date) |>
+    summarise(tidal_energy = sqrt(sum(dv^2, na.rm = TRUE)), .groups = "drop")
+
+  sun_cal |>
+    left_join(daily_full, by = "event_date") |>
+    left_join(daytime, by = "event_date") |>
+    left_join(flood_daytime, by = "event_date") |>
+    left_join(peaks, by = "event_date") |>
+    left_join(energy, by = "event_date") |>
+    mutate(
+      n_high_tides_daytime = replace_na(n_high_tides_daytime, 0L),
+      flood_hours_daytime = replace_na(flood_hours_daytime, NA_real_)
+    ) |>
+    select(-dawn, -dusk, -daylight_hours)
+}
+
+# ---- Weather daily features ----
+# Prefers NDBC (offshore) for wave/wind, supplements ASOS for temp/precip.
+# If only daily GSOD is available, uses its precomputed daily stats.
+compute_weather_daily_features <- function(buoy_obs, asos_hourly, daily_gsod, sun_cal) {
+  buoy_daily <- tibble(event_date = sun_cal$event_date,
+                       wind_ms_buoy_mean = NA_real_, gust_ms_buoy_max = NA_real_,
+                       wave_h_m_mean = NA_real_, wave_h_m_max = NA_real_,
+                       sst_c_mean = NA_real_, pressure_hpa_mean = NA_real_)
+  if(nrow(buoy_obs) > 0) {
+    buoy_daily <- buoy_obs |>
+      mutate(event_date = as.Date(format(t, "%Y-%m-%d"))) |>
+      group_by(event_date) |>
+      summarise(
+        wind_ms_buoy_mean = mean(wind_ms, na.rm = TRUE),
+        gust_ms_buoy_max  = max(gust_ms, na.rm = TRUE),
+        wave_h_m_mean     = mean(wave_h_m, na.rm = TRUE),
+        wave_h_m_max      = max(wave_h_m, na.rm = TRUE),
+        sst_c_mean        = mean(sst_c, na.rm = TRUE),
+        pressure_hpa_mean = mean(pressure_hpa, na.rm = TRUE),
+        .groups = "drop"
+      )
+  }
+
+  asos_daily <- tibble(event_date = sun_cal$event_date,
+                       temp_c_min = NA_real_, temp_c_max = NA_real_,
+                       precip_mm_total = NA_real_,
+                       wind_ms_asos_mean = NA_real_,
+                       visibility_mi_min = NA_real_)
+  if(nrow(asos_hourly) > 0) {
+    asos_daily <- asos_hourly |>
+      mutate(event_date = as.Date(format(t, "%Y-%m-%d"))) |>
+      group_by(event_date) |>
+      summarise(
+        temp_c_min        = min(temp_c, na.rm = TRUE),
+        temp_c_max        = max(temp_c, na.rm = TRUE),
+        precip_mm_total   = sum(precip_mm, na.rm = TRUE),
+        wind_ms_asos_mean = mean(wind_ms, na.rm = TRUE),
+        visibility_mi_min = min(visibility_mi, na.rm = TRUE),
+        .groups = "drop"
+      )
+  } else if(nrow(daily_gsod) > 0) {
+    asos_daily <- daily_gsod |>
+      transmute(event_date = date,
+                temp_c_min = NA_real_, temp_c_max = temp_c_mean,  # GSOD gives mean only
+                precip_mm_total = precip_mm,
+                wind_ms_asos_mean = wind_ms_mean,
+                visibility_mi_min = NA_real_)
+  }
+
+  sun_cal |>
+    select(event_date) |>
+    left_join(buoy_daily, by = "event_date") |>
+    left_join(asos_daily, by = "event_date") |>
+    mutate(across(where(is.numeric), ~ifelse(is.infinite(.x), NA_real_, .x)))
+}
+
+
+# ---- Interview-level tide features (for boat departure hypothesis) ----
+# For each interviewed boat trip, attach:
+#   tide height at fishing_start_time (departure)
+#   tide phase: "rising" or "falling" in the hour containing departure
+#   Indicator: 1 if departure within ±2h of daytime high tide, else 0
+#
+# Aggregates to daily covariate: prop_boat_departures_on_flood (or near-high)
+# for inclusion as daily BSS covariate.
+# ----------------------------------------------------------------------------
+compute_interview_tide_features <- function(interview_df, tide_obs) {
+  if(nrow(interview_df) == 0 || nrow(tide_obs) == 0) {
+    return(list(per_interview = tibble(), daily = tibble()))
+  }
+
+  # --- Construct a departure timestamp ---------------------------------------
+  # Priority: (1) an explicit fishing_start_time if the schema has one;
+  # (2) otherwise a proxy of interview_time - hours_fished for completed trips,
+  # which the crab export supports (interview_time is an Excel serial datetime,
+  # so its fractional part is the local time of day). The proxy assumes the
+  # interview is taken at the end of the trip; it is restricted to completed
+  # trips, and any lag between return and interview biases departure later.
+  # (3) If neither is available (or the proxy is disabled), return empty so the
+  # daily tide/weather covariates and the GAM screens still run.
+  use_proxy <- isTRUE(params$use_interview_departure_proxy %||% TRUE)
+  has_start <- "fishing_start_time" %in% names(interview_df) &&
+               any(!is.na(interview_df$fishing_start_time))
+  can_proxy <- use_proxy &&
+               all(c("interview_time", "hours_fished") %in% names(interview_df)) &&
+               any(!is.na(suppressWarnings(as.numeric(interview_df$interview_time))) &
+                   !is.na(interview_df$hours_fished))
+
+  if(has_start) {
+    int <- interview_df |>
+      filter(!is.na(fishing_start_time)) |>
+      mutate(depart_posix = as.POSIXct(paste(event_date, fishing_start_time),
+                                       format = "%Y-%m-%d %H:%M",
+                                       tz = params$local_tz)) |>
+      filter(!is.na(depart_posix))
+  } else if(can_proxy) {
+    message("  compute_interview_tide_features: no fishing_start_time; using the ",
+            "interview_time - hours_fished departure proxy for completed trips ",
+            "(assumes the interview is at trip end). Set ",
+            "params$use_interview_departure_proxy = FALSE to disable.")
+    int <- interview_df |>
+      mutate(interview_time = suppressWarnings(as.numeric(interview_time))) |>
+      filter(!is.na(interview_time), !is.na(hours_fished),
+             trip_status %in% "Complete") |>
+      mutate(
+        time_of_day_sec = (interview_time - floor(interview_time)) * 86400,
+        depart_posix = as.POSIXct(paste(event_date, "00:00:00"), tz = params$local_tz) +
+                       time_of_day_sec - hours_fished * 3600
+      ) |>
+      filter(!is.na(depart_posix))
+  } else {
+    message("  compute_interview_tide_features: no fishing_start_time and no usable ",
+            "interview_time/hours_fished (or proxy disabled); skipping departure-tide ",
+            "features. Daily tide/weather covariates and the GAM screens are unaffected.")
+    return(list(per_interview = tibble(), daily = tibble()))
+  }
+
+  if(nrow(int) == 0) return(list(per_interview = tibble(), daily = tibble()))
+
+  # Attach nearest hourly tide obs and compute phase from neighboring values
+  tide_sorted <- tide_obs |> arrange(t)
+
+  attach_tide <- function(tstamps) {
+    # For each tstamp find nearest tide obs by time
+    idx <- findInterval(as.numeric(tstamps), as.numeric(tide_sorted$t))
+    idx <- pmax(pmin(idx, nrow(tide_sorted) - 1), 1)
+    h_at <- tide_sorted$v[idx]
+    h_next <- tide_sorted$v[idx + 1]
+    rising <- (h_next > h_at)
+    tibble(tide_height_at_depart = h_at, tide_rising_at_depart = rising)
+  }
+
+  tide_feats <- attach_tide(int$depart_posix)
+  per_int <- bind_cols(int, tide_feats)
+
+  # Near-high-tide indicator: within ±2h of nearest local max in daytime
+  sun_cal <- build_sun_calendar(unique(per_int$event_date),
+                                 params$centroid_lat, params$centroid_lon,
+                                 params$local_tz)
+  td_with_sun <- tide_sorted |>
+    mutate(event_date = as.Date(format(t, "%Y-%m-%d"))) |>
+    left_join(sun_cal, by = "event_date") |>
+    mutate(in_daylight = t >= dawn & t <= dusk)
+
+  peaks <- td_with_sun |>
+    arrange(event_date, t) |>
+    group_by(event_date) |>
+    mutate(dv = c(NA_real_, diff(v)),
+           next_dv = lead(dv),
+           is_peak = (dv > 0) & (!is.na(next_dv) & next_dv < 0)) |>
+    filter(in_daylight, is_peak) |>
+    ungroup() |>
+    select(event_date, peak_t = t)
+
+  per_int <- per_int |>
+    left_join(peaks |> group_by(event_date) |>
+                summarise(peak_times = list(peak_t), .groups = "drop"),
+              by = "event_date") |>
+    mutate(
+      near_high = purrr::map2_lgl(depart_posix, peak_times, function(dt, pts) {
+        if(is.null(pts) || length(pts) == 0) return(NA)
+        any(abs(as.numeric(difftime(dt, pts, units = "hours"))) <= 2)
+      })
+    )
+
+  daily <- per_int |>
+    filter(population == "private_boat") |>
+    group_by(event_date) |>
+    summarise(
+      n_boat_interviews = n(),
+      prop_depart_on_flood = mean(tide_rising_at_depart, na.rm = TRUE),
+      prop_depart_near_high = mean(near_high, na.rm = TRUE),
+      mean_depart_tide_height_m = mean(tide_height_at_depart, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  list(per_interview = per_int |>
+         select(interview_id, event_date, population, depart_posix,
+                tide_height_at_depart, tide_rising_at_depart, near_high),
+       daily = daily)
+}
+
+
+# ===========================================================================
+# 4.5 BOAT DEPARTURE CLUSTERING TEST
+# Tests whether boat departure times cluster non-uniformly around tide phase,
+# independently of effort modeling. Null: uniform distribution across the
+# daytime tidal cycle. This is the direct test of the reformulated H1.
+# ===========================================================================
+
+departure_clustering_test <- function(per_interview_df, tide_obs, sun_cal) {
+  if(nrow(per_interview_df) == 0) return(list(test = NULL))
+  boat <- per_interview_df |> filter(population == "private_boat")
+  if(nrow(boat) < 20) {
+    return(list(test = NULL, note = sprintf("Only %d boat interviews; test skipped.",
+                                            nrow(boat))))
+  }
+
+  # Observed count of departures on flood/rising
+  n <- nrow(boat)
+  k_flood <- sum(boat$tide_rising_at_depart, na.rm = TRUE)
+
+  # Expected flood fraction (in daytime): rough estimate = 0.5 by symmetry,
+  # BUT daytime tide phase is not uniform within the calendar. Estimate the
+  # true expected flood fraction during actual fishable hours from the tide
+  # record itself.
+  tide_daytime <- tide_obs |>
+    mutate(event_date = as.Date(format(t, "%Y-%m-%d"))) |>
+    left_join(sun_cal, by = "event_date") |>
+    filter(t >= dawn & t <= dusk) |>
+    arrange(t) |>
+    mutate(dv = c(NA_real_, diff(v))) |>
+    filter(!is.na(dv))
+  expected_flood_fraction <- mean(tide_daytime$dv > 0, na.rm = TRUE)
+
+  # One-sided binomial test
+  bt <- binom.test(k_flood, n, p = expected_flood_fraction, alternative = "greater")
+
+  tibble(
+    n_boat_interviews = n,
+    k_departures_rising = k_flood,
+    observed_fraction = k_flood / n,
+    expected_fraction_given_daylight = expected_flood_fraction,
+    binomial_p_value = bt$p.value,
+    binomial_ci_lo = bt$conf.int[1],
+    binomial_ci_hi = bt$conf.int[2]
+  )
+}
+
+
+# ===========================================================================
+# 5. LAYER B  —  Daily GAM screen
+#
+# Purpose: rapidly identify which daily tide/weather covariates carry
+# signal beyond day-of-year seasonality and weekend/holiday indicators.
+# GAMs provide a flexible non-parametric fit that avoids imposing a
+# functional form; smooth terms with edf near 1 that are significant
+# suggest near-linear effects suitable for the BSS log-linear predictor.
+#
+# Outputs:
+#   effort_gam, cpue_gam         fitted mgcv::gam objects
+#   effort_selected_features    vector of candidate covariates to carry
+#                                forward into BSS for effort
+#   cpue_selected_features       same for CPUE
+# ===========================================================================
+
+gam_screen_effort <- function(effort_daily, covariate_df, population) {
+  merged <- effort_daily |>
+    inner_join(covariate_df, by = "event_date") |>
+    mutate(
+      yday = yday(event_date),
+      is_weekend = as.integer(weekdays(event_date) %in% params$days_wkend),
+      is_holiday = as.integer(event_date %in% crabbing_holiday_dates)
+    ) |>
+    filter(!is.na(mean_count))
+
+  cat(sprintf("  GAM effort screen (%s): %d daily obs\n", population, nrow(merged)))
+  if(nrow(merged) < 30) {
+    cat("    Insufficient data for GAM; skipping.\n")
+    return(list(model = NULL, selected = character()))
+  }
+
+  # Candidate covariates for effort
+  candidates <- c("tide_range_m","daytime_tide_range_m","daytime_high_hour",
+                  "n_high_tides_daytime","flood_hours_daytime","tidal_energy",
+                  "wind_ms_buoy_mean","gust_ms_buoy_max","wave_h_m_mean","wave_h_m_max",
+                  "precip_mm_total","temp_c_max",
+                  "prop_depart_on_flood","prop_depart_near_high",
+                  "mean_depart_tide_height_m")
+  available <- intersect(candidates, names(merged))
+  # Drop near-constant or mostly NA covariates
+  available <- available[sapply(merged[available], function(x)
+    sum(!is.na(x)) >= 0.5 * nrow(merged) && sd(x, na.rm = TRUE) > 1e-6)]
+
+  if(length(available) == 0) {
+    cat("    No available covariates with sufficient variation.\n")
+    return(list(model = NULL, selected = character()))
+  }
+
+  # Interview-derived departure covariates only meaningful for boats
+  if(population != "private_boat") {
+    available <- setdiff(available, c("prop_depart_on_flood",
+                                      "prop_depart_near_high",
+                                      "mean_depart_tide_height_m"))
+  }
+
+  smooth_terms <- paste0("s(", available, ", k = 5)")
+  rhs <- paste(c("is_weekend", "is_holiday", "s(yday, k = 8)", smooth_terms),
+               collapse = " + ")
+
+  formula <- as.formula(paste("mean_count ~", rhs))
+
+  fit <- tryCatch(
+    mgcv::gam(formula, family = quasipoisson(link = "log"), data = merged,
+              method = "REML", select = TRUE),
+    error = function(e) {cat(sprintf("    GAM error: %s\n", e$message)); NULL}
+  )
+
+  if(is.null(fit)) return(list(model = NULL, selected = character()))
+
+  s_tab <- as_tibble(summary(fit)$s.table, rownames = "term")
+  p_tab <- as_tibble(summary(fit)$p.table, rownames = "term")
+
+  keep <- s_tab |>
+    mutate(var = gsub("s\\(|,.*|\\)","", term)) |>
+    filter(var %in% available, `p-value` < params$gam_p_threshold)
+
+  selected <- keep$var
+  cat(sprintf("    Covariates passing screen: %s\n",
+              if(length(selected) > 0) paste(selected, collapse = ", ") else "none"))
+
+  list(model = fit, summary_smooth = s_tab, summary_param = p_tab,
+       selected = selected, data = merged)
+}
+
+gam_screen_cpue <- function(interview_df, covariate_df, population) {
+  if(nrow(interview_df) == 0) return(list(model = NULL, selected = character()))
+
+  hrs_col <- if(population == "private_boat") "gear_time_total" else "fishing_time_total"
+  daily <- interview_df |>
+    filter(!is.na(.data[[hrs_col]]), .data[[hrs_col]] > 0, dungeness_kept >= 0) |>
+    group_by(event_date) |>
+    summarise(
+      catch = sum(dungeness_kept, na.rm = TRUE),
+      hours = sum(.data[[hrs_col]], na.rm = TRUE),
+      n_int = n(),
+      .groups = "drop"
+    ) |>
+    mutate(log_hours = log(hours))
+
+  merged <- daily |>
+    inner_join(covariate_df, by = "event_date") |>
+    mutate(
+      yday = yday(event_date),
+      is_weekend = as.integer(weekdays(event_date) %in% params$days_wkend),
+      is_holiday = as.integer(event_date %in% crabbing_holiday_dates)
+    )
+
+  cat(sprintf("  GAM CPUE screen (%s): %d daily obs\n", population, nrow(merged)))
+  if(nrow(merged) < 30) {
+    cat("    Insufficient data for GAM; skipping.\n")
+    return(list(model = NULL, selected = character()))
+  }
+
+  # Candidate covariates for CPUE (tide features primary; weather secondary)
+  candidates <- c("tide_range_m","daytime_tide_range_m","daytime_high_hour",
+                  "n_high_tides_daytime","flood_hours_daytime","tidal_energy",
+                  "daytime_tide_max_m","daytime_tide_min_m",
+                  "wind_ms_buoy_mean","wave_h_m_mean",
+                  "sst_c_mean","pressure_hpa_mean",
+                  "precip_mm_total")
+  available <- intersect(candidates, names(merged))
+  available <- available[sapply(merged[available], function(x)
+    sum(!is.na(x)) >= 0.5 * nrow(merged) && sd(x, na.rm = TRUE) > 1e-6)]
+
+  if(length(available) == 0) return(list(model = NULL, selected = character()))
+
+  smooth_terms <- paste0("s(", available, ", k = 5)")
+  rhs <- paste(c("is_weekend", "is_holiday", "s(yday, k = 8)", smooth_terms),
+               collapse = " + ")
+  formula <- as.formula(paste("catch ~ offset(log_hours) +", rhs))
+
+  fit <- tryCatch(
+    mgcv::gam(formula, family = quasipoisson(link = "log"), data = merged,
+              method = "REML", select = TRUE),
+    error = function(e) {cat(sprintf("    GAM error: %s\n", e$message)); NULL}
+  )
+  if(is.null(fit)) return(list(model = NULL, selected = character()))
+
+  s_tab <- as_tibble(summary(fit)$s.table, rownames = "term")
+  p_tab <- as_tibble(summary(fit)$p.table, rownames = "term")
+
+  keep <- s_tab |>
+    mutate(var = gsub("s\\(|,.*|\\)","", term)) |>
+    filter(var %in% available, `p-value` < params$gam_p_threshold)
+
+  selected <- keep$var
+  cat(sprintf("    Covariates passing screen: %s\n",
+              if(length(selected) > 0) paste(selected, collapse = ", ") else "none"))
+
+  list(model = fit, summary_smooth = s_tab, summary_param = p_tab,
+       selected = selected, data = merged)
+}
+
+
+# ===========================================================================
+# 6. COVARIATE MATRIX ASSEMBLY
+#
+# Build X_E and X_C as centered/standardized matrices, check multicollinearity
+# via VIF, drop worst offenders until all VIF < params$vif_max.
+# ===========================================================================
+
+build_covariate_matrix <- function(selected_features, covariate_df, date_vec) {
+  if(length(selected_features) == 0) {
+    return(list(X = matrix(0, nrow = length(date_vec), ncol = 0),
+                features = character(), means = numeric(), sds = numeric()))
+  }
+
+  df <- tibble(event_date = date_vec) |>
+    left_join(covariate_df, by = "event_date")
+
+  X_raw <- as.matrix(df[, selected_features, drop = FALSE])
+
+  # Handle missings by column-mean imputation (transparent and flagged)
+  for(j in seq_len(ncol(X_raw))) {
+    col <- X_raw[, j]
+    if(any(is.na(col))) {
+      m <- mean(col, na.rm = TRUE)
+      X_raw[is.na(col), j] <- m
+      cat(sprintf("    NA-imputed %d obs in %s with mean %.3f\n",
+                  sum(is.na(col)), selected_features[j], m))
+    }
+  }
+
+  means <- colMeans(X_raw)
+  sds   <- apply(X_raw, 2, sd)
+  sds[sds < 1e-8] <- 1
+  X <- sweep(X_raw, 2, means, "-")
+  X <- sweep(X, 2, sds, "/")
+
+  # VIF pruning
+  if(ncol(X) > 1) {
+    repeat {
+      # VIF via OLS of each predictor on the others
+      vifs <- sapply(seq_len(ncol(X)), function(j) {
+        fit <- lm(X[, j] ~ X[, -j, drop = FALSE])
+        1 / (1 - summary(fit)$r.squared)
+      })
+      names(vifs) <- colnames(X)
+      max_vif <- max(vifs, na.rm = TRUE)
+      if(max_vif <= params$vif_max || ncol(X) <= 1) break
+      drop_var <- names(which.max(vifs))
+      cat(sprintf("    Dropping %s (VIF = %.1f)\n", drop_var, max_vif))
+      keep <- setdiff(colnames(X), drop_var)
+      X <- X[, keep, drop = FALSE]
+      means <- means[keep]; sds <- sds[keep]
+    }
+  }
+
+  list(X = X, features = colnames(X), means = means, sds = sds)
+}
+
+
+# ===========================================================================
+# 7. BSS AUGMENTED FIT WRAPPER
+# Mirrors prep_bss_crab() from the main RMD but adds X_E, X_C to stan_data.
+# ===========================================================================
+
+prep_bss_crab_augmented <- function(days, summ, est_catch_group, params, population_name,
+                                    ie_data, covariate_df, effort_features, cpue_features) {
+
+  # Replicate base BSS data prep (minimum viable copy of main RMD logic)
+  eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
+  D <- nrow(days); G <- 1L; S <- 1L
+  eff_d <- eff |>
+    left_join(days |> select(event_date, day_index), by = "event_date") |>
+    filter(!is.na(day_index))
+
+  is_shore <- (population_name == "shore")
+  use_gear_hrs <- !is_shore && isTRUE(params$boat_use_gear_hours %||% TRUE)
+
+  n_effort_days <- n_distinct(eff_d$day_index)
+  coverage <- n_effort_days / D
+  n_weeks <- max(days$week_index)
+  obs_per_week <- n_effort_days / n_weeks
+
+  # Data-driven finest resolution, then v6.5 per-population cap (mirrors the
+  # main RMD). The boat trailer-count series is too weakly informative for a
+  # daily AR(1), so it is capped at weekly.
+  if(coverage >= params$ar_daily_min_coverage && n_effort_days >= params$ar_daily_min_obs) {
+    ar_resolution <- "daily"
+  } else if(obs_per_week >= params$ar_weekly_min_per_week && n_weeks >= 3) {
+    ar_resolution <- "weekly"
+  } else {
+    ar_resolution <- "monthly"
+  }
+  res_rank <- c(monthly = 1L, weekly = 2L, daily = 3L)
+  pop_cap  <- params$ar_max_resolution[[population_name]] %||% "daily"
+  if(res_rank[[ar_resolution]] > res_rank[[pop_cap]]) ar_resolution <- pop_cap
+  if(ar_resolution == "daily") {
+    P_n <- D;                     pvec <- days$day_index
+  } else if(ar_resolution == "weekly") {
+    P_n <- n_weeks;               pvec <- days$week_index
+  } else {
+    P_n <- max(days$month_index); pvec <- days$month_index
+  }
+
+  int_cg <- summ$interview |> mutate(fish_count = .data[[est_catch_group]])
+  if(use_gear_hrs) {
+    int_cg <- int_cg |> filter(!is.na(gear_time_total), gear_time_total > 0)
+    h_vec_name <- "gear_time_total"
+  } else {
+    int_cg <- int_cg |> filter(!is.na(fishing_time_total), fishing_time_total > 0)
+    h_vec_name <- "fishing_time_total"
+  }
+  int_d <- int_cg |> left_join(days |> select(event_date, day_index), by = "event_date") |>
+    filter(!is.na(day_index)) |> distinct(interview_id, .keep_all = TRUE)
+  intA <- int_d |> filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
+
+  # Day length (existing logic assumed)
+  L_data_vec <- days$L_mu
+  L_sigma_vec <- days$L_prior_sigma
+  estimate_L_flag <- as.integer(is_shore)
+
+  # Effort obs counts
+  n_gear <- if(is_shore) nrow(eff_d) else 0L
+  n_trailer <- if(!is_shore) nrow(eff_d) else 0L
+  n_effort_obs <- n_gear + n_trailer
+
+  # I/E
+  IE_n <- 0L
+  ie_match <- tibble()
+  if(!is.null(ie_data) && nrow(ie_data) > 0) {
+    ie_pop <- if(is_shore) "shore" else "private_boat"
+    ie_match <- ie_data |>
+      filter(population == ie_pop) |>
+      inner_join(days |> select(event_date, day_index), by = "event_date") |>
+      filter(!is.na(day_index), ie_crabber_hours > 0)
+    IE_n <- nrow(ie_match)
+  }
+
+  R_G_empirical <- summ$empirical_R_G
+  mu_E_prior <- if(is_shore) log(25) else if(use_gear_hrs) log(20) else log(10)
+  mu_C_prior <- if(use_gear_hrs) log(0.1) else log(0.5)
+
+  # --- Covariate matrices ---
+  X_E_info <- build_covariate_matrix(effort_features, covariate_df, days$event_date)
+  X_C_info <- build_covariate_matrix(cpue_features,   covariate_df, days$event_date)
+
+  stan_data <- list(
+    D = D, G = G, S = S,
+    P_n = P_n, period = pvec,
+    w = days$day_type_num_weekend, holiday = days$day_type_num_holiday,
+    O = array(1.0, dim = c(D, S, G)),
+
+    L_data = L_data_vec, estimate_L = estimate_L_flag, L_prior_sigma = L_sigma_vec,
+    n_effort_obs = n_effort_obs,
+
+    Gear_n = n_gear,
+    day_Gear = if(is_shore) eff_d$day_index else integer(0),
+    section_Gear = if(is_shore) rep(1L, nrow(eff_d)) else integer(0),
+    Gear_I = if(is_shore) as.integer(eff_d$count_quantity) else integer(0),
+
+    T_n = n_trailer,
+    day_T = if(!is_shore) eff_d$day_index else integer(0),
+    section_T = if(!is_shore) rep(1L, nrow(eff_d)) else integer(0),
+    T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
+
+    Crab_n = 0L, day_Crab = integer(0), section_Crab = integer(0),
+    Crab_I = integer(0), p_I_crab = 1.0,
+
+    IntC = nrow(int_d), day_IntC = int_d$day_index, gear_IntC = rep(1L, nrow(int_d)),
+    section_IntC = rep(1L, nrow(int_d)),
+    c = as.integer(int_d$fish_count),
+    h = int_d[[h_vec_name]],
+
+    IntA_gear = if(is_shore) nrow(intA) else 0L,
+    Gear_A = if(is_shore) as.integer(intA$number_of_gear) else integer(0),
+    A_A_gear = if(is_shore) as.integer(intA$angler_count) else integer(0),
+
+    IntA_trailer = if(!is_shore) nrow(intA) else 0L,
+    T_A_int = if(!is_shore) rep(1L, nrow(intA)) else integer(0),
+    A_A_trailer = if(!is_shore) as.integer(intA$angler_count) else integer(0),
+
+    IE_n = IE_n,
+    day_IE = if(IE_n > 0) ie_match$day_index else integer(0),
+    section_IE = if(IE_n > 0) rep(1L, IE_n) else integer(0),
+    IE_crabber_hours = if(IE_n > 0) ie_match$ie_crabber_hours else numeric(0),
+
+    # Existing hyperparameters
+    value_cauchyDF_sigma_eps_E = 1, value_cauchyDF_sigma_r_E = 1,
+    value_cauchyDF_sigma_eps_C = 1, value_cauchyDF_sigma_r_C = 1,
+    value_betashape_phi_E_scaled = 2, value_betashape_phi_C_scaled = 2,
+    value_normal_sigma_B1 = 1, value_normal_sigma_B2 = 1,
+    value_normal_sigma_B1_C = 1,
+    value_normal_mu_mu_C = mu_C_prior, value_normal_sigma_mu_C = 2,
+    value_normal_mu_mu_E = mu_E_prior, value_normal_sigma_mu_E = 2,
+    value_cauchyDF_sigma_mu_C = 1, value_cauchyDF_sigma_mu_E = 1,
+    R_G_prior_mu = R_G_empirical, R_G_prior_sigma = 0.3,
+    R_T_alpha = 5.0, R_T_beta = 1.0,
+
+    # Covariate additions
+    K_E = ncol(X_E_info$X),
+    X_E = X_E_info$X,
+    K_C = ncol(X_C_info$X),
+    X_C = X_C_info$X,
+    prior_sd_gamma = params$cov_prior_sd
+  )
+
+  attr(stan_data, "ar_resolution") <- ar_resolution
+  attr(stan_data, "effort_features") <- X_E_info$features
+  attr(stan_data, "cpue_features") <- X_C_info$features
+  attr(stan_data, "feature_scalings") <- list(
+    effort = list(means = X_E_info$means, sds = X_E_info$sds),
+    cpue   = list(means = X_C_info$means, sds = X_C_info$sds)
+  )
+  stan_data
+}
+
+
+# ===========================================================================
+# 8. PSIS-LOO WITH K-FOLD FALLBACK
+# ===========================================================================
+
+bss_loo_compare <- function(fit_baseline, fit_covariates,
+                            stan_data_baseline, stan_data_covariates,
+                            model_file_baseline, model_file_covariates,
+                            cv_folds = 5) {
+
+  extract_loo <- function(fit) {
+    ll_arr <- rstan::extract(fit, pars = "log_lik", permuted = FALSE)  # iter x chains x N
+    ll <- loo::extract_log_lik(fit, parameter_name = "log_lik", merge_chains = FALSE)
+    r_eff <- loo::relative_eff(exp(ll))
+    loo::loo(ll, r_eff = r_eff)
+  }
+
+  loo_baseline   <- tryCatch(extract_loo(fit_baseline),   error = function(e) {
+    cat(sprintf("  LOO baseline failed: %s\n", e$message)); NULL
+  })
+  loo_covariates <- tryCatch(extract_loo(fit_covariates), error = function(e) {
+    cat(sprintf("  LOO covariates failed: %s\n", e$message)); NULL
+  })
+
+  if(is.null(loo_baseline) || is.null(loo_covariates)) {
+    return(list(method = "failed", comparison = NULL))
+  }
+
+  cmp <- loo::loo_compare(loo_baseline, loo_covariates)
+
+  # Pareto-k check
+  k_base <- pareto_k_values(loo_baseline)
+  k_cov  <- pareto_k_values(loo_covariates)
+  k_pct_base <- mean(k_base > params$loo_k_threshold, na.rm = TRUE)
+  k_pct_cov  <- mean(k_cov > params$loo_k_threshold, na.rm = TRUE)
+
+  cat(sprintf("  PSIS-LOO Pareto-k: baseline %.1f%% >%.1f, covariates %.1f%% >%.1f\n",
+              k_pct_base * 100, params$loo_k_threshold,
+              k_pct_cov * 100, params$loo_k_threshold))
+
+  method <- "psis_loo"
+  if(max(k_pct_base, k_pct_cov) > params$loo_k_pct_trigger) {
+    cat("  Pareto-k instability detected; triggering k-fold time-block CV.\n")
+    # k-fold CV: hold out contiguous time blocks, refit, compute log predictive density
+    cv_result <- kfold_time_block_cv(stan_data_baseline, stan_data_covariates,
+                                      model_file_baseline, model_file_covariates,
+                                      cv_folds = cv_folds)
+    method <- "kfold_tblock"
+    return(list(method = method, loo_baseline = loo_baseline,
+                loo_covariates = loo_covariates,
+                comparison = cmp, kfold = cv_result,
+                k_pct_baseline = k_pct_base, k_pct_covariates = k_pct_cov))
+  }
+
+  list(method = method, loo_baseline = loo_baseline, loo_covariates = loo_covariates,
+       comparison = cmp, kfold = NULL,
+       k_pct_baseline = k_pct_base, k_pct_covariates = k_pct_cov)
+}
+
+pareto_k_values <- function(loo_obj) {
+  if(!is.null(loo_obj$diagnostics$pareto_k)) loo_obj$diagnostics$pareto_k
+  else loo::pareto_k_values(loo_obj)
+}
+
+kfold_time_block_cv <- function(stan_data_baseline, stan_data_covariates,
+                                model_file_baseline, model_file_covariates,
+                                cv_folds = 5) {
+  # Build time blocks over SAMPLED days (not all days)
+  D <- stan_data_baseline$D
+  sampled_days <- unique(c(stan_data_baseline$day_Gear,
+                           stan_data_baseline$day_T,
+                           stan_data_baseline$day_IntC,
+                           stan_data_baseline$day_IE))
+  sampled_days <- sort(sampled_days)
+  if(length(sampled_days) < cv_folds * 5) {
+    cat(sprintf("  Only %d sampled days; reducing folds to 3.\n", length(sampled_days)))
+    cv_folds <- 3
+  }
+
+  # Contiguous time blocks
+  block_size <- ceiling(length(sampled_days) / cv_folds)
+  fold_ids <- rep(seq_len(cv_folds), each = block_size)[seq_along(sampled_days)]
+  day_to_fold <- setNames(fold_ids, as.character(sampled_days))
+
+  lpd_baseline <- numeric(cv_folds)
+  lpd_covariates <- numeric(cv_folds)
+
+  for(f in seq_len(cv_folds)) {
+    cat(sprintf("    Fold %d of %d...\n", f, cv_folds))
+    held_out <- as.integer(names(day_to_fold)[day_to_fold == f])
+
+    # Build training data: drop observations where day_* is in held_out set
+    train_base <- mask_stan_data(stan_data_baseline, held_out)
+    train_cov  <- mask_stan_data(stan_data_covariates, held_out)
+    test_base  <- extract_stan_data(stan_data_baseline, held_out)
+    test_cov   <- extract_stan_data(stan_data_covariates, held_out)
+
+    # Refit both
+    fit_b <- rstan::stan(file = here("02_stan_models", model_file_baseline),
+                         data = train_base, chains = 2, iter = 1500, warmup = 750,
+                         cores = 2, refresh = 0, seed = params$bss_seed)
+    fit_c <- rstan::stan(file = here("02_stan_models", model_file_covariates),
+                         data = train_cov, chains = 2, iter = 1500, warmup = 750,
+                         cores = 2, refresh = 0, seed = params$bss_seed)
+
+    # Compute log predictive density on held-out
+    lpd_baseline[f]   <- compute_lpd_held_out(fit_b, test_base)
+    lpd_covariates[f] <- compute_lpd_held_out(fit_c, test_cov)
+  }
+
+  tibble(
+    fold = seq_len(cv_folds),
+    lpd_baseline = lpd_baseline,
+    lpd_covariates = lpd_covariates,
+    diff = lpd_covariates - lpd_baseline
+  )
+}
+
+mask_stan_data <- function(stan_data, held_out_days) {
+  # Remove observations whose day index is in held_out_days
+  d <- stan_data
+  remove_indices <- function(day_vec, other_fields) {
+    keep <- !day_vec %in% held_out_days
+    list(day_vec = day_vec[keep],
+         other = lapply(other_fields, function(x) if(length(x) == length(day_vec)) x[keep] else x))
+  }
+  if(d$Gear_n > 0) {
+    r <- remove_indices(d$day_Gear, list(section = d$section_Gear, Gear_I = d$Gear_I))
+    d$day_Gear <- r$day_vec; d$section_Gear <- r$other$section; d$Gear_I <- r$other$Gear_I
+    d$Gear_n <- length(d$day_Gear)
+  }
+  if(d$T_n > 0) {
+    r <- remove_indices(d$day_T, list(section = d$section_T, T_I = d$T_I))
+    d$day_T <- r$day_vec; d$section_T <- r$other$section; d$T_I <- r$other$T_I
+    d$T_n <- length(d$day_T)
+  }
+  if(d$IntC > 0) {
+    r <- remove_indices(d$day_IntC,
+                        list(gear = d$gear_IntC, section = d$section_IntC,
+                             c = d$c, h = d$h))
+    d$day_IntC <- r$day_vec; d$gear_IntC <- r$other$gear
+    d$section_IntC <- r$other$section; d$c <- r$other$c; d$h <- r$other$h
+    d$IntC <- length(d$day_IntC)
+  }
+  if(d$IE_n > 0) {
+    r <- remove_indices(d$day_IE,
+                        list(section = d$section_IE, IE = d$IE_crabber_hours))
+    d$day_IE <- r$day_vec; d$section_IE <- r$other$section
+    d$IE_crabber_hours <- r$other$IE
+    d$IE_n <- length(d$day_IE)
+  }
+  d$n_effort_obs <- d$Gear_n + d$T_n
+  d
+}
+
+extract_stan_data <- function(stan_data, held_out_days) {
+  # Return only the held-out observations for computing predictive density
+  d <- list(held_out_days = held_out_days)
+  if(stan_data$Gear_n > 0) {
+    keep <- stan_data$day_Gear %in% held_out_days
+    d$day_Gear <- stan_data$day_Gear[keep]; d$Gear_I <- stan_data$Gear_I[keep]
+  }
+  if(stan_data$T_n > 0) {
+    keep <- stan_data$day_T %in% held_out_days
+    d$day_T <- stan_data$day_T[keep]; d$T_I <- stan_data$T_I[keep]
+  }
+  if(stan_data$IntC > 0) {
+    keep <- stan_data$day_IntC %in% held_out_days
+    d$day_IntC <- stan_data$day_IntC[keep]; d$c <- stan_data$c[keep]; d$h <- stan_data$h[keep]
+  }
+  d
+}
+
+compute_lpd_held_out <- function(fit, test_data) {
+  # Extract posterior means of lambda_E[d] and lambda_C[d] and L[d], then
+  # evaluate Poisson log-likelihood on held-out observations (summing over
+  # gear counts, trailer counts, and interview catches).
+  draws_E <- rstan::extract(fit, "lambda_E_S")$lambda_E_S  # iter x S x D x G (depends on exact structure)
+  draws_C <- rstan::extract(fit, "lambda_C_S")$lambda_C_S
+  draws_L <- tryCatch(rstan::extract(fit, "L")$L, error = function(e) NULL)
+
+  n_iter <- dim(draws_E)[1]
+
+  # Reshape: expect [iter, D] in scalar case
+  if(length(dim(draws_E)) == 4) draws_E <- draws_E[, 1, , 1, drop = TRUE]
+  if(length(dim(draws_C)) == 4) draws_C <- draws_C[, 1, , 1, drop = TRUE]
+
+  total_lpd <- 0
+  # Gear counts
+  if(!is.null(test_data$day_Gear) && length(test_data$day_Gear) > 0) {
+    for(i in seq_along(test_data$day_Gear)) {
+      d <- test_data$day_Gear[i]; y <- test_data$Gear_I[i]
+      lp <- dpois(y, lambda = draws_E[, d], log = TRUE)
+      total_lpd <- total_lpd + log_mean_exp(lp)
+    }
+  }
+  if(!is.null(test_data$day_T) && length(test_data$day_T) > 0) {
+    for(i in seq_along(test_data$day_T)) {
+      d <- test_data$day_T[i]; y <- test_data$T_I[i]
+      lp <- dpois(y, lambda = draws_E[, d], log = TRUE)
+      total_lpd <- total_lpd + log_mean_exp(lp)
+    }
+  }
+  if(!is.null(test_data$day_IntC) && length(test_data$day_IntC) > 0) {
+    for(i in seq_along(test_data$day_IntC)) {
+      d <- test_data$day_IntC[i]; y <- test_data$c[i]; h <- test_data$h[i]
+      lp <- dpois(y, lambda = draws_C[, d] * h, log = TRUE)
+      total_lpd <- total_lpd + log_mean_exp(lp)
+    }
+  }
+  total_lpd
+}
+
+log_mean_exp <- function(x) {
+  m <- max(x)
+  m + log(mean(exp(x - m)))
+}
+
+
+# ===========================================================================
+# 8.5 BSS CONVERGENCE CHECK (ported from main RMD v6.1/v6.4 gate)
+# Unlike the main model, the module does not fall back to PE; it records
+# convergence per fit so an unreliable LOO comparison can be flagged. A fit
+# failing this check has an unreliable elpd, so its comparison is suspect.
+# ===========================================================================
+
+bss_convergence_check <- function(fit, label, role, max_divergences) {
+  sp    <- rstan::get_sampler_params(fit, inc_warmup = FALSE)
+  n_div <- sum(sapply(sp, function(x) sum(x[,"divergent__"])))
+  max_td <- fit@stan_args[[1]]$control$max_treedepth
+  n_td  <- sum(sapply(sp, function(x) sum(x[,"treedepth__"] >= max_td)))
+  n_tot <- sum(sapply(sp, nrow))
+  s <- summary(fit, pars = c("C_expected_sum", "E_sum"))$summary
+  rhat_C <- s["C_expected_sum","Rhat"]; rhat_E <- s["E_sum","Rhat"]
+  neff_C <- s["C_expected_sum","n_eff"]; neff_E <- s["E_sum","n_eff"]
+  pass_rhat <- max(rhat_C, rhat_E, na.rm = TRUE) < 1.01     # v6.4
+  pass_neff <- min(neff_C, neff_E, na.rm = TRUE) > 400
+  pass_div  <- (n_div <= max_divergences)                   # v6.1
+  pass <- pass_rhat & pass_neff & pass_div
+  if(n_tot > 0 && n_td / n_tot > 0.05)
+    cat(sprintf("    WARNING: %s [%s] %.1f%% treedepth exceedances\n",
+                label, role, n_td / n_tot * 100))
+  if(n_div > 0)
+    cat(sprintf("    WARNING: %s [%s] %d divergent transitions\n", label, role, n_div))
+  tibble(fit = label, role = role,
+         divergences = n_div, treedepth_pct = round(n_td / max(n_tot, 1) * 100, 1),
+         C_rhat = round(rhat_C, 4), E_rhat = round(rhat_E, 4),
+         C_neff = round(neff_C), E_neff = round(neff_E),
+         pass_convergence = pass)
+}
+
+
+# ===========================================================================
+# 9. MAIN EXECUTION
+# ===========================================================================
+
+cat("\n", strrep("=", 60), "\n STEP 1: LOAD CORE DATA FROM MAIN MODEL PIPELINE\n",
+    strrep("=", 60), "\n")
+
+# The main RMD's fetch_crab_data() function must be in scope, either through
+# a source() call above or by running the main RMD first. For portability,
+# we expect `dwg` and `ie_data` to exist in the workspace. If not, direct
+# the user to run the main RMD first.
+if(!exists("dwg")) stop("Object 'dwg' not found. Run BSS-GH-pooled-CPUE-model.Rmd first ",
+                        "or source fetch_crab_data() manually before running this module.")
+if(!exists("ie_data")) ie_data <- tibble()
+
+# ---- Build per-day calendar from main model's prep_days ---------------------
+days_full <- prep_days_crab(
+  params$est_date_start, params$est_date_end,
+  params$days_wkend, crabbing_holiday_dates,
+  params$period_pe, params$sections,
+  L_eff_model = if(exists("L_eff_model")) L_eff_model else NULL
+)
+
+
+cat("\n", strrep("=", 60), "\n STEP 2: FETCH WEATHER & TIDE\n",
+    strrep("=", 60), "\n")
+
+tide_res <- fetch_tide_with_fallback(params$tide_stations,
+                                     params$est_date_start, params$est_date_end,
+                                     cache_dir = cache_dir,
+                                     force_refetch = params$force_refetch)
+cat("  Tide station log:\n"); print(tide_res$station_log)
+write.csv(tide_res$station_log, file.path(output_dir, "tide_station_log.csv"),
+          row.names = FALSE)
+
+buoy_res <- fetch_buoy_with_fallback(params$ndbc_buoys,
+                                     params$est_date_start, params$est_date_end,
+                                     cache_dir = cache_dir,
+                                     force_refetch = params$force_refetch)
+cat("  NDBC buoy log:\n"); print(buoy_res$station_log)
+write.csv(buoy_res$station_log, file.path(output_dir, "ndbc_station_log.csv"),
+          row.names = FALSE)
+
+asos_res <- fetch_asos_with_fallback(params$asos_stations, params$gsod_stations,
+                                     params$est_date_start, params$est_date_end,
+                                     cache_dir = cache_dir,
+                                     force_refetch = params$force_refetch)
+cat("  ASOS station log:\n"); print(asos_res$station_log)
+write.csv(asos_res$station_log, file.path(output_dir, "asos_station_log.csv"),
+          row.names = FALSE)
+
+
+cat("\n", strrep("=", 60), "\n STEP 3: BUILD DAILY COVARIATES\n",
+    strrep("=", 60), "\n")
+
+sun_cal <- build_sun_calendar(days_full$event_date,
+                              params$centroid_lat, params$centroid_lon,
+                              params$local_tz)
+
+tide_daily <- compute_tide_daily_features(tide_res$obs, sun_cal)
+weather_daily <- compute_weather_daily_features(buoy_res$obs,
+                                                asos_res$hourly,
+                                                asos_res$daily_gsod,
+                                                sun_cal)
+
+int_tide_feats <- compute_interview_tide_features(dwg$interview, tide_res$obs)
+int_tide_daily <- if(!is.null(int_tide_feats$daily)) int_tide_feats$daily else tibble()
+
+covariate_df <- tide_daily |>
+  left_join(weather_daily, by = "event_date") |>
+  left_join(int_tide_daily, by = "event_date") |>
+  left_join(days_full |> select(event_date, day_type), by = "event_date")
+
+write.csv(covariate_df, file.path(output_dir, "daily_covariates.csv"), row.names = FALSE)
+
+
+cat("\n", strrep("=", 60), "\n STEP 4: BOAT DEPARTURE CLUSTERING TEST\n",
+    strrep("=", 60), "\n")
+
+if(!is.null(int_tide_feats$per_interview)) {
+  dep_test <- departure_clustering_test(int_tide_feats$per_interview,
+                                         tide_res$obs, sun_cal)
+  if(!is.null(dep_test$test)) {
+    print(dep_test)
+    write.csv(dep_test, file.path(output_dir, "boat_departure_clustering_test.csv"),
+              row.names = FALSE)
+
+    # Robustness: coarsen departure times to the hour and recompute
+    per_int_coarse <- int_tide_feats$per_interview |>
+      mutate(depart_posix = lubridate::floor_date(depart_posix, unit = "hour"))
+    # Refind tide phase at coarsened time
+    tide_sorted <- tide_res$obs |> arrange(t)
+    idx <- findInterval(as.numeric(per_int_coarse$depart_posix),
+                        as.numeric(tide_sorted$t))
+    idx <- pmax(pmin(idx, nrow(tide_sorted) - 1), 1)
+    per_int_coarse$tide_rising_at_depart <- tide_sorted$v[idx + 1] > tide_sorted$v[idx]
+    dep_test_coarse <- departure_clustering_test(per_int_coarse, tide_res$obs, sun_cal)
+    cat("  Robustness (times rounded to hour):\n")
+    print(dep_test_coarse)
+    write.csv(dep_test_coarse,
+              file.path(output_dir, "boat_departure_clustering_test_hourly_robustness.csv"),
+              row.names = FALSE)
+  }
+}
+
+
+cat("\n", strrep("=", 60), "\n STEP 5: LAYER B GAM SCREEN\n",
+    strrep("=", 60), "\n")
+
+# Build daily effort aggregates per population for the GAM screen
+shore_effort_daily <- dwg$shore_effort |>
+  filter(count_sequence <= params$bss_max_count_seq) |>
+  group_by(event_date) |>
+  summarise(mean_count = mean(count_quantity), .groups = "drop")
+boat_effort_daily <- dwg$boat_effort |>
+  filter(count_sequence <= params$bss_max_count_seq) |>
+  group_by(event_date) |>
+  summarise(mean_count = mean(count_quantity), .groups = "drop")
+
+gam_shore_eff <- gam_screen_effort(shore_effort_daily, covariate_df, "shore")
+gam_boat_eff  <- gam_screen_effort(boat_effort_daily, covariate_df, "private_boat")
+gam_shore_cpue <- gam_screen_cpue(
+  dwg$interview |> filter(population == "shore"), covariate_df, "shore"
+)
+gam_boat_cpue  <- gam_screen_cpue(
+  dwg$interview |> filter(population == "private_boat"), covariate_df, "private_boat"
+)
+
+# Collect selected features per population
+selected_features <- list(
+  shore = list(effort = gam_shore_eff$selected, cpue = gam_shore_cpue$selected),
+  private_boat = list(effort = gam_boat_eff$selected, cpue = gam_boat_cpue$selected)
+)
+
+# Write GAM summaries
+for(nm in c("shore_eff","boat_eff","shore_cpue","boat_cpue")) {
+  obj_name <- paste0("gam_", nm)
+  obj <- get(obj_name)
+  if(!is.null(obj$summary_smooth)) {
+    write.csv(obj$summary_smooth,
+              file.path(output_dir, sprintf("gam_%s_smooths.csv", nm)),
+              row.names = FALSE)
+  }
+}
+
+selected_df <- tibble(
+  population = c("shore","shore","private_boat","private_boat"),
+  component = c("effort","cpue","effort","cpue"),
+  features = c(paste(selected_features$shore$effort, collapse = ";"),
+               paste(selected_features$shore$cpue, collapse = ";"),
+               paste(selected_features$private_boat$effort, collapse = ";"),
+               paste(selected_features$private_boat$cpue, collapse = ";"))
+)
+write.csv(selected_df, file.path(output_dir, "layer_b_selected_features.csv"),
+          row.names = FALSE)
+cat("\n  Selected features per population:\n"); print(selected_df)
+
+
+cat("\n", strrep("=", 60),
+    "\n STEP 6: BSS BASELINE + AUGMENTED FITS (for comparison)\n",
+    strrep("=", 60), "\n")
+
+# This step fits both baseline and augmented BSS models in parallel for
+# each (population × sub-season × catch group) combination, then computes
+# LOO-PSIS with k-fold fallback. Assumes prep_population_summary() from
+# main RMD is available.
+
+bss_baseline_all <- list()
+bss_covariate_all <- list()
+model_comparisons <- list()
+bss_convergence_all <- list()
+
+for(cg in "Dungeness_Kept") {
+  for(pop in c("shore","private_boat")) {
+    for(ss in list(subseason_1, subseason_2)) {
+      label <- paste0(pop, "_", ss$name, "_", cg)
+      cat(sprintf("\n--- %s ---\n", label))
+
+      days_ss <- prep_days_crab(ss$start, ss$end, params$days_wkend, crabbing_holiday_dates,
+                                 params$period_pe, params$sections,
+                                 L_eff_model = if(exists("L_eff_model")) L_eff_model else NULL)
+      summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
+
+      n_int <- nrow(summ_ss$interview)
+      n_eff <- nrow(summ_ss$effort_index)
+      if(n_eff < 5 || n_int < params$bss_min_interviews) {
+        cat("  Insufficient data; skipping.\n")
+        next
+      }
+
+      # Effort and CPUE features for this pop (apply to BOTH subseasons, but
+      # note that sub-season 1 is ring-net-only and sub-season 2 is all-gear.
+      # Biology may differ; optionally screen per sub-season.)
+      # v0.2.3: wrap the per-component fit + LOO so one component that fails (a
+      # divergent augmented fit, a LOO/k-fold error, an out-of-memory) logs and
+      # the module continues to the next component, the convergence report, and
+      # the diagnostics, instead of aborting the whole run.
+      tryCatch({
+      eff_feat <- selected_features[[pop]]$effort
+      cpue_feat <- selected_features[[pop]]$cpue
+
+      bss_data_cov <- prep_bss_crab_augmented(days_ss, summ_ss, cg, params, pop,
+                                               ie_data, covariate_df,
+                                               eff_feat, cpue_feat)
+
+      # Baseline uses K=0 covariates (same model file, just empty matrices).
+      # If your production crab_bss_pooled.stan does NOT accept K_E, K_C, switch
+      # this to the original file. The augmented Stan collapses to baseline
+      # when K_E = K_C = 0.
+      bss_data_base <- bss_data_cov
+      bss_data_base$K_E <- 0L
+      bss_data_base$K_C <- 0L
+      bss_data_base$X_E <- matrix(0, nrow = bss_data_cov$D, ncol = 0)
+      bss_data_base$X_C <- matrix(0, nrow = bss_data_cov$D, ncol = 0)
+
+      # v6.2 per-fit sampler tuning (mirrors the main RMD). Both the baseline
+      # and covariate fits for a given pop x sub-season use the same settings.
+      is_shore   <- (pop == "shore");        is_boat    <- (pop == "private_boat")
+      is_allgear <- (ss$name == "all_gear"); is_ringnet <- (ss$name == "ring_net_only")
+      if(is_shore && is_allgear) {
+        fit_iter <- params$bss_iter_shore_allgear; fit_warmup <- params$bss_warmup_shore_allgear
+        fit_treedep <- params$bss_treedepth_shore_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_shore_allgear     %||% params$bss_adapt_delta
+      } else if(is_boat && is_allgear) {
+        fit_iter <- params$bss_iter_boat_allgear   %||% params$bss_iter_default
+        fit_warmup <- params$bss_warmup_boat_allgear %||% params$bss_warmup_default
+        fit_treedep <- params$bss_treedepth_boat_allgear %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_boat_allgear     %||% params$bss_adapt_delta
+      } else if(is_ringnet) {
+        fit_iter <- params$bss_iter_default; fit_warmup <- params$bss_warmup_default
+        fit_treedep <- params$bss_treedepth_ringnet %||% params$bss_max_treedepth_default
+        fit_delta   <- params$bss_delta_ringnet     %||% params$bss_adapt_delta
+      } else {
+        fit_iter <- params$bss_iter_default; fit_warmup <- params$bss_warmup_default
+        fit_treedep <- params$bss_max_treedepth_default; fit_delta <- params$bss_adapt_delta
+      }
+      ar_res <- attr(bss_data_cov, "ar_resolution") %||% NA_character_
+
+      cat(sprintf("  Baseline (K_E=0, K_C=0): iter=%d warmup=%d treedepth=%d delta=%.2f AR=%s\n",
+                  fit_iter, fit_warmup, fit_treedep, fit_delta, ar_res))
+      fit_base <- rstan::stan(
+        file = here("02_stan_models", params$bss_model_file_covariates),
+        data = bss_data_base,
+        chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
+        control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
+        seed = params$bss_seed,
+        cores = params$bss_cores, refresh = 0
+      )
+
+      cat(sprintf("  Covariates (K_E=%d, K_C=%d): iter=%d warmup=%d treedepth=%d delta=%.2f\n",
+                  bss_data_cov$K_E, bss_data_cov$K_C, fit_iter, fit_warmup, fit_treedep, fit_delta))
+      fit_cov <- rstan::stan(
+        file = here("02_stan_models", params$bss_model_file_covariates),
+        data = bss_data_cov,
+        chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
+        control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
+        seed = params$bss_seed,
+        cores = params$bss_cores, refresh = 0
+      )
+
+      # v6.1/v6.4 convergence diagnostics. The module does not fall back to PE;
+      # it records convergence so an unreliable LOO comparison can be flagged.
+      conv_base <- bss_convergence_check(fit_base, label, "baseline",   params$max_divergences)
+      conv_cov  <- bss_convergence_check(fit_cov,  label, "covariates", params$max_divergences)
+      conv_base$ar_resolution <- ar_res; conv_cov$ar_resolution <- ar_res
+      bss_convergence_all[[label]] <- bind_rows(conv_base, conv_cov)
+      if(!conv_base$pass_convergence || !conv_cov$pass_convergence) {
+        cat(sprintf("  CAUTION: %s did not pass the convergence gate (baseline=%s, covariates=%s); its LOO comparison may be unreliable.\n",
+                    label, conv_base$pass_convergence, conv_cov$pass_convergence))
+      }
+
+      bss_baseline_all[[label]]  <- list(fit = fit_base, stan_data = bss_data_base)
+      bss_covariate_all[[label]] <- list(fit = fit_cov, stan_data = bss_data_cov,
+                                          eff_features = attr(bss_data_cov, "effort_features"),
+                                          cpue_features = attr(bss_data_cov, "cpue_features"))
+
+      cmp <- bss_loo_compare(fit_base, fit_cov, bss_data_base, bss_data_cov,
+                              params$bss_model_file_covariates,
+                              params$bss_model_file_covariates,
+                              cv_folds = params$cv_folds)
+      model_comparisons[[label]] <- cmp
+
+      if(!is.null(cmp$comparison)) {
+        write.csv(as.data.frame(cmp$comparison),
+                  file.path(output_dir, sprintf("loo_comparison_%s.csv", label)),
+                  row.names = TRUE)
+      }
+      if(!is.null(cmp$kfold)) {
+        write.csv(cmp$kfold,
+                  file.path(output_dir, sprintf("kfold_cv_%s.csv", label)),
+                  row.names = FALSE)
+      }
+
+      # Pareto-k details
+      k_b <- pareto_k_values(cmp$loo_baseline)
+      k_c <- pareto_k_values(cmp$loo_covariates)
+      write.csv(tibble(obs = seq_along(k_b), k_baseline = k_b, k_covariates = k_c),
+                file.path(output_dir, sprintf("pareto_k_%s.csv", label)),
+                row.names = FALSE)
+      }, error = function(e) {
+        cat(sprintf("  ERROR on %s: %s\n  Skipping this component; continuing.\n",
+                    label, conditionMessage(e)))
+      })
+    }
+  }
+}
+
+
+# Convergence report across all fits (baseline + covariates for each component).
+# Both rows of a component must pass for its LOO comparison to be trustworthy.
+if(length(bss_convergence_all) > 0) {
+  convergence_df <- bind_rows(bss_convergence_all)
+  cat("\n  BSS convergence summary (both fits must pass for a trustworthy LOO):\n")
+  print(convergence_df)
+  write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"),
+            row.names = FALSE)
+}
+
+
+# ---- PER-FIT MODEL DIAGNOSTICS (B1.6) ----
+# Structural parameters, divergence localization, and posterior predictive
+# calibration for every baseline and covariate fit. write_bss_diagnostics() is
+# sourced from 03_R_functions/model_diagnostics.R and is fully tryCatch-wrapped, so
+# a diagnostic failure prints a note and never interrupts the run. The augmented
+# Stan shares lambda_E_S / lambda_C_S / r_E / r_C with the baseline, so the same
+# diagnostics apply to both; outputs use a _baseline / _covariates suffix.
+cat("\n", strrep("=", 60), "\n MODEL DIAGNOSTICS\n", strrep("=", 60), "\n")
+for(label in names(bss_baseline_all)) {
+  e <- bss_baseline_all[[label]]
+  if(is.null(e$fit)) next
+  cat(sprintf("  %s (baseline):\n", label))
+  write_bss_diagnostics(e$fit, e$stan_data, paste0(label, "_baseline"), output_dir)
+}
+for(label in names(bss_covariate_all)) {
+  e <- bss_covariate_all[[label]]
+  if(is.null(e$fit)) next
+  cat(sprintf("  %s (covariates):\n", label))
+  write_bss_diagnostics(e$fit, e$stan_data, paste0(label, "_covariates"), output_dir)
+}
+
+
+cat("\n", strrep("=", 60), "\n STEP 7: INCLUSION DECISIONS\n",
+    strrep("=", 60), "\n")
+
+decision_rows <- list()
+for(label in names(model_comparisons)) {
+  cmp <- model_comparisons[[label]]
+  if(is.null(cmp$comparison)) {
+    decision_rows[[label]] <- tibble(label = label, elpd_diff = NA, se_diff = NA,
+                                      method = cmp$method, include = FALSE,
+                                      reason = "comparison_failed")
+    next
+  }
+  # loo_compare returns ordered; row 1 is best, row 2 is elpd_diff to best with SE
+  elpd_diff <- cmp$comparison[2, "elpd_diff"]
+  se_diff   <- cmp$comparison[2, "se_diff"]
+
+  # If best model is "model2" (covariates), sign is negative for baseline
+  # Inspect model order
+  best_row <- rownames(cmp$comparison)[1]
+  covariates_is_best <- grepl("model2", best_row) || grepl("covariate", best_row)
+
+  include <- (covariates_is_best) && (abs(elpd_diff) > params$cov_elpd_margin_in_se * se_diff)
+
+  # Also require sign consistency for the key gamma parameters (biology check)
+  # Extract posterior signs of gamma_E and gamma_C
+  sign_check <- TRUE
+  sign_notes <- ""
+  if(include) {
+    fit <- bss_covariate_all[[label]]$fit
+    if("gamma_E" %in% fit@model_pars) {
+      ge <- rstan::extract(fit, "gamma_E")$gamma_E
+      ge_sig <- apply(ge, 2, function(x) mean(x > 0))  # P(gamma > 0)
+      gc <- rstan::extract(fit, "gamma_C")$gamma_C
+      gc_sig <- apply(gc, 2, function(x) mean(x > 0))
+      # Sign-consistent if >80% posterior mass on one side of zero for every feature
+      all_sig <- all(ge_sig > 0.8 | ge_sig < 0.2) && all(gc_sig > 0.8 | gc_sig < 0.2)
+      sign_check <- all_sig
+      sign_notes <- paste(sprintf("P(gamma_E>0):%s", paste(round(ge_sig, 2), collapse = ",")),
+                          sprintf("P(gamma_C>0):%s", paste(round(gc_sig, 2), collapse = ",")),
+                          sep = "; ")
+    }
+  }
+
+  include_final <- include && sign_check
+  reason <- if(!include) sprintf("elpd_diff=%.1f, SE=%.1f, margin<%.1fSE",
+                                  elpd_diff, se_diff, params$cov_elpd_margin_in_se)
+            else if(!sign_check) "sign_inconsistent_gamma"
+            else sprintf("elpd_diff=%.1f, SE=%.1f", elpd_diff, se_diff)
+
+  decision_rows[[label]] <- tibble(
+    label = label, elpd_diff = elpd_diff, se_diff = se_diff,
+    method = cmp$method, include = include_final, reason = reason,
+    sign_notes = sign_notes
+  )
+}
+decision_df <- bind_rows(decision_rows)
+print(decision_df)
+write.csv(decision_df, file.path(output_dir, "covariate_inclusion_decisions.csv"),
+          row.names = FALSE)
+
+
+cat("\n", strrep("=", 60), "\n STEP 8: UNCERTAINTY COMPARISON (CI widths)\n",
+    strrep("=", 60), "\n")
+
+ci_width_rows <- list()
+for(label in names(bss_covariate_all)) {
+  fit_base <- bss_baseline_all[[label]]$fit
+  fit_cov  <- bss_covariate_all[[label]]$fit
+
+  # Compare width of C_expected_sum and E_sum 95% CIs on SAMPLED vs UNSAMPLED days
+  # Simpler summary: width of overall season total CIs
+  summarize_fit <- function(fit) {
+    s <- summary(fit, pars = c("C_expected_sum","E_sum"))$summary
+    tibble(
+      C_med = s["C_expected_sum","50%"],
+      C_width95 = s["C_expected_sum","97.5%"] - s["C_expected_sum","2.5%"],
+      E_med = s["E_sum","50%"],
+      E_width95 = s["E_sum","97.5%"] - s["E_sum","2.5%"]
+    )
+  }
+  b <- summarize_fit(fit_base); c <- summarize_fit(fit_cov)
+  ci_width_rows[[label]] <- tibble(
+    label = label,
+    C_width_baseline = b$C_width95, C_width_covariates = c$C_width95,
+    C_width_pct_change = (c$C_width95 - b$C_width95) / b$C_width95 * 100,
+    E_width_baseline = b$E_width95, E_width_covariates = c$E_width95,
+    E_width_pct_change = (c$E_width95 - b$E_width95) / b$E_width95 * 100
+  )
+}
+ci_width_df <- bind_rows(ci_width_rows)
+print(ci_width_df)
+write.csv(ci_width_df, file.path(output_dir, "ci_width_comparison.csv"), row.names = FALSE)
+
+
+cat("\n", strrep("=", 60), "\n STEP 9: FINAL ESTIMATES (selected model per fit)\n",
+    strrep("=", 60), "\n")
+
+final_estimates <- list()
+for(label in names(bss_covariate_all)) {
+  dec <- decision_df |> filter(label == !!label)
+  use_covariates <- isTRUE(dec$include)
+  chosen <- if(use_covariates) bss_covariate_all[[label]] else bss_baseline_all[[label]]
+  fit <- chosen$fit
+
+  s_ce <- summary(fit, pars = "C_expected_sum")$summary
+  s_e  <- summary(fit, pars = "E_sum")$summary
+
+  final_estimates[[label]] <- tibble(
+    label = label,
+    model_used = if(use_covariates) "covariates" else "baseline",
+    features = if(use_covariates)
+                 paste(c(chosen$eff_features, chosen$cpue_features), collapse = ";")
+               else "",
+    C_expected_median = s_ce["C_expected_sum","50%"],
+    C_expected_lo95   = s_ce["C_expected_sum","2.5%"],
+    C_expected_hi95   = s_ce["C_expected_sum","97.5%"],
+    E_median = s_e["E_sum","50%"],
+    E_lo95   = s_e["E_sum","2.5%"],
+    E_hi95   = s_e["E_sum","97.5%"]
+  )
+}
+final_df <- bind_rows(final_estimates)
+print(final_df)
+write.csv(final_df, file.path(output_dir, "final_bss_estimates_with_covariate_selection.csv"),
+          row.names = FALSE)
+
+
+cat("\n", strrep("=", 60), "\n STEP 10: DIAGNOSTIC PLOTS\n",
+    strrep("=", 60), "\n")
+
+# --- Covariate effect plots (posterior forest of gamma) ---
+gamma_rows <- list()
+for(label in names(bss_covariate_all)) {
+  fit <- bss_covariate_all[[label]]$fit
+  feats_e <- bss_covariate_all[[label]]$eff_features
+  feats_c <- bss_covariate_all[[label]]$cpue_features
+  if("gamma_E" %in% fit@model_pars && length(feats_e) > 0) {
+    ge <- rstan::extract(fit, "gamma_E")$gamma_E
+    for(j in seq_along(feats_e)) {
+      gamma_rows[[length(gamma_rows) + 1]] <- tibble(
+        label = label, component = "effort", feature = feats_e[j],
+        median = median(ge[, j]), lo95 = quantile(ge[, j], 0.025),
+        hi95 = quantile(ge[, j], 0.975)
+      )
+    }
+  }
+  if("gamma_C" %in% fit@model_pars && length(feats_c) > 0) {
+    gc <- rstan::extract(fit, "gamma_C")$gamma_C
+    for(j in seq_along(feats_c)) {
+      gamma_rows[[length(gamma_rows) + 1]] <- tibble(
+        label = label, component = "cpue", feature = feats_c[j],
+        median = median(gc[, j]), lo95 = quantile(gc[, j], 0.025),
+        hi95 = quantile(gc[, j], 0.975)
+      )
+    }
+  }
+}
+gamma_df <- bind_rows(gamma_rows)
+write.csv(gamma_df, file.path(output_dir, "covariate_effects_posterior.csv"),
+          row.names = FALSE)
+
+if(nrow(gamma_df) > 0) {
+  p_gamma <- ggplot(gamma_df,
+                    aes(x = median, xmin = lo95, xmax = hi95,
+                        y = feature, color = component)) +
+    geom_pointrange() +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+    facet_wrap(~label, scales = "free_y") +
+    labs(title = "Covariate effects on log(lambda) (BSS augmented model)",
+         subtitle = "Effects are on standardized covariates (mean 0, SD 1)",
+         x = "Posterior gamma (log-scale effect)", y = "", color = "Component") +
+    theme_bw()
+  ggsave(file.path(output_dir, "covariate_effects_forest.png"),
+         p_gamma, width = 12, height = 8)
+}
+
+
+# B1.6: session and version capture for reproducibility (parallels the pooled
+# model). Pins package and Stan versions and the seed with each output set.
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "session_info.txt"))
+cat(sprintf("\nrstan %s; StanHeaders %s; bss_seed %s\n",
+            utils::packageVersion("rstan"),
+            utils::packageVersion("StanHeaders"),
+            params$bss_seed),
+    file = file.path(output_dir, "session_info.txt"), append = TRUE)
+
+
+cat("\n", strrep("=", 60), "\n DONE\n", strrep("=", 60), "\n")
+cat(sprintf("Outputs written to: %s\n", output_dir))
+cat(paste(" ", list.files(output_dir), collapse = "\n"), "\n")
+```
