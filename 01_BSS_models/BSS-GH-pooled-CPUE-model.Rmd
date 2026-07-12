@@ -41,7 +41,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 ```{r config, results='hide'}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor  |  Pooled CPUE Model
-# 2024-25 Season  |  Pipeline code v7.8 (2026-07-11)
+# 2024-25 Season  |  Pipeline code v7.9 (2026-07-12)
 #
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # from a single pooled CPUE process shared across gear types. Three population
@@ -52,7 +52,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # Two gear-regime sub-seasons: ring-net only (Sep 16 - Nov 30, no pots) and
 # all-gear (Dec 1 - Sep 15, pots allowed).
 #
-# CURRENT STATE (v7.8): both fitted components run on the gear-DEPLOYMENT effort
+# CURRENT STATE (v7.9): both fitted components run on the gear-DEPLOYMENT effort
 # unit (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
 # Helper functions live in 03_R_functions/ (sourced wholesale in the setup chunk),
 # and every user-selectable toggle lives in run_config.R (the single file you edit);
@@ -150,7 +150,14 @@ params <- list(
   # with a hard divergent-FRACTION backstop (max_divergence_fraction). See the
   # model documentation and development history for the full B1.8 rationale.
   max_divergence_total_impact_sd = 0.10,
-  max_divergence_fraction        = 0.15,
+  # P7 (2026-07-12): tightened from 0.15 to 0.05. The scale-aware impact test above
+  # (max_divergence_total_impact_sd) is the primary gate; this fraction is only a hard
+  # backstop, and 0.15 was too loose to defend for a publication method (a fit at ~14%
+  # divergences would have passed as BSS). 0.05 matches the gear-resolved model. The
+  # 2026-07-11 pooled fits (0.54%, 2.23%, 2.5% divergences) are all under 5%, so this
+  # changes no current gating decision; divergences indicate biased HMC exploration
+  # (Betancourt 2017), so the backstop belongs near 5%.
+  max_divergence_fraction        = 0.05,
 
   # --- DEPRECATED gate parameters (retained for reference; no longer gating) ---
   # Superseded by the scale-aware gate above. The level-normalized distortion is
@@ -168,11 +175,11 @@ params <- list(
   ar_daily_min_obs       = 20,
   ar_weekly_min_per_week = 1.5,
 
-  # v6.5 (B1): per-population cap on AR resolution. Even when coverage would permit
-  # daily AR, the boat (trailer-count) effort series is too weakly informative to
-  # identify a daily latent process, so the boat is capped at weekly. A population
-  # absent from this list defaults to "daily" (no cap).
-  ar_max_resolution = list(shore = "daily", private_boat = "weekly"),
+  # v6.5 (B1): per-population cap on AR resolution. The map now lives in run_config.R
+  # (ar_max_resolution$pooled) so both models' caps sit in one place; this model's cap
+  # is selected from it just after the merge below (P5, 2026-07-12). The boat
+  # (trailer-count) effort series is too weakly informative for daily AR, so the boat
+  # is capped at weekly; a population absent from the map defaults to "daily" (no cap).
 
   # --- I/E diagnostics ---
   ie_use_all_dates_for_diagnostics = TRUE
@@ -180,13 +187,17 @@ params <- list(
 
 # --- Run-level config from run_config.R (single source of truth) --------------
 # run_config.R owns every user-selectable toggle (season window, structural dates,
-# catch groups, day-typing, effort unit, filters, I/E settings, holidays, and the
-# model-behavior toggles). It is applied here as an override on this model's
-# internal tuning above. When launched via run_estimation.R the orchestrator has
-# already defined `run_config`; when this .Rmd is knit standalone the guard below
-# sources run_config.R so the same toggles are used either way.
+# catch groups, day-typing, effort unit, filters, I/E settings, holidays, the AR
+# resolution map, and the model-behavior toggles). When launched via run_estimation.R
+# the orchestrator has already defined `run_config`; when this .Rmd is knit standalone
+# the guard below sources run_config.R so the same toggles are used either way.
 if (!exists("run_config")) source(here::here("run_config.R"))
-params <- modifyList(params, run_config)
+# P5 (2026-07-12): run_config is the BASE parameter set; this model's internal tuning
+# (defined above) is layered on top. The two key sets are disjoint, so the merge order
+# carries intent only (run_config is the base, the model updates it with its specifics).
+params <- modifyList(run_config, params)
+# Select this model's AR-resolution cap from the shared per-model map in run_config.
+params$ar_max_resolution <- run_config$ar_max_resolution$pooled
 
 # Crabbing holidays come from run_config (single source of truth). Kept as a bare
 # object so any inline reference in this driver still resolves.
@@ -884,10 +895,10 @@ for(label in names(bss_all)) {
     catch_par        = "C_expected_sum",
     effort_par       = "E_sum",
     max_impact_sd    = params$max_divergence_total_impact_sd %||% 0.10,
-    # Fallback is the POOLED historical value (0.15), not the shared function's
-    # 0.05 default, so this preserves the pooled gate behavior if the param is ever
-    # absent (pooled passes params$max_divergence_fraction = 0.15).
-    max_div_fraction = params$max_divergence_fraction %||% 0.15,
+    # Fallback matches the params value set above (0.05 as of P7, 2026-07-12) and the
+    # shared function default, so the gate behaves identically if the param is ever
+    # absent (pooled passes params$max_divergence_fraction = 0.05).
+    max_div_fraction = params$max_divergence_fraction %||% 0.05,
     ar_resolution    = ar_resolutions[[label]] %||% NA_character_
   )
   # Re-attach the pooled-only B1_C_rhat report column (report-only, NOT gating),

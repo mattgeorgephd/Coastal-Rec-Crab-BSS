@@ -10,16 +10,18 @@
 #     Rscript run_estimation.R            # from a terminal, unattended
 #     Rscript run_estimation.R --model gear_resolved --weather   # CLI override
 #
-# How the override works: run_estimation.R injects `run_config` (defined below)
-# into the render environment of the chosen .Rmd. Each model does
-# `params <- modifyList(params, run_config)`, so every key listed here OVERRIDES
-# the model's in-file default. As of the 2026-07-11 consolidation this file is
-# the SINGLE SOURCE OF TRUTH for every user-selectable toggle: the two model
-# .Rmd files no longer carry their own copies of these keys, so there is nothing
-# to keep in sync. Each .Rmd keeps only its own model-internal tuning (per-fit
-# sampler settings, convergence-gate thresholds, AR-selector thresholds, and a
-# few model constants), which you rarely touch and which legitimately differ
-# between the two models.
+# How it works: run_estimation.R injects `run_config` (defined below) into the
+# render environment of the chosen .Rmd. As of the 2026-07-12 restructure (P5),
+# run_config is the BASE parameter set and each model layers its own internal
+# tuning on top: each .Rmd does `params <- modifyList(run_config, params_model)`,
+# where `params_model` holds ONLY that model's specifics (Stan file, per-fit
+# sampler settings, gate thresholds, AR-selector thresholds, model constants).
+# The two key sets are disjoint, so the merge order carries intent only.
+# This file is the SINGLE SOURCE OF TRUTH for every user-selectable toggle,
+# including the AR resolution map below; the two .Rmd files no longer carry their
+# own copies, so there is nothing to keep in sync. The AR map is per-model (the
+# two models legitimately differ), so each driver selects its slice
+# (run_config$ar_max_resolution$<model>) right after the merge.
 #
 # Standalone knit: each .Rmd sources THIS file automatically when `run_config`
 # is not already present (the `if (!exists("run_config")) source(...)` guard in
@@ -112,7 +114,24 @@ run_config <- list(
   # PRODUCTION VALUE IS NULL. Forces a population's AR resolution, bypassing both
   # the data-driven selection and the per-population cap for the named population.
   # To run the boat daily-vs-weekly experiment, set list(private_boat = "daily").
-  ar_force          = NULL,
+  # To test the boat monthly-AR reconciliation (open item in the model-state
+  # review), set list(private_boat = "monthly").
+  ar_force          = list(private_boat = "monthly"), #NULL,
+
+  # --- AR resolution caps (per-model map; each driver selects its own slice) ----
+  # Cap on the finest AR resolution the data-driven selector may choose, per
+  # population. The two models legitimately differ, so both maps live here and each
+  # driver reads run_config$ar_max_resolution$<model> just after it merges run_config:
+  #   pooled:        runs adaptive AR, capped here (boat weakly informative -> weekly).
+  #   gear_resolved: reads its map only when ar_adaptive = TRUE; production
+  #                  gear-resolved is ar_adaptive = FALSE (fixed period_bss), so its
+  #                  map is dormant. Coarser than pooled: the gear-resolved latent AR
+  #                  is P_n x (G*S), ~4x the pooled dimension with 4 gear types.
+  # A population absent from a map defaults to "daily" (no cap).
+  ar_max_resolution = list(
+    pooled        = list(shore = "daily",  private_boat = "weekly"),
+    gear_resolved = list(shore = "weekly", private_boat = "monthly")
+  ),
 
   # --- Ingress/egress input + shore day length (both models) ---------------
   # Shore effort is expanded by the I/E-derived effective day length (~3.5-5 h),

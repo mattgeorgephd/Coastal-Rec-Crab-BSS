@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor  |  Gear-Resolved CPUE Model
-# 2024-25 Season  |  Framework v5.5 (2026-07-11)
+# 2024-25 Season  |  Framework v5.6 (2026-07-12)
 #
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # with a per-gear-type CPUE process (shared AR(1) dynamics), so gear-type catch can
@@ -28,7 +28,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # (Sep 16 - Nov 30, no pots, biweekly BSS periods) and all-gear (Dec 1 - Sep 15,
 # monthly BSS periods).
 #
-# CURRENT STATE (v5.5): both shore and boat run on the gear-DEPLOYMENT effort unit
+# CURRENT STATE (v5.6): both shore and boat run on the gear-DEPLOYMENT effort unit
 # (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
 # Helper functions live in 03_R_functions/ (sourced wholesale in the setup chunk),
 # and every user-selectable toggle lives in run_config.R (the single file you edit);
@@ -145,11 +145,13 @@ params <- list(
   max_divergence_total_impact_sd = 0.10,
   max_divergence_fraction        = 0.05,
 
-  # --- AR temporal-resolution caps + thresholds (selector: 03_R_functions/bss_ar_resolution.R) ---
-  # Used only when ar_adaptive = TRUE (see run_config). Conservative for this model
-  # because the gear-resolved latent AR is P_n x (G*S): with 4 gear types a daily AR
-  # is ~4x the pooled latent dimension at the same P_n.
-  ar_max_resolution      = list(shore = "weekly", private_boat = "monthly"),
+  # --- AR temporal-resolution thresholds (selector: 03_R_functions/bss_ar_resolution.R) ---
+  # The per-model AR cap map now lives in run_config.R (ar_max_resolution$gear_resolved);
+  # this model's cap is selected from it just after the merge below (P5, 2026-07-12).
+  # It is used only when ar_adaptive = TRUE (see run_config); production gear-resolved
+  # is ar_adaptive = FALSE (fixed period_bss), so the cap is dormant. The map is
+  # conservative because the gear-resolved latent AR is P_n x (G*S): with 4 gear types
+  # a daily AR is ~4x the pooled latent dimension at the same P_n.
   ar_daily_min_coverage  = 0.25,
   ar_daily_min_obs       = 20,
   ar_weekly_min_per_week = 1.5
@@ -157,13 +159,17 @@ params <- list(
 
 # --- Run-level config from run_config.R (single source of truth) --------------
 # run_config.R owns every user-selectable toggle (season window, structural dates,
-# catch groups, day-typing, effort unit, filters, I/E settings, holidays, and the
-# model-behavior toggles). It is applied here as an override on this model's
-# internal tuning above. When launched via run_estimation.R the orchestrator has
-# already defined `run_config`; when this .Rmd is knit standalone the guard below
-# sources run_config.R so the same toggles are used either way.
+# catch groups, day-typing, effort unit, filters, I/E settings, holidays, the AR
+# resolution map, and the model-behavior toggles). When launched via run_estimation.R
+# the orchestrator has already defined `run_config`; when this .Rmd is knit standalone
+# the guard below sources run_config.R so the same toggles are used either way.
 if (!exists("run_config")) source(here::here("run_config.R"))
-params <- modifyList(params, run_config)
+# P5 (2026-07-12): run_config is the BASE parameter set; this model's internal tuning
+# (defined above) is layered on top. The two key sets are disjoint, so the merge order
+# carries intent only (run_config is the base, the model updates it with its specifics).
+params <- modifyList(run_config, params)
+# Select this model's AR-resolution cap from the shared per-model map in run_config.
+params$ar_max_resolution <- run_config$ar_max_resolution$gear_resolved
 
 # Crabbing holidays come from run_config (single source of truth). Kept as a bare
 # object so any inline reference in this driver still resolves.
