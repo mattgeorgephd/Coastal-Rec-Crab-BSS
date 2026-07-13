@@ -1,0 +1,5 @@
+"component","component_disp","PE_Dungeness_all_trips","PE_Dungeness_complete_only","diff_pct","filter_applied_in_run"
+"shore_ring_net_only","shore Pot closure",5366,5869,9.4,TRUE
+"shore_all_gear","shore All gear",14026,15665,11.7,TRUE
+"private_boat_ring_net_only","private boat Pot closure",914,914,0,TRUE
+"private_boat_all_gear","private boat All gear",24093,21910,-9.1,TRUE
