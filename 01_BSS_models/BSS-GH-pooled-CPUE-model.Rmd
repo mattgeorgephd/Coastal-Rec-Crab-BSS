@@ -1795,6 +1795,21 @@ report_table(conv_disp,
   digits = 3)
 ```
 
+### 10.1 Per-fit BSS plots
+
+Per-component season-total posterior densities (C_sum, E_sum), the BSS daily effort ribbon, and the BSS daily expected-catch ribbon, one set per fitted component. Each is also saved as a PNG in the run folder.
+
+```{r bss-fit-plots-show, echo=FALSE, fig.cap="Per-fit BSS effort, catch, and posterior-density plots (one set per fitted component)."}
+# Embed the per-fit BSS plots the fit loop ggsave'd. The fit loop runs fig.show='hide'
+# and overwrites each plot object every iteration, so the objects do not survive the loop
+# for on-page printing; the saved PNGs do. This surfaces them (posteriors, effort, catch)
+# in the HTML, matching the gear-resolved report.
+bss_fit_pngs <- list.files(output_dir,
+  pattern = "^plot_bss_(effort|catch|posteriors)_.*\\.png$", full.names = TRUE)
+if (length(bss_fit_pngs)) knitr::include_graphics(sort(bss_fit_pngs)) else
+  cat("_No per-fit BSS plots found (no fitted components this run)._")
+```
+
 ## 11. Model diagnostics
 
 Per-fit diagnostics are written to the run folder: structural-parameter summaries, divergence localization, and posterior-predictive calibration (PPC/PIT). **Healthy:** PPC coverage near nominal (about 0.95 at the 95 percent level) and PIT means near 0.5. These files are the deeper check behind the gate.

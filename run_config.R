@@ -64,7 +64,7 @@ run_config <- list(
 
   # --- Season window (the values you change most often) --------------------
   est_date_start    = "2024-09-16",   # first day of the estimation window
-  est_date_end      = "2025-09-15",   # last day (commercial pot closure)
+  est_date_end      = "2025-09-15",   # last day
   season_filter     = "2024-25",
 
   # --- Regulatory / structural dates ---------------------------------------
