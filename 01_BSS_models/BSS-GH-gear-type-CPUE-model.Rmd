@@ -511,8 +511,8 @@ p_pe_effort <- pe_daily_df |>
   geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
   pot_closure_markers(params, labels = FALSE) +
   facet_wrap(~pop_label, ncol = 1, scales = "free_y") +
-  labs(title = "PE: Estimated Daily Crabber-Hours by Population",
-       x = "Date", y = "Estimated crabber-hours", color = "Day type") +
+  labs(title = "PE: Estimated Daily Effort (gear-deployments) by Population",
+       x = "Date", y = "Estimated effort (gear-deployments)", color = "Day type") +
   theme_bw()
 ggsave(file.path(output_dir, "plot_pe_daily_effort.png"), p_pe_effort, width = 10, height = 8)
 print(p_pe_effort)
@@ -674,7 +674,7 @@ for(cg in bss_catch_groups) {
         geom_line(aes(y = median), color = "steelblue") +
         labs(title = sprintf("BSS Daily Effort: %s", label),
              subtitle = "Median with 95% credible interval",
-             x = "Date", y = "Crabber-hours") +
+             x = "Date", y = "Effort (gear-deployments)") +
         theme_bw()
       ggsave(file.path(output_dir, paste0("plot_bss_effort_", label, ".png")),
              p_bss_eff, width = 10, height = 6)
@@ -709,7 +709,7 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = value)) +
         geom_density(fill = "steelblue", alpha = 0.4) +
         facet_wrap(~param, scales = "free", labeller = labeller(
-          param = c(C_sum = paste("Catch", cg), E_sum = "Effort (crabber-hrs)")
+          param = c(C_sum = paste("Catch", cg), E_sum = "Effort (gear-deployments)")
         )) +
         labs(title = sprintf("BSS Posteriors: %s", label), x = "Value", y = "Density") +
         theme_bw()
@@ -784,7 +784,7 @@ for(cg in bss_catch_groups) {
 
   final_table <- tibble(
     Catch_Group = cg,
-    Estimate = c("Effort (mixed units; see effort_units_note)", "Catch"),
+    Estimate = c("Effort (gear-deployments)", "Catch"),
     PE = c(round(pe_port_total("effort_total")),
            round(if(cg=="Dungeness_Kept") pe_port_total("Dungeness_Kept") else pe_port_total("Red_Rock_Kept"))),
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total))),
@@ -793,11 +793,10 @@ for(cg in bss_catch_groups) {
     ,
     # F5: this column is NOT pure BSS. It is the gate-selected combination:
     # BSS draws where the convergence gate passed, PE where it failed or data
-    # were insufficient, and the commercial/charter census. The Effort row also
-    # sums incompatible units across modes (shore crabber-hours + boat
-    # gear-deployments) and should not be read as a single quantity.
+    # were insufficient, and the commercial/charter census. As of v5.5 both shore
+    # and boat effort are on gear-deployments, so the Effort row is a single unit.
     composition = "BSS where gate passed; PE otherwise; census for comm/charter",
-    effort_units_note = "Effort row mixes crabber-hours (shore) and gear-deployments (boat)"
+    effort_units_note = "Effort row is gear-deployments for both shore and boat (v5.5+)"
   )
 
   cat(sprintf("\n--- Port Total: %s ---\n", cg))
@@ -837,17 +836,10 @@ for(cg in bss_catch_groups) {
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
-        pe_daily <- summ_ss$effort_index |>
-          filter(count_sequence <= params$bss_max_count_seq) |>
-          group_by(event_date) |>
-          summarise(mean_count = mean(count_quantity), .groups = "drop") |>
-          left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
-          mutate(daily_effort = mean_count * summ_ss$crabbers_per_gear * day_length)
-
-        monthly_pe <- pe_daily |>
-          group_by(month_label) |>
-          summarise(month_effort = sum(daily_effort), .groups = "drop") |>
-          mutate(share = month_effort / sum(month_effort))
+        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
+        # Population-aware, so the boat PE-fallback now gets its deployment-scale effort
+        # here instead of the shore crabber-hours formula this block used inline before.
+        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
 
         pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
         pe_effort_total <- pe_all[[pe_label]]$effort_total
@@ -957,7 +949,7 @@ p_monthly_eff <- monthly_summary |>
              linetype = "dashed", color = "red") +
   labs(title = "Monthly Effort Estimate (BSS + PE combined)",
        subtitle = "Bars = median, whiskers = 95% credible interval",
-       x = "Month", y = "Crabber-hours") +
+       x = "Month", y = "Effort (gear-deployments)") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave(file.path(output_dir, "plot_monthly_effort.png"), p_monthly_eff, width = 12, height = 6)

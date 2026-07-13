@@ -53,7 +53,7 @@ The shore component is moved onto the gear-deployment effort unit (`shore_effort
 -   **Expected-value daily catch `C_gear`** (no Poisson noise) is emitted for the CPUE trajectories, alongside a separate `C_gear_pred` (Dirichlet plus Poisson) for the season totals and prediction intervals. Trajectories read the smooth expected value; totals carry full predictive noise.
 -   **Dirichlet-sampled `pi_gear`** in generated quantities propagates gear-proportion uncertainty into the per-gear catch. Raw `n_weighted_gear` is passed as data.
 -   **Incomplete-trip filter** (`filter_incomplete_trips`, default TRUE) removes the roughly -20% CPUE bias for pots and traps, whose soak-time gear is often not yet retrieved at interview.
--   **Divergent transitions added to the convergence pass/fail** (`max_divergences`, default 0), matching the pooled v6.1 gate.
+-   **Divergent transitions added to the convergence pass/fail** (`max_divergences`, default 5), matching the pooled v6.1 gate. (Reconciled 2026-07-13 to the code and the method documentation, both of which use 5; this entry previously said 0. A3.)
 -   **Regulatory gear exclusion per sub-season** (`gear_exclude`) prevents fitting a CPUE for a gear type prohibited in that sub-season.
 -   **Minimum effective-N per gear raised 3 -> 15** (`bss_min_gear_effective_n`) as a guard against phantom multi-gear mentions.
 -   Trip-completion sensitivity output added.

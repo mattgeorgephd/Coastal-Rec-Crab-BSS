@@ -78,6 +78,7 @@ data {
   int<lower=1> period[D];               // Day-to-period mapping
   vector<lower=0,upper=1>[D] w;          // Weekend indicator
   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
+  vector<lower=0,upper=1>[D] razor;      // item 1: razor-dig indicator (shore EFFORT term; 0 for boat / when off)
   real<lower=0> O[D,S,G];               // Open/closed
 
   // POOL-4: single-cell mu-hierarchy collapse lever. 0 (default) keeps the v6.8
@@ -161,6 +162,13 @@ data {
   real value_normal_sigma_B1;
   real value_normal_sigma_B2;
   real value_normal_sigma_B1_C;
+  real value_normal_sigma_B2_C;   // item 6a: holiday CPUE effect (B2_C) prior scale
+  real value_normal_sigma_B3;     // item 1: razor-dig effort effect (B3) prior scale
+  // item 6b: same-day-effort CPUE density-dependence (OFF by default). estimate_cpue_density
+  // toggles the gamma_C term; log_E_ref centers the log-effort covariate (per fit, = the
+  // effort level prior mu_E) so gamma_C does not soak up the CPUE intercept.
+  int<lower=0,upper=1> estimate_cpue_density;
+  real log_E_ref;
   real value_normal_mu_mu_C;
   real value_normal_sigma_mu_C;
   real value_normal_mu_mu_E;
@@ -179,6 +187,9 @@ parameters {
   real B1;
   real B2;
   real B1_C;
+  real B2_C;      // item 6a: holiday CPUE effect (symmetric to B2 on effort)
+  real B3;        // item 1: razor-dig effort effect (shore; decoupled/prior-only when razor = 0)
+  real gamma_C;   // item 6b: same-day-effort CPUE density effect (inert when estimate_cpue_density = 0)
 
   real<lower=0> sigma_eps_E;
   cholesky_factor_corr[G*S] Lcorr_E;
@@ -285,12 +296,18 @@ transformed parameters {
     }
     for (d in 1:D) {
       for (s in 1:S) {
-        // Effort: AR deviation (at period resolution) + weekend + holiday
+        // Effort: AR deviation (at period resolution) + weekend + holiday + razor-dig
+        //   (item 1). razor[d] is the razor-dig indicator, non-zero only for a shore fit
+        //   with the razor term active; otherwise razor = 0 and B3 samples its prior.
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
-          to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
-        // CPUE: AR deviation + weekend CPUE effect
+          to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d] + B3 * razor[d]) * O[d,s,g];
+        // CPUE: AR deviation + weekend + holiday (B2_C, item 6a) + optional same-day-effort
+        //   density-dependence (gamma_C, item 6b; only when estimate_cpue_density = 1). The
+        //   density covariate is the same day's effort intensity lambda_E_S (assigned just
+        //   above), centered at log_E_ref. In the pooled model O = 1, so log(lambda_E_S) is finite.
         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
-          to_matrix(omega_C[period[d],], G, S)[g,s] + B1_C * w[d]) * O[d,s,g];
+          to_matrix(omega_C[period[d],], G, S)[g,s] + B1_C * w[d] + B2_C * holiday[d] +
+          (estimate_cpue_density == 1 ? gamma_C * (log(lambda_E_S[s][d,g]) - log_E_ref) : 0.0)) * O[d,s,g];
       }
     }
   }
@@ -310,6 +327,9 @@ model {
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
   B1_C ~ normal(0, value_normal_sigma_B1_C);
+  B2_C ~ normal(0, value_normal_sigma_B2_C);   // item 6a: holiday CPUE effect
+  B3 ~ normal(0, value_normal_sigma_B3);        // item 1: razor-dig effort effect
+  gamma_C ~ normal(0, 1);   // item 6b: proper prior; enters the likelihood only when estimate_cpue_density = 1
 
   to_vector(eps_E) ~ std_normal();
   to_vector(eps_C) ~ std_normal();
@@ -419,6 +439,9 @@ generated quantities {
   real R_G_boat_out;   // POOL-1: gear per boat group (replaces R_T reporting)
   real sigma_IE_out;
   real B1_C_out;
+  real B2_C_out;       // item 6a
+  real B3_out;         // item 1
+  real gamma_C_out;    // item 6b
   vector[D] L_out;
 
   // Pointwise log-likelihood for PSIS-LOO (loo package) and Pareto-k influence
@@ -440,6 +463,9 @@ generated quantities {
   R_G_boat_out = R_G_boat;
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
+  B2_C_out = B2_C;
+  B3_out = B3;
+  gamma_C_out = gamma_C;
   L_out = L;
 
   // Mirror the model-block likelihood terms exactly (lines for Gear_I, T_I, c).

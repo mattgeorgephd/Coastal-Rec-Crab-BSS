@@ -138,9 +138,17 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
                 n_int_s = sum(n_int, na.rm=TRUE), .groups="drop") |>
       mutate(mean_cpue = if_else(hrs_s > 0, catch_s / hrs_s, NA_real_))
 
+    # Empty-stratum CPUE fallback (item 2, 2026-07-13; mirrors run_pe_pooled). An
+    # effort-bearing stratum with no surviving interviews gets mean_cpue = NA; the old
+    # replace_na(., 0) zeroed its catch (under-count, and the source of the boat PE's
+    # sparse-stratum sign instability). params$pe_empty_stratum = "pooled" (default)
+    # fills it with the population x sub-season ratio-of-sums CPUE; "zero" is the old behavior.
+    pooled_cpue <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
+                     sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else 0
+    empty_fill  <- if (identical(params$pe_empty_stratum %||% "pooled", "zero")) 0 else pooled_cpue
     catch_strat <- effort_strat |>
       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
-      mutate(est_catch = est_total * replace_na(mean_cpue, 0))
+      mutate(est_catch = est_total * replace_na(mean_cpue, empty_fill))
 
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
 

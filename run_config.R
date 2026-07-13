@@ -91,6 +91,12 @@ run_config <- list(
   min_fishing_time  = 0.5,            # min crabber-hours to keep an interview
   period_pe         = "week",         # PE temporal stratum
   sections          = c(1),
+  # PE empty-stratum CPUE fallback (item 2, 2026-07-13). A week x day-type stratum with
+  # expanded effort but no surviving interviews: "pooled" (default) borrows the
+  # population x sub-season ratio-of-sums CPUE; "zero" assigns it zero catch (old
+  # behavior). "pooled" removes the sparse-stratum sign instability in the thin boat PE
+  # (the incomplete-trip "anomaly", item 2); shore is dense so it barely moves.
+  pe_empty_stratum  = "pooled",       # "pooled" | "zero"
 
   # --- Incomplete-trip filter (both models) --------------------------------
   # Incomplete trips (soak-time gear not yet retrieved) read systematically low
@@ -164,6 +170,15 @@ run_config <- list(
   ie_boat_location  = "WBL",
   use_ie_day_length = TRUE,
   ie_min_obs_for_regression = 5,
+  # GR-8 (2026-07-13): minimum in-window I/E days required before the I/E likelihood is
+  # allowed to bind, per component. Below this the stream is dropped and sigma_IE stays
+  # prior-only (decoupled), removing the sparse-data sigma_IE funnel (only 2 in-window
+  # I/E days in the shore ring-net / pot-closure fit). Set to 0 to always use whatever
+  # I/E data exists. The sigma_IE prior itself is left as exponential(5) on purpose;
+  # tightening it would push the shore all-gear sigma_IE (~1.07) down and force
+  # possibly-unrepresentative I/E days to bind harder (see the shore-I/E diagnostic).
+  ie_min_obs_shore = 3,   # shore components (both models)
+  ie_min_obs_boat  = 2,   # boat components (gear-resolved; boat I/E identifies tau)
 
   # Civil-twilight clamp. Binds only on the fallback rung and on the
   # day_length_civil_twilight diagnostic column.
@@ -198,6 +213,27 @@ run_config <- list(
   ma2_dates_file       = "MA2-fishing-dates-2023-2026.xlsx",
   razor_dates_file     = "razor-clam-dig-dates-2021-2025.xlsx",
   razor_nearby_beaches = c("Twin Harbors", "Copalis", "Mocrocks"),
+  fishery_opener_dates_file = "fishery_opener_dates.csv",  # consolidated daily calendar (item 1);
+                                                           # prep_fishery_events reads this, falling
+                                                           # back to the two xlsx above if absent.
+
+  # --- razor_dig SHORE-effort term (item 1, 2026-07-13) --------------------
+  # Adds a razor-dig day-type effect to the SHORE effort model (a B3 * razor[d] term,
+  # analogous to the holiday B2 effort term). "no" = off (production default); "yes" = on
+  # for the shore fits; "auto" = on only if the spillover diagnostic's day-type/month-
+  # adjusted shore-effort razor effect is significant at razor_dig_auto_p. Boat fits and
+  # inactive runs pass razor = 0, so B3 stays decoupled (prior-only). Compare the shore-
+  # effort elpd_loo against a "no" run to test the gain. RE-COMPILES the Stan model.
+  razor_dig_mode   = "no",     # "no" | "yes" | "auto"
+  razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
+
+  # --- CPUE holiday + density terms (item 6, 2026-07-13) -------------------
+  # B2_C (holiday CPUE effect, analogous to the effort B2) is ALWAYS on now (effort had
+  # weekend + holiday terms, CPUE previously had only weekend). estimate_cpue_density adds
+  # an OPTIONAL same-day-effort density-dependence term (gamma_C) to CPUE; it couples the
+  # CPUE and effort processes, so it is OFF by default and should be validated on a test
+  # fit first. RE-COMPILES the Stan model.
+  estimate_cpue_density = FALSE,
 
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --

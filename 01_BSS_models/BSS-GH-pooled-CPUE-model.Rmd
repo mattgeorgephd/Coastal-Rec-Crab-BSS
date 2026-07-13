@@ -648,6 +648,42 @@ if (!is.null(p_spill_eff))  print(p_spill_eff)
 if (!is.null(p_spill_cpue)) print(p_spill_cpue)
 ```
 
+### 3.6 Razor-dig shore-effort term (item 1)
+
+Whether this run adds a `razor_dig` term to the SHORE effort model (analogous to the holiday term), controlled by `params$razor_dig_mode` (`"no"` | `"yes"` | `"auto"`). In `"auto"` it switches on only if the spillover diagnostic's day-type/month-adjusted `razor_nearby_dig` effect on shore effort is significant at `params$razor_dig_auto_p`. When active, the shore fits gain a `B3 * razor[d]` effort term (razor days from the consolidated opener calendar); to test it, compare the shore-effort `elpd_loo` (in `loo_summary_shore_*` / the LOO section) against a `razor_dig_mode = "no"` run. This changes the shore effort model, so it is off by default.
+
+```{r razor-dig-decision, echo=TRUE}
+# Nearby-beach dig dates from the consolidated opener calendar, and the on/off decision.
+params$razor_dig_dates <- tryCatch({
+  ev <- prep_fishery_events(params)
+  ev$razor |> dplyr::filter(razor_nearby_dig) |> dplyr::pull(event_date)
+}, error = function(e) as.Date(character(0)))
+
+razor_mode   <- tolower(params$razor_dig_mode %||% "no")
+razor_thresh <- params$razor_dig_auto_p %||% 0.05
+razor_auto_p <- NA_real_
+if (razor_mode == "auto" && !is.null(spillover)) {
+  ap <- spillover$adjusted |>
+    dplyr::filter(Series == "Shore gear (effort)", grepl("Razor", Opener))
+  if (nrow(ap) > 0) razor_auto_p <- ap$adj_p[1]
+}
+params$razor_dig_active <- switch(razor_mode,
+  yes  = TRUE,
+  no   = FALSE,
+  auto = is.finite(razor_auto_p) && razor_auto_p < razor_thresh,
+  FALSE)
+if (razor_mode == "auto" && is.null(spillover))
+  cat("  NOTE: razor_dig_mode = 'auto' but the spillover diagnostic is off ",
+      "(run_fishery_spillover_diag = FALSE); the razor term stays OFF.\n", sep = "")
+
+cat(sprintf("Razor-dig shore-effort term: mode=%s, active=%s%s\n",
+    razor_mode, params$razor_dig_active,
+    if (razor_mode == "auto")
+      sprintf(" (adjusted shore-effort p=%s, threshold=%.3f)",
+              ifelse(is.finite(razor_auto_p), sprintf('%.3f', razor_auto_p), 'NA'), razor_thresh)
+    else ""))
+```
+
 ### 3.1 Ingress/egress and effective day length
 
 The I/E surveys measure how long crabbers are actually present, which sets the effective day length used to expand snapshot effort counts. Civil twilight (9 to 17 hours) would overstate active fishing time by roughly a factor of two, so the I/E-derived length is used instead.
@@ -703,6 +739,25 @@ if(nrow(ie_data) > 0) {
 
 ```{r ie-analysis-show, echo=TRUE, fig.height=5}
 for (nm in c('p_L_regression','p_day_length')) if (exists(nm)) print(get(nm))
+```
+
+### 3.2 Shore I/E representativeness (diagnostic)
+
+The shore all-gear `sigma_IE` (~1.07 in the 2026-07-12 run, vs ~0.60 in the gear-resolved fit) means the I/E-derived effective day length and the effort counts disagree by roughly a factor of `e` at the tails. This check asks whether that is because the shore I/E days were sampled on unusually high-effort days (so the derived day length is unrepresentative) or is just sparse-data scatter across a handful of I/E days: it compares the shore daily gear counts on I/E observation days against all other sampled days (item 4 / GR-9).
+
+```{r ie-representativeness, echo=FALSE}
+ie_rep <- tryCatch(diagnose_ie_representativeness(dwg, ie_data, params), error = function(e) NULL)
+if (!is.null(ie_rep)) {
+  write.csv(ie_rep$table, file.path(output_dir, "ie_representativeness.csv"), row.names = FALSE)
+  cat(sprintf("**Shore I/E days: %d.** %s\n\n", ie_rep$n_ie, ie_rep$verdict))
+  report_table(ie_rep$table |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(., 1))),
+    paste("Shore daily gear counts on I/E observation days vs other sampled days. A mean",
+          "percentile rank near 0.5 with a non-significant rank test means the I/E days are",
+          "representative, so a large shore sigma_IE reflects sparse-data scatter, not",
+          "sampling on peak-effort days."))
+} else {
+  cat("_Shore I/E representativeness diagnostic unavailable (no shore I/E data)._")
+}
 ```
 
 ## 4. Point Estimator (PE)
@@ -994,8 +1049,10 @@ for(cg in bss_catch_groups) {
       timer_stop(paste0("BSS_", label))
 
       # --- Extract BOTH expected and predictive catch ---
-      bss_pars <- c("C_sum","C_expected_sum","E_sum","B1","B2","B1_C_out")
+      bss_pars <- c("C_sum","C_expected_sum","E_sum","B1","B2","B1_C_out","B2_C_out")
       if(bss_data$IE_n > 0) bss_pars <- c(bss_pars, "sigma_IE_out")
+      if(isTRUE(params$razor_dig_active) && pop == "shore") bss_pars <- c(bss_pars, "B3_out")   # item 1
+      if(isTRUE(params$estimate_cpue_density)) bss_pars <- c(bss_pars, "gamma_C_out")           # item 6b
       bss_summ <- summary(fit, pars=bss_pars)$summary
       cat("  BSS Summary:\n"); print(bss_summ)
       write.csv(as.data.frame(bss_summ), file.path(output_dir, paste0("bss_summary_",label,".csv")))
@@ -1258,26 +1315,8 @@ for(cg in bss_catch_groups) {
         # normalized, so component and port TOTALS are unaffected; only the across-
         # month distribution changes. gear_per_group is recomputed here from the same
         # sub-season interview filter run_pe_pooled() uses so the two stay consistent.
-        is_boat_pe <- str_detect(pop, "private_boat")
-        gpg_pe <- params$gear_per_group_default %||% 4.0
-        tau_pe <- params$tau_boat_prior_mu %||% 1.2
-        if(is_boat_pe) {
-          rd_pe <- summ_ss$interview |>
-            filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
-          if(nrow(rd_pe) > 0) gpg_pe <- mean(rd_pe$number_of_gear)
-        }
-        pe_daily <- summ_ss$effort_index |>
-          filter(count_sequence <= params$bss_max_count_seq) |>
-          group_by(event_date) |>
-          summarise(mean_count = mean(count_quantity), .groups = "drop") |>
-          left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
-          mutate(daily_effort = if(is_boat_pe) mean_count * gpg_pe * tau_pe
-                                else mean_count * summ_ss$crabbers_per_gear * day_length)
-
-        monthly_pe <- pe_daily |>
-          group_by(month_label) |>
-          summarise(month_effort = sum(daily_effort), .groups = "drop") |>
-          mutate(share = month_effort / sum(month_effort))
+        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
+        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
 
         pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
         pe_effort_total <- pe_all[[pe_label]]$effort_total
@@ -1429,25 +1468,8 @@ for(cg in bss_catch_groups) {
         # (mean_count * gear_per_group * tau_boat); shore keeps crabber-hours
         # (mean_count * crabbers_per_gear * day_length). Share is normalized so
         # totals are unaffected; only the monthly split changes.
-        is_boat_pe <- str_detect(pop, "private_boat")
-        gpg_pe <- params$gear_per_group_default %||% 4.0
-        tau_pe <- params$tau_boat_prior_mu %||% 1.2
-        if(is_boat_pe) {
-          rd_pe <- summ_ss$interview |>
-            filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
-          if(nrow(rd_pe) > 0) gpg_pe <- mean(rd_pe$number_of_gear)
-        }
-        pe_daily <- summ_ss$effort_index |>
-          filter(count_sequence <= params$bss_max_count_seq) |>
-          group_by(event_date) |>
-          summarise(mean_count = mean(count_quantity), .groups = "drop") |>
-          left_join(days_ss |> select(event_date, day_length, month_label), by = "event_date") |>
-          mutate(daily_effort = if(is_boat_pe) mean_count * gpg_pe * tau_pe
-                                else mean_count * summ_ss$crabbers_per_gear * day_length)
-        monthly_pe <- pe_daily |>
-          group_by(month_label) |>
-          summarise(month_effort = sum(daily_effort, na.rm = TRUE), .groups = "drop") |>
-          mutate(share = month_effort / sum(month_effort))
+        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
+        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
 
         pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
         eff_total <- pe_all[[pe_label]]$effort_total %||% NA_real_
@@ -1594,10 +1616,10 @@ report_table(mode_table, 'Season catch by crabbing mode.')
 
 ### 9.1 Catch by gear type
 
-In the pooled model, gear-type catch is derived after estimation by applying interview-based gear proportions to the total (the gear-resolved model estimates it directly with uncertainty). Read these as proportional allocations, not independently modeled quantities.
+In the pooled model, gear-type catch is derived after estimation by allocating each population's total over gear types using the interview gear-catch shares. As of the 2026-07-13 change (item 3 / T2.2) this allocation propagates uncertainty from both sources: the gear shares are drawn from a Dirichlet posterior (`pi ~ Dirichlet(observed gear catch + 0.5)`) and multiplied by the population total's BSS posterior draws, so each gear carries a 95% credible interval rather than a point. It is still an allocation of the pooled total, not an independently modeled per-gear CPUE process (that is the gear-resolved model's role), but its uncertainty is now honest.
 
 ```{r catch-gear, results='hide', fig.show='hide'}
-# 7.10 CATCH BY GEAR TYPE (proportional allocation from interviews)
+# 7.10 CATCH BY GEAR TYPE (Dirichlet pi_gear + BSS total propagation; item 3)
 #
 # Pooled model: uses interview data to estimate the proportion of catch
 # by primary gear type, then applies to combined catch estimates.
@@ -1631,29 +1653,77 @@ print(gear_props |> select(population, gear_primary, n_int, total_catch, prop_ca
 total_shore_catch <- pe_pop_sum("shore", "Dungeness_Kept")
 total_boat_catch <- pe_pop_sum("private_boat", "Dungeness_Kept")
 
-gear_estimates <- gear_props |>
-  mutate(
-    pop_total_PE = case_when(
-      population == "shore" ~ total_shore_catch,
-      population == "private_boat" ~ total_boat_catch),
-    est_catch_PE = round(pop_total_PE * prop_catch)
+# --- item 3 (T2.2 / B5, 2026-07-13): propagate pi_gear + total uncertainty -------------
+# The old breakdown multiplied POINT interview gear-proportions by a POINT total (a double
+# point estimate with no interval). It now propagates BOTH sources: (a) each population's
+# gear shares as pi ~ Dirichlet(observed gear catch + 0.5), the multinomial-Dirichlet
+# posterior for catch shares; (b) the population total as its BSS posterior draws (the
+# summed C_expected draws of that population's fitted sub-seasons, plus the PE point for
+# any PE-fallback sub-season). Per-gear catch = total_draw * pi_draw, summed over the two
+# populations and the comm/charter census (all Pot), reported as median + 95% CI. NOTE:
+# the gear-resolved model has no true Dirichlet either (its pi_gear scaffolding never
+# reaches its Stan), so this R-side propagation is the correct fix for both tracks and
+# could be back-ported. tryCatch falls back to the old point allocation if a draw object
+# is unavailable, so the section can never break the knit.
+gear_levels <- c("Pot", "Ring Net", "Trap", "Snare", "Other")
+
+gear_pop_total_draws <- function(pop, n_target) {
+  labs <- paste0(pop, "_", vapply(subseasons, function(z) z$name, ""), "_Dungeness_Kept")
+  draws <- NULL; pe_add <- 0
+  for (lab in labs) {
+    b <- bss_all[[lab]]
+    if (!is.null(b) && !isTRUE(b$pe_fallback) && !is.null(b$C_exp_draws)) {
+      d <- as.numeric(b$C_exp_draws)
+      if (is.null(draws)) draws <- d
+      else { k <- min(length(draws), length(d)); draws <- draws[seq_len(k)] + d[seq_len(k)] }
+    } else {
+      pe_add <- pe_add + (pe_all[[sub("_Dungeness_Kept$", "", lab)]]$Dungeness_Kept %||% 0)
+    }
+  }
+  if (is.null(draws)) return(rep(pe_add, n_target))
+  draws <- draws + pe_add
+  if (length(draws) >= n_target) draws[seq_len(n_target)] else sample(draws, n_target, replace = TRUE)
+}
+
+gear_summary <- tryCatch({
+  set.seed(params$bss_seed)
+  n_gd <- 4000
+  rdir <- function(n, alpha) {  # n x length(alpha) Dirichlet draws via gamma normalization
+    g <- matrix(rgamma(n * length(alpha), shape = rep(alpha, each = n), rate = 1), nrow = n)
+    g / rowSums(g)
+  }
+  per_gear <- matrix(0, n_gd, length(gear_levels), dimnames = list(NULL, gear_levels))
+  for (pop in c("shore", "private_boat")) {
+    gc <- gear_props |> dplyr::filter(population == pop)
+    counts <- setNames(rep(0, length(gear_levels)), gear_levels)
+    if (nrow(gc) > 0) counts[as.character(gc$gear_primary)] <- gc$total_catch
+    per_gear <- per_gear + rdir(n_gd, counts + 0.5) * gear_pop_total_draws(pop, n_gd)
+  }
+  per_gear[, "Pot"] <- per_gear[, "Pot"] + (pe_all$comm_charter$Dungeness_Kept %||% 0)
+  tibble(
+    gear_primary = gear_levels,
+    PE_Catch = round(apply(per_gear, 2, median)),
+    lo95     = round(apply(per_gear, 2, quantile, 0.025)),
+    hi95     = round(apply(per_gear, 2, quantile, 0.975))
   ) |>
-  select(population, gear_primary, prop_catch, est_catch_PE) |>
-  arrange(population, desc(prop_catch))
+    dplyr::mutate(Proportion = round(PE_Catch / sum(PE_Catch), 3)) |>
+    dplyr::arrange(dplyr::desc(PE_Catch))
+}, error = function(e) {
+  cat(sprintf("  Gear Dirichlet propagation failed (%s); using point allocation.\n", conditionMessage(e)))
+  ge <- gear_props |>
+    mutate(pop_total = dplyr::case_when(population == "shore" ~ total_shore_catch,
+                                        population == "private_boat" ~ total_boat_catch),
+           est_catch = round(pop_total * prop_catch)) |>
+    dplyr::select(gear_primary, est_catch)
+  ge <- bind_rows(ge, tibble(gear_primary = "Pot",
+                             est_catch = round(pe_all$comm_charter$Dungeness_Kept %||% 0)))
+  ge |> group_by(gear_primary) |>
+    summarise(PE_Catch = sum(est_catch), .groups = "drop") |>
+    mutate(lo95 = NA_real_, hi95 = NA_real_, Proportion = round(PE_Catch / sum(PE_Catch), 3)) |>
+    arrange(desc(PE_Catch))
+})
 
-gear_estimates <- bind_rows(
-  gear_estimates,
-  tibble(population = "comm_charter", gear_primary = "Pot",
-         prop_catch = 1.0, est_catch_PE = round(pe_all$comm_charter$Dungeness_Kept %||% 0))
-)
-
-gear_summary <- gear_estimates |>
-  group_by(gear_primary) |>
-  summarise(PE_Catch = sum(est_catch_PE), .groups = "drop") |>
-  arrange(desc(PE_Catch)) |>
-  mutate(Proportion = round(PE_Catch / sum(PE_Catch), 3))
-
-cat("\n--- Catch by Gear Type (proportional allocation) ---\n")
+cat("\n--- Catch by Gear Type (Dirichlet pi_gear + BSS-total propagation) ---\n")
 print(gear_summary)
 write.csv(gear_summary, file.path(output_dir, "catch_by_gear_type.csv"), row.names = FALSE)
 
@@ -1661,10 +1731,11 @@ p_gear <- gear_summary |>
   mutate(gear_primary = fct_reorder(gear_primary, PE_Catch)) |>
   ggplot(aes(x = gear_primary, y = PE_Catch, fill = gear_primary)) +
   geom_col() +
+  geom_errorbar(aes(ymin = lo95, ymax = hi95), width = 0.2, na.rm = TRUE) +
   geom_text(aes(label = sprintf("%s (%.0f%%)", format(PE_Catch, big.mark=","), Proportion*100)),
             hjust = -0.1, size = 3) +
-  labs(title = "Estimated Dungeness Catch by Gear Type (Proportional Allocation)",
-       x = "Gear Type", y = "Estimated Catch") +
+  labs(title = "Estimated Dungeness Catch by Gear Type (Dirichlet pi_gear + BSS total)",
+       x = "Gear Type", y = "Estimated Catch (median, 95% CI)") +
   theme_bw() + theme(legend.position = "none") + coord_flip()
 ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10, height = 6)
 
@@ -1672,7 +1743,7 @@ ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10,
 ```
 
 ```{r catch-gear-show, echo=TRUE, fig.height=6, fig.cap='Catch by gear type.'}
-report_table(gear_summary, 'Season catch allocated by gear type (interview-proportion based).'); if (exists('p_gear')) print(p_gear)
+report_table(gear_summary, 'Season catch by gear type: Dirichlet-propagated interview gear-shares times BSS population-total draws (median, 95% CI). An NA interval marks the point-allocation fallback.'); if (exists('p_gear')) print(p_gear)
 ```
 
 ## 10. Convergence report

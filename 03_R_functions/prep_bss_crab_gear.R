@@ -124,6 +124,17 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
                       nrow(ie_match)))
         ie_match <- ie_match[0, ]
       }
+      # GR-8 (2026-07-13): symmetric shore guard. With only 1-2 in-window shore I/E days
+      # the lognormal I/E likelihood barely informs L but lets sigma_IE (exponential(5),
+      # mode at 0) shrink and stiffen against those few points, the funnel seen in the
+      # sparse shore ring-net fit. Drop the stream so sigma_IE stays prior-only (decoupled).
+      # Set ie_min_obs_shore = 0 to disable. Prior kept as exponential(5) on purpose
+      # (tightening it would push the shore all-gear sigma_IE down; see item 4 / GR-9).
+      if(is_shore && nrow(ie_match) > 0 && nrow(ie_match) < (params$ie_min_obs_shore %||% 3)) {
+        cat(sprintf("  Shore I/E: %d day(s) < ie_min_obs_shore; not used (sigma_IE decoupled, GR-8)\n",
+                    nrow(ie_match)))
+        ie_match <- ie_match[0, ]
+      }
     }
   }
   IE_n <- nrow(ie_match)

@@ -137,6 +137,23 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     cat("  I/E observations: 0\n")
   }
 
+  # GR-8 (2026-07-13): drop the shore I/E stream when it has fewer than
+  # params$ie_min_obs_shore in-window observations. With only 1-2 I/E days the lognormal
+  # I/E likelihood barely informs the effective day length L, but it lets sigma_IE
+  # (exponential(5), mode at 0) shrink and stiffen against those few points, a funnel
+  # that drove divergences in the sparse shore pot-closure fit. Dropping the stream
+  # leaves sigma_IE prior-only (decoupled, like the boat), removing the funnel at
+  # negligible information loss. Set ie_min_obs_shore = 0 to disable. The prior is left
+  # as exponential(5) ON PURPOSE: tightening it (e.g. lognormal(log(0.3), 0.5)) would
+  # push the shore all-gear sigma_IE (~1.07) down and force possibly-unrepresentative
+  # I/E days to bind harder; see the shore-I/E representativeness diagnostic (GR-9 / item 4).
+  ie_min_obs_shore <- params$ie_min_obs_shore %||% 3L
+  if (IE_n > 0 && IE_n < ie_min_obs_shore) {
+    cat(sprintf("  I/E stream dropped: %d in-window obs < ie_min_obs_shore = %d; sigma_IE left decoupled (GR-8 guard).\n",
+                IE_n, ie_min_obs_shore))
+    IE_n <- 0L
+  }
+
   # --- R_G prior (data-driven by default; overridable for prior sensitivity) ---
   # T1.3 (2026-07-12): params$R_G_prior_mu / R_G_prior_sigma override the data-driven
   # empirical R_G so the prior-sensitivity sweep (backlog T1.3 / critique 2) is a config
@@ -163,10 +180,22 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     isTRUE(params$collapse_mu_hier)
   }
 
+  # item 1: razor-dig shore EFFORT covariate. Non-zero only for a shore fit when the razor
+  # term is active (params$razor_dig_active, set by the driver from razor_dig_mode and, in
+  # "auto" mode, the spillover diagnostic p-value); otherwise all zeros, so B3 stays
+  # decoupled (prior-only, like sigma_IE at IE_n = 0). Dig dates come from the consolidated
+  # opener calendar (params$razor_dig_dates, the nearby-beach dig days).
+  razor_vec <- if (is_shore && isTRUE(params$razor_dig_active)) {
+    as.numeric(days$event_date %in% (params$razor_dig_dates %||% as.Date(character(0))))
+  } else rep(0, D)
+  if (is_shore && isTRUE(params$razor_dig_active))
+    cat(sprintf("  razor_dig effort term ACTIVE (%d razor days in window)\n", sum(razor_vec)))
+
   stan_data <- list(
     D=D, G=G, S=S,
     P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    razor=razor_vec,
     O=array(1.0, dim=c(D,S,G)),
     collapse_mu_hier = as.integer(collapse_flag),   # POOL-4 lever (0 = v6.8 default)
 
@@ -217,6 +246,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
     value_normal_sigma_B1=1, value_normal_sigma_B2=1,
     value_normal_sigma_B1_C=1,
+    value_normal_sigma_B2_C=1,   # item 6a (holiday CPUE effect)
+    value_normal_sigma_B3=1,     # item 1 (razor-dig effort effect)
+    estimate_cpue_density=as.integer(isTRUE(params$estimate_cpue_density)),  # item 6b (off by default)
+    log_E_ref=mu_E_prior,        # item 6b: center the density covariate at the effort level prior
     value_normal_mu_mu_C=mu_C_prior, value_normal_sigma_mu_C=2,
     value_normal_mu_mu_E=mu_E_prior, value_normal_sigma_mu_E=2,
     value_cauchyDF_sigma_mu_C=1, value_cauchyDF_sigma_mu_E=1,

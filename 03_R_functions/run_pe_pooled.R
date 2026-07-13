@@ -116,9 +116,22 @@ run_pe_pooled <- function(summ, days, params, population_name) {
       summarise(catch_s = sum(catch, na.rm=TRUE),
                 hrs_s   = sum(hrs,   na.rm=TRUE), .groups="drop") |>
       mutate(mean_cpue = if_else(hrs_s > 0, catch_s / hrs_s, NA_real_))
+    # Empty-stratum CPUE fallback (item 2, 2026-07-13). A stratum with expanded effort
+    # but no surviving interviews (after the incomplete-trip filter) gets mean_cpue = NA.
+    # The old behavior (replace_na(mean_cpue, 0)) assigned it ZERO catch, which
+    # under-counts, and under thin BOAT sampling with weekly strata it made the boat PE
+    # swing on a single empty cell (the incomplete-trip "anomaly": the boat filter effect
+    # was a knife-edge because one week x day-type cell's only boat interviews were
+    # incomplete and got zeroed). params$pe_empty_stratum: "pooled" (default) fills an
+    # empty stratum with the population x sub-season ratio-of-sums CPUE (a sampled rate is
+    # a better guess than zero and matches the P0 consistency target); "zero" restores the
+    # old behavior. Shore is dense (few or no empty strata), so this mainly steadies the boat.
+    pooled_cpue <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
+                     sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else 0
+    empty_fill  <- if (identical(params$pe_empty_stratum %||% "pooled", "zero")) 0 else pooled_cpue
     catch_strat <- effort_strat |>
       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
-      mutate(est_catch = est_total * replace_na(mean_cpue, 0))
+      mutate(est_catch = est_total * replace_na(mean_cpue, empty_fill))
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
 
     # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums

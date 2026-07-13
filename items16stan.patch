@@ -1,0 +1,1822 @@
+diff --git a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+index 927cc68..0f584d3 100644
+--- a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+@@ -648,6 +648,42 @@ if (!is.null(p_spill_eff))  print(p_spill_eff)
+ if (!is.null(p_spill_cpue)) print(p_spill_cpue)
+ ```
+ 
++### 3.6 Razor-dig shore-effort term (item 1)
++
++Whether this run adds a `razor_dig` term to the SHORE effort model (analogous to the holiday term), controlled by `params$razor_dig_mode` (`"no"` | `"yes"` | `"auto"`). In `"auto"` it switches on only if the spillover diagnostic's day-type/month-adjusted `razor_nearby_dig` effect on shore effort is significant at `params$razor_dig_auto_p`. When active, the shore fits gain a `B3 * razor[d]` effort term (razor days from the consolidated opener calendar); to test it, compare the shore-effort `elpd_loo` (in `loo_summary_shore_*` / the LOO section) against a `razor_dig_mode = "no"` run. This changes the shore effort model, so it is off by default.
++
++```{r razor-dig-decision, echo=TRUE}
++# Nearby-beach dig dates from the consolidated opener calendar, and the on/off decision.
++params$razor_dig_dates <- tryCatch({
++  ev <- prep_fishery_events(params)
++  ev$razor |> dplyr::filter(razor_nearby_dig) |> dplyr::pull(event_date)
++}, error = function(e) as.Date(character(0)))
++
++razor_mode   <- tolower(params$razor_dig_mode %||% "no")
++razor_thresh <- params$razor_dig_auto_p %||% 0.05
++razor_auto_p <- NA_real_
++if (razor_mode == "auto" && !is.null(spillover)) {
++  ap <- spillover$adjusted |>
++    dplyr::filter(Series == "Shore gear (effort)", grepl("Razor", Opener))
++  if (nrow(ap) > 0) razor_auto_p <- ap$adj_p[1]
++}
++params$razor_dig_active <- switch(razor_mode,
++  yes  = TRUE,
++  no   = FALSE,
++  auto = is.finite(razor_auto_p) && razor_auto_p < razor_thresh,
++  FALSE)
++if (razor_mode == "auto" && is.null(spillover))
++  cat("  NOTE: razor_dig_mode = 'auto' but the spillover diagnostic is off ",
++      "(run_fishery_spillover_diag = FALSE); the razor term stays OFF.\n", sep = "")
++
++cat(sprintf("Razor-dig shore-effort term: mode=%s, active=%s%s\n",
++    razor_mode, params$razor_dig_active,
++    if (razor_mode == "auto")
++      sprintf(" (adjusted shore-effort p=%s, threshold=%.3f)",
++              ifelse(is.finite(razor_auto_p), sprintf('%.3f', razor_auto_p), 'NA'), razor_thresh)
++    else ""))
++```
++
+ ### 3.1 Ingress/egress and effective day length
+ 
+ The I/E surveys measure how long crabbers are actually present, which sets the effective day length used to expand snapshot effort counts. Civil twilight (9 to 17 hours) would overstate active fishing time by roughly a factor of two, so the I/E-derived length is used instead.
+@@ -1013,8 +1049,10 @@ for(cg in bss_catch_groups) {
+       timer_stop(paste0("BSS_", label))
+ 
+       # --- Extract BOTH expected and predictive catch ---
+-      bss_pars <- c("C_sum","C_expected_sum","E_sum","B1","B2","B1_C_out")
++      bss_pars <- c("C_sum","C_expected_sum","E_sum","B1","B2","B1_C_out","B2_C_out")
+       if(bss_data$IE_n > 0) bss_pars <- c(bss_pars, "sigma_IE_out")
++      if(isTRUE(params$razor_dig_active) && pop == "shore") bss_pars <- c(bss_pars, "B3_out")   # item 1
++      if(isTRUE(params$estimate_cpue_density)) bss_pars <- c(bss_pars, "gamma_C_out")           # item 6b
+       bss_summ <- summary(fit, pars=bss_pars)$summary
+       cat("  BSS Summary:\n"); print(bss_summ)
+       write.csv(as.data.frame(bss_summ), file.path(output_dir, paste0("bss_summary_",label,".csv")))
+diff --git a/02_stan_models/crab_bss_pooled.stan b/02_stan_models/crab_bss_pooled.stan
+index 20a936b..a4c0703 100644
+--- a/02_stan_models/crab_bss_pooled.stan
++++ b/02_stan_models/crab_bss_pooled.stan
+@@ -78,6 +78,7 @@ data {
+   int<lower=1> period[D];               // Day-to-period mapping
+   vector<lower=0,upper=1>[D] w;          // Weekend indicator
+   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
++  vector<lower=0,upper=1>[D] razor;      // item 1: razor-dig indicator (shore EFFORT term; 0 for boat / when off)
+   real<lower=0> O[D,S,G];               // Open/closed
+ 
+   // POOL-4: single-cell mu-hierarchy collapse lever. 0 (default) keeps the v6.8
+@@ -161,6 +162,13 @@ data {
+   real value_normal_sigma_B1;
+   real value_normal_sigma_B2;
+   real value_normal_sigma_B1_C;
++  real value_normal_sigma_B2_C;   // item 6a: holiday CPUE effect (B2_C) prior scale
++  real value_normal_sigma_B3;     // item 1: razor-dig effort effect (B3) prior scale
++  // item 6b: same-day-effort CPUE density-dependence (OFF by default). estimate_cpue_density
++  // toggles the gamma_C term; log_E_ref centers the log-effort covariate (per fit, = the
++  // effort level prior mu_E) so gamma_C does not soak up the CPUE intercept.
++  int<lower=0,upper=1> estimate_cpue_density;
++  real log_E_ref;
+   real value_normal_mu_mu_C;
+   real value_normal_sigma_mu_C;
+   real value_normal_mu_mu_E;
+@@ -179,6 +187,9 @@ parameters {
+   real B1;
+   real B2;
+   real B1_C;
++  real B2_C;      // item 6a: holiday CPUE effect (symmetric to B2 on effort)
++  real B3;        // item 1: razor-dig effort effect (shore; decoupled/prior-only when razor = 0)
++  real gamma_C;   // item 6b: same-day-effort CPUE density effect (inert when estimate_cpue_density = 0)
+ 
+   real<lower=0> sigma_eps_E;
+   cholesky_factor_corr[G*S] Lcorr_E;
+@@ -285,12 +296,18 @@ transformed parameters {
+     }
+     for (d in 1:D) {
+       for (s in 1:S) {
+-        // Effort: AR deviation (at period resolution) + weekend + holiday
++        // Effort: AR deviation (at period resolution) + weekend + holiday + razor-dig
++        //   (item 1). razor[d] is the razor-dig indicator, non-zero only for a shore fit
++        //   with the razor term active; otherwise razor = 0 and B3 samples its prior.
+         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
+-          to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
+-        // CPUE: AR deviation + weekend CPUE effect
++          to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d] + B3 * razor[d]) * O[d,s,g];
++        // CPUE: AR deviation + weekend + holiday (B2_C, item 6a) + optional same-day-effort
++        //   density-dependence (gamma_C, item 6b; only when estimate_cpue_density = 1). The
++        //   density covariate is the same day's effort intensity lambda_E_S (assigned just
++        //   above), centered at log_E_ref. In the pooled model O = 1, so log(lambda_E_S) is finite.
+         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
+-          to_matrix(omega_C[period[d],], G, S)[g,s] + B1_C * w[d]) * O[d,s,g];
++          to_matrix(omega_C[period[d],], G, S)[g,s] + B1_C * w[d] + B2_C * holiday[d] +
++          (estimate_cpue_density == 1 ? gamma_C * (log(lambda_E_S[s][d,g]) - log_E_ref) : 0.0)) * O[d,s,g];
+       }
+     }
+   }
+@@ -310,6 +327,9 @@ model {
+   B1 ~ normal(0, value_normal_sigma_B1);
+   B2 ~ normal(0, value_normal_sigma_B2);
+   B1_C ~ normal(0, value_normal_sigma_B1_C);
++  B2_C ~ normal(0, value_normal_sigma_B2_C);   // item 6a: holiday CPUE effect
++  B3 ~ normal(0, value_normal_sigma_B3);        // item 1: razor-dig effort effect
++  gamma_C ~ normal(0, 1);   // item 6b: proper prior; enters the likelihood only when estimate_cpue_density = 1
+ 
+   to_vector(eps_E) ~ std_normal();
+   to_vector(eps_C) ~ std_normal();
+@@ -419,6 +439,9 @@ generated quantities {
+   real R_G_boat_out;   // POOL-1: gear per boat group (replaces R_T reporting)
+   real sigma_IE_out;
+   real B1_C_out;
++  real B2_C_out;       // item 6a
++  real B3_out;         // item 1
++  real gamma_C_out;    // item 6b
+   vector[D] L_out;
+ 
+   // Pointwise log-likelihood for PSIS-LOO (loo package) and Pareto-k influence
+@@ -440,6 +463,9 @@ generated quantities {
+   R_G_boat_out = R_G_boat;
+   sigma_IE_out = sigma_IE;
+   B1_C_out = B1_C;
++  B2_C_out = B2_C;
++  B3_out = B3;
++  gamma_C_out = gamma_C;
+   L_out = L;
+ 
+   // Mirror the model-block likelihood terms exactly (lines for Gear_I, T_I, c).
+diff --git a/03_R_functions/prep_bss_crab_pooled.R b/03_R_functions/prep_bss_crab_pooled.R
+index 362103d..8776da9 100644
+--- a/03_R_functions/prep_bss_crab_pooled.R
++++ b/03_R_functions/prep_bss_crab_pooled.R
+@@ -180,10 +180,22 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
+     isTRUE(params$collapse_mu_hier)
+   }
+ 
++  # item 1: razor-dig shore EFFORT covariate. Non-zero only for a shore fit when the razor
++  # term is active (params$razor_dig_active, set by the driver from razor_dig_mode and, in
++  # "auto" mode, the spillover diagnostic p-value); otherwise all zeros, so B3 stays
++  # decoupled (prior-only, like sigma_IE at IE_n = 0). Dig dates come from the consolidated
++  # opener calendar (params$razor_dig_dates, the nearby-beach dig days).
++  razor_vec <- if (is_shore && isTRUE(params$razor_dig_active)) {
++    as.numeric(days$event_date %in% (params$razor_dig_dates %||% as.Date(character(0))))
++  } else rep(0, D)
++  if (is_shore && isTRUE(params$razor_dig_active))
++    cat(sprintf("  razor_dig effort term ACTIVE (%d razor days in window)\n", sum(razor_vec)))
++
+   stan_data <- list(
+     D=D, G=G, S=S,
+     P_n=P_n, period=pvec,
+     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
++    razor=razor_vec,
+     O=array(1.0, dim=c(D,S,G)),
+     collapse_mu_hier = as.integer(collapse_flag),   # POOL-4 lever (0 = v6.8 default)
+ 
+@@ -234,6 +246,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
+     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
+     value_normal_sigma_B1=1, value_normal_sigma_B2=1,
+     value_normal_sigma_B1_C=1,
++    value_normal_sigma_B2_C=1,   # item 6a (holiday CPUE effect)
++    value_normal_sigma_B3=1,     # item 1 (razor-dig effort effect)
++    estimate_cpue_density=as.integer(isTRUE(params$estimate_cpue_density)),  # item 6b (off by default)
++    log_E_ref=mu_E_prior,        # item 6b: center the density covariate at the effort level prior
+     value_normal_mu_mu_C=mu_C_prior, value_normal_sigma_mu_C=2,
+     value_normal_mu_mu_E=mu_E_prior, value_normal_sigma_mu_E=2,
+     value_cauchyDF_sigma_mu_C=1, value_cauchyDF_sigma_mu_E=1,
+diff --git a/03_R_functions/prep_fishery_events.R b/03_R_functions/prep_fishery_events.R
+index fbdffbc..06686ce 100644
+--- a/03_R_functions/prep_fishery_events.R
++++ b/03_R_functions/prep_fishery_events.R
+@@ -1,35 +1,74 @@
+ ###############################################################################
+-# prep_fishery_events.R  (shared; read by the pooled fishery-opener diagnostic)
++# prep_fishery_events.R  (shared; read by the fishery-opener diagnostic and the
++# razor_dig effort term)
+ #
+-# Reads the two other-fishery opener calendars in 04_input_files/ and returns a
+-# per-date table of OPEN/CLOSED flags, so the spillover diagnostic
+-# (03_R_functions/diagnose_fishery_spillover.R) can test whether crab effort/CPUE
+-# differs on those dates. Diagnostic only; it does NOT change the estimate.
++# Returns a per-date table of other-fishery OPEN/CLOSED flags so the spillover
++# diagnostic (diagnose_fishery_spillover.R) and the razor_dig shore-effort term
++# (item 1) can use them.
+ #
+-#   MA2-fishing-dates:  a FULL daily calendar with OPEN/CLOSED for Marine Area 2
+-#                       BOTTOMFISH, HALIBUT, SALMON (Westport finfish seasons).
+-#   razor-clam-dig:     a SPARSE list of dig days (rows exist only for open digs),
+-#                       with OPEN/CLOSED per beach (Long Beach, Twin Harbors, Copalis,
+-#                       Mocrocks, Kalaloch) plus an ANY column.
++# PRIMARY SOURCE (2026-07-13): one consolidated daily calendar CSV,
++# 04_input_files/fishery_opener_dates.csv, with columns
++#   date, ma2_bottomfish, ma2_halibut, ma2_salmon,
++#   razor_long_beach, razor_twin_harbors, razor_copalis, razor_mocrocks, razor_kalaloch, razor_any
++# (each OPEN/CLOSED, one row per day). This replaces the two source workbooks
++# (MA2-fishing-dates*.xlsx, razor-clam-dig-dates*.xlsx), which are kept only as a
++# fallback when the CSV is absent. Override the filename with params$fishery_opener_dates_file.
+ #
+-# Filenames come from params (ma2_dates_file / razor_dates_file); the "nearby" beach
+-# set is params$razor_nearby_beaches (default Twin Harbors + Copalis + Mocrocks, the
+-# beaches closest to Grays Harbor). NOTE on identifiability: in the 2024-25 data Twin
+-# Harbors and Long Beach are open on EVERY listed dig day, so razor_nearby_dig equals
+-# razor_any_dig that season; the code is general (a future season where Twin Harbors is
+-# not always open would separate them), and the diagnostic reports the overlap so the
+-# collinearity is visible rather than hidden.
++# razor_nearby_dig = any of params$razor_nearby_beaches open (default Twin Harbors +
++# Copalis + Mocrocks, the beaches nearest Grays Harbor). In the 2024-25 data Twin Harbors
++# is open on every dig day, so nearby == any that season; the code is general.
+ ###############################################################################
+ 
+ prep_fishery_events <- function(params) {
+-  is_open <- function(x) toupper(trimws(as.character(x))) == "OPEN"
++  is_open   <- function(x) toupper(trimws(as.character(x))) == "OPEN"
++  beach_col <- function(nm) paste0("razor_", gsub("[^a-z0-9]+", "_", tolower(trimws(nm))))
++  nearby_names <- params$razor_nearby_beaches %||% c("Twin Harbors", "Copalis", "Mocrocks")
+ 
++  csv_path <- here::here("04_input_files",
++                         params$fishery_opener_dates_file %||% "fishery_opener_dates.csv")
++
++  if (file.exists(csv_path)) {
++    d <- utils::read.csv(csv_path, stringsAsFactors = FALSE, check.names = FALSE)
++    names(d) <- tolower(trimws(names(d)))
++
++    ma2_flags <- tibble::tibble(
++      event_date          = as.Date(d$date),
++      ma2_salmon_open     = is_open(d$ma2_salmon),
++      ma2_halibut_open    = is_open(d$ma2_halibut),
++      ma2_bottomfish_open = is_open(d$ma2_bottomfish)
++    ) |>
++      dplyr::filter(!is.na(event_date)) |>
++      dplyr::distinct(event_date, .keep_all = TRUE)
++
++    beach_all   <- setdiff(grep("^razor_", names(d), value = TRUE), "razor_any")
++    nearby_cols <- intersect(beach_col(nearby_names), beach_all)
++    open_mat    <- if (length(beach_all))
++                     do.call(cbind, lapply(beach_all, function(cc) is_open(d[[cc]])))
++                   else matrix(FALSE, nrow(d), 0)
++    if (length(beach_all)) colnames(open_mat) <- beach_all
++
++    razor_flags <- tibble::tibble(
++      event_date       = as.Date(d$date),
++      razor_any_dig    = if ("razor_any" %in% names(d)) is_open(d$razor_any)
++                         else rowSums(open_mat, na.rm = TRUE) > 0,
++      razor_nearby_dig = if (length(nearby_cols)) rowSums(open_mat[, nearby_cols, drop = FALSE], na.rm = TRUE) > 0
++                         else rep(FALSE, nrow(d))
++    ) |>
++      dplyr::filter(!is.na(event_date)) |>
++      dplyr::group_by(event_date) |>
++      dplyr::summarise(razor_any_dig    = any(razor_any_dig),
++                       razor_nearby_dig = any(razor_nearby_dig), .groups = "drop")
++
++    return(list(ma2 = ma2_flags, razor = razor_flags,
++                beach_cols = beach_all, nearby_cols = nearby_cols, source = "csv"))
++  }
++
++  # ---- Fallback: the two source workbooks (pre-2026-07-13 consolidation) ------------
+   ma2_path   <- here::here("04_input_files",
+                            params$ma2_dates_file   %||% "MA2-fishing-dates-2023-2026.xlsx")
+   razor_path <- here::here("04_input_files",
+                            params$razor_dates_file %||% "razor-clam-dig-dates-2021-2025.xlsx")
+ 
+-  # --- MA2 finfish (full daily calendar) -----------------------------------
+   ma2 <- readxl::read_excel(ma2_path, sheet = "data")
+   names(ma2) <- toupper(trimws(names(ma2)))
+   ma2_flags <- tibble::tibble(
+@@ -41,19 +80,13 @@ prep_fishery_events <- function(params) {
+     dplyr::filter(!is.na(event_date)) |>
+     dplyr::distinct(event_date, .keep_all = TRUE)
+ 
+-  # --- Razor-clam digs (sparse; only dig days present) ---------------------
+   razor <- readxl::read_excel(razor_path, sheet = "data")
+   names(razor) <- toupper(trimws(names(razor)))
+-  beach_all    <- c("LONG BEACH", "TWIN HARBORS", "COPALIS", "MOCROCKS", "KALALOCH")
+-  beach_cols   <- intersect(beach_all, names(razor))
+-  nearby_names <- toupper(trimws(params$razor_nearby_beaches %||%
+-                                 c("TWIN HARBORS", "COPALIS", "MOCROCKS")))
+-  nearby_cols  <- intersect(nearby_names, beach_cols)
+-
+-  # Per-beach OPEN logical matrix (rows = razor rows, cols = beaches present).
+-  open_mat <- do.call(cbind, lapply(beach_cols, function(cc) is_open(razor[[cc]])))
+-  colnames(open_mat) <- beach_cols
+-
++  beach_all    <- intersect(c("LONG BEACH", "TWIN HARBORS", "COPALIS", "MOCROCKS", "KALALOCH"), names(razor))
++  nearby_up    <- toupper(trimws(nearby_names))
++  nearby_cols  <- intersect(nearby_up, beach_all)
++  open_mat <- do.call(cbind, lapply(beach_all, function(cc) is_open(razor[[cc]])))
++  colnames(open_mat) <- beach_all
+   razor_flags <- tibble::tibble(
+     event_date       = as.Date(razor$DATE),
+     razor_any_dig    = rowSums(open_mat, na.rm = TRUE) > 0,
+@@ -64,10 +97,6 @@ prep_fishery_events <- function(params) {
+     dplyr::summarise(razor_any_dig    = any(razor_any_dig),
+                      razor_nearby_dig = any(razor_nearby_dig), .groups = "drop")
+ 
+-  list(
+-    ma2         = ma2_flags,
+-    razor       = razor_flags,
+-    beach_cols  = beach_cols,
+-    nearby_cols = nearby_cols
+-  )
++  list(ma2 = ma2_flags, razor = razor_flags,
++       beach_cols = beach_all, nearby_cols = nearby_cols, source = "xlsx")
+ }
+diff --git a/04_input_files/fishery_opener_dates.csv b/04_input_files/fishery_opener_dates.csv
+new file mode 100644
+index 0000000..4e7fd21
+--- /dev/null
++++ b/04_input_files/fishery_opener_dates.csv
+@@ -0,0 +1,1462 @@
++date,ma2_bottomfish,ma2_halibut,ma2_salmon,razor_long_beach,razor_twin_harbors,razor_copalis,razor_mocrocks,razor_kalaloch,razor_any
++2023-01-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-01-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-01-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-01-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-01-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-02-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-02-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-02-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-03-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-03-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-03-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-03-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-03-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-03-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-17,OPEN,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-03-18,OPEN,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-03-19,OPEN,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-03-20,OPEN,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-03-21,OPEN,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-03-22,OPEN,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-03-23,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-03-24,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-03-25,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-03-26,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-03-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-03-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-06,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-07,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-08,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-09,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-19,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-20,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-21,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-22,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-23,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-24,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-04-25,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-04-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-04-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-04,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-05,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-05-06,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-07,OPEN,OPEN,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-05-08,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-09,OPEN,OPEN,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-05-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-11,OPEN,OPEN,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-05-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-13,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-05-14,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-05-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-16,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-21,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-23,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-25,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-05-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-15,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-22,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-25,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-06-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-22,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-07-31,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-22,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-26,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-27,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-08-31,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-08,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-09,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-22,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-09-29,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,OPEN
++2023-09-30,OPEN,CLOSED,OPEN,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-01,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,CLOSED,CLOSED,OPEN
++2023-10-02,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-14,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-10-15,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-16,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-10-17,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-10-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-10-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-10-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-10-30,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-10-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-11-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-11-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-11-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-11-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-11-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-11-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2023-11-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-11-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-11-24,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-11-25,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-11-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-11-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-11-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-11-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2023-11-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-12-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-12-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-12-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-12-17,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-12-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-12-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-12-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2023-12-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2023-12-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2023-12-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-09,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-01-10,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-01-11,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-01-12,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-01-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-01-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-01-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-01-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-01-23,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-01-24,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-01-25,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-01-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-01-27,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-01-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-01-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-01-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-02-07,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-02-08,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-02-09,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-02-10,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-02-11,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-02-12,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-02-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-02-22,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-02-23,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-02-24,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-02-25,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-02-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-02-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-07,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-03-08,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-03-09,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-03-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-03-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-03-12,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-03-13,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-03-14,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-03-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-03-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-03-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-03-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-03-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-03-27,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-03-28,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-03-29,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-03-30,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-03-31,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-04-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-04-09,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-04-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-04-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-04-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-04-13,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-04-14,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-04-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-04-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-04-24,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-04-25,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-04-26,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-04-27,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-04-28,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-04-29,OPEN,CLOSED,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-04-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-02,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-05,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-05-07,OPEN,OPEN,CLOSED,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN
++2024-05-08,OPEN,CLOSED,CLOSED,OPEN,CLOSED,OPEN,CLOSED,CLOSED,OPEN
++2024-05-09,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-05-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-05-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-05-12,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-05-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-14,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-16,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-19,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-21,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-23,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-28,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-05-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-13,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-16,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-20,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-23,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-25,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-27,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-06-30,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-22,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-07-31,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-22,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-23,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-24,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-25,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-26,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-27,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-28,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-29,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-08-31,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-01,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-02,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-03,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-05,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-08,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-10,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-12,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-15,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-17,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-19,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-22,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-24,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-26,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-29,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-09-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-03,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-04,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-05,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-06,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-07,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-15,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-16,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-17,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-18,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-19,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-10-20,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-10-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-10-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-11-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-11-05,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-11-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-11-17,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-19,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-11-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-11-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-11-30,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-05,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-12,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-17,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2024-12-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2024-12-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-30,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2024-12-31,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-10,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-11,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-12,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-01-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-01-30,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-01-31,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-08,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-09,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-10,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-11,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-12,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-13,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-02-24,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-25,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-02-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-02-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-08,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-09,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-13,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-14,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-03-26,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-27,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-28,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-29,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-03-30,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-03-31,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-01,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-02,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-03,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-13,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-14,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-15,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-16,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-17,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-18,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-04-26,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-27,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-28,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-04-29,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-04-30,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-05-01,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-05-02,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-05-03,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-05-04,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-06,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-08,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-05-11,OPEN,OPEN,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-05-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-05-13,OPEN,OPEN,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-05-14,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-05-15,OPEN,OPEN,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-05-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-20,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-22,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-25,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-27,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-29,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-05-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-12,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-15,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-17,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-19,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-22,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-24,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-26,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-29,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-06-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-17,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-18,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-19,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-21,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-22,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-23,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-25,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-28,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-30,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-07-31,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-01,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-02,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-03,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-04,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-05,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-06,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-07,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-08,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-09,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-10,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-11,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-12,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-13,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-14,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-15,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-16,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-17,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-18,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-19,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-20,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-21,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-22,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-23,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-24,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-25,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-26,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-27,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-28,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-29,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-30,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-08-31,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-01,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-02,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-03,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-04,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-05,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-06,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-07,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-08,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-09,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-10,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-11,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-12,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-13,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-14,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-15,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-16,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-17,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-19,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-20,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-21,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-22,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-23,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-24,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-25,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-26,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-27,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-28,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-29,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-09-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-06,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-07,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-08,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-09,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-10,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-11,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-12,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-20,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-22,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-23,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-24,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-25,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-10-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-10-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-10-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-05,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-06,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-07,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-08,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-09,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-19,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-20,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-22,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-11-23,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-11-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-11-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-05,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-06,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-07,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-08,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-19,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-20,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-22,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2025-12-23,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2025-12-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2025-12-31,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-05,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-06,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-17,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-19,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-20,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-21,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-01-29,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-01-30,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-01-31,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-14,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-15,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-16,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-17,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-18,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-19,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-02-26,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-02-27,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-02-28,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-01,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-02,CLOSED,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-03,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-04,CLOSED,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-17,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-18,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-19,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-20,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-21,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-22,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-03-23,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-24,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-03-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-03-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-01,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-04-02,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-04-03,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-04-04,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-04-05,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-04-06,OPEN,CLOSED,CLOSED,OPEN,OPEN,CLOSED,OPEN,CLOSED,OPEN
++2026-04-07,OPEN,CLOSED,CLOSED,OPEN,OPEN,OPEN,CLOSED,CLOSED,OPEN
++2026-04-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-04-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-01,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-03,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-05,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-07,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-08,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-10,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-12,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-14,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-15,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-17,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-19,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-21,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-22,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-24,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-26,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-28,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-29,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-05-31,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-02,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-04,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-07,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-09,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-11,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-14,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-16,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-18,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-20,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-21,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-22,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-23,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-24,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-25,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-26,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-27,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-28,OPEN,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-29,OPEN,CLOSED,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-06-30,OPEN,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-07-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-08-31,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-18,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-19,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-20,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-21,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-22,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-23,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-24,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-25,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-26,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-27,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-28,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-29,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-09-30,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-01,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-02,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-03,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-04,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-05,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-06,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-07,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-08,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-09,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-10,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-11,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-12,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-13,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-14,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-15,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-16,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-17,OPEN,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-10-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-11-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-01,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-02,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-03,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-04,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-05,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-06,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-07,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-08,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-09,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-10,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-11,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-12,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-13,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-14,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-15,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-16,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-17,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-18,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-19,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-20,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-21,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-22,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-23,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-24,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-25,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-26,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-27,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-28,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-29,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-30,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
++2026-12-31,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED,CLOSED
+diff --git a/run_config.R b/run_config.R
+index 8c28c12..31db46a 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -213,6 +213,27 @@ run_config <- list(
+   ma2_dates_file       = "MA2-fishing-dates-2023-2026.xlsx",
+   razor_dates_file     = "razor-clam-dig-dates-2021-2025.xlsx",
+   razor_nearby_beaches = c("Twin Harbors", "Copalis", "Mocrocks"),
++  fishery_opener_dates_file = "fishery_opener_dates.csv",  # consolidated daily calendar (item 1);
++                                                           # prep_fishery_events reads this, falling
++                                                           # back to the two xlsx above if absent.
++
++  # --- razor_dig SHORE-effort term (item 1, 2026-07-13) --------------------
++  # Adds a razor-dig day-type effect to the SHORE effort model (a B3 * razor[d] term,
++  # analogous to the holiday B2 effort term). "no" = off (production default); "yes" = on
++  # for the shore fits; "auto" = on only if the spillover diagnostic's day-type/month-
++  # adjusted shore-effort razor effect is significant at razor_dig_auto_p. Boat fits and
++  # inactive runs pass razor = 0, so B3 stays decoupled (prior-only). Compare the shore-
++  # effort elpd_loo against a "no" run to test the gain. RE-COMPILES the Stan model.
++  razor_dig_mode   = "no",     # "no" | "yes" | "auto"
++  razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
++
++  # --- CPUE holiday + density terms (item 6, 2026-07-13) -------------------
++  # B2_C (holiday CPUE effect, analogous to the effort B2) is ALWAYS on now (effort had
++  # weekend + holiday terms, CPUE previously had only weekend). estimate_cpue_density adds
++  # an OPTIONAL same-day-effort density-dependence term (gamma_C) to CPUE; it couples the
++  # CPUE and effort processes, so it is OFF by default and should be validated on a test
++  # fit first. RE-COMPILES the Stan model.
++  estimate_cpue_density = FALSE,
+ 
+   # --- Model-specific toggles (centralized here; each is read only by its own
+   #     model and ignored by the other, so they are safe to keep in one list) --
