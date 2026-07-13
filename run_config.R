@@ -136,7 +136,7 @@ run_config <- list(
   # To run the boat daily-vs-weekly experiment, set list(private_boat = "daily").
   # To test the boat monthly-AR reconciliation (open item in the model-state
   # review), set list(private_boat = "monthly").
-  ar_force          = list(private_boat = "monthly"), #NULL,
+  ar_force          = NULL,
 
   # --- AR resolution caps (per-model map; each driver selects its own slice) ----
   # Cap on the finest AR resolution the data-driven selector may choose, per
@@ -149,7 +149,7 @@ run_config <- list(
   #                  is P_n x (G*S), ~4x the pooled dimension with 4 gear types.
   # A population absent from a map defaults to "daily" (no cap).
   ar_max_resolution = list(
-    pooled        = list(shore = "daily",  private_boat = "weekly"),
+    pooled        = list(shore = "daily",  private_boat = "monthly"),
     gear_resolved = list(shore = "weekly", private_boat = "monthly")
   ),
 
