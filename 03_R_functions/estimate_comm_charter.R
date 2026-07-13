@@ -33,20 +33,42 @@ estimate_comm_charter <- function(dwg, params) {
     return(result)
   }
 
-  mean_dung_per_vessel <- sum(comm_int$dungeness_kept) / nrow(comm_int)
+  # T1.4 (2026-07-12): separate per-vessel catch means for commercial vs charter
+  # vessels, each applied to its own tally column, instead of one mean across the
+  # pooled tally. The two classes have materially different catch profiles (2024-25
+  # census window: commercial ~35 vs charter ~51 Dungeness/vessel), so a single mean
+  # biases the total whenever the commercial:charter mix in the tally differs from
+  # the mix in the interviews. boat_type_clean is set in fetch_crab_data (Commercial,
+  # Charter, with Guide folded into Charter). A class with no interviews in the
+  # window falls back to the pooled mean. (Backlog T1.4 / critique 6.)
+  pooled_mean_dung <- sum(comm_int$dungeness_kept) / nrow(comm_int)
+  class_mean <- function(cls, col, fallback) {
+    if (!"boat_type_clean" %in% names(comm_int)) return(fallback)  # degrade to pooled mean
+    sub <- comm_int |> filter(boat_type_clean == cls)
+    if (nrow(sub) > 0) sum(sub[[col]], na.rm = TRUE) / nrow(sub) else fallback
+  }
+  n_comm  <- sum(comm_int$boat_type_clean == "Commercial", na.rm = TRUE)
+  n_char  <- sum(comm_int$boat_type_clean == "Charter",    na.rm = TRUE)
+  md_comm <- class_mean("Commercial", "dungeness_kept", pooled_mean_dung)
+  md_char <- class_mean("Charter",    "dungeness_kept", pooled_mean_dung)
+
   rr_str <- ""
   if(params$estimate_red_rock) {
-    mean_rr_per_vessel <- sum(comm_int$red_rock_kept) / nrow(comm_int)
-    rr_str <- sprintf(", Mean Red Rock/vessel: %.1f", mean_rr_per_vessel)
+    pooled_mean_rr <- sum(comm_int$red_rock_kept) / nrow(comm_int)
+    mr_comm <- class_mean("Commercial", "red_rock_kept", pooled_mean_rr)
+    mr_char <- class_mean("Charter",    "red_rock_kept", pooled_mean_rr)
+    rr_str  <- sprintf(" | Red Rock/vessel: comm %.1f, charter %.1f", mr_comm, mr_char)
   }
 
-  cat(sprintf("  Tally days: %d, Interviews: %d\n", nrow(tally), nrow(comm_int)))
-  cat(sprintf("  Mean Dungeness/vessel: %.1f%s\n", mean_dung_per_vessel, rr_str))
+  cat(sprintf("  Tally days: %d, Interviews: %d (commercial %d, charter %d)\n",
+              nrow(tally), nrow(comm_int), n_comm, n_char))
+  cat(sprintf("  Mean Dungeness/vessel: commercial %.1f, charter %.1f%s\n",
+              md_comm, md_char, rr_str))
 
   daily_est <- tally |>
     mutate(
       total_comm_charter = commercial_tally + charter_tally,
-      est_dung = total_comm_charter * mean_dung_per_vessel,
+      est_dung = commercial_tally * md_comm + charter_tally * md_char,
       day_of_week = weekdays(date),
       day_type = case_when(
         date %in% crabbing_holiday_dates ~ "weekend",
@@ -56,7 +78,7 @@ estimate_comm_charter <- function(dwg, params) {
     )
 
   if(params$estimate_red_rock) {
-    daily_est <- daily_est |> mutate(est_rr = total_comm_charter * mean_rr_per_vessel)
+    daily_est <- daily_est |> mutate(est_rr = commercial_tally * mr_comm + charter_tally * mr_char)
   }
 
   census_calendar <- tibble(

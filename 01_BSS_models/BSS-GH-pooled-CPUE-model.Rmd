@@ -1741,6 +1741,53 @@ report_table(loo_disp,
         "saturated there), so read its elpd_loo with caution."))
 ```
 
+### 11.4 Summer-extrapolation transparency (T1.1)
+
+How much of each fitted component's BSS catch falls on days with **no interview**, where the CPUE is imputed by the AR process and priors rather than observed. A high extrapolated share means that component's harvest rests on the model filling unsampled time; it is the transparency counterpart to the summer-dominance caveat, and the place to be most cautious about the headline number. The share is computed from summed daily medians, so read it as a coverage diagnostic, not a re-estimate of the total.
+
+```{r extrapolation-transparency, echo=FALSE}
+# T1.1: decompose each fit's BSS catch into interview-days vs extrapolated (no
+# interview) days, from the persisted daily catch (bss_daily_catch_*) and daily CPUE
+# (bss_daily_cpue_*, which carries n_interviews) outputs. A day is "extrapolated" when
+# it has zero interviews, so its CPUE comes entirely from the AR process and priors.
+# Diagnostic only; writes extrapolation_transparency.csv.
+.dc <- read_fit_outputs("bss_daily_catch")
+.dq <- read_fit_outputs("bss_daily_cpue")
+extrap_tbl <- NULL
+if (!is.null(.dc) && !is.null(.dq) && "n_interviews" %in% names(.dq)) {
+  extrap_tbl <- tryCatch({
+    dplyr::left_join(
+      dplyr::transmute(.dc, fit_lbl, event_date = as.character(event_date), catch = .data[["median"]]),
+      dplyr::transmute(.dq, fit_lbl, event_date = as.character(event_date), n_interviews),
+      by = c("fit_lbl", "event_date")) |>
+      dplyr::mutate(n_interviews = dplyr::coalesce(n_interviews, 0)) |>
+      dplyr::group_by(Fit = fit_lbl) |>
+      dplyr::summarise(
+        `days total`         = dplyr::n(),
+        `days sampled`       = sum(n_interviews > 0),
+        `catch total`        = round(sum(catch, na.rm = TRUE)),
+        `catch extrapolated` = round(sum(catch[n_interviews == 0], na.rm = TRUE)),
+        .groups = "drop") |>
+      dplyr::mutate(
+        `% days sampled`       = round(100 * `days sampled` / `days total`, 0),
+        `% catch extrapolated` = round(100 * `catch extrapolated` / `catch total`, 1))
+  }, error = function(e) NULL)
+}
+if (!is.null(extrap_tbl) && nrow(extrap_tbl) > 0) {
+  port_extrap_pct <- round(100 * sum(extrap_tbl$`catch extrapolated`) / sum(extrap_tbl$`catch total`), 1)
+  utils::write.csv(extrap_tbl, file.path(output_dir, "extrapolation_transparency.csv"), row.names = FALSE)
+  report_table(extrap_tbl,
+    paste0("Share of each fitted component's BSS catch on days with no interview (CPUE ",
+           "imputed by the AR process). Across the fitted components, ", port_extrap_pct,
+           "% of the summed BSS catch falls on extrapolated days. A high '% catch ",
+           "extrapolated' flags a component whose harvest rests on the model filling ",
+           "unsampled time; shares use summed daily medians, so read as a coverage ",
+           "diagnostic, not a re-estimate of the total."))
+} else {
+  cat("_Extrapolation transparency unavailable (daily catch / CPUE outputs not found)._")
+}
+```
+
 ## 12. Effort and CPUE multipliers
 
 The fitted effort and CPUE structural quantities (day-type effects, the CPUE weekend effect B1_C, and the effort multipliers) that shape the daily series.

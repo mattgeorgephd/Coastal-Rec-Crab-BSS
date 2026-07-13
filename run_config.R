@@ -104,6 +104,16 @@ run_config <- list(
   tau_boat_prior_sigma   = 0.3,
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
 
+  # --- R_G prior sensitivity (T1.3; OFF by default = data-driven) ----------
+  # The pooled model's R_G prior (gear per crabber) is data-driven by default. To run
+  # the R_G prior-sensitivity sweep (backlog T1.3 / critique 2), uncomment R_G_prior_mu
+  # and set it to each of 1.0, ~1.28 (the empirical value), and 1.5 in turn, re-running
+  # each; then compare the port totals. A tighter R_G_prior_sigma makes the prior bind
+  # harder. Leave commented for production. (tau_shore/tau_boat above are the analogous
+  # effort-expansion priors and are already live toggles.)
+  # R_G_prior_mu    = 1.27,
+  # R_G_prior_sigma = 0.3,
+
   # --- BSS run-level settings (NOT per-fit tuning) -------------------------
   bss_chains        = 4,
   bss_cores         = 4,

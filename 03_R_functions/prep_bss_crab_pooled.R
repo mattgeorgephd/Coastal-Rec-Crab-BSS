@@ -137,11 +137,17 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     cat("  I/E observations: 0\n")
   }
 
-  # --- Data-driven R_G prior ---
-  R_G_empirical <- summ$empirical_R_G
-  R_G_prior_sigma <- 0.3
-  cat(sprintf("  R_G prior = Lognormal(log(%.2f), %.2f) [data-driven]\n",
-              R_G_empirical, R_G_prior_sigma))
+  # --- R_G prior (data-driven by default; overridable for prior sensitivity) ---
+  # T1.3 (2026-07-12): params$R_G_prior_mu / R_G_prior_sigma override the data-driven
+  # empirical R_G so the prior-sensitivity sweep (backlog T1.3 / critique 2) is a config
+  # change, not a code edit. Leave both unset for production (the data-driven value). To
+  # sweep, set params$R_G_prior_mu to 1.0, the empirical value (~1.28), and 1.5 in turn
+  # and compare the port totals (a tighter R_G_prior_sigma makes the prior bind harder).
+  R_G_empirical   <- params$R_G_prior_mu %||% summ$empirical_R_G
+  R_G_prior_sigma <- params$R_G_prior_sigma %||% 0.3
+  .rg_src <- if (is.null(params$R_G_prior_mu)) "data-driven" else "OVERRIDE (prior sensitivity)"
+  cat(sprintf("  R_G prior = Lognormal(log(%.2f), %.2f) [%s]\n",
+              R_G_empirical, R_G_prior_sigma, .rg_src))
 
   # Weakly-informative level priors (sigma 2, so the data dominate). Boat lambda_E
   # is gear in the water on the deployment scale; lambda_C is crab per deployment.

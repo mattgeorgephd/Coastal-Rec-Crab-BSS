@@ -1,0 +1,239 @@
+diff --git a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+index 977deed..7d41275 100644
+--- a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+@@ -1741,6 +1741,53 @@ report_table(loo_disp,
+         "saturated there), so read its elpd_loo with caution."))
+ ```
+ 
++### 11.4 Summer-extrapolation transparency (T1.1)
++
++How much of each fitted component's BSS catch falls on days with **no interview**, where the CPUE is imputed by the AR process and priors rather than observed. A high extrapolated share means that component's harvest rests on the model filling unsampled time; it is the transparency counterpart to the summer-dominance caveat, and the place to be most cautious about the headline number. The share is computed from summed daily medians, so read it as a coverage diagnostic, not a re-estimate of the total.
++
++```{r extrapolation-transparency, echo=FALSE}
++# T1.1: decompose each fit's BSS catch into interview-days vs extrapolated (no
++# interview) days, from the persisted daily catch (bss_daily_catch_*) and daily CPUE
++# (bss_daily_cpue_*, which carries n_interviews) outputs. A day is "extrapolated" when
++# it has zero interviews, so its CPUE comes entirely from the AR process and priors.
++# Diagnostic only; writes extrapolation_transparency.csv.
++.dc <- read_fit_outputs("bss_daily_catch")
++.dq <- read_fit_outputs("bss_daily_cpue")
++extrap_tbl <- NULL
++if (!is.null(.dc) && !is.null(.dq) && "n_interviews" %in% names(.dq)) {
++  extrap_tbl <- tryCatch({
++    dplyr::left_join(
++      dplyr::transmute(.dc, fit_lbl, event_date = as.character(event_date), catch = .data[["median"]]),
++      dplyr::transmute(.dq, fit_lbl, event_date = as.character(event_date), n_interviews),
++      by = c("fit_lbl", "event_date")) |>
++      dplyr::mutate(n_interviews = dplyr::coalesce(n_interviews, 0)) |>
++      dplyr::group_by(Fit = fit_lbl) |>
++      dplyr::summarise(
++        `days total`         = dplyr::n(),
++        `days sampled`       = sum(n_interviews > 0),
++        `catch total`        = round(sum(catch, na.rm = TRUE)),
++        `catch extrapolated` = round(sum(catch[n_interviews == 0], na.rm = TRUE)),
++        .groups = "drop") |>
++      dplyr::mutate(
++        `% days sampled`       = round(100 * `days sampled` / `days total`, 0),
++        `% catch extrapolated` = round(100 * `catch extrapolated` / `catch total`, 1))
++  }, error = function(e) NULL)
++}
++if (!is.null(extrap_tbl) && nrow(extrap_tbl) > 0) {
++  port_extrap_pct <- round(100 * sum(extrap_tbl$`catch extrapolated`) / sum(extrap_tbl$`catch total`), 1)
++  utils::write.csv(extrap_tbl, file.path(output_dir, "extrapolation_transparency.csv"), row.names = FALSE)
++  report_table(extrap_tbl,
++    paste0("Share of each fitted component's BSS catch on days with no interview (CPUE ",
++           "imputed by the AR process). Across the fitted components, ", port_extrap_pct,
++           "% of the summed BSS catch falls on extrapolated days. A high '% catch ",
++           "extrapolated' flags a component whose harvest rests on the model filling ",
++           "unsampled time; shares use summed daily medians, so read as a coverage ",
++           "diagnostic, not a re-estimate of the total."))
++} else {
++  cat("_Extrapolation transparency unavailable (daily catch / CPUE outputs not found)._")
++}
++```
++
+ ## 12. Effort and CPUE multipliers
+ 
+ The fitted effort and CPUE structural quantities (day-type effects, the CPUE weekend effect B1_C, and the effort multipliers) that shape the daily series.
+diff --git a/03_R_functions/estimate_comm_charter.R b/03_R_functions/estimate_comm_charter.R
+index 448fbc4..69304ca 100644
+--- a/03_R_functions/estimate_comm_charter.R
++++ b/03_R_functions/estimate_comm_charter.R
+@@ -33,20 +33,42 @@ estimate_comm_charter <- function(dwg, params) {
+     return(result)
+   }
+ 
+-  mean_dung_per_vessel <- sum(comm_int$dungeness_kept) / nrow(comm_int)
++  # T1.4 (2026-07-12): separate per-vessel catch means for commercial vs charter
++  # vessels, each applied to its own tally column, instead of one mean across the
++  # pooled tally. The two classes have materially different catch profiles (2024-25
++  # census window: commercial ~35 vs charter ~51 Dungeness/vessel), so a single mean
++  # biases the total whenever the commercial:charter mix in the tally differs from
++  # the mix in the interviews. boat_type_clean is set in fetch_crab_data (Commercial,
++  # Charter, with Guide folded into Charter). A class with no interviews in the
++  # window falls back to the pooled mean. (Backlog T1.4 / critique 6.)
++  pooled_mean_dung <- sum(comm_int$dungeness_kept) / nrow(comm_int)
++  class_mean <- function(cls, col, fallback) {
++    if (!"boat_type_clean" %in% names(comm_int)) return(fallback)  # degrade to pooled mean
++    sub <- comm_int |> filter(boat_type_clean == cls)
++    if (nrow(sub) > 0) sum(sub[[col]], na.rm = TRUE) / nrow(sub) else fallback
++  }
++  n_comm  <- sum(comm_int$boat_type_clean == "Commercial", na.rm = TRUE)
++  n_char  <- sum(comm_int$boat_type_clean == "Charter",    na.rm = TRUE)
++  md_comm <- class_mean("Commercial", "dungeness_kept", pooled_mean_dung)
++  md_char <- class_mean("Charter",    "dungeness_kept", pooled_mean_dung)
++
+   rr_str <- ""
+   if(params$estimate_red_rock) {
+-    mean_rr_per_vessel <- sum(comm_int$red_rock_kept) / nrow(comm_int)
+-    rr_str <- sprintf(", Mean Red Rock/vessel: %.1f", mean_rr_per_vessel)
++    pooled_mean_rr <- sum(comm_int$red_rock_kept) / nrow(comm_int)
++    mr_comm <- class_mean("Commercial", "red_rock_kept", pooled_mean_rr)
++    mr_char <- class_mean("Charter",    "red_rock_kept", pooled_mean_rr)
++    rr_str  <- sprintf(" | Red Rock/vessel: comm %.1f, charter %.1f", mr_comm, mr_char)
+   }
+ 
+-  cat(sprintf("  Tally days: %d, Interviews: %d\n", nrow(tally), nrow(comm_int)))
+-  cat(sprintf("  Mean Dungeness/vessel: %.1f%s\n", mean_dung_per_vessel, rr_str))
++  cat(sprintf("  Tally days: %d, Interviews: %d (commercial %d, charter %d)\n",
++              nrow(tally), nrow(comm_int), n_comm, n_char))
++  cat(sprintf("  Mean Dungeness/vessel: commercial %.1f, charter %.1f%s\n",
++              md_comm, md_char, rr_str))
+ 
+   daily_est <- tally |>
+     mutate(
+       total_comm_charter = commercial_tally + charter_tally,
+-      est_dung = total_comm_charter * mean_dung_per_vessel,
++      est_dung = commercial_tally * md_comm + charter_tally * md_char,
+       day_of_week = weekdays(date),
+       day_type = case_when(
+         date %in% crabbing_holiday_dates ~ "weekend",
+@@ -56,7 +78,7 @@ estimate_comm_charter <- function(dwg, params) {
+     )
+ 
+   if(params$estimate_red_rock) {
+-    daily_est <- daily_est |> mutate(est_rr = total_comm_charter * mean_rr_per_vessel)
++    daily_est <- daily_est |> mutate(est_rr = commercial_tally * mr_comm + charter_tally * mr_char)
+   }
+ 
+   census_calendar <- tibble(
+diff --git a/03_R_functions/prep_bss_crab_pooled.R b/03_R_functions/prep_bss_crab_pooled.R
+index f886582..7d38d21 100644
+--- a/03_R_functions/prep_bss_crab_pooled.R
++++ b/03_R_functions/prep_bss_crab_pooled.R
+@@ -137,11 +137,17 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
+     cat("  I/E observations: 0\n")
+   }
+ 
+-  # --- Data-driven R_G prior ---
+-  R_G_empirical <- summ$empirical_R_G
+-  R_G_prior_sigma <- 0.3
+-  cat(sprintf("  R_G prior = Lognormal(log(%.2f), %.2f) [data-driven]\n",
+-              R_G_empirical, R_G_prior_sigma))
++  # --- R_G prior (data-driven by default; overridable for prior sensitivity) ---
++  # T1.3 (2026-07-12): params$R_G_prior_mu / R_G_prior_sigma override the data-driven
++  # empirical R_G so the prior-sensitivity sweep (backlog T1.3 / critique 2) is a config
++  # change, not a code edit. Leave both unset for production (the data-driven value). To
++  # sweep, set params$R_G_prior_mu to 1.0, the empirical value (~1.28), and 1.5 in turn
++  # and compare the port totals (a tighter R_G_prior_sigma makes the prior bind harder).
++  R_G_empirical   <- params$R_G_prior_mu %||% summ$empirical_R_G
++  R_G_prior_sigma <- params$R_G_prior_sigma %||% 0.3
++  .rg_src <- if (is.null(params$R_G_prior_mu)) "data-driven" else "OVERRIDE (prior sensitivity)"
++  cat(sprintf("  R_G prior = Lognormal(log(%.2f), %.2f) [%s]\n",
++              R_G_empirical, R_G_prior_sigma, .rg_src))
+ 
+   # Weakly-informative level priors (sigma 2, so the data dominate). Boat lambda_E
+   # is gear in the water on the deployment scale; lambda_C is crab per deployment.
+diff --git a/03_R_functions/run_pe_pooled.R b/03_R_functions/run_pe_pooled.R
+index 8648eef..6d2cd8b 100644
+--- a/03_R_functions/run_pe_pooled.R
++++ b/03_R_functions/run_pe_pooled.R
+@@ -99,13 +99,43 @@ run_pe_pooled <- function(summ, days, params, population_name) {
+                 n_int=n(), .groups="drop") |>
+       mutate(cpue=if_else(hrs>0, catch/hrs, 0)) |>
+       left_join(days |> select(event_date,day_type,period), by="event_date")
++    # P0 (2026-07-12): stratum CPUE is a RATIO-OF-SUMS within the stratum,
++    # sum(catch)/sum(hrs), not a weighted mean of per-day ratios. The mean-of-ratios
++    # (weighted.mean(cpue, w = n_int)) is unstable: with weekly strata and ~50% day
++    # coverage many strata rest on one or two sampled days, and a day with very
++    # little sampled effort produces an extreme daily ratio that is then multiplied
++    # by the full stratum effort (pre-fix this made the shore PE implied CPUE 2.9x
++    # its own ratio-of-sums). Ratio-of-sums is the estimator consistent with the
++    # Poisson/NB rate and what the BSS lambda_C converges to as r_C -> Inf; it also
++    # matches run_pe_gear, so the two tracks' PE cannot drift. (Backlog P0.)
+     cpue_strat <- daily_cpue |>
+       group_by(section_num, period, day_type) |>
+-      summarise(mean_cpue=weighted.mean(cpue,w=n_int,na.rm=TRUE), .groups="drop")
++      summarise(catch_s = sum(catch, na.rm=TRUE),
++                hrs_s   = sum(hrs,   na.rm=TRUE), .groups="drop") |>
++      mutate(mean_cpue = if_else(hrs_s > 0, catch_s / hrs_s, NA_real_))
+     catch_strat <- effort_strat |>
+       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
+       mutate(est_catch = est_total * replace_na(mean_cpue, 0))
+     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
++
++    # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
++    # over the interviews it was built from. A divergence beyond 2x means catch and
++    # effort are on different scales, the failure this fix removes. This runs in the
++    # PE section, before the multi-hour BSS fits, so it fails fast. Mirrors run_pe_gear.
++    implied <- if (results$effort_total > 0) results[[cg]] / results$effort_total else NA_real_
++    ros     <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
++                 sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else NA_real_
++    if (is.finite(implied) && is.finite(ros) && ros > 0) {
++      rel <- implied / ros
++      cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
++                  population_name, cg, implied, ros, rel, effort_unit_pe))
++      if (rel < 0.5 || rel > 2.0) {
++        stop(sprintf(paste0("run_pe_pooled(): PE implied CPUE (%.4f) is %.2fx the interview ",
++                            "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
++                            "the same scale."),
++                     implied, rel, ros, population_name, cg), call. = FALSE)
++      }
++    }
+   }
+ 
+   results$effort_unit <- effort_unit_pe
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index 172c9dd..eb50732 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -95,10 +95,13 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
+ 
+ ### Tier 1: can move the headline number, or a reviewer will demand it
+ 
+-- **P0: put the pooled PE stratum CPUE on ratio-of-sums.** `run_pe_pooled` computes stratum CPUE as `weighted.mean(daily_ratios, w = n_int)`, a mean-of-ratios that is unstable in thin weekly x day-type strata: the boat PE's effective CPUE is ~1.86 crab/deployment against an interview ratio-of-sums of 3.36, which is why the boat PE (22,070) undercounts. Switching to within-stratum `sum(catch)/sum(hrs)` would move the boat PE toward ~40k (near the BSS and the gear-resolved boat) and make the PE a fair cross-check. Add the implied-CPUE-vs-ratio-of-sums assertion as a permanent guard. (= pipeline_state_review P0; the v7.8 fix did only the unit alignment, not this estimator change.) **Effort: low.**
+-- **T1.1: make the summer-extrapolation dominance transparent, and get one external validation point (B4).** The estimate rests heavily on the AR filling the thinly sampled summer; even on monthly AR the June boat BSS is ~4x PE. The supporting diagnostics now exist (period coverage O3, monthly PE-vs-BSS O7, data coverage O11, now displayed), so the remaining work is (a) a port-total decomposition into well-sampled vs extrapolated strata, and (b) at least one external benchmark (dockside census, a known-total year, or the legacy estimator). **Effort: medium; validation depends on data.**
+-- **T1.3 / B3 / critique 2: prior sensitivity, R_G and L_effective first.** Report harvest movement with `R_G` fixed at 1.0, 1.27, 1.5, and under alternative `L_effective` / `tau` priors. The data-driven `R_G` prior only partly answers the critique. `prior_vs_posterior_*.csv` (O9) is the starting point. **Effort: medium (a small re-run grid).**
+-- **T1.4 / critique 6: commercial/charter per-vessel-type split.** The 12,007-crab census (~14% of the port total) uses one mean-per-vessel across commercial crab vessels and six-pack charters, which have very different catch profiles; the tally already splits the columns and `boat_type` supports the split. Could move the number meaningfully. Pair with a census uncertainty interval (T3.5). **Effort: low-medium.**
++Status note: the four Tier 1 items were worked on 2026-07-12. Three are implemented in code (P0, T1.1a, T1.4) and need a confirming run; the prior-sensitivity harness (T1.3) is in place but the sweep runs are pending; external validation (T1.1b) still needs benchmark data.
++
++- **P0 [DONE 2026-07-12, confirm on next run]: pooled PE on ratio-of-sums.** `run_pe_pooled` now computes stratum CPUE as within-stratum `sum(catch)/sum(hrs)`, replacing the unstable `weighted.mean(daily_ratios, w = n_int)`, and carries an implied-CPUE-vs-ratio-of-sums guard that fails fast (in the PE section, before the multi-hour BSS fits) if catch and effort drift onto different scales. This mirrors `run_pe_gear`, so the two tracks' PE cannot diverge. Expected effect on the next run: the boat PE moves from 22,070 toward ~40k (near the BSS and the gear-resolved boat), and the shore PE implied CPUE drops from ~2.9x its ratio-of-sums toward 1x, making the PE a fair cross-check.
++- **T1.1(a) [DONE 2026-07-12]: summer-extrapolation transparency.** A new report section (`extrapolation_transparency.csv` plus an on-page table, RMD Section 11.4) decomposes each fitted component's BSS catch into interview-days vs extrapolated (no-interview) days, and reports the share of the summed BSS catch that rests on extrapolated time. Turns the summer-dominance caveat into a number.
++- **T1.1(b) [OPEN, needs external data]: external validation (B4).** Still requires a benchmark the repo does not contain: dockside census totals, a known-total year, or the legacy estimator. The strongest internal cross-checks now in place are the two independent BSS pipelines agreeing on the boat (43.5k) and the per-component PE-vs-BSS comparison (fair once P0's run lands); neither is a true external check. Pursue a benchmark before publication.
++- **T1.3 [HARNESS DONE 2026-07-12, sweep runs pending]: R_G prior sensitivity.** The R_G prior is now overridable via `params$R_G_prior_mu` / `R_G_prior_sigma` (data-driven when unset), with a commented sweep block in `run_config.R`. Remaining work is the runs: set `R_G_prior_mu` to 1.0, ~1.28 (empirical), and 1.5 in turn and tabulate the port totals, then extend to the `L_effective` prior (`tau_shore`/`tau_boat` are already live toggles). `prior_vs_posterior_*.csv` (O9) shows the prior pull. **Effort: the runs (multi-hour each).**
++- **T1.4 [DONE 2026-07-12, confirm on next run]: commercial/charter vessel split.** `estimate_comm_charter` now applies separate per-vessel Dungeness (and red-rock) means for commercial vs charter vessels (from `boat_type_clean`, Guide folded into Charter) to the matching tally columns, with a fallback to the pooled mean for a class with no interviews. In the 2024-25 census window commercial is ~35 and charter ~51 crab/vessel, so the split corrects a real bias. Applies to both tracks (shared estimator). Pair with a census uncertainty interval (T3.5).
+ 
+ ### Tier 2: accuracy, cross-track parity, or credibility
+ 
+diff --git a/run_config.R b/run_config.R
+index 534fe7e..b7a3de2 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -104,6 +104,16 @@ run_config <- list(
+   tau_boat_prior_sigma   = 0.3,
+   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
+ 
++  # --- R_G prior sensitivity (T1.3; OFF by default = data-driven) ----------
++  # The pooled model's R_G prior (gear per crabber) is data-driven by default. To run
++  # the R_G prior-sensitivity sweep (backlog T1.3 / critique 2), uncomment R_G_prior_mu
++  # and set it to each of 1.0, ~1.28 (the empirical value), and 1.5 in turn, re-running
++  # each; then compare the port totals. A tighter R_G_prior_sigma makes the prior bind
++  # harder. Leave commented for production. (tau_shore/tau_boat above are the analogous
++  # effort-expansion priors and are already live toggles.)
++  # R_G_prior_mu    = 1.27,
++  # R_G_prior_sigma = 0.3,
++
+   # --- BSS run-level settings (NOT per-fit tuning) -------------------------
+   bss_chains        = 4,
+   bss_cores         = 4,

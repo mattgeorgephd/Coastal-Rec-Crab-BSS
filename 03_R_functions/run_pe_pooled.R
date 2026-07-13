@@ -99,13 +99,43 @@ run_pe_pooled <- function(summ, days, params, population_name) {
                 n_int=n(), .groups="drop") |>
       mutate(cpue=if_else(hrs>0, catch/hrs, 0)) |>
       left_join(days |> select(event_date,day_type,period), by="event_date")
+    # P0 (2026-07-12): stratum CPUE is a RATIO-OF-SUMS within the stratum,
+    # sum(catch)/sum(hrs), not a weighted mean of per-day ratios. The mean-of-ratios
+    # (weighted.mean(cpue, w = n_int)) is unstable: with weekly strata and ~50% day
+    # coverage many strata rest on one or two sampled days, and a day with very
+    # little sampled effort produces an extreme daily ratio that is then multiplied
+    # by the full stratum effort (pre-fix this made the shore PE implied CPUE 2.9x
+    # its own ratio-of-sums). Ratio-of-sums is the estimator consistent with the
+    # Poisson/NB rate and what the BSS lambda_C converges to as r_C -> Inf; it also
+    # matches run_pe_gear, so the two tracks' PE cannot drift. (Backlog P0.)
     cpue_strat <- daily_cpue |>
       group_by(section_num, period, day_type) |>
-      summarise(mean_cpue=weighted.mean(cpue,w=n_int,na.rm=TRUE), .groups="drop")
+      summarise(catch_s = sum(catch, na.rm=TRUE),
+                hrs_s   = sum(hrs,   na.rm=TRUE), .groups="drop") |>
+      mutate(mean_cpue = if_else(hrs_s > 0, catch_s / hrs_s, NA_real_))
     catch_strat <- effort_strat |>
       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
       mutate(est_catch = est_total * replace_na(mean_cpue, 0))
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
+
+    # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
+    # over the interviews it was built from. A divergence beyond 2x means catch and
+    # effort are on different scales, the failure this fix removes. This runs in the
+    # PE section, before the multi-hour BSS fits, so it fails fast. Mirrors run_pe_gear.
+    implied <- if (results$effort_total > 0) results[[cg]] / results$effort_total else NA_real_
+    ros     <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
+                 sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else NA_real_
+    if (is.finite(implied) && is.finite(ros) && ros > 0) {
+      rel <- implied / ros
+      cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
+                  population_name, cg, implied, ros, rel, effort_unit_pe))
+      if (rel < 0.5 || rel > 2.0) {
+        stop(sprintf(paste0("run_pe_pooled(): PE implied CPUE (%.4f) is %.2fx the interview ",
+                            "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
+                            "the same scale."),
+                     implied, rel, ros, population_name, cg), call. = FALSE)
+      }
+    }
   }
 
   results$effort_unit <- effort_unit_pe
