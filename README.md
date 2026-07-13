@@ -163,8 +163,10 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 
 Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently, each with its own detailed development-history document; the weather-tide module has its own version line. The table below is a one-line-per-milestone summary. See the two development-history documents for the full change log with working notes:
 
-- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.8)
-- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.5)
+- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.9)
+- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.6)
+
+For the current state and the prioritized backlog (what is done and what remains), see the single living status document: `07_documentation/development_notes/PIPELINE_STATUS.md`.
 
 | Version | Track | Key Changes |
 |---|---|---|

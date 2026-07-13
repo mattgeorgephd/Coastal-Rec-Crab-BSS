@@ -12,11 +12,19 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 **A note on the two numbering systems.** The gear-resolved track carries a v5.x "framework" series in the RMD header (`BSS-GH-gear-type-CPUE-model.Rmd`) and in the documentation change log. That series is distinct from the Stan model's own history: `crab_bss_gear_resolved.stan` carries no vX.Y tag. The documentation's "Stan v3.2" label (attached to framework v5.2) is stale; the Stan file is materially past v3.2. It now carries the pooled-track parity ports B1.3, B1.5, B1.6, B1.8, and B1.9, plus the run-driven fixes F1, F2, P1, and P2. Read the framework tag for what the R pipeline does and the fix-marker section below for what the Stan model does; the "Stan vX.Y" labels in the version log are historical and should not be trusted as the current model state.
 
-**Two documentation lags to be aware of.** (1) The gear-resolved method document header still reads `Model version: v5.4` while its own Section 13 change log lists `v5.5 (current)`; the header is one release behind its body. (2) The RMD banner reads `Framework v5.4` while the change-note block directly beneath it documents the v5.5 shore effort-unit move. Both are cosmetic header lags, not code lags: the v5.5 behavior (shore on gear-deployments, LOO comparison off) is what the code does. They are flagged here so a reader who trusts the headers is not misled about the running version.
+**Header status.** As of v5.6 (2026-07-12) the RMD banner, the method-document header, and this history are all in sync at v5.6. Earlier releases carried a header lag (the RMD banner and method-doc header read v5.4 while the body was v5.5); that is resolved.
 
 ------------------------------------------------------------------------
 
 ## Version log
+
+### v5.6 (2026-07-12), run_config base-parameter restructure (P5), parity with pooled v7.9
+
+Config-architecture parity with the pooled track's v7.9. No Stan change, no estimate change, and no gear-resolved run was required.
+
+-   **`run_config.R` is the base parameter set.** The driver merge was inverted to `params <- modifyList(run_config, params_model)`, so `run_config` is the base and this model layers only its internal tuning (Stan file, per-fit sampler settings, gate thresholds) on top. The two key sets are disjoint, so behavior is identical; the inversion encodes intent (run_config is authoritative). The gear-resolved AR resolution cap map now lives in `run_config.R` as `ar_max_resolution$gear_resolved = list(shore = "weekly", private_boat = "monthly")`, selected after the merge. That map is dormant in production (`ar_adaptive = FALSE`, fixed per-sub-season `period_bss`); it binds only if `ar_adaptive` is turned on.
+-   The divergence-fraction backstop was already 0.05 here, so the pooled P7 tightening (0.15 to 0.05) brought the pooled model into line with this one rather than changing anything in the gear-resolved track.
+-   Files changed: `01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd` (merge inversion, AR map read from `run_config`, header to v5.6); this history.
 
 ### v5.5 (2026-07-11), Shore moved to the gear-deployment effort unit
 

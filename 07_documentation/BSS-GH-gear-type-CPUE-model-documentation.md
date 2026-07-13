@@ -6,8 +6,8 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational. The method of record for gear-type harvest decomposition at Westport / Grays Harbor, and the companion to the published pooled-CPUE model (`BSS-GH-pooled-CPUE-model-documentation.md`). Use the pooled model for the headline total; use this model when gear-type catch structure is the management question.
-**Method version:** 1.0 (corresponds to the gear-resolved pipeline framework code v5.5; reference calibration season 2024-25).
-**Code version:** framework v5.5, 2026-07-11.
+**Method version:** 1.0 (corresponds to the gear-resolved pipeline framework code v5.6; reference calibration season 2024-25).
+**Code version:** framework v5.6, 2026-07-12 (v5.6 is the `run_config.R` base-parameter restructure, config-only; v5.5 was the shore move to gear-deployments).
 
 ------------------------------------------------------------------------
 

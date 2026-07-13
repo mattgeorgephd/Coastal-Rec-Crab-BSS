@@ -1,0 +1,396 @@
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+index 9c0ce9d..7de457b 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+@@ -12,12 +12,20 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
+ 
+ **A note on the two numbering systems.** The gear-resolved track carries a v5.x "framework" series in the RMD header (`BSS-GH-gear-type-CPUE-model.Rmd`) and in the documentation change log. That series is distinct from the Stan model's own history: `crab_bss_gear_resolved.stan` carries no vX.Y tag. The documentation's "Stan v3.2" label (attached to framework v5.2) is stale; the Stan file is materially past v3.2. It now carries the pooled-track parity ports B1.3, B1.5, B1.6, B1.8, and B1.9, plus the run-driven fixes F1, F2, P1, and P2. Read the framework tag for what the R pipeline does and the fix-marker section below for what the Stan model does; the "Stan vX.Y" labels in the version log are historical and should not be trusted as the current model state.
+ 
+-**Two documentation lags to be aware of.** (1) The gear-resolved method document header still reads `Model version: v5.4` while its own Section 13 change log lists `v5.5 (current)`; the header is one release behind its body. (2) The RMD banner reads `Framework v5.4` while the change-note block directly beneath it documents the v5.5 shore effort-unit move. Both are cosmetic header lags, not code lags: the v5.5 behavior (shore on gear-deployments, LOO comparison off) is what the code does. They are flagged here so a reader who trusts the headers is not misled about the running version.
++**Header status.** As of v5.6 (2026-07-12) the RMD banner, the method-document header, and this history are all in sync at v5.6. Earlier releases carried a header lag (the RMD banner and method-doc header read v5.4 while the body was v5.5); that is resolved.
+ 
+ ------------------------------------------------------------------------
+ 
+ ## Version log
+ 
++### v5.6 (2026-07-12), run_config base-parameter restructure (P5), parity with pooled v7.9
++
++Config-architecture parity with the pooled track's v7.9. No Stan change, no estimate change, and no gear-resolved run was required.
++
++-   **`run_config.R` is the base parameter set.** The driver merge was inverted to `params <- modifyList(run_config, params_model)`, so `run_config` is the base and this model layers only its internal tuning (Stan file, per-fit sampler settings, gate thresholds) on top. The two key sets are disjoint, so behavior is identical; the inversion encodes intent (run_config is authoritative). The gear-resolved AR resolution cap map now lives in `run_config.R` as `ar_max_resolution$gear_resolved = list(shore = "weekly", private_boat = "monthly")`, selected after the merge. That map is dormant in production (`ar_adaptive = FALSE`, fixed per-sub-season `period_bss`); it binds only if `ar_adaptive` is turned on.
++-   The divergence-fraction backstop was already 0.05 here, so the pooled P7 tightening (0.15 to 0.05) brought the pooled model into line with this one rather than changing anything in the gear-resolved track.
++-   Files changed: `01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd` (merge inversion, AR map read from `run_config`, header to v5.6); this history.
++
+ ### v5.5 (2026-07-11), Shore moved to the gear-deployment effort unit
+ 
+ The shore component is moved onto the gear-deployment effort unit (`shore_effort_unit = "gear-deployments"`), matching the boat, so both fitted populations now run on gear-deployments. The unit was chosen from the 2026-07-10 shore LOO comparison (shore all-gear, n=1649):
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+index 4e8012e..5276954 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+@@ -6,8 +6,8 @@
+ **Contact:** matthew.george@dfw.wa.gov
+ **Agency:** Washington Department of Fish and Wildlife (WDFW)
+ **Status:** Operational. The method of record for gear-type harvest decomposition at Westport / Grays Harbor, and the companion to the published pooled-CPUE model (`BSS-GH-pooled-CPUE-model-documentation.md`). Use the pooled model for the headline total; use this model when gear-type catch structure is the management question.
+-**Method version:** 1.0 (corresponds to the gear-resolved pipeline framework code v5.5; reference calibration season 2024-25).
+-**Code version:** framework v5.5, 2026-07-11.
++**Method version:** 1.0 (corresponds to the gear-resolved pipeline framework code v5.6; reference calibration season 2024-25).
++**Code version:** framework v5.6, 2026-07-12 (v5.6 is the `run_config.R` base-parameter restructure, config-only; v5.5 was the shore move to gear-deployments).
+ 
+ ------------------------------------------------------------------------
+ 
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+index ad407a1..ca146fb 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+@@ -14,6 +14,14 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
+ 
+ ## Version log
+ 
++### 2026-07-12 (later), boat monthly-AR reconciliation confirmed; report display pass
++
++Two items after the v7.9 config work: the boat AR reconciliation run, and a report-usability pass on the driver. No Stan change.
++
++-   **Boat monthly-AR run (`05_output/20260711/pooled-CPUE`) reconciles the two pipelines.** Forcing the boat to monthly AR (`ar_force = list(private_boat = "monthly")`) pulls the pooled boat from the weekly 54,481 to **43,475** (median), matching the independent gear-resolved boat on all three quantities: catch 43,475 vs 43,314, effort 14,716 vs 14,805 deployments, model CPUE 2.95 vs 2.93 crab/deployment. The weekly-vs-monthly AR resolution, not the effort unit or the mu-structure, was the entire source of the earlier ~26% pooled-vs-gear-resolved boat gap: monthly AR cannot chase sparse-week effort spikes, so the sparse-month over-imputation collapses (June boat BSS/PE fell from 8.7x to 4.1x, July 3.7x to 2.1x) and the boat CPUE shrinks below the design ratio-of-sums exactly as the gear-resolved model does. The port BSS total fell from 94,971 (weekly) to 83,914 (monthly). **Recommendation:** make monthly the production boat AR cap (`ar_max_resolution$pooled$private_boat = "monthly"` in `run_config.R`) rather than an `ar_force` override, since it is better-identified for the thin trailer series and now agrees with the independent pipeline. This closes the boat half of the AR-resolution question (the daily-vs-weekly experiment; the answer is coarser still, monthly).
++-   **Report display pass on `BSS-GH-pooled-CPUE-model.Rmd`.** Sections that computed and wrote CSVs but rendered nothing now display on-page tables: the incomplete-trip sensitivity, posterior-predictive calibration, the effort over-dispersion decomposition, the CPUE effort-unit validity triad (estimators + linearity + saturation), per-fit data coverage, PSIS-LOO, and the top divergence-localization drivers. The wide convergence table is curated to key gate columns with short fit labels (the full table stays in `convergence_report.csv`). Two setup helpers (`short_fit`, `read_fit_outputs`) let the display chunks read their own written CSVs back without touching `03_R_functions/`; every new display is guarded so it cannot break a knit. Diagnostic-only; changes no estimate.
++-   Files changed: `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd`; `run_config.R` (`ar_force` set to the monthly experiment); this history; the method document; and the new consolidated backlog `development_notes/PIPELINE_STATUS.md`.
++
+ ### v7.9 (2026-07-12), run_config base-parameter restructure; divergence backstop tightened (P5/P7); doc correction (P4)
+ 
+ Config-architecture and gate-policy refinements after the 2026-07-11 v7.8 run. No Stan change and no estimate change; the 2026-07-11 fits pass identically. Validated by parse and by a key-disjointness check (below), not by a fitted run.
+@@ -50,7 +58,7 @@ Implements the two held boat-structure items, reversing the v7.5 hold after the
+ -   **POOL-1, trailer expansion (`crab_bss_pooled.stan`).** The degenerate `R_T` (pinned at ~1 by `T_A_int` all-ones bernoulli) is replaced by `R_G_boat` (gear per boat group) with a proper unconditional prior `R_G_boat ~ lognormal(log(4), 0.5)` (the F1 fix). Trailer counts become `T_I ~ neg_binomial_2(lambda_E / R_G_boat, r_E)`, so `lambda_E` is now GEAR in the water rather than groups, and interviews learn the ratio via `Gear_A_boat[a] ~ poisson(R_G_boat)` (the data `T_A_int` / `A_A_trailer` become `Gear_A_boat = number_of_gear`). `R_T_alpha` / `R_T_beta` are removed; `R_G_boat_out` is emitted and the expansion reporting reads it.
+ -   **POOL-3, boat effort unit (`crab_bss_pooled.stan` + driver).** The boat CPUE denominator is `h = number_of_gear` (deployments) and `L = tau_boat` (~1.2 turnover, now a parameter with `estimate_L = 1`), replacing `h = gear_time_total` and the flat `L = 24` gear-hours. The Stan model gains `effort_scale_gear` and `E_scale` so `E = lambda_E * E_scale * L` always carries `h`'s unit (boat: `E_scale = 1`, `E = gear-deployments`; shore crabber-hours: `E_scale = 1`, unchanged).
+ -   **Driver mechanics.** `prep_bss_crab` and `run_pe` adopt the shared `03_R_functions/bss_effort_spec.R` (boat -> gear-deployments, shore -> crabber-hours), so the BSS and PE can never drift onto different scales. The monthly PE effort share uses the same deployment scale (`gear_per_group * tau_boat`, not `* 24`). New params `tau_boat_prior_mu` (1.2), `tau_boat_prior_sigma` (0.3), `gear_per_group_default` (4.0); the obsolete `boat_use_gear_hours` flag is removed. Shore is unchanged.
+--   **Measured effect (2026-07-11 run; corrects the earlier ~-25% prediction).** The predicted ~-25% drop did NOT occur. The pooled boat all-gear BSS total came in at 54,481 (median), essentially unchanged from the ~56,266 gear-hours value (about -3.2%), not the gear-resolved ~43,314. The port is catch-neutral by construction: within one pipeline, changing the CPUE denominator rescales `lambda_C` and the effort process inversely, so `E x CPUE` (the catch) is conserved (`E_sum` fell from ~89,213 gear-hours to ~16,132 deployments while the catch held). The fix is still necessary and correct, for INTERPRETIVE validity: it removes the `R_T`-pinned-at-1 degeneracy (`R_G_boat` now estimates cleanly at 3.55, 95% CI 3.24-3.88), replaces the meaningless 89,213 "gear-hours" with 16,132 deployments, and makes the saturation/linearity diagnostics valid; it simply does not move the boat harvest. Consequently the ~26% gap between the pooled boat (54,481) and the gear-resolved boat (43,314), both now on gear-deployments and sharing the identical design-based ratio-of-sums CPUE (3.357 crab/deployment), is NOT an effort-unit artifact. It is a model-structure difference (pooled's model CPUE reproduces ratio-of-sums at 3.38 while gear-resolved shrinks to 2.93, and pooled carries ~9% more boat effort), amplified by sparse-month effort inflation and the weekly-vs-monthly boat AR. It is being tested by a boat monthly-AR run; if the boat single-cell `sigma_mu` funnel appears, `collapse_mu_hier = list(private_boat = TRUE)` (the POOL-4 lever) and/or the monthly boat AR are the levers.
++-   **Measured effect (2026-07-11 run; corrects the earlier ~-25% prediction).** The predicted ~-25% drop did NOT occur. The pooled boat all-gear BSS total came in at 54,481 (median), essentially unchanged from the ~56,266 gear-hours value (about -3.2%), not the gear-resolved ~43,314. The port is catch-neutral by construction: within one pipeline, changing the CPUE denominator rescales `lambda_C` and the effort process inversely, so `E x CPUE` (the catch) is conserved (`E_sum` fell from ~89,213 gear-hours to ~16,132 deployments while the catch held). The fix is still necessary and correct, for INTERPRETIVE validity: it removes the `R_T`-pinned-at-1 degeneracy (`R_G_boat` now estimates cleanly at 3.55, 95% CI 3.24-3.88), replaces the meaningless 89,213 "gear-hours" with 16,132 deployments, and makes the saturation/linearity diagnostics valid; it simply does not move the boat harvest. Consequently the ~26% gap between the pooled boat (54,481) and the gear-resolved boat (43,314), both now on gear-deployments and sharing the identical design-based ratio-of-sums CPUE (3.357 crab/deployment), is NOT an effort-unit artifact. It is a model-structure difference (pooled's model CPUE reproduces ratio-of-sums at 3.38 while gear-resolved shrinks to 2.93, and pooled carries ~9% more boat effort), amplified by sparse-month effort inflation and the weekly-vs-monthly boat AR. It was confirmed by the 2026-07-12 monthly-AR run: on monthly boat AR the pooled boat falls to 43,475, matching the gear-resolved boat (43,314) on catch, effort, and CPUE, so the weekly-vs-monthly AR resolution was the entire source of the gap. Monthly should be the production boat AR cap. See the 2026-07-12 entry below.
+ -   Files changed: `02_stan_models/crab_bss_pooled.stan`; `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd`; shared `03_R_functions/model_diagnostics.R` and `bss_trailer_expansion.R` (add `R_G_boat` to the reported parameters; refresh stale `R_T` comments); this history; the method document; `development_notes/20260710-OUTSTANDING_ISSUES.md`.
+ 
+ ### v7.5 (2026-07-10), Pooled backlog fixes POOL-2/4/5/6 (POOL-1/3 held)
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+index b3d8d67..04ddc81 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+@@ -7,7 +7,7 @@
+ **Agency:** Washington Department of Fish and Wildlife (WDFW)
+ **Status:** Published, operational. The method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor.
+ **Method version:** 1.0. "Method v1.0" is the frozen method label: the model structure, the estimators, and the design decisions in this document. It is distinct from the pipeline "code" revision (v7.x), which tracks implementation changes. Method v1.0 was first frozen against code v7.4.
+-**Current pipeline code:** v7.9 (2026-07-12). Since v7.4 the code has advanced in ways that move published totals: v7.5 added the incomplete-trip filter (raises the shore estimate); v7.6 moved the private boat onto gear-deployments; v7.7 moved the shore BSS onto gear-deployments (moves the shore total); v7.8 completed the shore PE onto the same unit and refactored the code; v7.9 restructured `run_config.R` and tightened the pooled divergence backstop (no totals move). The 2026-07-11 v7.8 run refreshed the totals. One correction to an earlier expectation: the v7.6 boat move proved catch-neutral (the boat holds near 54,481, NOT the ~-25% originally predicted); it corrects the boat's effort unit and interpretation but does not move the boat harvest (see Sections 16 and 19). The method is unchanged by these; they are effort-unit and filtering corrections, not a re-derivation. Numbers quoted throughout that predate the 2026-07-11 run should be read as pre-refresh.
++**Current pipeline code:** v7.9 (2026-07-12). Since v7.4 the code has advanced in ways that move published totals: v7.5 added the incomplete-trip filter (raises the shore estimate); v7.6 moved the private boat onto gear-deployments; v7.7 moved the shore BSS onto gear-deployments (moves the shore total); v7.8 completed the shore PE onto the same unit and refactored the code; v7.9 restructured `run_config.R` and tightened the pooled divergence backstop (no totals move). The 2026-07-11 v7.8 run refreshed the totals. One correction to an earlier expectation: the v7.6 boat move proved catch-neutral (on weekly AR the boat holds near 54,481, NOT the ~-25% originally predicted); it corrects the boat's effort unit and interpretation but does not move the boat harvest. What does move the boat is the AR resolution: on monthly boat AR (`05_output/20260711/pooled-CPUE`) the boat reconciles to ~43,475, matching the gear-resolved pipeline, so monthly is the recommended production boat AR cap (see Sections 16 and 19). The method is unchanged by these; they are effort-unit and filtering corrections, not a re-derivation. Numbers quoted throughout that predate the 2026-07-11 run should be read as pre-refresh.
+ **Reference calibration season:** 2024-25.
+ 
+ ------------------------------------------------------------------------
+@@ -403,7 +403,7 @@ For seasonal totals the Poisson noise largely averages out, so the two are simil
+ 
+ **The private boat.** The private-boat all-gear fit rests on a thin, weakly informative trailer-count series, and is the component most prone to wide posteriors and to PE-vs-BSS disagreement. A sequence of fixes was applied to make the fit converge: dedicated sampler tuning, a per-population AR cap to weekly, non-centering of the AR initial state, an unconditional `sigma_IE` prior (the boat has no I/E data, so this removed an improper flat direction that had inflated divergences), and finally the scale-aware convergence gate. Under that gate the boat all-gear component is reported on its BSS posterior, with a wide 95% interval and a catch CV around 27%, rather than the narrower PE point. The wide interval is not a defect to be hidden by substituting the PE point; it is the effort and CPUE data honestly reporting their own uncertainty for a component identified by only a handful of interviews per month.
+ 
+-The boat effort unit was corrected in v7.6 (POOL-1 + POOL-3): the boat now runs on gear-deployments, matching the gear-resolved model. The degenerate trailer expansion (`R_T` pinned at about 1) is replaced by `T_I ~ NB2(lambda_E / R_G_boat, r_E)`, with gear-per-group learned as `R_G_boat` from interviews, and the CPUE denominator becomes `number_of_gear` (deployments) with `L = tau_boat`, replacing the old expansion that assigned every trailer-day a full gear-per-group times a flat 24-hour soak. This is justified because catch is not linear in soak time for pots (the saturation diagnostic gives catch per gear scaling as about soak-hours^0.25), so any time-denominated effort unit is invalid. On this scale the gear-resolved model reports a boat total about 25% below the old pooled gear-hours figure (43,314 vs 56,266). The 2026-07-11 run is now complete, and it shows the pooled boat did NOT follow: on gear-deployments the pooled boat holds at 54,481 (median), essentially unchanged (about -3.2%), because within one pipeline the unit change is catch-neutral (rescaling `lambda_C` and the effort process inversely conserves `E x CPUE`). The correction is therefore an interpretive fix (it removes the `R_T`-pinned-at-1 degeneracy and makes the saturation/linearity diagnostics valid), not a boat-harvest change. Because the boat PE and BSS now share the `bss_effort_spec.R` unit, the remaining PE-vs-BSS gap (about +147%) is a genuine model-vs-design disagreement rather than a unit artifact; but which of the two is closer to the truth is unresolved. The pooled boat (54,481) sits above both the gear-resolved boat (43,314) and the design anchor (PE effort times interview ratio-of-sums, about 40,000), so it is the current high outlier, and the open reconciliation is a boat monthly-AR run (see Section 19 and the model-state review). The earlier "confirm with a run" caveat is discharged for the boat: the number is stable, but its reconciliation with the gear-resolved boat is not.
++The boat effort unit was corrected in v7.6 (POOL-1 + POOL-3): the boat now runs on gear-deployments, matching the gear-resolved model. The degenerate trailer expansion (`R_T` pinned at about 1) is replaced by `T_I ~ NB2(lambda_E / R_G_boat, r_E)`, with gear-per-group learned as `R_G_boat` from interviews, and the CPUE denominator becomes `number_of_gear` (deployments) with `L = tau_boat`, replacing the old expansion that assigned every trailer-day a full gear-per-group times a flat 24-hour soak. This is justified because catch is not linear in soak time for pots (the saturation diagnostic gives catch per gear scaling as about soak-hours^0.25), so any time-denominated effort unit is invalid. On this scale the gear-resolved model reports a boat total about 25% below the old pooled gear-hours figure (43,314 vs 56,266). The 2026-07-11 run is now complete, and it shows the pooled boat did NOT follow: on gear-deployments the pooled boat holds at 54,481 (median), essentially unchanged (about -3.2%), because within one pipeline the unit change is catch-neutral (rescaling `lambda_C` and the effort process inversely conserves `E x CPUE`). The correction is therefore an interpretive fix (it removes the `R_T`-pinned-at-1 degeneracy and makes the saturation/linearity diagnostics valid), not a boat-harvest change. Because the boat PE and BSS now share the `bss_effort_spec.R` unit, the remaining PE-vs-BSS gap is a genuine model-vs-design disagreement rather than a unit artifact. The reconciling run has now been done. On the weekly boat AR the pooled boat (54,481) sat above both the gear-resolved boat (43,314) and the design anchor (PE effort times interview ratio-of-sums, about 40,000); on **monthly** boat AR (`05_output/20260711/pooled-CPUE`) the pooled boat falls to **43,475** (median) and matches the independent gear-resolved boat on all three quantities: catch 43,475 vs 43,314, effort 14,716 vs 14,805 deployments, model CPUE 2.95 vs 2.93 crab/deployment. The weekly-vs-monthly AR resolution, not the effort unit, was the entire source of the pooled-vs-gear-resolved boat gap: monthly AR cannot chase sparse-week effort spikes, so the sparse-month over-imputation collapses (June boat BSS/PE fell from 8.7x to 4.1x). Monthly should be adopted as the production boat AR cap. The remaining boat PE-vs-BSS gap (+97% on the monthly run) is mostly the PE undercounting through its sparse-strata mean-of-daily-ratios estimator (which adopting ratio-of-sums, P0, would fix), not BSS over-reach; the BSS 43,475 is corroborated by the independent gear-resolved pipeline.
+ 
+ The data-thinness half of the caveat is unchanged: the boat still rests on a sparse trailer-count series, and `tau_boat` leans on its prior until boat ingress/egress counts accumulate, so the wide posterior stands. The durable fix is a more informative effort series (for example, access-point or camera exit counts), not further parameter surgery on the shared model.
+ 
+@@ -469,6 +469,7 @@ Method v1.0 is the frozen method label; it was first frozen against pipeline cod
+ - **v7.7 (2026-07-11):** Shore moved onto the gear-deployment scale, so both components now share one effort unit (gear-deployments) with the gear-resolved model. The shore CPUE denominator becomes `number_of_gear` with `E_scale = R_G` and `L = tau_shore` (~1.7 turnover), replacing crabber-hours. This settles the shore half of the effort-unit question (backlog GR-16) using the 2026-07-10 shore LOO comparison (shore all_gear, n = 1649): gear-deployments is the only shore unit whose linearity coefficient covers 1 (`beta_h = 1.05`, 95% CI 0.94 to 1.15, flag off), against crabber-hours (0.57) and gear-hours (0.73), and the only one with no estimator-triad drift (ratio-of-sums 0.87 ~= mean-of-ratios 0.85 ~= model-implied 0.85 crab per deployment). gear-hours had a marginally better catch-stream `elpd_loo` (-3131 vs -3190 for deployments), but that predictive edge comes from the CPUE process absorbing the sub-linearity, which is what biases the season expansion; the choice therefore prioritizes harvest-unbiasedness over marginal predictive fit. There is no Stan change (the v7.6 `effort_scale_gear` / `E_scale` machinery already supports shore), but the shore BSS publication number moves.
+ - **v7.8 (2026-07-11):** Behavior-preserving code refactor (helper functions extracted to `03_R_functions/`, all user toggles centralized in `run_config.R`) plus the shore-PE completion fix: the pooled `run_pe` shore branch now reads its unit from `bss_effort_spec.R`, so the shore PE runs on gear-deployments to match the shore BSS (previously it was left on crabber-hours). The 2026-07-11 v7.8 run confirmed the fix (shore all-gear PE effort moved from 42,541 to 18,104; BSS unchanged) and refreshed the totals.
+ - **v7.9 (2026-07-12):** Config/gate refinement, no estimate change. `run_config.R` is now the base parameter set with each model layering its own tuning on top (`params <- modifyList(run_config, params_model)`), and the per-model AR resolution map moved into `run_config.R`. The pooled divergence-fraction backstop was tightened from 0.15 to 0.05 to match the gear-resolved model (the scale-aware impact test remains the primary gate; the 2026-07-11 fits all sit under 5%, so no gating decision changes).
++- **2026-07-12 (later):** Two follow-ons. (a) The boat monthly-AR reconciliation run: on monthly boat AR (`05_output/20260711/pooled-CPUE`) the pooled boat falls from the weekly 54,481 to 43,475, matching the independent gear-resolved boat (43,314) on catch, effort, and CPUE. The AR resolution, not the effort unit, was the source of the pooled-vs-gear-resolved boat gap; monthly should be the production boat AR cap. (b) A report display pass: the driver now renders the incomplete-trip sensitivity, PPC calibration, effort over-dispersion, the CPUE validity triad, per-fit coverage, PSIS-LOO, and top divergence drivers on the page, and curates the wide convergence table. The forward-looking backlog is consolidated in `development_notes/PIPELINE_STATUS.md`.
+ 
+ The full change log, with the per-version rationale, the divergence-diagnostic narrative, and the detailed B1.5 / B1.6 working notes, is in **`BSS-GH-pooled-CPUE-model-development-history.md`**.
+ 
+diff --git a/07_documentation/README.md b/07_documentation/README.md
+index 7cf6ae9..d93a54f 100644
+--- a/07_documentation/README.md
++++ b/07_documentation/README.md
+@@ -1,70 +1,53 @@
+ # 07_documentation
+ 
+-Written documentation for the project: how the models work, what decisions were made and why, change history, proposals, and the rendered documentation site. None of this is executed by a run; it is the reference layer.
++Written documentation for the project: how the models work, what decisions were made and why, change history, and the forward-looking status and backlog. None of this is executed by a run; it is the reference layer.
+ 
+-For the one-paragraph project overview, see the [root README](../README.md).
++For the one-paragraph project overview and quick start, see the [root README](../README.md).
+ 
+-## Current model documentation
+-
+-These track the three live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
+-
+-| File | Describes |
+-|---|---|
+-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model. |
+-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model. |
+-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module. |
+-
+-## Rendered documentation site
++## Start here
+ 
+ | File | Role |
+ |---|---|
+-| `docs_index.Rmd` / `docs_index.html` | Landing page of the built doc site. |
+-| `docs_equations.Rmd` / `docs_equations.html` | Model equations. |
+-| `documentation_tables.xlsx` | Source tables that feed the write-ups. |
++| `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
+ 
+-The `.html` files are the built output of the `.Rmd` sources; re-knit the `.Rmd` to regenerate them. These `.Rmd` files do not read the renumbered stage folders, so the folder reorganization did not require any edits to them.
++## Current model documentation (the method of record)
+ 
+-## Decision records and how-tos
++These track the live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
+ 
+-| File | Content |
++| File | Describes |
+ |---|---|
+-| `WEATHER_COVARIATE_ANALYSIS.md` | The conclusion that weather/tide covariates are excluded for all three components under the pre-committed 4.0-SE PSIS-LOO margin (the false-precision finding). Pairs with `06_diagnostics/`. |
+-| `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
+-| `diagnostics_and_reproducibility_notes.md` | Notes on diagnostics and reproducing runs. |
++| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model (pipeline code v7.9). |
++| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model (framework v5.6). |
++| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (currently stale; not production). |
+ 
+-## Change logs and experiments
++## Development histories (the version-by-version change log)
+ 
+-| File | Content |
++| File | Describes |
+ |---|---|
+-| `B1.5_change_notes.md`, `B1.6_change_notes.md` | Versioned change notes for those model revisions. |
+-| `BOAT_RESOLUTION_EXPERIMENT.md` | The daily-vs-weekly AR temporal-resolution experiment for boat effort. |
++| `BSS-GH-pooled-CPUE-model-development-history.md` | Full change log for the pooled model and its Stan file, newest first. |
++| `BSS-GH-gear-type-CPUE-model-development-history.md` | Full change log for the gear-resolved model. |
+ 
+-## Proposals and reviews
++The method documents summarize the history in one screen and point here for detail. `PIPELINE_STATUS.md` is the forward-looking backlog, not a changelog; these histories are the backward-looking record.
++
++## Decision records and how-tos
+ 
+ | File | Content |
+ |---|---|
+-| `PLANNED_IMPROVEMENTS.md` | Roadmap of intended changes. |
+-| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Proposed additions to the output set. |
+-| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Internal code-quality review. |
+-| `20260331-model-critique.docx` | External model critique (Word). |
++| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are excluded under the pre-committed PSIS-LOO margin (the false-precision result). Pairs with `06_diagnostics/`. Note: superseded in part by the deployment-scale move; the module itself is stale (see `PIPELINE_STATUS.md`, T2.4). |
++| `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
++| `documentation_tables.xlsx` | Source tables that feed the write-ups. |
+ 
+-## Creel-lineage carryover
++## development_notes/
+ 
+-This project was forked from the WDFW freshwater-creel framework, and some of that documentation rode along. It is kept for reference but does not describe the current crab models:
++`PIPELINE_STATUS.md` (above) consolidates and supersedes the historical notes in this folder. The historical notes are retained for provenance until confirmed for deletion (see the disposition table at the end of `PIPELINE_STATUS.md`):
+ 
+-| Item | Note |
++| File | Status |
+ |---|---|
+-| `Instructions for using Creel Estimates.docx` | Freshwater-creel user guide. |
+-| `Instructions for using the Creel Schedule Generator.docx` | Freshwater-creel scheduler guide. |
+-| `DRAFT_FreshwaterCreel rep_file sub structure mockup.docx` | Draft report-file structure mockup from the creel framework. |
+-| `FWC_bss_docs/` | Legacy reference subfolder (see below). |
+-
+-### `FWC_bss_docs/`
+-
+-Older reference material predating this project, retained for lineage:
+-
+-- `02_Creel_Models_2022-01-20.csv` (2022 creel model list)
+-- `Skagit creel model - definitions_updated 2021-01-12.xlsx` (Skagit model definitions)
+-- `overview of time-series model_2019-02-28.pptx` (2019 time-series model overview)
+-
+-These describe the antecedent state-space creel models the current BSS approach grew out of; treat them as historical context, not as documentation of the code in this repo.
++| `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
++| `20260710-OUTSTANDING_ISSUES.md` | Superseded by `PIPELINE_STATUS.md`. |
++| `pipeline_state_review_20260709.md` | Superseded (F1-F5 done, P0-P3 carried forward). |
++| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Superseded (T1-T4 carried forward); detailed evidence appendix retained if wanted. |
++| `PLANNED_IMPROVEMENTS.md` | Superseded (A/B/C/D backlog reconciled). |
++| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Superseded (O1-O11 implemented). |
++| `BOAT_RESOLUTION_EXPERIMENT.md` | Concluded (monthly AR chosen). |
++| `CHANGES-2026-07-11.md` | Point-in-time refactor changelog (also recorded in the pooled development history). |
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+new file mode 100644
+index 0000000..172c9dd
+--- /dev/null
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -0,0 +1,168 @@
++# Coastal Rec Crab BSS: Pipeline Status and Backlog
++
++**Last updated:** 2026-07-12
++**Maintainer note:** this is the single living status document for the pipeline. It replaces the six scattered development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
++
++**Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced to v7.9 with effort-unit, filtering, and config corrections that move published totals, so the 2024-25 reference numbers in the method documents are pre-refresh until regenerated.
++
++---
++
++## 1. Current state at a glance
++
++| Component | Version | State |
++|---|---|---|
++| Pooled CPUE model (`crab_bss_pooled.stan`, `BSS-GH-pooled-CPUE-model.Rmd`) | pipeline code **v7.9** (2026-07-12) | Production. Both fitted components on gear-deployments; boat reconciled on monthly AR. |
++| Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** (2026-07-12) | Production. Shore + boat on gear-deployments; `G = 1` (per-gear CPUE inert, gear split from PE apportionment). |
++| Weather/tide covariate module (`crab_bss_pooled_weather_adjusted.stan`, `06_diagnostics/...Rmd`) | ~v6.9 parity, **stale** | Not production. Forked engine, pre-deployment-scale Stan, not re-run since the day-length extraction. Do not cite its boat number. |
++| Config surface (`run_config.R`) | base-params architecture (P5) | `run_config` is the base parameter set; each driver layers model-specific tuning via `modifyList(run_config, params_model)`. |
++
++**Authoritative run:** `05_output/20260711/pooled-CPUE` (pooled, boat forced to monthly AR via `ar_force`, gate at 0.05). The sibling dirs `-morning` (v7.7) and `-afternoon` (weekly boat, `ar_force = NULL`, gate 0.15) are stale and should be deleted to avoid confusion.
++
++**Headline numbers, that run (Dungeness kept, 2024-25):**
++
++| Component | PE | BSS (median) | BSS vs PE | Method used |
++|---|---:|---:|---:|---|
++| Shore ring-net (Sep 16 - Nov 30) | 5,884 | 6,586 | +11.9% | BSS |
++| Shore all-gear (Dec 1 - Sep 15) | 15,732 | 20,654 | +31.3% | BSS |
++| Private boat all-gear | 22,070 | 43,475 | +97% | BSS |
++| Private boat ring-net | 971 | n/a | n/a | PE (insufficient data) |
++| Commercial/charter | 12,007 | n/a | n/a | Census |
++| **Port total** | **56,665** | **83,914** | **+48%** | gated combination |
++
++**Convergence:** all three fitted components pass (shore ring-net daily 2.5% divergences; shore all-gear daily 2.23%; boat all-gear monthly 0.63%); R-hat near 1.00, n_eff well above 400. Boat ring-net is the only PE fallback and it is data-limited (~17 interviews), not a geometry failure.
++
++**The three facts that most shape how to read the numbers:**
++1. **The boat is now cross-model consistent.** On monthly AR the pooled boat (catch 43,475, effort 14,716, CPUE 2.95) matches the independent gear-resolved boat (43,314 / 14,805 / 2.93). The weekly-vs-monthly AR resolution, not the effort unit, was the entire source of the earlier ~26% pooled-vs-gear-resolved boat gap.
++2. **The BSS sits systematically above the PE**, most sharply for the boat (+97%). Most of the boat gap is a PE artifact (its stratified mean-of-daily-ratios undercounts in thin strata; see P0), not BSS over-reach; the shore gap is an effort-imputation difference (CPUE agrees). See Section 5.
++3. **The harvest is summer-dominated and lean on extrapolation.** July-September and the sparse shoulder months carry wide intervals; even on monthly AR the June boat BSS is ~4x the design-based PE. This is the largest standing threat to the headline number's credibility (T1.1).
++
++---
++
++## 2. Repository map
++
++- **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and their rendered `.html`. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
++- **`02_stan_models/`**, `crab_bss_pooled.stan` (v7.6+; `R_G_boat`, `effort_scale_gear`/`E_scale`, `collapse_mu_hier` lever), `crab_bss_gear_resolved.stan` (has the non-centered `omega_0`, see D4), `crab_bss_pooled_weather_adjusted.stan` (stale).
++- **`03_R_functions/`**, 25 shared modules. Post-refactor: extracted drivers (`fetch_crab_data*`, `run_pe_pooled`/`run_pe_gear`, `prep_bss_crab_pooled`/`_gear`, `prep_days_crab`, `prep_population_summary`, `estimate_comm_charter`, `classify_day_type`, `bss_timers`) plus the diagnostic/engine modules (`bss_ar_resolution`, `bss_convergence_gate`, `bss_cpue_diagnostics`, `bss_effort_spec`, `bss_trailer_expansion`, `bss_day_length`, `diagnose_effort_overdispersion`, `divergence_diagnostic`, `model_diagnostics`, `save_run_diagnostics`).
++- **`04_input_files/`**, `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx`.
++- **`05_output/`**, dated run folders. **1,017 git-tracked files (~82 MB)**; a known hygiene problem (T4.2/ORCH-26). The current authoritative run is `20260711/pooled-CPUE`.
++- **`06_diagnostics/`**, the weather/tide covariate module (stale).
++- **`07_documentation/`**, method docs, development histories, READMEs, and `development_notes/` (this file plus the historical notes).
++- **Root**, `run_config.R` (control surface), `run_estimation.R` (orchestrator), `README.md`, `README-R-functions.md`.
++
++---
++
++## 3. Completed work (reconciled across all prior notes)
++
++Historical IDs are preserved in parentheses so the older notes remain traceable. Legend of ID schemes: **B1.x/A/B/C/D** from `PLANNED_IMPROVEMENTS.md`; **T1.x-T4.x** from `CODE_IMPROVEMENTS_REVIEW_v7.0.md`; **O1-O12** from `ADDITIONAL_OUTPUTS_PROPOSAL.md`; **F1-F5/P0-P3** from `pipeline_state_review_20260709.md`; **POOL-*/GR-*/WX-*/ORCH-*** from `20260710-OUTSTANDING_ISSUES.md`; **critique 1-11** from the 2026-03-31 model critique; **P4/P5/P7** from the 2026-07-12 review.
++
++**Convergence and sampler geometry.**
++- BSS convergence achieved (B1, B1.1-B1.6). Boat all-gear diverged on ~100% of iterations under daily AR (a funnel from a 289-state latent on a thin trailer series); fixed by the per-population AR cap to weekly (B1.2/v6.5), non-centering the AR initial state `omega_0` (B1.3/v6.6), and boat sampler tuning (v6.2). Effort overdispersion marginalized to negative binomial (B1.5/v6.7). Unconditional `sigma_IE` prior (B1.6/v6.8).
++- Non-centered `omega_0` ported to the gear-resolved Stan (**D4 DONE**; `omega_E_0_raw`/`omega_C_0_raw` present in `crab_bss_gear_resolved.stan`).
++- `R_G_boat` improper-prior blocker fixed in gear-resolved (F1): an unbounded `real<lower=0>` with no prior/likelihood drove the log posterior to +inf; now `lognormal(log(4), 0.5)`. Ported to pooled as POOL-1.
++- Scale-aware convergence gate (B1.8/v7.0): pass/fail on the divergent draws' impact on the reported totals in posterior-SD units, not a raw count. The 15% fraction backstop was tightened to **0.05** (P7, 2026-07-12) to match the gear-resolved gate; the impact test (threshold 0.10 SD) remains primary.
++
++**Effort unit and scale (the dominant correctness theme).**
++- Boat moved off invalid time-denominated effort onto gear-deployments (F2 gear-resolved; POOL-1 + POOL-3 pooled/v7.6). The saturation diagnostic proved catch is sub-linear in soak time for pots (`beta` ~0.13-0.27), so any time unit is invalid; `R_T` (pinned at ~1) was replaced by `R_G_boat`, and `L = 24` gear-hours by `L = tau_boat`.
++- Shore moved onto gear-deployments (GR-16 / POOL-7 / v7.7), chosen by a three-unit LOO comparison: gear-deployments is the only shore unit whose catch-vs-effort elasticity covers 1 (`beta_h = 1.05` vs 0.57 crabber-hours, 0.73 gear-hours). Applied to both pipelines. This is the resolution of critique-1's day-length/snapshot concern for the CPUE denominator (the level still uses a gear-count snapshot x turnover; see T1.1).
++- Shore PE aligned to the same unit (v7.8): `run_pe_pooled` now takes the shore denominator from `bss_effort_spec.R`; the shore PE effort dropped from 42,541 (crabber-hours) to 18,104 (deployments), removing a PE-vs-BSS unit inconsistency.
++- **Boat AR resolution resolved (BOAT_RESOLUTION_EXPERIMENT closed).** The experiment asked daily-vs-weekly; the answer is **monthly**. On monthly AR the pooled boat reconciles to the gear-resolved boat (Section 1, fact 1), and the sparse-month effort over-imputation collapses (June boat BSS/PE fell 8.7x to 4.1x; July 3.7x to 2.1x).
++
++**CPUE structure.**
++- Weekend/holiday CPUE effect `B1_C` added and confirmed to keep on (critique 4 RESOLVED, T3.3 base). Shore CPUE ~46% lower on weekend/holiday (`B1_C ~ -0.6` shore all-gear), indistinguishable from zero for boat (soaking gear does not care about day type). Physically sensible crowding signal.
++
++**Filters.**
++- Incomplete-trip filter added to the pooled track (POOL-2 / B7 / T2.3), matching gear-resolved; ~40% of shore all-gear interviews are incomplete with a measured ~-20% CPUE bias, so filtering raises the shore estimate. Toggle `filter_incomplete_trips` (default TRUE), with a `sensitivity_incomplete_trips.csv` output (now rendered in the report).
++
++**Diagnostics and persisted outputs.**
++- The output catalog O1-O11 is implemented (`save_run_diagnostics.R`): full parameter summaries, AR latent path, period coverage map, modeled daily CPUE, per-observation PPC residuals, sampler diagnostics (E-BFMI), summed-quantity draws, prior-vs-posterior, gear proportions, monthly PE-vs-BSS by mode, per-fit data summary. O12 (`.rds`) deliberately not committed.
++- CPUE effort-unit diagnostics wired (POOL-5): `cpue_estimators_/cpue_saturation_/cpue_linearity_*.csv`, the estimator triad + saturation + linearity that surfaces an invalid effort unit automatically each run.
++- Posterior predictive checks run and calibrated (B2 UNBLOCKED and reported): 95% coverage ~0.95-0.98, PIT means ~0.5; the 50% coverage is wide for shore catch / boat trailer (consistent with `r_C ~ 0.75`), i.e. the effort/catch predictive is mildly over-dispersed.
++- Effort overdispersion decomposition (T1.5): NB observation overdispersion dominates (81-91%); the latent AR carries 4-13%, a consequence of the coarse AR, not a bug.
++- **Report display pass (2026-07-12):** the pooled `.Rmd` now renders the incomplete-trip sensitivity, PPC calibration, effort-overdispersion decomposition, the CPUE validity triad, per-fit data coverage, PSIS-LOO, and top divergence drivers as on-page tables; the wide convergence table is curated. Sections that previously only wrote CSVs now show results.
++
++**Refactor and config.**
++- Behavior-preserving function extraction into `03_R_functions/` and centralization of all user toggles in `run_config.R` (v7.8). Config restructured so `run_config` is the base parameter set and each model layers its tuning (P5/v7.9); the per-model AR resolution map lives in `run_config.R`.
++
++**PE (partial).**
++- Shore PE unit alignment done (v7.8, above). Ratio-of-sums adoption (P0) is NOT done and is the top open PE item (Section 4).
++
++**Repo cleanup (partial).**
++- `-old` driver snapshots and the refactor tarball removed (2026-07-12).
++
++---
++
++## 4. Outstanding work (prioritized by publication impact)
++
++### Tier 1: can move the headline number, or a reviewer will demand it
++
++- **P0: put the pooled PE stratum CPUE on ratio-of-sums.** `run_pe_pooled` computes stratum CPUE as `weighted.mean(daily_ratios, w = n_int)`, a mean-of-ratios that is unstable in thin weekly x day-type strata: the boat PE's effective CPUE is ~1.86 crab/deployment against an interview ratio-of-sums of 3.36, which is why the boat PE (22,070) undercounts. Switching to within-stratum `sum(catch)/sum(hrs)` would move the boat PE toward ~40k (near the BSS and the gear-resolved boat) and make the PE a fair cross-check. Add the implied-CPUE-vs-ratio-of-sums assertion as a permanent guard. (= pipeline_state_review P0; the v7.8 fix did only the unit alignment, not this estimator change.) **Effort: low.**
++- **T1.1: make the summer-extrapolation dominance transparent, and get one external validation point (B4).** The estimate rests heavily on the AR filling the thinly sampled summer; even on monthly AR the June boat BSS is ~4x PE. The supporting diagnostics now exist (period coverage O3, monthly PE-vs-BSS O7, data coverage O11, now displayed), so the remaining work is (a) a port-total decomposition into well-sampled vs extrapolated strata, and (b) at least one external benchmark (dockside census, a known-total year, or the legacy estimator). **Effort: medium; validation depends on data.**
++- **T1.3 / B3 / critique 2: prior sensitivity, R_G and L_effective first.** Report harvest movement with `R_G` fixed at 1.0, 1.27, 1.5, and under alternative `L_effective` / `tau` priors. The data-driven `R_G` prior only partly answers the critique. `prior_vs_posterior_*.csv` (O9) is the starting point. **Effort: medium (a small re-run grid).**
++- **T1.4 / critique 6: commercial/charter per-vessel-type split.** The 12,007-crab census (~14% of the port total) uses one mean-per-vessel across commercial crab vessels and six-pack charters, which have very different catch profiles; the tally already splits the columns and `boat_type` supports the split. Could move the number meaningfully. Pair with a census uncertainty interval (T3.5). **Effort: low-medium.**
++
++### Tier 2: accuracy, cross-track parity, or credibility
++
++- **Make monthly the boat AR production default.** Monthly is currently reached via `ar_force = list(private_boat = "monthly")`, an experiment override. Set `ar_max_resolution$pooled$private_boat = "monthly"` in `run_config.R` so the production run selects it by policy (it is better-identified for the thin trailer series and now agrees with the independent pipeline), and set `ar_force = NULL`. **Effort: trivial.**
++- **T2.2 / B5: propagate `pi_gear` uncertainty in the pooled gear breakdown, or scope it as approximate.** `catch_by_gear_type.csv` applies point interview proportions post-hoc, so its gear-type intervals are too narrow. Either mirror the gear-resolved Dirichlet propagation or add a one-paragraph scoping note. **Effort: low (note) to medium (propagation).**
++- **T2.4 / C1-C2 + WX module: weather covariate evaluation, then integration; rehabilitate the module.** The GAM screen ran for all four cells but the committed PSIS-LOO is only shore ring-net (marginal, ~2.4 SE, below the 4-SE bar). The module (WX-16..20) forks a stale v6.9-parity engine on a pre-deployment-scale Stan and has not been re-run; it must be re-based on the shared modules and current Stan before its LOO or any covariate promotion (C2) is trustworthy. **Effort: medium.**
++- **T2.5: durable single-cell mu-hierarchy funnel fix.** With `G*S = 1`, `mu = mu_mu + sigma_mu * eps_mu` is over-parameterized and is the residual funnel the divergences sit on (`sigma_mu_*` is the top divergence driver each run). The `collapse_mu_hier` lever (POOL-4) exists as a safe off-by-default toggle; the naive full collapse (B1.7) was reverted because it forced the level to reconcile against the daily AR ridge. The durable fix is a careful partial reparameterization (single decoupled level absorber), a design task to prototype on shore all-gear, not a mechanical edit. Also make the gear-resolved collapse a config flag (GR-10). **Effort: medium.**
++- **Shore `sigma_IE` effort-model tension (GR-9 and pooled analogue).** In the pooled monthly run shore all-gear `sigma_IE` = 1.07 (worse than the gear-resolved 0.60): the I/E day-length/turnover stream and the effort counts disagree by ~e^1 at the tails. Investigate whether the I/E observation days are unrepresentative (peak-count days) before trusting the shore effort posterior to three figures. **Effort: medium.**
++- **GR-8: `sigma_IE` funnel in `shore_ring_net`.** `exponential(5)` has its mode at zero so `sigma_IE` can shrink and stiffen the likelihood on the 2 in-window I/E days; add an `ie_min_obs_shore >= 3` guard or tighten the prior to `lognormal(log(0.3), 0.5)`. **Effort: low.**
++
++### Tier 3: refinements
++
++- **T3.1 / B6 / critique 5: sub-season boundary edge effect.** The hard Dec 1 split fits two independent BSS with no cross-boundary anchor, ballooning the interval at the seam. Either document as a known artifact or move to a single regime-switching model with a `pot_available` indicator. **Effort: medium (doc) to high (model).**
++- **T3.3 / critique 4 extension: continuous density-dependence and a holiday CPUE term.** CPUE as a function of same-day effort rather than only a weekend dummy; effort has a holiday term (`B2`), CPUE does not. Lower priority since the dominant day-type signal is already modeled. **Effort: medium.**
++- **GR-7: genuine per-gear CPUE (Option A).** `G = 1`, so per-gear catch comes from PE apportionment and `catch_by_gear_type.csv` mixes a boat "All" BSS column with PE-apportioned shore gear types (ORCH-24). A real build (effort shares in the offset, a multi-gear rule), not a fix; not to be started until the boat total is stable. Related: critique 7 (priority hierarchy) is resolved in the gear track via weighted pseudo-likelihood; critique 8 (shared `phi_C_gear`) remains a low-priority gear-track item. **Effort: high.**
++- **GR-12: `tau_boat` identification.** Boat catch is proportional to `tau_boat = 1.2`, whose prior rests on 2 WBL I/E days; the boat I/E stream is built and activates once >=2 days fall in a window. The egress-classification pilot is the critical path. State this dependence in any co-management number. **Effort: medium (pilot).**
++- **Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
++- **T3.2 / critique 11: shore soak-time basis.** Largely mooted now that shore is on gear-deployments rather than crabber-hours, but a one-line confirmation in the docs is worth it. **Effort: trivial.**
++
++### Tier 4: reproducibility and repository hygiene (correctness-neutral, publication-blocking)
++
++- **renv.lock (A4 / T4.1 / ORCH-25).** Still absent. A publication method with a multi-hour Stan pipeline needs a pinned dependency set; ~5 minutes with a large reproducibility payoff. Add a top-level runner too (`run_estimation.R` already serves this).
++- **Output and repo hygiene (A1/A2 / T4.2 / ORCH-26).** `05_output/` is 1,017 tracked files / ~82 MB and grows each run, including pre-v6 runs not reproducible from current code; `.Rproj.user/` (5 files) is tracked despite being gitignored. Untrack `.Rproj.user`; decide an `output/` policy (gitignore + one canonical reference run, or Releases). Delete the stale `20260711/pooled-CPUE-morning` and `-afternoon` runs.
++- **A3: gear-resolved `max_divergences` doc/code mismatch.** Code uses 5; older docs said default 0. Reconcile the doc. **Effort: trivial.**
++- **Stale gear-resolved output labels.** After the v5.5 shore->deployments move, the PE plot title "Estimated Daily Crabber-Hours" and the port-total `effort_units_note` still say crabber-hours; one-line fixes.
++- **Global-variable coupling (T4.3), duplicated PE monthly-share blocks (T4.4).** Largely addressed by the refactor (functions now take `params`); verify no residual globals and that the two PE monthly-share blocks are one helper.
++
++---
++
++## 5. Cross-cutting principles and lessons
++
++- **Time-denominated effort is invalid for pot and trap gear.** Catch is sub-linear in soak time (saturation `beta` ~0.13-0.27), so crabber-hours and gear-hours both fail the linearity test; gear-deployments is the harvest-unbiased unit. The pipeline now measures this every run (`cpue_linearity_*.csv`, `cpue_saturation_*.csv`), so any new gear type or population must be run through those before its totals are trusted.
++- **AR resolution is a real inference lever for sparse series, not a tuning knob.** Finer AR over-imputes effort in thinly sampled periods; the boat's weekly-vs-monthly choice moved its catch ~20% and was the entire pooled-vs-gear-resolved discrepancy. Cap AR at what the effort series can identify.
++- **The harvest is summer-extrapolation-dominated.** The largest uncertainty and the largest BSS-vs-PE divergence both live in the thinly sampled months; no code refinement manufactures information that was not sampled. The single highest-value field change for 2025-26 is more summer interview/effort coverage.
++- **BSS-vs-PE gaps are a diagnostic, not a defect, but demand a mechanism.** The two estimate the same harvest by different routes (design-based stratum expansion vs a latent process that imputes unobserved days and propagates uncertainty). A gap is expected where sampling under-covers effort. Report the BSS (now cross-model stable for the boat) with the PE as a caveated cross-check; the boat gap is mostly the PE undercounting (P0), the shore gap is an effort-imputation tied to `sigma_IE`.
++- **Validate by run, never by reasoning alone (the "pin" lesson).** A change that looks inference-neutral on paper (the v7.3 pin; the B1.7 collapse) can perturb a delicate mass-matrix geometry. Isolate each change, compare against a confirmed baseline, and decide on pre-set criteria. Every "done pending run" item is not done until the run confirms it.
++
++---
++
++## 6. Field-protocol items for 2025-26 (not code)
++
++These require sampling-design changes, not code, and should feed the field plan: **jetty and beach direct effort counts** (critique 3 / D3; shore effort currently proxied by dock gear counts); **minimum summer coverage targets by mode** (motivated by T1.1, the estimate's weakest point); **interview-time vs effort-count-time representativeness checks** (critique 10); and confirming effort-count and incomplete-trip protocols. Spatial heterogeneity within the port (Float 20 vs 17-21, critique 11) is a design choice, not currently modeled.
++
++---
++
++## 7. Historical facts worth keeping (from the 2026-03-31 critique)
++
++The critique framed the framework as a sound adaptation of the WDFW freshwater creel BSS to a different fishery, with the biggest risk upstream of the statistics in the effort-to-crabber conversion and day-length expansion. Its 11 issues map to current items as: 1 -> effort unit (largely resolved via deployments) + T1.1; 2 -> T1.3; 3 -> D3 (field); 4 -> RESOLVED (B1_C); 5 -> T3.1/B6; 6 -> T1.4; 7 -> resolved in gear track; 8 -> gear-track low priority; 9 -> ZINB decision; 10 -> field + representativeness; 11 -> weather (T2.4) + shore soak-time (mostly mooted by deployments).
++
++---
++
++## 8. Disposition of the source notes
++
++This file consolidates and supersedes the following. Recommend deleting them from `development_notes/` once this file is confirmed, keeping only the two that retain unique reference value.
++
++| File | Disposition |
++|---|---|
++| `PLANNED_IMPROVEMENTS.md` | Superseded (its A/B/C/D backlog is reconciled in Sections 3-4). Delete. |
++| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Superseded (its T1-T4 tiers are carried into Section 4). Delete, or keep for its detailed evidence appendix if wanted. |
++| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Superseded (O1-O11 implemented; see Section 3). Delete. |
++| `pipeline_state_review_20260709.md` | Superseded (F1-F5 done, P0-P3 carried forward). Delete. |
++| `BOAT_RESOLUTION_EXPERIMENT.md` | Concluded (monthly AR chosen; Section 3). Delete, or keep as the experiment's provenance. |
++| `CHANGES-2026-07-11.md` | Point-in-time refactor changelog; retained in the pooled development-history doc. Delete from here. |
++| `20260710-OUTSTANDING_ISSUES.md` | Superseded by this file (POOL-*/GR-*/WX-*/ORCH-* reconciled in Sections 3-4). Delete. |
++| `20260331-model-critique.docx` | **Keep.** The original external critique is primary-source provenance; Section 7 summarizes it but the docx should remain. |
++
++The full version-by-version change log lives in the two development-history documents (`BSS-GH-pooled-CPUE-model-development-history.md`, `BSS-GH-gear-type-CPUE-model-development-history.md`); this file is the forward-looking status and backlog, not a changelog.
+diff --git a/README.md b/README.md
+index 22e4062..581248e 100644
+--- a/README.md
++++ b/README.md
+@@ -163,8 +163,10 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
+ 
+ Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently, each with its own detailed development-history document; the weather-tide module has its own version line. The table below is a one-line-per-milestone summary. See the two development-history documents for the full change log with working notes:
+ 
+-- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.8)
+-- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.5)
++- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.9)
++- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.6)
++
++For the current state and the prioritized backlog (what is done and what remains), see the single living status document: `07_documentation/development_notes/PIPELINE_STATUS.md`.
+ 
+ | Version | Track | Key Changes |
+ |---|---|---|

@@ -1,70 +1,53 @@
 # 07_documentation
 
-Written documentation for the project: how the models work, what decisions were made and why, change history, proposals, and the rendered documentation site. None of this is executed by a run; it is the reference layer.
+Written documentation for the project: how the models work, what decisions were made and why, change history, and the forward-looking status and backlog. None of this is executed by a run; it is the reference layer.
 
-For the one-paragraph project overview, see the [root README](../README.md).
+For the one-paragraph project overview and quick start, see the [root README](../README.md).
 
-## Current model documentation
-
-These track the three live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
-
-| File | Describes |
-|---|---|
-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model. |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model. |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module. |
-
-## Rendered documentation site
+## Start here
 
 | File | Role |
 |---|---|
-| `docs_index.Rmd` / `docs_index.html` | Landing page of the built doc site. |
-| `docs_equations.Rmd` / `docs_equations.html` | Model equations. |
-| `documentation_tables.xlsx` | Source tables that feed the write-ups. |
+| `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
 
-The `.html` files are the built output of the `.Rmd` sources; re-knit the `.Rmd` to regenerate them. These `.Rmd` files do not read the renumbered stage folders, so the folder reorganization did not require any edits to them.
+## Current model documentation (the method of record)
+
+These track the live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
+
+| File | Describes |
+|---|---|
+| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model (pipeline code v7.9). |
+| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model (framework v5.6). |
+| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (currently stale; not production). |
+
+## Development histories (the version-by-version change log)
+
+| File | Describes |
+|---|---|
+| `BSS-GH-pooled-CPUE-model-development-history.md` | Full change log for the pooled model and its Stan file, newest first. |
+| `BSS-GH-gear-type-CPUE-model-development-history.md` | Full change log for the gear-resolved model. |
+
+The method documents summarize the history in one screen and point here for detail. `PIPELINE_STATUS.md` is the forward-looking backlog, not a changelog; these histories are the backward-looking record.
 
 ## Decision records and how-tos
 
 | File | Content |
 |---|---|
-| `WEATHER_COVARIATE_ANALYSIS.md` | The conclusion that weather/tide covariates are excluded for all three components under the pre-committed 4.0-SE PSIS-LOO margin (the false-precision finding). Pairs with `06_diagnostics/`. |
+| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are excluded under the pre-committed PSIS-LOO margin (the false-precision result). Pairs with `06_diagnostics/`. Note: superseded in part by the deployment-scale move; the module itself is stale (see `PIPELINE_STATUS.md`, T2.4). |
 | `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
-| `diagnostics_and_reproducibility_notes.md` | Notes on diagnostics and reproducing runs. |
+| `documentation_tables.xlsx` | Source tables that feed the write-ups. |
 
-## Change logs and experiments
+## development_notes/
 
-| File | Content |
+`PIPELINE_STATUS.md` (above) consolidates and supersedes the historical notes in this folder. The historical notes are retained for provenance until confirmed for deletion (see the disposition table at the end of `PIPELINE_STATUS.md`):
+
+| File | Status |
 |---|---|
-| `B1.5_change_notes.md`, `B1.6_change_notes.md` | Versioned change notes for those model revisions. |
-| `BOAT_RESOLUTION_EXPERIMENT.md` | The daily-vs-weekly AR temporal-resolution experiment for boat effort. |
-
-## Proposals and reviews
-
-| File | Content |
-|---|---|
-| `PLANNED_IMPROVEMENTS.md` | Roadmap of intended changes. |
-| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Proposed additions to the output set. |
-| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Internal code-quality review. |
-| `20260331-model-critique.docx` | External model critique (Word). |
-
-## Creel-lineage carryover
-
-This project was forked from the WDFW freshwater-creel framework, and some of that documentation rode along. It is kept for reference but does not describe the current crab models:
-
-| Item | Note |
-|---|---|
-| `Instructions for using Creel Estimates.docx` | Freshwater-creel user guide. |
-| `Instructions for using the Creel Schedule Generator.docx` | Freshwater-creel scheduler guide. |
-| `DRAFT_FreshwaterCreel rep_file sub structure mockup.docx` | Draft report-file structure mockup from the creel framework. |
-| `FWC_bss_docs/` | Legacy reference subfolder (see below). |
-
-### `FWC_bss_docs/`
-
-Older reference material predating this project, retained for lineage:
-
-- `02_Creel_Models_2022-01-20.csv` (2022 creel model list)
-- `Skagit creel model - definitions_updated 2021-01-12.xlsx` (Skagit model definitions)
-- `overview of time-series model_2019-02-28.pptx` (2019 time-series model overview)
-
-These describe the antecedent state-space creel models the current BSS approach grew out of; treat them as historical context, not as documentation of the code in this repo.
+| `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
+| `20260710-OUTSTANDING_ISSUES.md` | Superseded by `PIPELINE_STATUS.md`. |
+| `pipeline_state_review_20260709.md` | Superseded (F1-F5 done, P0-P3 carried forward). |
+| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Superseded (T1-T4 carried forward); detailed evidence appendix retained if wanted. |
+| `PLANNED_IMPROVEMENTS.md` | Superseded (A/B/C/D backlog reconciled). |
+| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Superseded (O1-O11 implemented). |
+| `BOAT_RESOLUTION_EXPERIMENT.md` | Concluded (monthly AR chosen). |
+| `CHANGES-2026-07-11.md` | Point-in-time refactor changelog (also recorded in the pooled development history). |
