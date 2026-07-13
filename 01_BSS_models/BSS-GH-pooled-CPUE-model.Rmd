@@ -33,8 +33,28 @@ report_table <- function(df, caption = NULL, digits = 2) {
 # Short, HTML-friendly fit labels for display tables (e.g. "boat all-gear").
 short_fit <- function(x) gsub("_Dungeness_Kept$", "",
                          gsub("private_boat", "boat",
-                           gsub("_ring_net_only", " ring-net",
+                           gsub("_ring_net_only", " pot-closure",
                              gsub("_all_gear", " all-gear", x))))
+
+# Pot-closure boundary markers for date-axis plots. Draws a dotted line at the pot-
+# closure start and a dashed line at the day pots open (closure end + 1), so every
+# season plot brackets the pot-closure window explicitly (added 2026-07-13 with the
+# explicit pot_closure_start/end config). Returns a list of ggplot layers, added to a
+# plot with `+`. When the closure starts at the season start the left line sits at the
+# left edge (correct). labels = FALSE draws the lines only (for secondary panels).
+pot_closure_markers <- function(params, labels = TRUE) {
+  pc_start  <- as.Date(params$pot_closure_start %||% params$est_date_start)
+  pots_open <- as.Date(params$pot_open_date     %||% (as.Date(params$pot_closure_end) + 1))
+  layers <- list(
+    geom_vline(xintercept = pc_start,  linetype = "dotted", color = "darkgreen", linewidth = 0.5),
+    geom_vline(xintercept = pots_open, linetype = "dashed", color = "red",       linewidth = 0.5))
+  if (labels) layers <- c(layers, list(
+    annotate("text", x = pc_start + 3,  y = Inf, label = "Pot closure start",
+             hjust = 0, vjust = 1.5, size = 3, color = "darkgreen"),
+    annotate("text", x = pots_open + 3, y = Inf, label = "Pots open",
+             hjust = 0, vjust = 1.5, size = 3, color = "red")))
+  layers
+}
 
 # Read the per-fit CSVs a section wrote to output_dir (files named prefix_<label>.csv)
 # and row-bind them for on-page display, tagging each row with a short fit_lbl label from
@@ -63,7 +83,7 @@ read_fit_outputs <- function(prefix, dir = NULL) {
 
 ## 1. Setup and configuration
 
-Loads packages, sources the helper functions in `03_R_functions/`, applies the run configuration from `run_config.R`, and defines the two sub-seasons (ring-net-only and all-gear). Every user-selectable toggle for this run lives in `run_config.R`.
+Loads packages, sources the helper functions in `03_R_functions/`, applies the run configuration from `run_config.R`, and defines the two sub-seasons (pot-closure and all-gear). Every user-selectable toggle for this run lives in `run_config.R`.
 
 ```{r config, results='hide'}
 ###############################################################################
@@ -76,8 +96,10 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 #   1. Shore crabbers (dock + jetty + beach)   BSS + PE
 #   2. Private boat crabbers                    BSS + PE
 #   3. Commercial/charter boats                 census/tally
-# Two gear-regime sub-seasons: ring-net only (Sep 16 - Nov 30, no pots) and
-# all-gear (Dec 1 - Sep 15, pots allowed).
+# Two gear-regime sub-seasons: pot closure (Sep 16 - Nov 30, non-pot gear only) and
+# all-gear (Dec 1 - Sep 15, pots allowed). "Pot closure" was formerly labeled
+# "ring-net only"; non-pot gear other than ring nets is also legal, so the name was
+# a misnomer. The internal key stays "ring_net_only" for output-filename continuity.
 #
 # CURRENT STATE (v7.9): both fitted components run on the gear-DEPLOYMENT effort
 # unit (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
@@ -237,24 +259,39 @@ catch_groups <- if(params$estimate_red_rock) {
   "Dungeness_Kept"
 }
 
-subseason_1 <- list(
-  name = "ring_net_only",
-  start = as.Date(params$est_date_start),
-  end   = as.Date(params$pot_open_date) - 1
-)
-subseason_2 <- list(
-  name = "all_gear",
-  start = as.Date(params$pot_open_date),
-  end   = as.Date(params$est_date_end)
-)
-
-cat(sprintf("Sub-season 1 (ring-net): %s to %s (%d days)\n",
-            subseason_1$start, subseason_1$end,
-            as.integer(subseason_1$end - subseason_1$start + 1)))
-cat(sprintf("Sub-season 2 (all-gear): %s to %s (%d days)\n",
-            subseason_2$start, subseason_2$end,
-            as.integer(subseason_2$end - subseason_2$start + 1)))
+# Sub-seasons split by the pot-closure window (03_R_functions/build_subseasons.R).
+# The pot closure is when pots are not legal (non-pot gear only); its window is set
+# explicitly in run_config (pot_closure_start / pot_closure_end). For the current
+# config (closure at the season start) this returns the historical two sub-seasons
+# with unchanged internal names ("ring_net_only" is the pot-closure key, kept for
+# output-filename continuity; display_name is "Pot closure"), so keys and filenames
+# do not change. A mid-season closure adds pre/post all-gear periods automatically.
+# Model logic keys off ss$gear_regime ("pot_closure" | "all_gear"), never ss$name.
+subseasons <- build_subseasons(params)
+for (ss in subseasons) {
+  cat(sprintf("Sub-season: %-26s %s to %s (%d days)\n",
+              paste0(ss$display_name, " [", ss$name, "]"),
+              ss$start, ss$end, as.integer(ss$end - ss$start + 1)))
+}
 cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
+
+# GUARD (2026-07-13): build_subseasons is fully general (it emits pre/post all-gear
+# periods for a mid-season pot closure), but this report's downstream AGGREGATION is
+# still hardcoded to the historical two sub-seasons per population: the PE port summary
+# (component_keys / component_names), the catch-by-mode table, and the PE-fallback rows
+# of the final harvest table all enumerate exactly {ring_net_only, all_gear}. Extra
+# sub-season keys (all_gear_pre / all_gear_post) would be silently dropped there,
+# under-reporting the port total. Until those aggregators are generalized to sum over
+# ALL sub-seasons per population, stop with a clear message rather than under-report.
+ss_name_set <- vapply(subseasons, function(z) z$name, character(1))
+if (!setequal(ss_name_set, c("ring_net_only", "all_gear"))) {
+  stop(sprintf(paste0(
+    "build_subseasons produced sub-seasons {%s}, but this report's aggregation tables ",
+    "are hardcoded to {ring_net_only, all_gear}. A mid-season pot closure needs those ",
+    "tables generalized to sum over all sub-seasons per population first. Aborting to ",
+    "avoid silently under-reporting the port total."),
+    paste(ss_name_set, collapse = ", ")), call. = FALSE)
+}
 
 
 # ===========================================================================
@@ -417,9 +454,7 @@ p_shore_effort <- dwg$shore_effort |>
   mutate(day_type = classify_day_type(event_date, params)) |>
   ggplot(aes(x = event_date, y = total_gear, color = day_type, size = n_counts)) +
   geom_point(alpha = 0.5) +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
-  annotate("text", x = as.Date(params$pot_open_date) + 5, y = Inf, label = "Pots open",
-           hjust = 0, vjust = 1.5, size = 3, color = "red") +
+  pot_closure_markers(params, labels = TRUE) +
   scale_size_continuous(range = c(1,3), breaks = 1:3, name = "Counts/day") +
   labs(title = "Shore: Daily Gear Count (Docks F20 + F17-21)",
        x = "Date", y = "Total gear count", color = "Day type") +
@@ -433,7 +468,7 @@ p_boat_effort <- dwg$boat_effort |>
   mutate(day_type = classify_day_type(event_date, params)) |>
   ggplot(aes(x = event_date, y = total_trailers, color = day_type)) +
   geom_point(alpha = 0.5) +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  pot_closure_markers(params, labels = FALSE) +
   labs(title = "Private Boat: Daily Trailer Count", x = "Date", y = "Trailers", color = "Day type") +
   theme_bw()
 ggsave(file.path(output_dir, "plot_boat_effort_timeseries.png"), p_boat_effort, width = 10, height = 6)
@@ -451,7 +486,7 @@ p_cpue <- cpue_data |>
   ggplot(aes(x = event_date, y = mean_cpue, color = day_type)) +
   geom_point(alpha = 0.4, size = 1.5) +
   geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red") +
+  pot_closure_markers(params, labels = FALSE) +
   facet_wrap(~population, ncol = 1, scales = "free_y") +
   labs(title = "Dungeness CPUE by Population", x = "Date", y = "Mean CPUE", color = "Day type") +
   theme_bw()
@@ -589,7 +624,7 @@ cat("\n", strrep("=",60), "\n PE ESTIMATES\n", strrep("=",60), "\n")
 
 pe_all <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model = L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
@@ -619,7 +654,7 @@ sens_df <- NULL   # persists to the display chunk below even if the tryCatch err
 tryCatch({
   sens_rows <- list()
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       s_label <- paste0(pop, "_", ss$name)
       days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model = L_eff_model)
       summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
@@ -629,6 +664,7 @@ tryCatch({
       d_on    <- run_pe_pooled(summ_ss, days_ss, p_on,  paste0(s_label, " [complete only]"))$Dungeness_Kept %||% 0
       sens_rows[[s_label]] <- tibble(
         component                  = s_label,
+        component_disp             = paste0(gsub("_", " ", pop), " ", ss$display_name),
         PE_Dungeness_all_trips     = round(d_off),
         PE_Dungeness_complete_only = round(d_on),
         diff_pct                   = if(d_off > 0) round((d_on - d_off) / d_off * 100, 1) else NA_real_
@@ -650,7 +686,7 @@ tryCatch({
 if (!is.null(sens_df) && nrow(sens_df) > 0) {
   report_table(
     dplyr::transmute(sens_df,
-      Component                 = gsub("_", " ", component),
+      Component                 = component_disp,
       `PE catch, all trips`     = PE_Dungeness_all_trips,
       `PE catch, complete only` = PE_Dungeness_complete_only,
       `Change (%)`              = diff_pct,
@@ -666,7 +702,7 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
 
 ### 4.2 Commercial and charter census
 
-The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity.
+The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
 
 ```{r pe-comm, results='hide'}
 # ---- 7.4 COMMERCIAL/CHARTER ----
@@ -677,6 +713,29 @@ timer_stop("4_commercial_charter")
 
 ```
 
+```{r pe-comm-show, echo=FALSE}
+# T1.4: show the commercial-vs-charter per-vessel split behind the census. Each class
+# gets its own mean Dungeness per vessel applied to its own tally column (Guide folded
+# into Charter); a class with no interviews falls back to the pooled mean.
+.vt <- tryCatch(pe_all$comm_charter$vessel_type_detail, error = function(e) NULL)
+if (!is.null(.vt) && nrow(.vt) > 0) {
+  report_table(
+    dplyr::transmute(.vt,
+      `Vessel type`            = vessel_type,
+      Interviews               = n_interviews,
+      `Mean Dungeness/vessel`  = round(mean_dung_per_vessel, 1),
+      `Tally vessels (window)` = round(tally_vessels),
+      `Sampled-day catch`      = round(sampled_catch)),
+    caption = paste("Commercial vs charter split behind the census (T1.4). Each class's",
+                    "mean catch per vessel is applied to its own tally column instead of",
+                    "one pooled mean. 'Sampled-day catch' is the class census before the",
+                    "day-type expansion that produces the reported commercial/charter",
+                    "total, so it shows the split, not the final stratified figure."))
+} else {
+  cat("_Commercial/charter vessel-type split unavailable this run._")
+}
+```
+
 ### 4.3 PE port totals
 
 The Point Estimator port total, summed across the three population components. Compare it against the Bayesian total below.
@@ -685,7 +744,7 @@ The Point Estimator port total, summed across the three population components. C
 # ---- 7.5 PE PORT TOTALS ----
 cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
 
-component_names <- c("Shore (ring-net)","Shore (all-gear)","Private Boat (ring-net)",
+component_names <- c("Shore (pot-closure)","Shore (all-gear)","Private Boat (pot-closure)",
                      "Private Boat (all-gear)","Commercial/Charter","PORT TOTAL")
 component_keys <- c("shore_ring_net_only","shore_all_gear",
                     "private_boat_ring_net_only","private_boat_all_gear","comm_charter")
@@ -714,6 +773,37 @@ write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FA
 report_table(pe_summary, 'Point Estimator (PE) port totals by component.')
 ```
 
+### 4.4 PE internal consistency (ratio-of-sums)
+
+Each component's PE stratum CPUE is a ratio-of-sums (`sum(catch)/sum(hrs)` within each week-by-day-type stratum), not a mean of per-day ratios (backlog P0). The mean-of-ratios was unstable in thin strata, a day with very little sampled effort produced an extreme daily ratio that was then multiplied by the full stratum effort, and it made the shore PE's implied CPUE about 2.9x its own interview ratio-of-sums. Ratio-of-sums removes that and matches the gear-resolved track. The check below is the guardrail: the PE's implied CPUE (its catch divided by its effort) must agree with the ratio-of-sums over the same interviews. A ratio far from 1 means catch and effort are on different scales, and the run stops if any component exceeds 2x, so a clean table here is itself the confirmation that the PE is internally consistent.
+
+```{r pe-consistency-show, echo=FALSE}
+# P0: render the PE internal-consistency check returned by run_pe_pooled per component
+# (component_keys is defined in the pe-port chunk above). comm_charter is a census, not
+# run_pe_pooled, so it has no check and is skipped.
+pe_chk <- tryCatch(
+  dplyr::bind_rows(lapply(component_keys, function(k) {
+    d <- pe_all[[k]]$pe_cpue_check
+    if (is.null(d)) NULL else dplyr::mutate(d, Component = k)
+  })),
+  error = function(e) NULL)
+if (!is.null(pe_chk) && nrow(pe_chk) > 0) {
+  report_table(
+    dplyr::transmute(pe_chk,
+      Component         = short_fit(Component),
+      Unit              = effort_unit,
+      `PE implied CPUE` = round(pe_implied_cpue, 3),
+      `Interview RoS`   = round(interview_ros, 3),
+      Ratio             = round(ratio, 2)),
+    caption = paste("PE internal-consistency check (P0). 'PE implied CPUE' is the",
+                    "component's PE catch / PE effort; 'Interview RoS' is the ratio-of-sums",
+                    "over the same interviews. Healthy: Ratio near 1 (the run stops if any",
+                    "component is below 0.5 or above 2.0)."))
+} else {
+  cat("_PE consistency check unavailable (no fitted components produced it)._")
+}
+```
+
 ## 5. Bayesian state-space model fits
 
 Each population by sub-season is fit independently with a Bayesian state-space (BSS) model that treats daily effort and catch rate as smoothly evolving latent series, fills the gaps between sampled days, and returns full credible intervals. **What a healthy fit looks like:** R-hat below 1.01, effective sample size above 400, and few or no divergent transitions on every monitored quantity. Fits are checked against these criteria in the next section.
@@ -729,7 +819,7 @@ ar_resolutions <- list()  # track AR resolution per fit
 
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       cat(sprintf("\n--- BSS: %s ---\n", label))
 
@@ -759,8 +849,8 @@ for(cg in bss_catch_groups) {
 
       is_shore   <- (pop == "shore")
       is_boat    <- (pop == "private_boat")
-      is_allgear <- (ss$name == "all_gear")
-      is_ringnet <- (ss$name == "ring_net_only")
+      is_allgear <- (ss$gear_regime == "all_gear")
+      is_ringnet <- (ss$gear_regime == "pot_closure")
 
       # v6.1/v6.2: per-fit sampler tuning. Each branch sets iter, warmup,
       # max_treedepth, and adapt_delta; any fit without a specific override
@@ -987,7 +1077,7 @@ for(cg in bss_catch_groups) {
   bss_E_total <- rep(0, n_draws_max)
 
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
@@ -1055,7 +1145,7 @@ monthly_E_draws <- matrix(0, nrow = n_draws_max, ncol = length(all_months),
 
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
@@ -1191,7 +1281,7 @@ The monthly trajectory split by mode (shore, private boat, commercial/charter). 
 #          from the daily C_expected draws, then 2.5/50/97.5 quantiles.
 #   Private Boat: method is per sub-season (v7.0 scale-aware gate, B1.8). On the
 #          2024-25 data the all-gear sub-season passes the gate and uses the BSS
-#          posterior (full daily C_expected draws, CV ~27%), while the ring-net
+#          posterior (full daily C_expected draws, CV ~27%), while the pot-closure
 #          sub-season has too few interviews (< bss_min_interviews) and uses PE.
 #          The PE branch distributes the selected PE point across months by monthly
 #          effort share, then applies a design-based relative SE (stratified effort
@@ -1229,7 +1319,7 @@ rln_scale <- function(n, rel_se) {
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
     mode_nm <- if(pop == "shore") "Shore" else "Private Boat"
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label    <- paste0(pop, "_", ss$name, "_", cg)
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
@@ -1342,7 +1432,7 @@ p_bymode_dodge <- monthly_bymode |>
                 position = position_dodge(width = 0.8), width = 0.3) +
   scale_fill_manual(values = mode_cols) +
   labs(title = "Monthly Dungeness Catch by Crabbing Mode",
-       subtitle = "Median with 95% interval. Shore: BSS posterior. Private Boat: BSS posterior (all-gear), PE point with design-based effort SE (ring-net). Commercial/Charter: census, catch-per-vessel CV.",
+       subtitle = "Median with 95% interval. Shore: BSS posterior. Private Boat: BSS posterior (all-gear), PE point with design-based effort SE (pot closure). Commercial/Charter: census, catch-per-vessel CV.",
        x = "Month", y = "Dungeness crab caught", fill = "Mode") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "top")
@@ -1844,7 +1934,7 @@ if (exists('multiplier_df')) report_table(multiplier_df, 'Fitted effort and CPUE
 
 ### 12.1 Expansion ratios (R_G and R_G_boat)
 
-The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale.
+The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale. The R_G posterior below is under the model's data-driven R_G prior by default. For the T1.3 prior-sensitivity analysis the prior is overridable from `run_config.R` (`R_G_prior_mu` / `R_G_prior_sigma`); the console log records whether the prior was data-driven or an override, and this report reflects whichever prior was active for the run. A full sensitivity is a small grid of runs (R_G at 1.0, the empirical value, and 1.5) compared on the port total, not a single knit.
 
 ```{r expansion, results='hide'}
 # ---- 7.16 R_G AND R_G_boat POSTERIORS ----
@@ -1895,7 +1985,7 @@ cat("\n", strrep("=",60), "\n PE VS BSS COMPARISON\n", strrep("=",60), "\n")
 
 comparison <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label_cg <- paste0(pop, "_", ss$name, "_Dungeness_Kept")
     pe_label <- paste0(pop, "_", ss$name)
     b <- bss_all[[label_cg]]
@@ -1917,7 +2007,7 @@ for(pop in c("shore","private_boat")) {
     }
 
     comparison[[length(comparison)+1]] <- tibble(
-      component = paste0(pop, " (", ss$name, ")"),
+      component = paste0(pop, " (", ss$display_name, ")"),
       PE_effort = round(pe_effort), BSS_effort = round(bss_effort),
       effort_diff_pct = effort_diff_pct,
       PE_catch = round(pe_catch), BSS_catch = round(bss_catch),
@@ -2026,9 +2116,16 @@ These are run by hand after a fit to localize any divergences; they are not part
 # load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
 
 source(here::here("03_R_functions/divergence_diagnostic.R"))
-diagnose_divergences(bss_all[["shore_ring_net_only_Dungeness_Kept"]]$fit)
-diagnose_divergences(bss_all[["shore_all_gear_Dungeness_Kept"]]$fit)
-diagnose_divergences(bss_all[["private_boat_all_gear_Dungeness_Kept"]]$fit)
+# Robust to the sub-season set (build_subseasons): iterate over every fitted BSS
+# component and skip PE-fallback components that have no Stan fit, rather than
+# hardcoding fit labels (which omitted private_boat_ring_net_only and would miss the
+# pre/post all-gear keys of a mid-season closure).
+for (nm in names(bss_all)) {
+  b <- bss_all[[nm]]
+  if (is.null(b) || isTRUE(b$pe_fallback) || is.null(b$fit)) next
+  cat(sprintf("\n=== Divergence diagnostics: %s ===\n", nm))
+  diagnose_divergences(b$fit)
+}
 ```
 
 ### 11.3 Divergence localization

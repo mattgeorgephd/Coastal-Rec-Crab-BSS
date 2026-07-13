@@ -24,8 +24,8 @@ knitr::opts_chunk$set(echo = TRUE)
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # with a per-gear-type CPUE process (shared AR(1) dynamics), so gear-type catch can
 # carry posterior uncertainty. Three population components (shore, private boat, and
-# commercial/charter census) across two gear-regime sub-seasons: ring-net only
-# (Sep 16 - Nov 30, no pots, biweekly BSS periods) and all-gear (Dec 1 - Sep 15,
+# commercial/charter census) across two gear-regime sub-seasons: the pot closure
+# (Sep 16 - Nov 30, no pots, non-pot gear only, biweekly BSS periods) and all-gear (Dec 1 - Sep 15,
 # monthly BSS periods).
 #
 # CURRENT STATE (v5.6): both shore and boat run on the gear-DEPLOYMENT effort unit
@@ -89,7 +89,7 @@ params <- list(
   # --- Stan model file ---
   bss_model_file    = "crab_bss_gear_resolved.stan",
 
-  # --- Default BSS period (overridden per sub-season: biweekly ring-net, monthly all-gear) ---
+  # --- Default BSS period (overridden per sub-season: biweekly pot-closure, monthly all-gear) ---
   period_bss        = "month",
 
   # --- BSS sampler settings ---
@@ -103,7 +103,7 @@ params <- list(
   # Per-fit overrides. The shore all-gear fit has 4 gear types across 10 monthly
   # periods with 1,600+ interviews (the most complex posterior geometry): more
   # iterations, higher adapt_delta, and a deeper treedepth to avoid trajectory
-  # truncation (93.9% saturation at max_treedepth=10). Ring-net fits are data-sparse
+  # truncation (93.9% saturation at max_treedepth=10). Pot-closure fits are data-sparse
   # and benefit from tighter adaptation.
   bss_iter_shore_allgear    = 4000,
   bss_warmup_shore_allgear  = 2000,
@@ -182,40 +182,63 @@ catch_groups <- if(params$estimate_red_rock) {
   "Dungeness_Kept"
 }
 
-# --- Derived: sub-season date ranges ---
-# v5.1: Each sub-season specifies its own BSS period type.
-# Ring-net sub-season uses biweekly periods (fewer months, sparse data).
-# All-gear sub-season uses monthly periods (longer, more data).
-subseason_1 <- list(
-  name = "ring_net_only",
-  start = as.Date(params$est_date_start),
-  end   = as.Date(params$pot_open_date) - 1,
-  period_bss = "biweekly",
-  # Gear types prohibited by regulation during this sub-season.
-  # Pots are illegal Sep 16 - Nov 30. Any "Pot" mentions in interviews
-  # during this period are recording errors or crabbers naming gear they
-  # own rather than what they deployed. Forcing the model to fit a Pot
-  # CPUE process with <6 fractional interviews causes catastrophic
-  # convergence failure (divergences, overflow in C_sum_gear).
-  gear_exclude = c("Pot")
-)
-subseason_2 <- list(
-  name = "all_gear",
-  start = as.Date(params$pot_open_date),
-  end   = as.Date(params$est_date_end),
-  period_bss = "month",
-  gear_exclude = character(0)  # All gear types legal
-)
-
-cat(sprintf("Sub-season 1 (ring-net): %s to %s (%d days, periods=%s)\n",
-            subseason_1$start, subseason_1$end,
-            as.integer(subseason_1$end - subseason_1$start + 1),
-            subseason_1$period_bss))
-cat(sprintf("Sub-season 2 (all-gear): %s to %s (%d days, periods=%s)\n",
-            subseason_2$start, subseason_2$end,
-            as.integer(subseason_2$end - subseason_2$start + 1),
-            subseason_2$period_bss))
+# --- Derived: sub-season date ranges (03_R_functions/build_subseasons.R) --------
+# Split by the pot-closure window (params$pot_closure_start / pot_closure_end, added
+# 2026-07-13). Each sub-season carries its own BSS period type (biweekly for the pot
+# closure: fewer months, sparse data; monthly for all-gear) and the gear types excluded
+# by regulation. During the closure Pot is excluded: pots are illegal Sep 16 - Nov 30,
+# and stray "Pot" mentions in that window are recording errors (crabbers naming gear
+# they own, not what they deployed); fitting a Pot CPUE process with <6 fractional
+# interviews causes catastrophic convergence failure (divergences, overflow in
+# C_sum_gear). For the current config (closure at the season start) this returns the
+# historical two sub-seasons with unchanged internal names ("ring_net_only" is the pot-
+# closure key, kept for output-filename continuity; display_name is "Pot closure"), so
+# keys and filenames do not change. The name "ring-net only" was a misnomer: non-pot
+# gear other than ring nets is also legal in the closure. Model logic keys off
+# ss$gear_regime ("pot_closure" | "all_gear"), never ss$name.
+subseasons <- build_subseasons(params)
+for (ss in subseasons) {
+  cat(sprintf("Sub-season: %-28s %s to %s (%d days, periods=%s)\n",
+              paste0(ss$display_name, " [", ss$name, "]"),
+              ss$start, ss$end, as.integer(ss$end - ss$start + 1), ss$period_bss))
+}
 cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
+
+# GUARD (2026-07-13): build_subseasons is fully general (it emits pre/post all-gear
+# periods for a mid-season pot closure), but this report's downstream AGGREGATION is
+# still hardcoded to the historical two sub-seasons per population: the PE port summary
+# (component_keys / component_names), the catch-by-mode / final harvest tables, and the
+# harvest summary all enumerate exactly {ring_net_only, all_gear}. Extra sub-season keys
+# (all_gear_pre / all_gear_post) would be silently dropped there, under-reporting the
+# port total. Until those aggregators are generalized to sum over ALL sub-seasons per
+# population, stop with a clear message rather than under-report.
+ss_name_set <- vapply(subseasons, function(z) z$name, character(1))
+if (!setequal(ss_name_set, c("ring_net_only", "all_gear"))) {
+  stop(sprintf(paste0(
+    "build_subseasons produced sub-seasons {%s}, but this report's aggregation tables ",
+    "are hardcoded to {ring_net_only, all_gear}. A mid-season pot closure needs those ",
+    "tables generalized to sum over all sub-seasons per population first. Aborting to ",
+    "avoid silently under-reporting the port total."),
+    paste(ss_name_set, collapse = ", ")), call. = FALSE)
+}
+
+# Pot-closure boundary markers for date-axis plots (see the pooled driver for the
+# rationale). Dotted line at the closure start, dashed line at the day pots open
+# (closure end + 1), so every season plot brackets the pot-closure window. Returns a
+# list of ggplot layers added with `+`; labels = FALSE draws the lines only.
+pot_closure_markers <- function(params, labels = TRUE) {
+  pc_start  <- as.Date(params$pot_closure_start %||% params$est_date_start)
+  pots_open <- as.Date(params$pot_open_date     %||% (as.Date(params$pot_closure_end) + 1))
+  layers <- list(
+    geom_vline(xintercept = pc_start,  linetype = "dotted", color = "darkgreen", linewidth = 0.5),
+    geom_vline(xintercept = pots_open, linetype = "dashed", color = "red",       linewidth = 0.5))
+  if (labels) layers <- c(layers, list(
+    annotate("text", x = pc_start + 3,  y = Inf, label = "Pot closure start",
+             hjust = 0, vjust = 1.5, size = 3, color = "darkgreen"),
+    annotate("text", x = pots_open + 3, y = Inf, label = "Pots open",
+             hjust = 0, vjust = 1.5, size = 3, color = "red")))
+  layers
+}
 
 
 # ===========================================================================
@@ -270,7 +293,7 @@ cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
 # v5.1 CHANGES:
 #   - Weighted gear assignment: gear_weights matrix replaces gear_type_IntC
 #   - Empirical pi_gear_data[P_n, 3, G_gear] with Laplace smoothing
-#   - Per-sub-season period type (biweekly for ring-net, monthly for all-gear)
+#   - Per-sub-season period type (biweekly for pot closure, monthly for all-gear)
 #   - estimate_R_G flag and R_G_fixed for boat fits
 #   - Cauchy prior scales tightened to 2 (was 5)
 #   - Word-boundary regex for robust gear-type detection
@@ -329,9 +352,7 @@ p_shore_effort <- dwg$shore_effort |>
   left_join(days_full |> select(event_date, day_type), by = "event_date") |>
   ggplot(aes(x = event_date, y = total_gear, color = day_type, size = n_counts)) +
   geom_point(alpha = 0.5) +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
-  annotate("text", x = as.Date(params$pot_open_date) + 5, y = Inf, label = "Pots open",
-           hjust = 0, vjust = 1.5, size = 3, color = "red") +
+  pot_closure_markers(params, labels = TRUE) +
   scale_size_continuous(range = c(1,3), breaks = 1:3, name = "Counts/day") +
   labs(title = "Shore Crabbers: Daily Gear Count (Docks F20 + F17-21)",
        subtitle = "Point size = count sequences per day",
@@ -347,7 +368,7 @@ p_boat_effort <- dwg$boat_effort |>
   left_join(days_full |> select(event_date, day_type), by = "event_date") |>
   ggplot(aes(x = event_date, y = total_trailers, color = day_type)) +
   geom_point(alpha = 0.5) +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  pot_closure_markers(params, labels = FALSE) +
   labs(title = "Private Boat Crabbers: Daily Trailer Count (Boat Launch)",
        x = "Date", y = "Total trailer count", color = "Day type") +
   theme_bw()
@@ -367,7 +388,7 @@ p_cpue <- cpue_data |>
   ggplot(aes(x = event_date, y = mean_cpue, color = day_type)) +
   geom_point(alpha = 0.4, size = 1.5) +
   geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  pot_closure_markers(params, labels = FALSE) +
   facet_wrap(~population, ncol = 1, scales = "free_y",
              labeller = labeller(population = c(shore = "Shore Crabbers", private_boat = "Private Boat Crabbers"))) +
   labs(title = "Dungeness CPUE by Population",
@@ -419,7 +440,7 @@ cat("\n", strrep("=",60), "\n PE ESTIMATES\n", strrep("=",60), "\n")
 
 pe_all <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
@@ -433,7 +454,7 @@ cat("\n  Generating PE plots...\n")
 
 pe_daily_all <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
@@ -477,7 +498,7 @@ p_pe_effort <- pe_daily_df |>
   ggplot(aes(x = event_date, y = est_daily_crabber_hours, color = day_type)) +
   geom_point(alpha = 0.4) +
   geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
-  geom_vline(xintercept = as.Date(params$pot_open_date), linetype = "dashed", color = "red", linewidth = 0.5) +
+  pot_closure_markers(params, labels = FALSE) +
   facet_wrap(~pop_label, ncol = 1, scales = "free_y") +
   labs(title = "PE: Estimated Daily Crabber-Hours by Population",
        x = "Date", y = "Estimated crabber-hours", color = "Day type") +
@@ -496,7 +517,7 @@ timer_stop("4_commercial_charter")
 # ---- 7.5 PE PORT TOTALS ----
 cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
 
-component_names <- c("Shore (ring-net)","Shore (all-gear)","Private Boat (ring-net)",
+component_names <- c("Shore (pot-closure)","Shore (all-gear)","Private Boat (pot-closure)",
                      "Private Boat (all-gear)","Commercial/Charter","PORT TOTAL")
 component_keys <- c("shore_ring_net_only","shore_all_gear",
                     "private_boat_ring_net_only","private_boat_all_gear","comm_charter")
@@ -530,7 +551,7 @@ bss_all <- list()
 ar_resolutions <- list()   # AR resolution actually used, per fit (for the gate report)
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       cat(sprintf("\n--- BSS: %s ---\n", label))
 
@@ -555,11 +576,11 @@ for(cg in bss_catch_groups) {
       ar_resolutions[[label]] <- bss_data$.ar_resolution
 
       is_shore <- (pop == "shore")
-      is_allgear <- (ss$name == "all_gear")
-      is_ringnet <- (ss$name == "ring_net_only")
+      is_allgear <- (ss$gear_regime == "all_gear")
+      is_ringnet <- (ss$gear_regime == "pot_closure")
 
       # Per-fit sampler tuning: shore all-gear is the most complex posterior
-      # (4 gear types, 10 monthly periods); ring-net fits are data-sparse
+      # (4 gear types, 10 monthly periods); pot-closure fits are data-sparse
       # and benefit from tighter adaptation. All other fits use defaults.
       if(is_shore && is_allgear) {
         fit_iter    <- params$bss_iter_shore_allgear
@@ -728,7 +749,7 @@ for(cg in bss_catch_groups) {
   bss_E_total <- rep(0, n_draws_max)
 
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
@@ -792,7 +813,7 @@ monthly_E_draws <- matrix(0, nrow = n_draws_max, ncol = length(all_months),
 
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
-    for(ss in list(subseason_1, subseason_2)) {
+    for(ss in subseasons) {
       label <- paste0(pop, "_", ss$name, "_", cg)
       pe_label <- paste0(pop, "_", ss$name)
       b <- bss_all[[label]]
@@ -898,6 +919,8 @@ p_monthly <- monthly_summary |>
   ggplot(aes(x = Month)) +
   geom_col(aes(y = BSS_Catch_median), fill = "steelblue", alpha = 0.7) +
   geom_errorbar(aes(ymin = BSS_Catch_lo95, ymax = BSS_Catch_hi95), width = 0.3) +
+  geom_vline(xintercept = which(all_months == format(as.Date(params$pot_closure_start %||% params$est_date_start), "%Y-%m")) - 0.5,
+             linetype = "dotted", color = "darkgreen") +
   geom_vline(xintercept = which(all_months == format(as.Date(params$pot_open_date), "%Y-%m")) - 0.5,
              linetype = "dashed", color = "red") +
   labs(title = "Monthly Dungeness Catch Estimate (BSS + PE combined)",
@@ -914,6 +937,8 @@ p_monthly_eff <- monthly_summary |>
   ggplot(aes(x = Month)) +
   geom_col(aes(y = BSS_Effort_median), fill = "darkgreen", alpha = 0.7) +
   geom_errorbar(aes(ymin = BSS_Effort_lo95, ymax = BSS_Effort_hi95), width = 0.3) +
+  geom_vline(xintercept = which(all_months == format(as.Date(params$pot_closure_start %||% params$est_date_start), "%Y-%m")) - 0.5,
+             linetype = "dotted", color = "darkgreen") +
   geom_vline(xintercept = which(all_months == format(as.Date(params$pot_open_date), "%Y-%m")) - 0.5,
              linetype = "dashed", color = "red") +
   labs(title = "Monthly Effort Estimate (BSS + PE combined)",
@@ -967,7 +992,7 @@ cat("\n", strrep("=",60), "\n BSS CATCH BY GEAR TYPE\n", strrep("=",60), "\n")
 gear_results <- list()
 
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label_cg <- paste0(pop, "_", ss$name, "_Dungeness_Kept")
     pe_label <- paste0(pop, "_", ss$name)
     b <- bss_all[[label_cg]]
@@ -1253,7 +1278,7 @@ cat("\n", strrep("=",60), "\n DAILY COMBINED ESTIMATE\n", strrep("=",60), "\n")
 daily_combined <- list()
 
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label_cg <- paste0(pop, "_", ss$name, "_Dungeness_Kept")
     pe_label <- paste0(pop, "_", ss$name)
     b <- bss_all[[label_cg]]
@@ -1336,7 +1361,7 @@ cat("\n", strrep("=",60), "\n DATA COVERAGE\n", strrep("=",60), "\n")
 
 coverage <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
 
@@ -1529,7 +1554,7 @@ cat("\n", strrep("=",60), "\n PE VS BSS COMPARISON (by component)\n", strrep("="
 
 comparison <- list()
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label_cg <- paste0(pop, "_", ss$name, "_Dungeness_Kept")
     pe_label <- paste0(pop, "_", ss$name)
     b <- bss_all[[label_cg]]
@@ -1552,7 +1577,7 @@ for(pop in c("shore","private_boat")) {
     }
 
     comparison[[length(comparison)+1]] <- tibble(
-      component = paste0(pop, " (", ss$name, ")"),
+      component = paste0(pop, " (", ss$display_name, ")"),
       PE_effort = round(pe_effort),
       BSS_effort = round(bss_effort),
       effort_diff_pct = effort_diff_pct,
@@ -1686,7 +1711,7 @@ cat("\n", strrep("=",60), "\n SENSITIVITY: INCOMPLETE TRIP EFFECT\n", strrep("="
 sensitivity_results <- list()
 
 for(pop in c("shore","private_boat")) {
-  for(ss in list(subseason_1, subseason_2)) {
+  for(ss in subseasons) {
     label <- paste0(pop, "_", ss$name)
     days_ss <- prep_days_crab(ss$start, ss$end, params, L_eff_model)
     summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)

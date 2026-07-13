@@ -83,6 +83,9 @@ run_pe_pooled <- function(summ, days, params, population_name) {
   # in lockstep with the shore effort unit and the shore BSS.
   hrs_col <- if(is_boat) "number_of_gear" else bss_effort_spec(TRUE, days, params)$h_col
 
+  # P0: accumulate the per-catch-group PE internal-consistency check (implied CPUE vs
+  # interview ratio-of-sums) so the driver can render it in the report (Section 4).
+  pe_check_rows <- list()
   for(cg in catch_groups) {
     if(!cg %in% names(summ$interview)) { results[[cg]] <- 0; next }
     # POOL-2: drop incomplete trips from the PE CPUE too, so the PE and BSS CPUE
@@ -129,6 +132,8 @@ run_pe_pooled <- function(summ, days, params, population_name) {
       rel <- implied / ros
       cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
                   population_name, cg, implied, ros, rel, effort_unit_pe))
+      pe_check_rows[[cg]] <- tibble(catch_group = cg, effort_unit = effort_unit_pe,
+                                    pe_implied_cpue = implied, interview_ros = ros, ratio = rel)
       if (rel < 0.5 || rel > 2.0) {
         stop(sprintf(paste0("run_pe_pooled(): PE implied CPUE (%.4f) is %.2fx the interview ",
                             "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
@@ -139,6 +144,7 @@ run_pe_pooled <- function(summ, days, params, population_name) {
   }
 
   results$effort_unit <- effort_unit_pe
+  results$pe_cpue_check <- if (length(pe_check_rows)) bind_rows(pe_check_rows) else NULL
   rr_str <- if(params$estimate_red_rock) sprintf(", RR=%s", format(round(results$Red_Rock_Kept),big.mark=",")) else ""
   cat(sprintf("  PE %s: Effort=%s %s, Dung=%s%s\n", population_name,
               format(round(results$effort_total),big.mark=","), effort_unit_pe,

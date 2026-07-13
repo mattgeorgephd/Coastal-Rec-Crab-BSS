@@ -131,11 +131,24 @@ estimate_comm_charter <- function(dwg, params) {
   total_dung <- sum(strat$est_total_dung)
   total_vessels <- sum(strat$est_total_vessels)
 
+  # T1.4: per-vessel-type split summary for the report (a sampled-day census, i.e.
+  # before the day-type expansion that produces the headline total_dung).
+  comm_tally_n <- sum(tally$commercial_tally, na.rm = TRUE)
+  char_tally_n <- sum(tally$charter_tally,    na.rm = TRUE)
+  vessel_type_detail <- tibble(
+    vessel_type          = c("Commercial", "Charter"),
+    n_interviews         = c(n_comm, n_char),
+    mean_dung_per_vessel = c(md_comm, md_char),
+    tally_vessels        = c(comm_tally_n, char_tally_n),
+    sampled_catch        = c(comm_tally_n * md_comm, char_tally_n * md_char)
+  )
+
   result <- list(
     Dungeness_Kept = total_dung,
     effort_total = total_vessels,
     daily_est = daily_est,
-    strat_detail = strat
+    strat_detail = strat,
+    vessel_type_detail = vessel_type_detail
   )
 
   if(params$estimate_red_rock) {

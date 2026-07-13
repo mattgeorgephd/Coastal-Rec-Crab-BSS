@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-13
 **Maintainer note:** this is the single living status document for the pipeline. It replaces the six scattered development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced to v7.9 with effort-unit, filtering, and config corrections that move published totals, so the 2024-25 reference numbers in the method documents are pre-refresh until regenerated.
@@ -22,14 +22,14 @@
 
 | Component | PE | BSS (median) | BSS vs PE | Method used |
 |---|---:|---:|---:|---|
-| Shore ring-net (Sep 16 - Nov 30) | 5,884 | 6,586 | +11.9% | BSS |
+| Shore pot-closure (Sep 16 - Nov 30) | 5,884 | 6,586 | +11.9% | BSS |
 | Shore all-gear (Dec 1 - Sep 15) | 15,732 | 20,654 | +31.3% | BSS |
 | Private boat all-gear | 22,070 | 43,475 | +97% | BSS |
-| Private boat ring-net | 971 | n/a | n/a | PE (insufficient data) |
+| Private boat pot-closure | 971 | n/a | n/a | PE (insufficient data) |
 | Commercial/charter | 12,007 | n/a | n/a | Census |
 | **Port total** | **56,665** | **83,914** | **+48%** | gated combination |
 
-**Convergence:** all three fitted components pass (shore ring-net daily 2.5% divergences; shore all-gear daily 2.23%; boat all-gear monthly 0.63%); R-hat near 1.00, n_eff well above 400. Boat ring-net is the only PE fallback and it is data-limited (~17 interviews), not a geometry failure.
+**Convergence:** all three fitted components pass (shore pot-closure daily 2.5% divergences; shore all-gear daily 2.23%; boat all-gear monthly 0.63%); R-hat near 1.00, n_eff well above 400. Boat pot-closure is the only PE fallback and it is data-limited (~17 interviews), not a geometry failure.
 
 **The three facts that most shape how to read the numbers:**
 1. **The boat is now cross-model consistent.** On monthly AR the pooled boat (catch 43,475, effort 14,716, CPUE 2.95) matches the independent gear-resolved boat (43,314 / 14,805 / 2.93). The weekly-vs-monthly AR resolution, not the effort unit, was the entire source of the earlier ~26% pooled-vs-gear-resolved boat gap.
@@ -82,6 +82,7 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
 
 **Refactor and config.**
 - Behavior-preserving function extraction into `03_R_functions/` and centralization of all user toggles in `run_config.R` (v7.8). Config restructured so `run_config` is the base parameter set and each model layers its tuning (P5/v7.9); the per-model AR resolution map lives in `run_config.R`.
+- **Pot-closure sub-season made explicit and renamed (2026-07-13).** The pot-closure window (when pots are illegal and only non-pot gear is legal) is now set explicitly in `run_config.R` via `pot_closure_start` / `pot_closure_end`, instead of being assumed to run from the season start to `pot_open_date - 1`, so a future season whose start does not coincide with the closure is supported. A shared builder `03_R_functions/build_subseasons.R` derives the sub-seasons for both drivers and handles the general case (optional pre/post all-gear periods for a mid-season closure, keyed off `gear_regime` rather than the sub-season name). The sub-season was renamed "ring-net only" to "pot closure": a **display-only** rename, since non-pot gear other than ring nets is legal, so the old name was a misnomer; the internal key stays `ring_net_only` for output-filename continuity, so keys and filenames are unchanged and the 2024-25 config produces bit-identical sub-seasons. Season plots in both drivers now draw vertical lines at the closure start and the pots-open date. **Known limitation:** the builder is general, but the report's downstream aggregation (PE port summary `component_keys` / `component_names`, catch-by-mode, and the final-table PE-fallback rows) is still hardcoded to the two historical sub-seasons per population; a fail-fast guard in each driver stops the run if a mid-season closure is configured (sub-season name set != {ring_net_only, all_gear}), rather than silently under-reporting the port total. Generalizing those aggregators to sum over all sub-seasons per population is the follow-up (relates to T3.1).
 
 **PE (partial).**
 - Shore PE unit alignment done (v7.8, above). Ratio-of-sums adoption (P0) is NOT done and is the top open PE item (Section 4).
@@ -97,11 +98,11 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
 
 Status note: the four Tier 1 items were worked on 2026-07-12. Three are implemented in code (P0, T1.1a, T1.4) and need a confirming run; the prior-sensitivity harness (T1.3) is in place but the sweep runs are pending; external validation (T1.1b) still needs benchmark data.
 
-- **P0 [DONE 2026-07-12, confirm on next run]: pooled PE on ratio-of-sums.** `run_pe_pooled` now computes stratum CPUE as within-stratum `sum(catch)/sum(hrs)`, replacing the unstable `weighted.mean(daily_ratios, w = n_int)`, and carries an implied-CPUE-vs-ratio-of-sums guard that fails fast (in the PE section, before the multi-hour BSS fits) if catch and effort drift onto different scales. This mirrors `run_pe_gear`, so the two tracks' PE cannot diverge. Expected effect on the next run: the boat PE moves from 22,070 toward ~40k (near the BSS and the gear-resolved boat), and the shore PE implied CPUE drops from ~2.9x its ratio-of-sums toward 1x, making the PE a fair cross-check.
+- **P0 [DONE 2026-07-12, confirm on next run]: pooled PE on ratio-of-sums.** `run_pe_pooled` now computes stratum CPUE as within-stratum `sum(catch)/sum(hrs)`, replacing the unstable `weighted.mean(daily_ratios, w = n_int)`, and carries an implied-CPUE-vs-ratio-of-sums guard that fails fast (in the PE section, before the multi-hour BSS fits) if catch and effort drift onto different scales. This mirrors `run_pe_gear`, so the two tracks' PE cannot diverge. Expected effect on the next run: the boat PE moves from 22,070 toward ~40k (near the BSS and the gear-resolved boat), and the shore PE implied CPUE drops from ~2.9x its ratio-of-sums toward 1x, making the PE a fair cross-check. The estimator change and its per-component internal-consistency check now render in the knitted report (Section 4.4).
 - **T1.1(a) [DONE 2026-07-12]: summer-extrapolation transparency.** A new report section (`extrapolation_transparency.csv` plus an on-page table, RMD Section 11.4) decomposes each fitted component's BSS catch into interview-days vs extrapolated (no-interview) days, and reports the share of the summed BSS catch that rests on extrapolated time. Turns the summer-dominance caveat into a number.
 - **T1.1(b) [OPEN, needs external data]: external validation (B4).** Still requires a benchmark the repo does not contain: dockside census totals, a known-total year, or the legacy estimator. The strongest internal cross-checks now in place are the two independent BSS pipelines agreeing on the boat (43.5k) and the per-component PE-vs-BSS comparison (fair once P0's run lands); neither is a true external check. Pursue a benchmark before publication.
 - **T1.3 [HARNESS DONE 2026-07-12, sweep runs pending]: R_G prior sensitivity.** The R_G prior is now overridable via `params$R_G_prior_mu` / `R_G_prior_sigma` (data-driven when unset), with a commented sweep block in `run_config.R`. Remaining work is the runs: set `R_G_prior_mu` to 1.0, ~1.28 (empirical), and 1.5 in turn and tabulate the port totals, then extend to the `L_effective` prior (`tau_shore`/`tau_boat` are already live toggles). `prior_vs_posterior_*.csv` (O9) shows the prior pull. **Effort: the runs (multi-hour each).**
-- **T1.4 [DONE 2026-07-12, confirm on next run]: commercial/charter vessel split.** `estimate_comm_charter` now applies separate per-vessel Dungeness (and red-rock) means for commercial vs charter vessels (from `boat_type_clean`, Guide folded into Charter) to the matching tally columns, with a fallback to the pooled mean for a class with no interviews. In the 2024-25 census window commercial is ~35 and charter ~51 crab/vessel, so the split corrects a real bias. Applies to both tracks (shared estimator). Pair with a census uncertainty interval (T3.5).
+- **T1.4 [DONE 2026-07-12, confirm on next run]: commercial/charter vessel split.** `estimate_comm_charter` now applies separate per-vessel Dungeness (and red-rock) means for commercial vs charter vessels (from `boat_type_clean`, Guide folded into Charter) to the matching tally columns, with a fallback to the pooled mean for a class with no interviews. In the 2024-25 census window commercial is ~35 and charter ~51 crab/vessel, so the split corrects a real bias. Applies to both tracks (shared estimator). The per-vessel-type split renders in the knitted report (Section 4.2). Pair with a census uncertainty interval (T3.5).
 
 ### Tier 2: accuracy, cross-track parity, or credibility
 

@@ -68,7 +68,17 @@ run_config <- list(
   season_filter     = "2024-25",
 
   # --- Regulatory / structural dates ---------------------------------------
-  pot_open_date     = "2024-12-01",   # pots legal from this date (sub-season split)
+  pot_open_date     = "2024-12-01",   # pots legal from this date (used for L_effective
+                                      #   and as the default pot_closure_end + 1 day)
+  # Pot-closure window: the period when pots are NOT legal (only non-pot gear, ring
+  # nets/snares/traps). Given explicitly here rather than assumed to start at the
+  # season start, so a future season whose start does not coincide with the closure
+  # start is supported. Outside this window pots are allowed (all-gear). If a closure
+  # starts after est_date_start or ends before est_date_end, the driver adds the
+  # corresponding all-gear period(s) automatically (see 03_R_functions/build_subseasons.R).
+  # Keep pot_open_date = pot_closure_end + 1.
+  pot_closure_start = "2024-09-16",   # first day of the pot closure (here = season start)
+  pot_closure_end   = "2024-11-30",   # last day pots are illegal (day before pots open)
   commercial_opener = "2025-01-01",   # (was malformed "2025-01-1" in gear-resolved)
   census_start_date = "2024-12-01",
   census_end_date   = "2025-02-08",

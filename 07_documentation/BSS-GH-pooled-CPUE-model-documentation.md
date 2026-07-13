@@ -93,8 +93,10 @@ The harvest is built from three components, estimated separately and summed:
 
 The season is split into two **sub-seasons**, defined by the pot closure, and each is estimated independently:
 
-- **Ring-net only** (Sep 16 to Nov 30): pots prohibited.
+- **Pot closure** (Sep 16 to Nov 30): pots prohibited; non-pot gear (ring nets, snares, traps) allowed. Formerly labeled "ring-net only", a misnomer since gear other than ring nets is also legal during the closure. The internal key stays `ring_net_only` for output-filename continuity; the reports display "Pot closure".
 - **All-gear** (Dec 1 to Sep 15): pots allowed.
+
+The closure window is set explicitly in `run_config.R` via `pot_closure_start` and `pot_closure_end` (added 2026-07-13), so a future season whose start does not coincide with the closure start is supported. The shared builder `03_R_functions/build_subseasons.R` derives the sub-seasons from that window and adds pre/post all-gear periods automatically if the closure falls mid-season. Season plots mark the closure start and the pots-open date with vertical lines.
 
 ------------------------------------------------------------------------
 
@@ -138,7 +140,7 @@ Method v1.0 is calibrated to the Westport / Grays Harbor fishery as sampled in t
 1. **Place the new season's data** in `04_input_files/`, keeping the four filenames and their column schemas unchanged. Honor the schema quirks in the input-folder README (the interview gear column maps from column N; re-export the effort CSV with full quoting; dates are M/D/YYYY; the "Commerical" boat-type spelling is matched by regex).
 2. **Edit `run_config.R` (repo root). This is the ONE file you edit.** As of the 2026-07-11 consolidation it is the single source of truth for every user-selectable toggle; the driver's `params` chunk holds only this model's internal tuning (the Stan file, per-fit sampler settings, gate thresholds, AR-selector thresholds), which rarely changes and legitimately differs from the gear-resolved model. The keys you normally set:
    - `est_date_start`, `est_date_end`: the season window. The driver fits each sub-season inside this window.
-   - `pot_open_date`, `commercial_opener`, `census_start_date`, `census_end_date`: the regulatory / structural dates.
+   - `pot_open_date`, `pot_closure_start`, `pot_closure_end`, `commercial_opener`, `census_start_date`, `census_end_date`: the regulatory / structural dates. `pot_closure_start` / `pot_closure_end` bound the pot-closure sub-season explicitly (keep `pot_open_date` = `pot_closure_end` + 1).
    - `shore_effort_unit` (default `gear-deployments`), `filter_incomplete_trips` (default on), and the `tau_shore` / `tau_boat` turnover priors: the effort-unit and CPUE-denominator controls (Sections 11, 14, 15).
    - `ie_data_file`, `ie_sheet`: the I/E workbook and sheet (defaults `ingress_egress.xlsx`, `data`).
    - `crabbing_holiday_dates`: update this one list each season.
@@ -270,7 +272,7 @@ Method v1.0 is built for one fishery under one sampling design. It can be re-run
 - **Same location.** Westport / Grays Harbor access points (docks Floats 17-21, the jetty, beaches, the boat launch, the marina). The gear-per-crabber prior `R_G`, the gear-per-boat-group prior `R_G_boat`, and the effective-day-length regression are all calibrated to this site.
 - **Same input streams, same schema.** The four input files in the same form (Section 7).
 - **Same sampling design.** Instantaneous effort counts, dockside interviews, the commercial tally, and I/E surveys, collected as in 2024-25. The 2024-25 protocol of three randomized effort counts per day is the design the effort expansion assumes (it measures mean daily effort).
-- **Same sub-season structure.** Ring-net only Sep 16 to Nov 30; all-gear Dec 1 to Sep 15, tied to the pot closure.
+- **Same sub-season structure.** Pot closure Sep 16 to Nov 30 (non-pot gear only); all-gear Dec 1 to Sep 15, tied to the pot closure. The closure window is set explicitly via `pot_closure_start` / `pot_closure_end`.
 
 **Conditions that require re-derivation, not just new data:**
 
