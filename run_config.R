@@ -186,6 +186,19 @@ run_config <- list(
     "2025-09-01"   # Labor Day
   )),
 
+  # --- Other-fishery opener dates (spillover DIAGNOSTIC; pooled report only) ----
+  # Daily OPEN/CLOSED calendars for Marine Area 2 finfish and coastal razor-clam digs,
+  # read by 03_R_functions/diagnose_fishery_spillover.R to test whether crab effort/CPUE
+  # differs on those dates (candidate day categories, like the crabbing holidays above).
+  # DIAGNOSTIC ONLY: it reports associations and changes no estimate. Set the toggle
+  # FALSE to skip it. razor_nearby_beaches are the beaches closest to Grays Harbor; note
+  # that in the 2024-25 data Twin Harbors is open on every listed dig day, so the nearby
+  # flag coincides with "any dig" that season (the report surfaces this overlap).
+  run_fishery_spillover_diag = TRUE,
+  ma2_dates_file       = "MA2-fishing-dates-2023-2026.xlsx",
+  razor_dates_file     = "razor-clam-dig-dates-2021-2025.xlsx",
+  razor_nearby_beaches = c("Twin Harbors", "Copalis", "Mocrocks"),
+
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --
   collapse_mu_hier           = FALSE, # (pooled) collapse the single-cell mu-hierarchy

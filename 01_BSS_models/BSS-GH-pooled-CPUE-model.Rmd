@@ -275,23 +275,34 @@ for (ss in subseasons) {
 }
 cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
 
-# GUARD (2026-07-13): build_subseasons is fully general (it emits pre/post all-gear
-# periods for a mid-season pot closure), but this report's downstream AGGREGATION is
-# still hardcoded to the historical two sub-seasons per population: the PE port summary
-# (component_keys / component_names), the catch-by-mode table, and the PE-fallback rows
-# of the final harvest table all enumerate exactly {ring_net_only, all_gear}. Extra
-# sub-season keys (all_gear_pre / all_gear_post) would be silently dropped there,
-# under-reporting the port total. Until those aggregators are generalized to sum over
-# ALL sub-seasons per population, stop with a clear message rather than under-report.
+# Sub-season aggregation is now GENERAL (2026-07-13): the PE port summary, the catch-by-
+# mode table, and the final harvest table sum over whatever sub-seasons build_subseasons
+# produced (via pe_pop_sum / pe_port_total below), rather than the hardcoded historical
+# pair. A mid-season pot closure (which adds all_gear_pre / all_gear_post keys) is
+# therefore handled end-to-end. That general path has NOT yet been validated against a
+# fitted run, so emit a loud note when the sub-season set departs from the historical
+# pair; verify the port total against the per-component PE table before citing such a run.
 ss_name_set <- vapply(subseasons, function(z) z$name, character(1))
 if (!setequal(ss_name_set, c("ring_net_only", "all_gear"))) {
-  stop(sprintf(paste0(
-    "build_subseasons produced sub-seasons {%s}, but this report's aggregation tables ",
-    "are hardcoded to {ring_net_only, all_gear}. A mid-season pot closure needs those ",
-    "tables generalized to sum over all sub-seasons per population first. Aborting to ",
-    "avoid silently under-reporting the port total."),
-    paste(ss_name_set, collapse = ", ")), call. = FALSE)
+  cat(sprintf(paste0(
+    "\n*** NOTE: non-historical sub-season set {%s}. The report aggregation sums over all ",
+    "sub-seasons per population, but this configuration has not been validated against a ",
+    "fitted run; verify the port total against the per-component PE table before citing. ***\n"),
+    paste(ss_name_set, collapse = ", ")))
 }
+
+# --- Generalized PE aggregation over the sub-season set (build_subseasons) -----------
+# Sum a PE field over all sub-seasons of a population so the port total, the by-mode
+# table, and the final-table PE rows follow build_subseasons instead of a fixed 5-row
+# layout. These close over the run globals `pe_all` (populated by the PE loop) and
+# `subseasons`; they are only called after the PE loop, so pe_all exists by call time.
+# pe_all keys are "<population>_<subseason-name>"; a missing key or field contributes 0.
+pe_field   <- function(key, field) pe_all[[key]][[field]] %||% 0
+pe_pop_sum <- function(pop, field)
+  sum(vapply(subseasons, function(ss) pe_field(paste0(pop, "_", ss$name), field), numeric(1)), na.rm = TRUE)
+pe_port_total <- function(field)  # na.rm matches the baseline sum([1:5], na.rm=TRUE):
+  sum(pe_pop_sum("shore", field), pe_pop_sum("private_boat", field),
+      pe_field("comm_charter", field), na.rm = TRUE)
 
 
 # ===========================================================================
@@ -556,6 +567,87 @@ timer_stop("2_diagnostic_plots")
 for (nm in c('p_shore_effort','p_boat_effort','p_cpue','p_effort_month')) if (exists(nm)) print(get(nm))
 ```
 
+## 3.5 Other-fishery opener spillover (diagnostic)
+
+A hypothesis test, not a model change: do other coastal fishery openers pull effort or catch onto (or off of) crab days enough to deserve their own day category, the way crabbing holidays already do? Two openers are checked against the crab effort and CPUE series: Marine Area 2 finfish (salmon, halibut, bottomfish) from the MA2 opener calendar, and coastal razor-clam digs on the beaches nearest Grays Harbor (Twin Harbors, Copalis, Mocrocks) from the dig calendar. Because these openers cluster on weekends and in particular months, which already drive crab effort, the raw opener-vs-other comparison is shown alongside an **adjusted** association: the opener's coefficient in `lm(response ~ day_type + month + opener)`, i.e. the marginal effect after the weekend and monthly signal are removed. Read the adjusted column as the real test. This section changes no estimate; it only reports the associations so the analyst can decide whether to add an opener day category on a later run.
+
+```{r fishery-spillover, results='hide', fig.show='hide'}
+# ---- 3.5 OTHER-FISHERY OPENER SPILLOVER (diagnostic; changes no estimate) ----
+spillover <- NULL; sp_raw_disp <- NULL; sp_adj_disp <- NULL; p_spill_eff <- NULL; p_spill_cpue <- NULL
+if (isTRUE(params$run_fishery_spillover_diag)) {
+  timer_start("2b_fishery_spillover")
+  spillover <- tryCatch(
+    diagnose_fishery_spillover(dwg, params),
+    error = function(e) { cat(sprintf("  Fishery-opener spillover diagnostic skipped: %s\n", conditionMessage(e))); NULL })
+  if (!is.null(spillover)) {
+    write.csv(spillover$raw,      file.path(output_dir, "fishery_spillover_raw.csv"),      row.names = FALSE)
+    write.csv(spillover$adjusted, file.path(output_dir, "fishery_spillover_adjusted.csv"), row.names = FALSE)
+    for (nt in spillover$notes) cat("  NOTE:", nt, "\n")
+
+    sp_raw_disp <- spillover$raw |>
+      dplyr::transmute(Series, Opener,
+        `n (opener)` = n_opener, `Mean (opener)` = round(mean_opener, 2),
+        `n (other)`  = n_other,  `Mean (other)`  = round(mean_other, 2),
+        `Raw diff`   = round(raw_diff, 2), `Raw %` = round(raw_pct, 0),
+        `t-test p`   = round(t_p, 3))
+    sp_adj_disp <- spillover$adjusted |>
+      dplyr::transmute(Series, Opener,
+        `Adj. estimate` = round(adj_estimate, 2), SE = round(se, 2),
+        `95% CI` = ifelse(is.na(ci_lo), "-", sprintf("[%.1f, %.1f]", ci_lo, ci_hi)),
+        p = round(adj_p, 3), Note = note)
+
+    mk_long <- function(df) df |>
+      tidyr::pivot_longer(dplyr::all_of(spillover$flag_cols), names_to = "opener", values_to = "is_open") |>
+      dplyr::mutate(Opener = unname(spillover$flag_labels[opener]),
+                    Status = ifelse(is_open, "Opener", "Other"))
+    p_spill_eff <- ggplot(mk_long(spillover$effort_long), aes(Status, value, fill = Status)) +
+      geom_boxplot(outlier.size = 0.5, alpha = 0.85) +
+      facet_grid(series ~ Opener, scales = "free_y") +
+      scale_fill_manual(values = c(Opener = "#c0392b", Other = "grey70")) +
+      labs(title = "Crab effort: other-fishery opener days vs other days", x = NULL, y = "Daily effort count") +
+      theme_bw() + theme(legend.position = "none", axis.text.x = element_text(angle = 20, hjust = 1))
+    p_spill_cpue <- ggplot(mk_long(spillover$cpue_long), aes(Status, value, fill = Status)) +
+      geom_boxplot(outlier.size = 0.5, alpha = 0.85) +
+      facet_grid(series ~ Opener, scales = "free_y") +
+      scale_fill_manual(values = c(Opener = "#c0392b", Other = "grey70")) +
+      labs(title = "Interview CPUE: other-fishery opener days vs other days", x = NULL, y = "Dungeness per crabber-hour") +
+      theme_bw() + theme(legend.position = "none", axis.text.x = element_text(angle = 20, hjust = 1))
+  }
+  timer_stop("2b_fishery_spillover")
+}
+```
+
+```{r fishery-spillover-raw-show, echo=FALSE}
+if (!is.null(sp_raw_disp)) {
+  report_table(sp_raw_disp, paste("Raw comparison: mean crab effort (daily counts) and CPUE (Dungeness per",
+    "crabber-hour) on other-fishery opener days vs other days. These are confounded with day-type and season;",
+    "read the adjusted table below for the marginal effect."))
+} else {
+  cat(if (isTRUE(params$run_fishery_spillover_diag))
+        "_Fishery-opener spillover diagnostic produced no output this run._"
+      else "_Fishery-opener spillover diagnostic is off (`run_fishery_spillover_diag = FALSE`)._")
+}
+```
+
+```{r fishery-spillover-adj-show, echo=FALSE}
+if (!is.null(sp_adj_disp)) report_table(sp_adj_disp, paste("Adjusted association: the opener coefficient in",
+  "lm(response ~ day-type + month + opener), the marginal effect after removing the weekend and monthly signal",
+  "the model already captures. Positive = more effort/CPUE on opener days. A blank estimate with a Note means",
+  "the opener could not be separated from day-type/month in this season."))
+```
+
+```{r fishery-spillover-notes, echo=FALSE, results='asis'}
+if (!is.null(spillover)) {
+  cat("**Identifiability notes (read before interpreting):**\n\n")
+  for (nt in spillover$notes) cat("- ", nt, "\n\n", sep = "")
+}
+```
+
+```{r fishery-spillover-plots, echo=FALSE, fig.height=7, fig.cap=c('Crab effort on other-fishery opener days vs other days, by opener and series.','Interview CPUE on other-fishery opener days vs other days, by opener and series.')}
+if (!is.null(p_spill_eff))  print(p_spill_eff)
+if (!is.null(p_spill_cpue)) print(p_spill_cpue)
+```
+
 ### 3.1 Ingress/egress and effective day length
 
 The I/E surveys measure how long crabbers are actually present, which sets the effective day length used to expand snapshot effort counts. Civil twilight (9 to 17 hours) would overstate active fishing time by roughly a factor of two, so the I/E-derived length is used instead.
@@ -744,23 +836,26 @@ The Point Estimator port total, summed across the three population components. C
 # ---- 7.5 PE PORT TOTALS ----
 cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
 
-component_names <- c("Shore (pot-closure)","Shore (all-gear)","Private Boat (pot-closure)",
-                     "Private Boat (all-gear)","Commercial/Charter","PORT TOTAL")
-component_keys <- c("shore_ring_net_only","shore_all_gear",
-                    "private_boat_ring_net_only","private_boat_all_gear","comm_charter")
+# component_keys / component_names now follow the sub-season set (build_subseasons):
+# one row per population x sub-season, then comm_charter, then a PORT TOTAL computed from
+# the semantic sums (pe_port_total), not by a fixed row index. component_keys is still
+# consumed by the PE-consistency check chunk below (comm_charter has no check, skipped there).
+pe_pops    <- c("shore", "private_boat")
+pop_disp   <- c(shore = "Shore", private_boat = "Private Boat")
+ss_names   <- vapply(subseasons, function(ss) ss$name,         character(1))
+ss_disp    <- vapply(subseasons, function(ss) ss$display_name, character(1))
+component_keys  <- c(unlist(lapply(pe_pops, function(p) paste0(p, "_", ss_names))), "comm_charter")
+component_names <- c(unlist(lapply(pe_pops, function(p) sprintf("%s (%s)", pop_disp[[p]], ss_disp))),
+                     "Commercial/Charter")
 
 pe_summary <- tibble(
-  Component = component_names,
-  Effort_hrs = c(sapply(component_keys, function(k) pe_all[[k]]$effort_total), NA),
-  Dungeness = c(sapply(component_keys, function(k) pe_all[[k]]$Dungeness_Kept), NA)
+  Component  = c(component_names, "PORT TOTAL"),
+  Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
+  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
-pe_summary$Effort_hrs[6] <- sum(pe_summary$Effort_hrs[1:5], na.rm=TRUE)
-pe_summary$Dungeness[6] <- sum(pe_summary$Dungeness[1:5], na.rm=TRUE)
-
 if(params$estimate_red_rock) {
-  pe_summary$Red_Rock <- c(
-    sapply(component_keys, function(k) pe_all[[k]]$Red_Rock_Kept %||% 0), NA)
-  pe_summary$Red_Rock[6] <- sum(pe_summary$Red_Rock[1:5], na.rm=TRUE)
+  pe_summary$Red_Rock <- c(vapply(component_keys, function(k) pe_field(k, "Red_Rock_Kept"), numeric(1)),
+                           pe_port_total("Red_Rock_Kept"))
 }
 
 print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
@@ -1102,8 +1197,8 @@ for(cg in bss_catch_groups) {
   final_table <- tibble(
     Catch_Group = cg,
     Estimate = c("Effort", "Expected_Catch", "Predictive_Catch"),
-    PE = c(round(pe_summary$Effort_hrs[6]),
-           round(if(cg=="Dungeness_Kept") pe_summary$Dungeness[6] else pe_summary$Red_Rock[6]),
+    PE = c(round(pe_port_total("effort_total")),
+           round(if(cg=="Dungeness_Kept") pe_port_total("Dungeness_Kept") else pe_port_total("Red_Rock_Kept")),
            NA),
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total)), round(median(bss_C_pred_total))),
     BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025)), round(quantile(bss_C_pred_total,0.025))),
@@ -1474,14 +1569,14 @@ cat("\n", strrep("=",60), "\n CATCH BY CRABBING MODE\n", strrep("=",60), "\n")
 mode_table <- tibble(
   Mode = c("Shore (Dock/Jetty/Beach)", "Private Boat", "Commercial/Charter", "PORT TOTAL"),
   PE_Catch = c(
-    (pe_all$shore_ring_net_only$Dungeness_Kept %||% 0) + (pe_all$shore_all_gear$Dungeness_Kept %||% 0),
-    (pe_all$private_boat_ring_net_only$Dungeness_Kept %||% 0) + (pe_all$private_boat_all_gear$Dungeness_Kept %||% 0),
-    pe_all$comm_charter$Dungeness_Kept %||% 0, NA
+    pe_pop_sum("shore", "Dungeness_Kept"),
+    pe_pop_sum("private_boat", "Dungeness_Kept"),
+    pe_field("comm_charter", "Dungeness_Kept"), NA
   ),
   PE_Effort = c(
-    (pe_all$shore_ring_net_only$effort_total %||% 0) + (pe_all$shore_all_gear$effort_total %||% 0),
-    (pe_all$private_boat_ring_net_only$effort_total %||% 0) + (pe_all$private_boat_all_gear$effort_total %||% 0),
-    pe_all$comm_charter$effort_total %||% 0, NA
+    pe_pop_sum("shore", "effort_total"),
+    pe_pop_sum("private_boat", "effort_total"),
+    pe_field("comm_charter", "effort_total"), NA
   )
 )
 mode_table$PE_Catch[4] <- sum(mode_table$PE_Catch[1:3], na.rm = TRUE)
@@ -1533,8 +1628,8 @@ cat("\n  Observed catch proportions by gear type:\n")
 print(gear_props |> select(population, gear_primary, n_int, total_catch, prop_catch) |>
         mutate(prop_catch = round(prop_catch, 3)))
 
-total_shore_catch <- pe_summary$Dungeness[1] + pe_summary$Dungeness[2]
-total_boat_catch <- pe_summary$Dungeness[3] + pe_summary$Dungeness[4]
+total_shore_catch <- pe_pop_sum("shore", "Dungeness_Kept")
+total_boat_catch <- pe_pop_sum("private_boat", "Dungeness_Kept")
 
 gear_estimates <- gear_props |>
   mutate(

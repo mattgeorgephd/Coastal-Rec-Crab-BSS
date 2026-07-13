@@ -204,23 +204,34 @@ for (ss in subseasons) {
 }
 cat(sprintf("Catch groups: %s\n", paste(catch_groups, collapse = ", ")))
 
-# GUARD (2026-07-13): build_subseasons is fully general (it emits pre/post all-gear
-# periods for a mid-season pot closure), but this report's downstream AGGREGATION is
-# still hardcoded to the historical two sub-seasons per population: the PE port summary
-# (component_keys / component_names), the catch-by-mode / final harvest tables, and the
-# harvest summary all enumerate exactly {ring_net_only, all_gear}. Extra sub-season keys
-# (all_gear_pre / all_gear_post) would be silently dropped there, under-reporting the
-# port total. Until those aggregators are generalized to sum over ALL sub-seasons per
-# population, stop with a clear message rather than under-report.
+# Sub-season aggregation is now GENERAL (2026-07-13): the PE port summary, the catch-by-
+# mode table, and the final harvest summary sum over whatever sub-seasons build_subseasons
+# produced (via pe_pop_sum / pe_port_total below), rather than the hardcoded historical
+# pair. A mid-season pot closure (which adds all_gear_pre / all_gear_post keys) is
+# therefore handled end-to-end. That general path has NOT yet been validated against a
+# fitted run, so emit a loud note when the sub-season set departs from the historical
+# pair; verify the port total against the per-component PE table before citing such a run.
 ss_name_set <- vapply(subseasons, function(z) z$name, character(1))
 if (!setequal(ss_name_set, c("ring_net_only", "all_gear"))) {
-  stop(sprintf(paste0(
-    "build_subseasons produced sub-seasons {%s}, but this report's aggregation tables ",
-    "are hardcoded to {ring_net_only, all_gear}. A mid-season pot closure needs those ",
-    "tables generalized to sum over all sub-seasons per population first. Aborting to ",
-    "avoid silently under-reporting the port total."),
-    paste(ss_name_set, collapse = ", ")), call. = FALSE)
+  cat(sprintf(paste0(
+    "\n*** NOTE: non-historical sub-season set {%s}. The report aggregation sums over all ",
+    "sub-seasons per population, but this configuration has not been validated against a ",
+    "fitted run; verify the port total against the per-component PE table before citing. ***\n"),
+    paste(ss_name_set, collapse = ", ")))
 }
+
+# --- Generalized PE aggregation over the sub-season set (build_subseasons) -----------
+# Sum a PE field over all sub-seasons of a population so the port total, the by-mode
+# table, and the final harvest summary follow build_subseasons instead of a fixed 5-row
+# layout. These close over the run globals `pe_all` (populated by the PE loop) and
+# `subseasons`; they are only called after the PE loop, so pe_all exists by call time.
+# pe_all keys are "<population>_<subseason-name>"; a missing key or field contributes 0.
+pe_field   <- function(key, field) pe_all[[key]][[field]] %||% 0
+pe_pop_sum <- function(pop, field)
+  sum(vapply(subseasons, function(ss) pe_field(paste0(pop, "_", ss$name), field), numeric(1)), na.rm = TRUE)
+pe_port_total <- function(field)  # na.rm matches the baseline sum([1:5], na.rm=TRUE):
+  sum(pe_pop_sum("shore", field), pe_pop_sum("private_boat", field),
+      pe_field("comm_charter", field), na.rm = TRUE)
 
 # Pot-closure boundary markers for date-axis plots (see the pooled driver for the
 # rationale). Dotted line at the closure start, dashed line at the day pots open
@@ -517,23 +528,26 @@ timer_stop("4_commercial_charter")
 # ---- 7.5 PE PORT TOTALS ----
 cat("\n", strrep("=",60), "\n PE PORT TOTALS\n", strrep("=",60), "\n")
 
-component_names <- c("Shore (pot-closure)","Shore (all-gear)","Private Boat (pot-closure)",
-                     "Private Boat (all-gear)","Commercial/Charter","PORT TOTAL")
-component_keys <- c("shore_ring_net_only","shore_all_gear",
-                    "private_boat_ring_net_only","private_boat_all_gear","comm_charter")
+# component_keys / component_names now follow the sub-season set (build_subseasons):
+# one row per population x sub-season, then comm_charter, then a PORT TOTAL computed from
+# the semantic sums (pe_port_total), not by a fixed row index. component_keys is still
+# consumed by the pe_summary build below.
+pe_pops    <- c("shore", "private_boat")
+pop_disp   <- c(shore = "Shore", private_boat = "Private Boat")
+ss_names   <- vapply(subseasons, function(ss) ss$name,         character(1))
+ss_disp    <- vapply(subseasons, function(ss) ss$display_name, character(1))
+component_keys  <- c(unlist(lapply(pe_pops, function(p) paste0(p, "_", ss_names))), "comm_charter")
+component_names <- c(unlist(lapply(pe_pops, function(p) sprintf("%s (%s)", pop_disp[[p]], ss_disp))),
+                     "Commercial/Charter")
 
 pe_summary <- tibble(
-  Component = component_names,
-  Effort_hrs = c(sapply(component_keys, function(k) pe_all[[k]]$effort_total), NA),
-  Dungeness = c(sapply(component_keys, function(k) pe_all[[k]]$Dungeness_Kept), NA)
+  Component  = c(component_names, "PORT TOTAL"),
+  Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
+  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
-pe_summary$Effort_hrs[6] <- sum(pe_summary$Effort_hrs[1:5], na.rm=TRUE)
-pe_summary$Dungeness[6] <- sum(pe_summary$Dungeness[1:5], na.rm=TRUE)
-
 if(params$estimate_red_rock) {
-  pe_summary$Red_Rock <- c(
-    sapply(component_keys, function(k) pe_all[[k]]$Red_Rock_Kept %||% 0), NA)
-  pe_summary$Red_Rock[6] <- sum(pe_summary$Red_Rock[1:5], na.rm=TRUE)
+  pe_summary$Red_Rock <- c(vapply(component_keys, function(k) pe_field(k, "Red_Rock_Kept"), numeric(1)),
+                           pe_port_total("Red_Rock_Kept"))
 }
 
 print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
@@ -771,8 +785,8 @@ for(cg in bss_catch_groups) {
   final_table <- tibble(
     Catch_Group = cg,
     Estimate = c("Effort (mixed units; see effort_units_note)", "Catch"),
-    PE = c(round(pe_summary$Effort_hrs[6]),
-           round(if(cg=="Dungeness_Kept") pe_summary$Dungeness[6] else pe_summary$Red_Rock[6])),
+    PE = c(round(pe_port_total("effort_total")),
+           round(if(cg=="Dungeness_Kept") pe_port_total("Dungeness_Kept") else pe_port_total("Red_Rock_Kept"))),
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total))),
     BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025))),
     BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)))
@@ -959,19 +973,15 @@ cat("\n", strrep("=",60), "\n CATCH BY CRABBING MODE\n", strrep("=",60), "\n")
 mode_table <- tibble(
   Mode = c("Shore (Dock/Jetty/Beach)", "Private Boat", "Commercial/Charter", "PORT TOTAL"),
   PE_Catch = c(
-    (pe_all$shore_ring_net_only$Dungeness_Kept %||% 0) +
-      (pe_all$shore_all_gear$Dungeness_Kept %||% 0),
-    (pe_all$private_boat_ring_net_only$Dungeness_Kept %||% 0) +
-      (pe_all$private_boat_all_gear$Dungeness_Kept %||% 0),
-    pe_all$comm_charter$Dungeness_Kept %||% 0,
+    pe_pop_sum("shore", "Dungeness_Kept"),
+    pe_pop_sum("private_boat", "Dungeness_Kept"),
+    pe_field("comm_charter", "Dungeness_Kept"),
     NA
   ),
   PE_Effort = c(
-    (pe_all$shore_ring_net_only$effort_total %||% 0) +
-      (pe_all$shore_all_gear$effort_total %||% 0),
-    (pe_all$private_boat_ring_net_only$effort_total %||% 0) +
-      (pe_all$private_boat_all_gear$effort_total %||% 0),
-    pe_all$comm_charter$effort_total %||% 0,
+    pe_pop_sum("shore", "effort_total"),
+    pe_pop_sum("private_boat", "effort_total"),
+    pe_field("comm_charter", "effort_total"),
     NA
   )
 )
@@ -1619,8 +1629,8 @@ if(file.exists(pt_file)) {
 }
 
 mode_catch <- c(
-  Shore = round((pe_all$shore_ring_net_only$Dungeness_Kept %||% 0) + (pe_all$shore_all_gear$Dungeness_Kept %||% 0)),
-  `Private Boat` = round((pe_all$private_boat_ring_net_only$Dungeness_Kept %||% 0) + (pe_all$private_boat_all_gear$Dungeness_Kept %||% 0)),
+  Shore = round(pe_pop_sum("shore", "Dungeness_Kept")),
+  `Private Boat` = round(pe_pop_sum("private_boat", "Dungeness_Kept")),
   `Commercial/Charter` = round(pe_all$comm_charter$Dungeness_Kept %||% 0)
 )
 mode_pct <- round(mode_catch / sum(mode_catch) * 100, 1)
