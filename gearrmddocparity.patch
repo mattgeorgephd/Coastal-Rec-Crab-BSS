@@ -1,0 +1,257 @@
+diff --git a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+index 3825ece..ca4f368 100644
+--- a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+@@ -52,6 +52,12 @@ read_fit_outputs <- function(prefix, dir = NULL) {
+ }
+ ```
+ 
++> **How to read this report.** This is the results report for one seasonal harvest estimate from the gear-resolved CPUE model. Code is hidden by default; use the **Code** buttons (or *Code > Show All Code* at the top right) to reveal any step. Each section states what it does, shows the notable tables and figures, and, for the diagnostic sections, notes what a healthy run should look like. The headline number is the port total in the Results section; always read it together with the convergence and PE-vs-BSS sections, which say how much to trust it. This model is the independent cross-check on the pooled CPUE model; the two should agree on the boat and the port total.
++
++## 1. Setup, configuration, and inputs
++
++Loads packages, sources the helper functions in `03_R_functions/`, applies the run configuration from `run_config.R` (the single file of user toggles), builds the pot-closure sub-seasons, defines the PE / BSS / census estimators, and reads the season effort counts, crabber interviews, commercial tally, and ingress/egress surveys. Nothing here is a result; it is the machinery every later section uses.
++
+ ```{r}
+ ###############################################################################
+ # Crab Creel Estimation - Westport / Grays Harbor  |  Gear-Resolved CPUE Model
+@@ -385,6 +391,14 @@ if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
+ timer_stop("1_load_data")
+ 
+ 
++
++```
++
++## 2. Input diagnostics: effort, CPUE, and day length
++
++Diagnostic views of the raw inputs before any modeling: sampled effort over the season by day type, interview CPUE, effort by month, and the I/E-derived effective day length. **Healthy:** effort and CPUE track the expected seasonal shape (a summer peak), with no single day dominating the series.
++
++```{r gear-sec2-inputs}
+ # ---- 7.1 DIAGNOSTIC PLOTS ----
+ timer_start("2_diagnostic_plots")
+ cat("\n", strrep("=",60), "\n DIAGNOSTIC PLOTS\n", strrep("=",60), "\n")
+@@ -481,6 +495,14 @@ cat("  Diagnostic plots saved.\n")
+ timer_stop("2_diagnostic_plots")
+ 
+ 
++
++```
++
++## 3. Point Estimator (PE)
++
++The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the season, independently of the BSS. It is the model-free cross-check the gate can fall back to. This block also runs the commercial/charter census and the PE port totals.
++
++```{r gear-sec3-pe}
+ # ---- 7.2 PE ESTIMATES ----
+ timer_start("3_PE_estimates")
+ cat("\n", strrep("=",60), "\n PE ESTIMATES\n", strrep("=",60), "\n")
+@@ -590,6 +612,14 @@ print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
+ write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FALSE)
+ 
+ 
++
++```
++
++## 4. Bayesian state-space model fits
++
++Each population by sub-season is fit independently with a Bayesian state-space model: a latent AR(1) effort and CPUE process at a per-fit temporal resolution (capped per population so a thin series is not over-resolved), a negative-binomial observation model, and gear-deployment effort. Fitting is the slow step. **Healthy:** each fit with enough data samples without a wall of divergences; the convergence gate below is the formal check.
++
++```{r gear-sec4-bss}
+ # ---- 7.6 BSS MODEL RUNS ----
+ timer_start("5_BSS_model_runs")
+ cat("\n", strrep("=",60), "\n BSS MODEL RUNS\n", strrep("=",60), "\n")
+@@ -763,6 +793,14 @@ for(cg in bss_catch_groups) {
+ timer_stop("5_BSS_model_runs")
+ 
+ 
++
++```
++
++## 5. Convergence gate and model selection
++
++The scale-aware gate decides, per fit, whether to report the Bayesian posterior or fall back to the PE. A fit passes only if R-hat is below 1.01, effective sample size is above 400, the divergent fraction is under the backstop, and the divergent draws do not move the reported totals by more than 0.10 posterior standard deviations. **If a component reads PE here, its Bayesian fit did not clear the gate;** that is expected for data-thin components and is not an error.
++
++```{r gear-sec5-gate}
+ # ---- 7.6b CONVERGENCE GATE (B1.8, scale-aware; shared in 03_R_functions) ----
+ # Decide PE-vs-BSS per fit BEFORE any reported total is assembled. bss_compute_gate
+ # and bss_use_pe_for live in 03_R_functions/bss_convergence_gate.R (shared with the
+@@ -784,6 +822,14 @@ for(label in names(bss_all)) {
+ }
+ 
+ 
++
++```
++
++## 6. Headline result: port total
++
++The season harvest estimate: the sum of all components, reported as expected catch with a 95 percent credible interval. This is the number to cite, read together with the convergence and PE-vs-BSS sections. Components that passed the gate contribute their Bayesian posterior; components that did not contribute their PE point. **Cross-check:** the port total and the boat should land within a few percent of the pooled CPUE model's run.
++
++```{r gear-sec6-porttotal}
+ # ---- 7.7 COMBINED BSS PORT TOTAL ----
+ timer_start("6_outputs")
+ cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
+@@ -840,6 +886,14 @@ for(cg in bss_catch_groups) {
+   write.csv(final_table, file.path(output_dir, paste0("port_total_",cg,".csv")), row.names=FALSE)
+ }
+ 
++
++```
++
++## 7. Monthly estimates
++
++The season total broken out by month, with per-month credible intervals, showing the within-season trajectory. **Healthy:** the widest intervals fall on the thinly sampled summer months, where the process model imputes the most.
++
++```{r gear-sec7-monthly}
+ # ===========================================================================
+ # 7.8 MONTHLY ESTIMATES WITH UNCERTAINTY
+ # v5.1: Uses C_total (vector[D]) instead of C[S][D,G]
+@@ -992,6 +1046,14 @@ ggsave(file.path(output_dir, "plot_monthly_effort.png"), p_monthly_eff, width =
+ print(p_monthly_eff)
+ 
+ 
++
++```
++
++## 8. Catch by crabbing mode
++
++Total season catch attributed to each crabbing mode (shore, private boat, commercial/charter), with each mode's share of the port total.
++
++```{r gear-sec8-mode}
+ # ===========================================================================
+ # 7.9 CATCH BY CRABBING MODE
+ # ===========================================================================
+@@ -1020,6 +1082,14 @@ print(mode_table |> mutate(across(where(is.numeric), round)))
+ write.csv(mode_table, file.path(output_dir, "catch_by_mode.csv"), row.names = FALSE)
+ 
+ 
++
++```
++
++## 9. Catch by gear type
++
++Catch attributed to each gear type. **Known limitation (GR-7):** this model runs with `G = 1`, so the per-gear CPUE process is inert and this split is not a true gear resolution; most catch lands in an "All" bucket and the remainder is degenerate. For a real gear breakdown, use the pooled model's Dirichlet-propagated `catch_by_gear_type` instead. This table is retained for continuity, not for citation.
++
++```{r gear-sec9-geartype}
+ # ===========================================================================
+ # 7.10 BSS CATCH BY GEAR TYPE
+ # v5.1: PE fallback uses word-boundary regex consistent with BSS
+@@ -1149,6 +1219,14 @@ print(p_gear)
+ cat("\n  Gear-type outputs saved.\n")
+ 
+ 
++
++```
++
++## 10. Convergence report
++
++The per-fit diagnostic table behind the gate decision: R-hat and effective sample size for the summed effort and catch, the worst per-gear-type R-hat, the divergent fraction, and the pass/fail flag. **Healthy:** `pass_convergence` TRUE with R-hat near 1.00 and effective sample size well above 400 on every fit that had sufficient data.
++
++```{r gear-sec10-convreport}
+ # ===========================================================================
+ # 7.11 CONVERGENCE REPORT
+ #
+@@ -1306,6 +1384,14 @@ write_run_level_diagnostics(bss_all, pe_all, gear_props = NULL,
+                             params = params, output_dir = output_dir)
+ 
+ 
++
++```
++
++## 11. Daily combined estimate
++
++The daily catch and effort series assembled from the fitted components, the fine-grained trajectory underneath the monthly roll-up.
++
++```{r gear-sec11-daily}
+ # ===========================================================================
+ # 7.12 DAILY COMBINED ESTIMATE
+ # v5.1: Uses C_total instead of C[S][D,G]
+@@ -1391,6 +1477,14 @@ cat(sprintf("  Daily combined estimate: %d rows (%d days x %d populations)\n",
+ write.csv(daily_combined_df, file.path(output_dir, "daily_combined_estimate.csv"), row.names = FALSE)
+ 
+ 
++
++```
++
++## 12. Per-fit data coverage
++
++How much observed data each fit rests on: latent days, effort observations, interviews, and the percent of days carrying any data. **Healthy:** read the thin-coverage fits (few interviews, low percent of days sampled) as the ones leaning hardest on the AR process and priors.
++
++```{r gear-sec12-coverage}
+ # ===========================================================================
+ # 7.13 DATA COVERAGE TABLE
+ # ===========================================================================
+@@ -1443,6 +1537,14 @@ print(coverage_df, n = 30)
+ write.csv(coverage_df, file.path(output_dir, "data_coverage.csv"), row.names = FALSE)
+ 
+ 
++
++```
++
++## 13. Effort and CPUE multipliers
++
++The fitted structural quantities that shape the daily series: the weekend effort effect (B1), the holiday effort effect (B2), and the interview CPUE summary by month and population.
++
++```{r gear-sec13-multipliers}
+ # ===========================================================================
+ # 7.14 EFFORT MULTIPLIER SUMMARY (B1, B2)
+ # ===========================================================================
+@@ -1517,6 +1619,14 @@ print(cpue_summary, n = 30)
+ write.csv(cpue_summary, file.path(output_dir, "interview_cpue_summary.csv"), row.names = FALSE)
+ 
+ 
++
++```
++
++## 14. Expansion ratios (R_G and R_G_boat)
++
++The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale. **Healthy:** the shore R_G is data-identified (a tight interval near ~1.3 gear per crabber); the boat R_G is prior-driven (no gear counts in boat fits), so read its wide interval as expected, not a failure.
++
++```{r gear-sec14-expansion}
+ # ===========================================================================
+ # 7.16 R_G AND R_G_boat POSTERIOR SUMMARIES
+ # v5.3: Stan model now exposes R_G_boat (gear per boat group) in place of
+@@ -1584,6 +1694,14 @@ if(length(expansion_results) > 0) {
+ }
+ 
+ 
++
++```
++
++## 15. PE vs BSS comparison
++
++Side by side, the design-based PE and the Bayesian BSS for each component. **How to read it:** close agreement is reassuring; a large gap on a component means the two methods disagree there, usually because that component is data-thin, and the BSS interval width tells you how well-identified it is. Since both run on the same effort unit, a remaining gap is a genuine model disagreement, not a unit artifact.
++
++```{r gear-sec15-pevsbss}
+ # ===========================================================================
+ # 7.17 PE VS BSS COMPARISON TABLE
+ # ===========================================================================
+@@ -1642,6 +1760,14 @@ print(comparison_df)
+ write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.names = FALSE)
+ 
+ 
++
++```
++
++## 16. Season summary
++
++Run-level metadata: the season window, sampling coverage, interview count, how many fits passed the gate, and the mode split, a one-page header for the run.
++
++```{r gear-sec16-season}
+ # ===========================================================================
+ # 7.18 SEASON SUMMARY ONE-PAGER
+ # ===========================================================================
+@@ -1735,6 +1861,14 @@ write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names
+ cat("\n  New output tables saved.\n")
+ 
+ 
++
++```
++
++## 17. Incomplete-trip sensitivity
++
++How much dropping incomplete trips (gear not yet retrieved at the interview) moves each component's PE. **Healthy:** dropping incomplete trips raises the estimate (soaking gear reads low mid-trip); a component that moves the other way is worth a second look.
++
++```{r gear-sec17-sensitivity}
+ # ===========================================================================
+ # 7.19 SENSITIVITY: INCOMPLETE TRIP EFFECT ON PE ESTIMATES
+ #
