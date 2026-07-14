@@ -1,0 +1,2 @@
+"fit","data_type","n_obs","n_obs_dropped","n_draws_used","rE_median","R_median","mean_mu","share_poisson","share_nb_overdisp","share_latent","pred_vmr_mean","nb_vmr_mean","ppc_coverage_50","ppc_pit_sd","lever"
+"shore_ring_net_only_Dungeness_Kept","gear",52,0,2000,3.20896562870459,1.3245464385205,36.173,0.0609,0.8087,0.1304,14.953,13.241,0.6154,0.2609,"observation NB over-dispersion dominates: lever is r_E / sigma_r_E prior (T1.5 5a; pair with T1.3)"
