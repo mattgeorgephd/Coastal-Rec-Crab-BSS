@@ -1,70 +1,29 @@
-# 07_documentation
+# 06_diagnostics
 
-Written documentation for the project: how the models work, what decisions were made and why, change history, proposals, and the rendered documentation site. None of this is executed by a run; it is the reference layer.
+The **experimental weather-tide covariate module**. This folder holds the one research driver that tests whether environmental covariates improve the effort and CPUE predictions of the production pooled model. It is **not a production estimator** and does not produce the official harvest number.
 
-For the one-paragraph project overview, see the [root README](../README.md).
+For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); for the project overview, the [root README](../README.md).
 
-## Current model documentation
-
-These track the three live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
-
-| File | Describes |
-|---|---|
-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model. |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model. |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module. |
-
-## Rendered documentation site
+## Files
 
 | File | Role |
 |---|---|
-| `docs_index.Rmd` / `docs_index.html` | Landing page of the built doc site. |
-| `docs_equations.Rmd` / `docs_equations.html` | Model equations. |
-| `documentation_tables.xlsx` | Source tables that feed the write-ups. |
+| `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | The covariate module driver (module v0.2.x). Layered on the **pooled** model only. Screens candidate tide/weather covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a leave-one-week-out block-CV fallback for true sampling gaps). |
+| `README.md` | This file. |
 
-The `.html` files are the built output of the `.Rmd` sources; re-knit the `.Rmd` to regenerate them. These `.Rmd` files do not read the renumbered stage folders, so the folder reorganization did not require any edits to them.
+The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and **collapses exactly to `crab_bss_pooled.stan` when `K_E = K_C = 0`**, so one file serves both the baseline and augmented fits.
 
-## Decision records and how-tos
+## How it runs
 
-| File | Content |
-|---|---|
-| `WEATHER_COVARIATE_ANALYSIS.md` | The conclusion that weather/tide covariates are excluded for all three components under the pre-committed 4.0-SE PSIS-LOO margin (the false-precision finding). Pairs with `06_diagnostics/`. |
-| `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
-| `diagnostics_and_reproducibility_notes.md` | Notes on diagnostics and reproducing runs. |
+- As part of a full run: set `run_weather <- TRUE` in `run_config.R` (or pass `--weather`) with `model = "pooled"`, and `run_estimation.R` renders this module **after** the pooled model. It is only valid with the pooled model — the module reuses the pooled run's in-memory objects (`dwg`, `ie_data`, `L_eff_model`, …) via the shared render environment ("Option A" hand-off), so it cannot run without a preceding pooled run in the same session.
+- Standalone: knit `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` directly; its setup chunk auto-sources `run_config.R` when `run_config` is not already present.
 
-## Change logs and experiments
+Outputs land in `05_output/<YYYYMMDD>/pooled-CPUE-covariates/` (paired `*_baseline` / `*_covariates` files, GAM smooths, and the covariate-vs-baseline LOO comparison). At runtime the module reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints for tide and weather series; results are cached under `cache/weather_tide/` at the repo root (regenerable and git-ignored).
 
-| File | Content |
-|---|---|
-| `B1.5_change_notes.md`, `B1.6_change_notes.md` | Versioned change notes for those model revisions. |
-| `BOAT_RESOLUTION_EXPERIMENT.md` | The daily-vs-weekly AR temporal-resolution experiment for boat effort. |
+## Status
 
-## Proposals and reviews
+**Experimental and currently stale.** Per `07_documentation/development_notes/PIPELINE_STATUS.md`, the module tracks an older pooled engine (~v6.9 parity, pre-deployment-scale) and has not been re-run against the current Stan models, so its boat-magnitude outputs must not be cited. Its committed conclusion is that weather/tide covariates are **excluded** — see the decision record in `07_documentation/WEATHER_COVARIATE_ANALYSIS.md` and Section 17 of the pooled-model documentation. The intent is that any covariate later shown to help is folded directly into the production pooled and gear-resolved models, rather than maintained as a separate track.
 
-| File | Content |
-|---|---|
-| `PLANNED_IMPROVEMENTS.md` | Roadmap of intended changes. |
-| `ADDITIONAL_OUTPUTS_PROPOSAL.md` | Proposed additions to the output set. |
-| `CODE_IMPROVEMENTS_REVIEW_v7.0.md` | Internal code-quality review. |
-| `20260331-model-critique.docx` | External model critique (Word). |
+## Documentation
 
-## Creel-lineage carryover
-
-This project was forked from the WDFW freshwater-creel framework, and some of that documentation rode along. It is kept for reference but does not describe the current crab models:
-
-| Item | Note |
-|---|---|
-| `Instructions for using Creel Estimates.docx` | Freshwater-creel user guide. |
-| `Instructions for using the Creel Schedule Generator.docx` | Freshwater-creel scheduler guide. |
-| `DRAFT_FreshwaterCreel rep_file sub structure mockup.docx` | Draft report-file structure mockup from the creel framework. |
-| `FWC_bss_docs/` | Legacy reference subfolder (see below). |
-
-### `FWC_bss_docs/`
-
-Older reference material predating this project, retained for lineage:
-
-- `02_Creel_Models_2022-01-20.csv` (2022 creel model list)
-- `Skagit creel model - definitions_updated 2021-01-12.xlsx` (Skagit model definitions)
-- `overview of time-series model_2019-02-28.pptx` (2019 time-series model overview)
-
-These describe the antecedent state-space creel models the current BSS approach grew out of; treat them as historical context, not as documentation of the code in this repo.
+Technical write-up: `07_documentation/BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md`. Decision record (exclusion finding): `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`.
