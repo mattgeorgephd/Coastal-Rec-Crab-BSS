@@ -33,7 +33,7 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "gear_resolved"        # "pooled"  or  "gear_resolved"
+model       <- "pooled"        # "pooled"  or  "gear_resolved"
 
 run_weather <- FALSE           # TRUE also runs the weather-tide covariate
                                # module AFTER the model. Only valid with
@@ -233,7 +233,7 @@ run_config <- list(
   # an OPTIONAL same-day-effort density-dependence term (gamma_C) to CPUE; it couples the
   # CPUE and effort processes, so it is OFF by default and should be validated on a test
   # fit first. RE-COMPILES the Stan model.
-  estimate_cpue_density = FALSE,
+  estimate_cpue_density = TRUE,
 
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --
