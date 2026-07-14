@@ -1,10 +1,10 @@
 # Grays Harbor Crab Harvest Estimation: Pooled CPUE Model
 
-## Development History
+## Development history
 
-**Companion to:** `BSS-GH-pooled-CPUE-model-documentation.md` (the published Method v1.0 reference).
-**Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted. Code **v7.7** (2026-07-11) moves the shore component onto the gear-deployment scale as well (POOL-7), so both fitted components now run on gear-deployments; it moves the publication shore number, so v7.7 must be re-run before the shore total is trusted. Code **v7.8** (2026-07-11) is a behavior-preserving repository refactor (helper functions extracted into `03_R_functions/`; all user toggles centralized into `run_config.R`) together with one number-moving completion fix: the pooled `run_pe` shore branch, which had been left on crabber-hours after v7.7, is ported onto the shared effort module so the shore PE matches the shore BSS unit.
-**Convention:** no em dashes.
+- **Companion to:** `BSS-GH-pooled-CPUE-model-documentation.md` (the published Method v1.0 reference).
+- **Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted. Code **v7.7** (2026-07-11) moves the shore component onto the gear-deployment scale as well (POOL-7), so both fitted components now run on gear-deployments; it moves the publication shore number, so v7.7 must be re-run before the shore total is trusted. Code **v7.8** (2026-07-11) is a behavior-preserving repository refactor (helper functions extracted into `03_R_functions/`; all user toggles centralized into `run_config.R`) together with one number-moving completion fix: the pooled `run_pe` shore branch, which had been left on crabber-hours after v7.7, is ported onto the shared effort module so the shore PE matches the shore BSS unit.
+- **Convention:** no em dashes.
 
 This file is the provenance record for the pooled model. The published method document summarizes this history in one screen (its Section 19) and refers here for the detail. Entries are newest-first. The model's first published, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
 
@@ -205,7 +205,7 @@ These are the consolidated working notes behind the v6.7 entry, preserved for pr
 
 **The problem.** The residual shore divergences that survived the B1.3 non-centering (292 and 573 in the v6.6 pooled run, with otherwise clean R-hat and n_eff, and a 292-vs-1669 seed instability) came from the per-observation effort over-dispersion, not from the AR scale priors. In the model block, each effort count was written as a Gamma-Poisson mixture:
 
-```
+```stan
 eps_E_H_obs[i] ~ gamma(r_E, r_E);                  // n_effort_obs of these
 Gear_I[i] ~ poisson(lambda_E * eps_E_H_obs[i] * R_G);
 T_I[i]    ~ poisson(lambda_E * eps_E_H_obs[Gear_n + i] * R_T);
@@ -215,7 +215,7 @@ T_I[i]    ~ poisson(lambda_E * eps_E_H_obs[Gear_n + i] * R_T);
 
 **The fix.** An exact analytic marginalization. A Gamma-Poisson mixture with `eps ~ Gamma(r, r)` integrates out to Negative Binomial 2:
 
-```
+```stan
 Gear_I[i] ~ neg_binomial_2(lambda_E * R_G, r_E);
 T_I[i]    ~ neg_binomial_2(lambda_E * R_T, r_E);
 ```

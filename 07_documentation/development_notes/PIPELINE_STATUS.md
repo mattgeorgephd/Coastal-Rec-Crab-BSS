@@ -1,7 +1,7 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-**Last updated:** 2026-07-13
-**Maintainer note:** this is the single living status document for the pipeline. It replaces the six scattered development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
+- **Last updated:** 2026-07-13
+- **Maintainer note:** this is the single living status document for the pipeline. It replaces the six scattered development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced to v7.9 with effort-unit, filtering, and config corrections that move published totals, so the 2024-25 reference numbers in the method documents are pre-refresh until regenerated.
 
@@ -18,7 +18,19 @@
 
 **Authoritative run:** `05_output/20260712/pooled-CPUE` (pooled, boat forced to monthly AR via `ar_force = list(private_boat = "monthly")`, gate at 0.05). This is the first run to fold in the Tier-1 improvements (P0 PE-consistency, T1.4 commercial/charter split), the pot-closure config/rename refactor, the generalized aggregation, and the new fishery-opener spillover diagnostic. The BSS fits are **bit-identical** to the 2026-07-11 run (same divergences, R-hat, n_eff, effort), which confirms those infra changes are behavior-neutral; only the PE/census totals shifted (< 1%), from the Tier-1 PE refinements landing in a run for the first time.
 
-**Update 2026-07-13 (Tier-2 + parity batch; nine items landed after the 7/12 run, across two applied patches):** (2) PE empty-stratum CPUE fallback (`pe_empty_stratum = "pooled"`, both PE tracks); (3) Dirichlet `pi_gear` x BSS-total-draws intervals for the pooled gear breakdown; (4) shore-I/E representativeness diagnostic (I/E days are representative, so the shore all-gear `sigma_IE` ~1.07 is sparse-data scatter, not peak-day bias); (5) `ie_min_obs_shore >= 3` guard that drops the I/E stream and decouples `sigma_IE` for the thin shore pot-closure / ring-net fits (GR-8; prior deliberately left `exponential(5)` per item 4); (7) `max_divergences` doc reconciled to 5; (8) stale gear-resolved crabber-hours labels fixed to gear-deployments; (9) PE monthly-share consolidated into `pe_monthly_effort_share.R` (also fixes the gear boat PE-fallback to use the deployment formula), residual-globals verified absent; (6) **always-on** holiday CPUE term `B2_C` plus an optional same-day-effort density term `gamma_C` (`estimate_cpue_density`, off by default); (1) razor-dig shore-effort term `B3` (`razor_dig_mode = "no"|"yes"|"auto"`, off by default) with the two opener workbooks consolidated into `04_input_files/fishery_opener_dates.csv`. The Stan model gained `B2_C` / `B3` / `gamma_C` (independently reviewed; recompiles on next run). **Several of these move numbers** (always-on `B2_C`, the boat empty-stratum PE, the shore pot-closure I/E guard), so **`Run 1` (pooled, default config) is in progress and will become the new authoritative reference** once it lands. **Validation runs pending, in order:** pooled default (Run 1), gear-resolved default (Run 2), then the razor-dig `"yes"` / density / R_G-sweep experiments. Do not cite refreshed totals until Run 1 completes.
+**Update 2026-07-13 (Tier-2 + parity batch; nine items landed after the 7/12 run, across two applied patches):**
+
+- (2) PE empty-stratum CPUE fallback (`pe_empty_stratum = "pooled"`, both PE tracks).
+- (3) Dirichlet `pi_gear` x BSS-total-draws intervals for the pooled gear breakdown.
+- (4) shore-I/E representativeness diagnostic (I/E days are representative, so the shore all-gear `sigma_IE` ~1.07 is sparse-data scatter, not peak-day bias).
+- (5) `ie_min_obs_shore >= 3` guard that drops the I/E stream and decouples `sigma_IE` for the thin shore pot-closure / ring-net fits (GR-8; prior deliberately left `exponential(5)` per item 4).
+- (7) `max_divergences` doc reconciled to 5.
+- (8) stale gear-resolved crabber-hours labels fixed to gear-deployments.
+- (9) PE monthly-share consolidated into `pe_monthly_effort_share.R` (also fixes the gear boat PE-fallback to use the deployment formula), residual-globals verified absent.
+- (6) **always-on** holiday CPUE term `B2_C` plus an optional same-day-effort density term `gamma_C` (`estimate_cpue_density`, off by default).
+- (1) razor-dig shore-effort term `B3` (`razor_dig_mode = "no"|"yes"|"auto"`, off by default) with the two opener workbooks consolidated into `04_input_files/fishery_opener_dates.csv`.
+
+The Stan model gained `B2_C` / `B3` / `gamma_C` (independently reviewed; recompiles on next run). **Several of these move numbers** (always-on `B2_C`, the boat empty-stratum PE, the shore pot-closure I/E guard), so **`Run 1` (pooled, default config) is in progress and will become the new authoritative reference** once it lands. **Validation runs pending, in order:** pooled default (Run 1), gear-resolved default (Run 2), then the razor-dig `"yes"` / density / R_G-sweep experiments. Do not cite refreshed totals until Run 1 completes.
 
 **Headline numbers, 2026-07-12 run (Dungeness kept, 2024-25):**
 
@@ -60,24 +72,29 @@ Port total BSS expected-catch 95% CI 71,002 - 102,844 (predictive 83,856). Effor
 Historical IDs are preserved in parentheses so the older notes remain traceable. Legend of ID schemes: **B1.x/A/B/C/D** from `PLANNED_IMPROVEMENTS.md`; **T1.x-T4.x** from `CODE_IMPROVEMENTS_REVIEW_v7.0.md`; **O1-O12** from `ADDITIONAL_OUTPUTS_PROPOSAL.md`; **F1-F5/P0-P3** from `pipeline_state_review_20260709.md`; **POOL-*/GR-*/WX-*/ORCH-*** from `20260710-OUTSTANDING_ISSUES.md`; **critique 1-11** from the 2026-03-31 model critique; **P4/P5/P7** from the 2026-07-12 review.
 
 **Convergence and sampler geometry.**
+
 - BSS convergence achieved (B1, B1.1-B1.6). Boat all-gear diverged on ~100% of iterations under daily AR (a funnel from a 289-state latent on a thin trailer series); fixed by the per-population AR cap to weekly (B1.2/v6.5), non-centering the AR initial state `omega_0` (B1.3/v6.6), and boat sampler tuning (v6.2). Effort overdispersion marginalized to negative binomial (B1.5/v6.7). Unconditional `sigma_IE` prior (B1.6/v6.8).
 - Non-centered `omega_0` ported to the gear-resolved Stan (**D4 DONE**; `omega_E_0_raw`/`omega_C_0_raw` present in `crab_bss_gear_resolved.stan`).
 - `R_G_boat` improper-prior blocker fixed in gear-resolved (F1): an unbounded `real<lower=0>` with no prior/likelihood drove the log posterior to +inf; now `lognormal(log(4), 0.5)`. Ported to pooled as POOL-1.
 - Scale-aware convergence gate (B1.8/v7.0): pass/fail on the divergent draws' impact on the reported totals in posterior-SD units, not a raw count. The 15% fraction backstop was tightened to **0.05** (P7, 2026-07-12) to match the gear-resolved gate; the impact test (threshold 0.10 SD) remains primary.
 
 **Effort unit and scale (the dominant correctness theme).**
+
 - Boat moved off invalid time-denominated effort onto gear-deployments (F2 gear-resolved; POOL-1 + POOL-3 pooled/v7.6). The saturation diagnostic proved catch is sub-linear in soak time for pots (`beta` ~0.13-0.27), so any time unit is invalid; `R_T` (pinned at ~1) was replaced by `R_G_boat`, and `L = 24` gear-hours by `L = tau_boat`.
 - Shore moved onto gear-deployments (GR-16 / POOL-7 / v7.7), chosen by a three-unit LOO comparison: gear-deployments is the only shore unit whose catch-vs-effort elasticity covers 1 (`beta_h = 1.05` vs 0.57 crabber-hours, 0.73 gear-hours). Applied to both pipelines. This is the resolution of critique-1's day-length/snapshot concern for the CPUE denominator (the level still uses a gear-count snapshot x turnover; see T1.1).
 - Shore PE aligned to the same unit (v7.8): `run_pe_pooled` now takes the shore denominator from `bss_effort_spec.R`; the shore PE effort dropped from 42,541 (crabber-hours) to 18,104 (deployments), removing a PE-vs-BSS unit inconsistency.
 - **Boat AR resolution resolved (BOAT_RESOLUTION_EXPERIMENT closed).** The experiment asked daily-vs-weekly; the answer is **monthly**. On monthly AR the pooled boat reconciles to the gear-resolved boat (Section 1, fact 1), and the sparse-month effort over-imputation collapses (June boat BSS/PE fell 8.7x to 4.1x; July 3.7x to 2.1x).
 
 **CPUE structure.**
+
 - Weekend/holiday CPUE effect `B1_C` added and confirmed to keep on (critique 4 RESOLVED, T3.3 base). Shore CPUE ~46% lower on weekend/holiday (`B1_C ~ -0.6` shore all-gear), indistinguishable from zero for boat (soaking gear does not care about day type). Physically sensible crowding signal.
 
 **Filters.**
+
 - Incomplete-trip filter added to the pooled track (POOL-2 / B7 / T2.3), matching gear-resolved; ~40% of shore all-gear interviews are incomplete with a measured ~-20% CPUE bias, so filtering raises the shore estimate. Toggle `filter_incomplete_trips` (default TRUE), with a `sensitivity_incomplete_trips.csv` output (now rendered in the report).
 
 **Diagnostics and persisted outputs.**
+
 - The output catalog O1-O11 is implemented (`save_run_diagnostics.R`): full parameter summaries, AR latent path, period coverage map, modeled daily CPUE, per-observation PPC residuals, sampler diagnostics (E-BFMI), summed-quantity draws, prior-vs-posterior, gear proportions, monthly PE-vs-BSS by mode, per-fit data summary. O12 (`.rds`) deliberately not committed.
 - CPUE effort-unit diagnostics wired (POOL-5): `cpue_estimators_/cpue_saturation_/cpue_linearity_*.csv`, the estimator triad + saturation + linearity that surfaces an invalid effort unit automatically each run.
 - Posterior predictive checks run and calibrated (B2 UNBLOCKED and reported): 95% coverage ~0.95-0.98, PIT means ~0.5; the 50% coverage is wide for shore catch / boat trailer (consistent with `r_C ~ 0.75`), i.e. the effort/catch predictive is mildly over-dispersed.
@@ -85,15 +102,18 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
 - **Report display pass (2026-07-12):** the pooled `.Rmd` now renders the incomplete-trip sensitivity, PPC calibration, effort-overdispersion decomposition, the CPUE validity triad, per-fit data coverage, PSIS-LOO, and top divergence drivers as on-page tables; the wide convergence table is curated. Sections that previously only wrote CSVs now show results.
 
 **Refactor and config.**
+
 - Behavior-preserving function extraction into `03_R_functions/` and centralization of all user toggles in `run_config.R` (v7.8). Config restructured so `run_config` is the base parameter set and each model layers its tuning (P5/v7.9); the per-model AR resolution map lives in `run_config.R`.
 - **Pot-closure sub-season made explicit and renamed (2026-07-13).** The pot-closure window (when pots are illegal and only non-pot gear is legal) is now set explicitly in `run_config.R` via `pot_closure_start` / `pot_closure_end`, instead of being assumed to run from the season start to `pot_open_date - 1`, so a future season whose start does not coincide with the closure is supported. A shared builder `03_R_functions/build_subseasons.R` derives the sub-seasons for both drivers and handles the general case (optional pre/post all-gear periods for a mid-season closure, keyed off `gear_regime` rather than the sub-season name). The sub-season was renamed "ring-net only" to "pot closure": a **display-only** rename, since non-pot gear other than ring nets is legal, so the old name was a misnomer; the internal key stays `ring_net_only` for output-filename continuity, so keys and filenames are unchanged and the 2024-25 config produces bit-identical sub-seasons. Season plots in both drivers now draw vertical lines at the closure start and the pots-open date. (The report's downstream aggregation was initially left hardcoded to the two historical sub-seasons behind a fail-fast guard; that has since been generalized, see the next bullet.)
 - **Aggregation generalized over the sub-season set (2026-07-13).** The PE port summary, catch-by-mode, final harvest table, and gear-allocation totals in both drivers now sum over whatever sub-seasons `build_subseasons` produced, via semantic helpers (`pe_pop_sum` / `pe_port_total` / `pe_field`) instead of hardcoded `pe_all$..._ring_net_only + pe_all$..._all_gear` references and fixed `pe_summary` row indices (`[6]`, `[1:5]`, `[3]+[4]`). Verified numerically identical to the prior hardcoded code for the 2024-25 two-sub-season config (independently reviewed; `pe_port_total` uses `na.rm=TRUE` to match the baseline exactly), and the fail-fast guard is downgraded to a soft note, so a mid-season pot closure now aggregates end-to-end. Confirmed behavior-neutral on the 7/12 run.
 - **Fishery-opener spillover diagnostic added (2026-07-13; pooled report Section 3.5).** New `prep_fishery_events.R` + `diagnose_fishery_spillover.R` read the MA2 finfish and razor-clam-dig calendars and test whether crab effort/CPUE differs on opener days, raw and adjusted for day-type + month, across shore/boat effort and shore/boat CPUE. DIAGNOSTIC ONLY (no model change). See Tier 2 for the 7/12 result and the pending decision.
 
 **PE (partial).**
+
 - Shore PE unit alignment done (v7.8) and ratio-of-sums (P0) done + confirmed 2026-07-12: the shore PE is now internally consistent (implied CPUE 0.865 vs RoS 0.873). The boat PE remains structurally low (its effort expansion weights low-CPUE strata; implied CPUE 1.84 vs interview RoS 3.36), which P0 does not fix, so the boat is reported from the BSS. See Section 4 / fact 2.
 
 **Repo cleanup (partial).**
+
 - `-old` driver snapshots and the refactor tarball removed (2026-07-12).
 
 ---

@@ -1,10 +1,10 @@
 # Weather and Tide Covariate Analysis: Results and Interpretation
 
-**Date:** 2026-06-25
-**Run:** `output/20260625/pooled-CPUE-covariates`
-**Model:** `stan_models/crab_bss_pooled_weather_adjusted.stan`, driver `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`
-**Season:** 2024-25, Grays Harbor / Westport
-**No em dashes per project convention.**
+- **Date:** 2026-06-25
+- **Run:** `output/20260625/pooled-CPUE-covariates`
+- **Model:** `stan_models/crab_bss_pooled_weather_adjusted.stan`, driver `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`
+- **Season:** 2024-25, Grays Harbor / Westport
+- **No em dashes per project convention.**
 
 ---
 

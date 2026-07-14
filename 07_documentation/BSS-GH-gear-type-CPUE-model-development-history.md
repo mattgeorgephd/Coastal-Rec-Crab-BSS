@@ -1,10 +1,10 @@
 # Grays Harbor Crab Harvest Estimation: Gear-Resolved CPUE Model
 
-## Development History
+## Development history
 
-**Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md` (the published gear-resolved method reference).
-**Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.5** (2026-07-11), in which both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production.
-**Convention:** no em dashes.
+- **Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md` (the published gear-resolved method reference).
+- **Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.5** (2026-07-11), in which both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production.
+- **Convention:** no em dashes.
 
 This file is the provenance record for the gear-resolved model. The published method document summarizes this history in one screen and refers here for the detail. Entries are newest-first. The version log traces the framework from the initial gear-resolved release (v5.0) through the empirical-proportion and data-alignment work (v5.1 to v5.4) to the shore effort-unit resolution (v5.5). The run-driven Stan fixes that do not carry a framework tag are recorded in their own section below the version log, and the outstanding backlog closes the log.
 

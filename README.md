@@ -1,8 +1,8 @@
 # Recreational Crab Creel Estimation, Grays Harbor / Westport
 
-**Agency:** Washington Department of Fish and Wildlife (WDFW)
-**Lead:** Matt George
-**Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module.
+- **Agency:** Washington Department of Fish and Wildlife (WDFW)
+- **Lead:** Matt George
+- **Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module.
 
 ---
 
@@ -25,9 +25,9 @@ Both BSS models share the same effort model, the PE estimator, the I/E (ingress/
 
 ## Repository Layout
 
-The repository is organized into numbered stage folders that follow the order of the pipeline, from analysis driver through model code, helper functions, inputs, outputs, diagnostics, and documentation. Each folder has its own `README.md` with a full file inventory.
+The repository is organized into numbered stage folders that follow the order of the pipeline, from analysis driver through model code, helper functions, inputs, outputs, diagnostics, and documentation. Most folders have their own `README.md` with a file inventory.
 
-```
+```text
 Coastal-Rec-Crab-BSS/
 ├── 01_BSS_models/      Production .Rmd analysis drivers (pooled, gear-resolved)
 ├── 02_stan_models/     Stan model code (.stan) called by the drivers
@@ -36,6 +36,9 @@ Coastal-Rec-Crab-BSS/
 ├── 05_output/          Per-run outputs, one dated folder per run (YYYYMMDD)
 ├── 06_diagnostics/     Experimental / research .Rmd (weather-tide covariates)
 ├── 07_documentation/   Technical docs, change logs, equations, instructions
+├── run_config.R        Single control surface: user toggles and per-model settings
+├── run_estimation.R    Run orchestrator (sources run_config.R)
+├── README-R-functions.md   Inventory of the 03_R_functions/ helper library
 ├── README.md           This file
 ├── .gitignore
 └── Coastal-Rec-Crab-BSS.Rproj
@@ -45,7 +48,7 @@ Coastal-Rec-Crab-BSS/
 |---|---|---|
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
 | `02_stan_models/` | The three Stan models (pooled, gear-resolved, weather-adjusted) | [02_stan_models/README.md](02_stan_models/README.md) |
-| `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [03_R_functions/README.md](03_R_functions/README.md) |
+| `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
 | `04_input_files/` | `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx` | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
 | `06_diagnostics/` | The experimental weather-tide covariate driver | [06_diagnostics/README.md](06_diagnostics/README.md) |

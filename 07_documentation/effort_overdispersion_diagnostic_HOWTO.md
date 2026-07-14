@@ -1,9 +1,9 @@
 # Effort over-dispersion diagnostic: how to run and read it
 
-**Companion to:** `R_functions/diagnose_effort_overdispersion.R`
-**Purpose:** T1.5 step 2 of `CODE_IMPROVEMENTS_REVIEW_v7.0.md`. Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
-**Date:** 2026-06-22
-**No em dashes per project convention.**
+- **Companion to:** `R_functions/diagnose_effort_overdispersion.R`
+- **Purpose:** T1.5 step 2 (see `development_notes/PIPELINE_STATUS.md`, Section 4). Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
+- **Date:** 2026-06-22
+- **No em dashes per project convention.**
 
 ---
 
@@ -48,7 +48,7 @@ Both call the same function. It writes only CSVs and changes nothing in the mode
 
 Each effort count is `NB2(mu_i, r_E)` with `mu_i = lambda_E[d_i] * R` (R is `R_G` for gear, `R_T` for trailer). `NB2(mu, r)` has variance `mu + mu^2/r`. Integrating the predictive over the posterior of `(mu_i, r_E)` and applying the law of total variance:
 
-```
+```text
 Var(Y_i) = E[mu_i]            (V_poisson:  irreducible Poisson floor)
          + E[mu_i^2 / r_E]    (V_nb:       NB observation over-dispersion)
          + Var(mu_i)          (V_latent:   process + parameter uncertainty)

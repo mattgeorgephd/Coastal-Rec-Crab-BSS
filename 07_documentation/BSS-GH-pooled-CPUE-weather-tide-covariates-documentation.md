@@ -1,10 +1,10 @@
-# BSS-GH Weather & Tide Covariate Module — Technical Documentation
+# BSS-GH Weather & Tide Covariate Module: Technical Documentation
 
-**Author:** Matt George (WDFW), with implementation support
-**File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
-**Version:** 0.2.1
-**Date:** 2026-06-17
-**Companion to:** `BSS-GH-pooled-CPUE-model.Rmd` and `BSS-GH-pooled-CPUE-model-documentation.md`
+- **Author:** Matt George (WDFW), with implementation support
+- **File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
+- **Version:** 0.2.1
+- **Date:** 2026-06-17
+- **Companion to:** `BSS-GH-pooled-CPUE-model.Rmd` and `BSS-GH-pooled-CPUE-model-documentation.md`
 
 ---
 
@@ -31,7 +31,7 @@ Three principles drove the design:
 
 ### 1.3 Integration flow
 
-```
+```text
   BSS-GH-pooled-CPUE-model.Rmd          (existing; baseline)
           |
           |  produces dwg, ie_data, days, summaries
@@ -109,6 +109,7 @@ Three principles drove the design:
 ### 2.4 Caching
 
 All fetched data is cached as RDS files under `cache/weather_tide/`, keyed by date range:
+
 - `tide_{start}_{end}.rds`
 - `ndbc_{start}_{end}.rds`
 - `asos_{start}_{end}.rds`
@@ -362,6 +363,7 @@ All outputs are written to `output/{run_date}/pooled-CPUE-covariates/`.
 ### 7.7 File naming convention
 
 `{label}` in output filenames follows: `{population}_{sub_season}_{catch_group}`
+
 - Examples: `shore_ring_net_only_Dungeness_Kept`, `private_boat_all_gear_Dungeness_Kept`.
 
 ---

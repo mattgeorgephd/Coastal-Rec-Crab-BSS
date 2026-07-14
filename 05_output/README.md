@@ -6,7 +6,7 @@ For the meaning of the populations, sub-seasons, and the PE-vs-BSS gate referenc
 
 ## Folder structure
 
-```
+```text
 05_output/
   <run_date>/                 # YYYYMMDD, set by run_date <- format(Sys.Date(), "%Y%m%d")
     <model>/                  # one subfolder per driver run that day
@@ -21,7 +21,7 @@ The `<model>` subfolder name is whatever the driver set, and it has changed acro
 
 Most per-population files follow:
 
-```
+```text
 <metric>_<population>_<species>_<fate>.{csv,png}
 ```
 

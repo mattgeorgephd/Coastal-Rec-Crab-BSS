@@ -1,6 +1,6 @@
 # 04_input_files
 
-The raw season data the drivers read. These are the only inputs a local run needs; everything in `05_output/` is regenerated from these four files plus the model and parameter settings. Reads are done with `here("04_input_files", <name>)`, so the files are found regardless of which driver knits or where it sits.
+The raw season data the drivers read. These are the only inputs a local run needs; everything in `05_output/` is regenerated from these input files plus the model and parameter settings. Reads are done with `here("04_input_files", <name>)`, so the files are found regardless of which driver knits or where it sits.
 
 For what the estimate is and how these feed the PE and BSS paths, see the [root README](../README.md).
 

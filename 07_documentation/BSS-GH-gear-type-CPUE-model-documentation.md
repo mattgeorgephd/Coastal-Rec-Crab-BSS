@@ -11,7 +11,7 @@
 
 ------------------------------------------------------------------------
 
-### How to read this document
+## How to read this document
 
 This is the single authoritative reference for the gear-resolved harvest estimation pipeline (`01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd`), the Stan model it fits (`02_stan_models/crab_bss_gear_resolved.stan`), the diagnostics it runs, and the inputs and outputs it uses. It is written for two audiences and is split into three parts:
 
@@ -23,13 +23,13 @@ The development history (how the model reached v5.5, the full version-by-version
 
 A note on naming: this is the "gear-resolved" model because it is written to estimate a catch-rate (CPUE) process per gear type. The companion "pooled" model, documented in `BSS-GH-pooled-CPUE-model-documentation.md`, uses a single CPUE process shared across gear types and is the published v1, because it is the more robust of the two and answers the primary management question (total harvest with defensible uncertainty). The gear-resolved model is the alternative when the gear-type decomposition is what is needed. An important current caveat, stated up front and in full in Section 16: the model is written for a per-gear CPUE process, but the production configuration runs with a single gear dimension (G = 1), so the per-gear machinery is inert and gear-type catch is apportioned from interview proportions rather than independently modeled. The fully modeled per-gear path is specified but not yet built.
 
-================================================================
+---
 
-# PART I: FOR EVERYONE
+## PART I: FOR EVERYONE
 
 ------------------------------------------------------------------------
 
-## 1. What this method produces
+### 1. What this method produces
 
 This framework estimates the total recreational Dungeness crab (*Metacarcinus magister*) harvest at Westport and the greater Grays Harbor area for a season, and organizes that harvest by gear type (pots, ring nets, foldable/star traps, snares). It combines four kinds of field observations (gear counts at the docks, trailer counts at the boat launch, dockside crabber interviews, and ingress/egress surveys) with a statistical model that fills in the days when no sampling occurred.
 
@@ -49,7 +49,7 @@ Each run produces:
 
 ------------------------------------------------------------------------
 
-## 2. The fishery and study area
+### 2. The fishery and study area
 
 The recreational Dungeness crab fishery at Westport is one of the highest-volume recreational crabbing operations on the Washington coast. Thousands of crabbers participate annually using four primary gear types: crab pots (highest catch rate), ring nets, foldable/star traps, and snares. The fishery operates year-round, though effort peaks during summer months and around major holidays. WDFW rules prohibit pots from late September through November, which creates a structural break in both effort and catch rates and is the reason the season is split into two sub-seasons (Section 5).
 
@@ -61,7 +61,7 @@ Westport sits on the south side of the Grays Harbor estuary. Recreational crabbi
 
 ------------------------------------------------------------------------
 
-## 3. The data streams and field collection
+### 3. The data streams and field collection
 
 The framework requires four data streams. Three are collected by WDFW field staff using Apple iPads running the WDFW iForm "Crab Creel Survey" application; the fourth is the all-day ingress/egress survey.
 
@@ -72,7 +72,7 @@ The framework requires four data streams. Three are collected by WDFW field staf
 | **Commercial/charter tally** | Daily count of commercial and charter vessels at the marina during the recreational pre-season | The commercial/charter component of harvest, via expansion |
 | **Ingress/egress (I/E) surveys** | All-day surveys recording crabber arrivals and departures | A direct measurement that identifies the deployment turnover (tau) used to expand effort |
 
-### 3.1 Effort counts
+#### 3.1 Effort counts
 
 Field staff visit sites and record the number of crabbing indicators visible. Protocol calls for multiple counts per day at standardized times; the number of within-day counts affects the model's ability to estimate within-day variability.
 
@@ -88,7 +88,7 @@ Float 20 and Float 17-21 counts are paired by time and summed, because dock crab
 
 **Assumptions.** A point-in-time count reflects relative effort on that day; time-of-day introduces noise but not systematic bias; the surveyor's count is accurate.
 
-### 3.2 Crabber interviews
+#### 3.2 Crabber interviews
 
 Interviews record trip-level information: number of crabbers, number of gear units, gear type(s) (select all that apply from pot, ring net, trap, snare), hours fished, crabber-hours, Dungeness crab kept, Red Rock crab kept, trip completion status, crabbing mode (Dock, Boat, Jetty, Beach), and boat type (Private, Commercial, Charter, Guide). They provide the catch rate, the gear-per-group ratios (R_G for shore, R_G_boat for boats), and, critically for this model, the gear type(s) each crabber used.
 
@@ -106,13 +106,13 @@ Interviews record trip-level information: number of crabbers, number of gear uni
 
 **Assumptions.** Interviewed crabbers are representative of their population, conditional on trip completion; crabbers accurately report catch, hours, group size, and gear types; the gear type(s) reported reflect what was actually deployed; completed trips give an unbiased estimate of the day's average catch per unit effort, and incomplete trips are a left-censored observation excluded to avoid a downward bias.
 
-### 3.3 Commercial/charter vessel tally
+#### 3.3 Commercial/charter vessel tally
 
 Daily counts of commercial crab vessels and charter boats at Westport Marina during the pre-season window when these vessels crab recreationally. Commercial vessels have much higher per-vessel catch and are hard to interview comprehensively, so the tally provides a census-like measure of vessel-days for a day-type-stratified expansion.
 
 **Assumptions.** The tally captures all participating vessels on each sampled day; mean harvest per vessel from interviews applies to uninterviewed vessels; the tally is stratified by day type to prevent sampling bias.
 
-### 3.4 Ingress/egress (I/E) surveys
+#### 3.4 Ingress/egress (I/E) surveys
 
 All-day surveys that record crabber arrivals and departures. As of the shared day-length module the gear-resolved pipeline uses the same I/E workbook the pooled model uses, to identify the deployment turnover `tau` that expands effort (Section 14.2). When enough I/E days fall inside a fit's window, they constrain `tau`; when they do not, `tau` rests on its prior (a standing dependence for the boat; Section 16, GR-12).
 
@@ -120,7 +120,7 @@ The four input files that carry these streams are listed in Section 7; their exa
 
 ------------------------------------------------------------------------
 
-## 4. How the estimate is built
+### 4. How the estimate is built
 
 Field crews cannot sample every day. Both methods solve the same problem (estimate harvest on unsampled days), but differently.
 
@@ -132,7 +132,7 @@ Field crews cannot sample every day. Both methods solve the same problem (estima
 
 ------------------------------------------------------------------------
 
-## 5. The three population components and the two sub-seasons
+### 5. The three population components and the two sub-seasons
 
 The harvest is built from three components, estimated separately and summed:
 
@@ -163,17 +163,17 @@ The pot-closure sub-season uses biweekly BSS periods rather than monthly: with o
 
 ------------------------------------------------------------------------
 
-## 6. Where this method is valid
+### 6. Where this method is valid
 
 Method v1.0 is calibrated to the Westport / Grays Harbor fishery as sampled in the 2024-25 season. It is designed to be re-run in future seasons **provided the fishing location, the input data streams, and the sampling design remain the same.** Section 13 sets out which assumptions are baked in and the specific conditions under which the method must be re-derived rather than re-run. In short: a different port, a change in how effort counts are taken, or a structural change in who participates would each require revisiting the method, not just feeding it new data.
 
-================================================================
+---
 
-# PART II: RUNNING IT NEXT SEASON
+## PART II: RUNNING IT NEXT SEASON
 
 ------------------------------------------------------------------------
 
-## 7. Prerequisites and repository layout
+### 7. Prerequisites and repository layout
 
 **Software.** R 4.2 or later, with rstan 2.32 or later and a working C++ toolchain (rstan compiles the model), plus the packages tidyverse, lubridate, suncalc, gt, patchwork, here, and readxl. The gear-resolved driver now reads the I/E workbook through the shared day-length module, so `readxl` is required even though earlier gear-resolved runs did not need it.
 
@@ -200,7 +200,7 @@ Method v1.0 is calibrated to the Westport / Grays Harbor fishery as sampled in t
 
 ------------------------------------------------------------------------
 
-## 8. Step-by-step: running a season
+### 8. Step-by-step: running a season
 
 1. **Place the new season's data** in `04_input_files/`, keeping the four filenames and column schemas unchanged. Honor the schema quirks in the input-folder README (re-export the effort CSV with full quoting; interview dates are M/D/YYYY; the commercial boat-type spelling is matched by a case-insensitive regex).
 2. **Edit `run_config.R`**, the one file you touch. Set `model <- "gear_resolved"`, then the values you change most often: `est_date_start` and `est_date_end` (the season window), `season_filter`, the structural dates (`pot_open_date`, `census_start_date`, `census_end_date`), and the season's `crabbing_holiday_dates`. Leave `bss_seed` fixed (default 20260619) for reproducibility. The effort unit is set here too (`shore_effort_unit`, defaulting to `"gear-deployments"`; Section 14.2). Do not run the weather module with this model: `run_weather` is only valid with the pooled model, and the orchestrator stops early if you set it TRUE here.
@@ -210,7 +210,7 @@ Method v1.0 is calibrated to the Westport / Grays Harbor fishery as sampled in t
 
 ------------------------------------------------------------------------
 
-## 9. Judging whether a season's estimate is trustworthy
+### 9. Judging whether a season's estimate is trustworthy
 
 This is the most important section for an operator. For each BSS fit, the framework applies the shared scale-aware convergence gate, reported per fit in `convergence_report.csv`. A fit **passes**, and its BSS estimate is used for that component, when all of the following hold; otherwise the PE estimate is used:
 
@@ -231,7 +231,7 @@ Why divergences are in the gate: a sampler that cannot accurately integrate its 
 
 ------------------------------------------------------------------------
 
-## 10. Output catalog
+### 10. Output catalog
 
 Each run writes to `05_output/YYYYMMDD/gear-type-CPUE-model/`. Files tagged with a population follow the pattern `<metric>_<population>_Dungeness_Kept.{csv,png}`, where population is one of `shore_ring_net_only`, `shore_all_gear`, or `private_boat_all_gear`. The commercial/charter component has no separate BSS file; it enters the port total by census expansion.
 
@@ -273,7 +273,7 @@ Per-fit daily series (`bss_daily_effort_*`, `bss_daily_cpue_*`, `bss_daily_catch
 
 ------------------------------------------------------------------------
 
-## 11. Diagnostics: what each one answers
+### 11. Diagnostics: what each one answers
 
 The diagnostics are additive (each is wrapped so a failure cannot break a run) and are written every run. The CPUE effort-unit checks are the ones most central to this model, because the harvest total is a constant-CPUE season expansion and is only unbiased if catch scales with the chosen effort unit.
 
@@ -281,7 +281,7 @@ The diagnostics are additive (each is wrapped so a failure cannot break a run) a
 
 **Effort over-dispersion decomposition.** `effort_overdispersion_decomp_<label>.csv` splits each effort observation's predictive variance into three additive parts via the law of total variance:
 
-```
+```text
 Var(Y) = E[mu]            (Poisson floor: irreducible, not a lever)
        + E[mu^2 / r_E]    (NB observation over-dispersion: controlled by the r_E / sigma_r_E prior)
        + Var(mu)          (latent process + parameter uncertainty: controlled by sigma_eps_E)
@@ -299,7 +299,7 @@ The `lever` column reports the verdict: if the NB-overdispersion share dominates
 
 ------------------------------------------------------------------------
 
-## 12. Reproducibility
+### 12. Reproducibility
 
 The Stan fits take a fixed RNG seed (`bss_seed`, default 20260619), passed to `rstan::stan()`. rstan seeds each chain from `bss_seed + chain_id`, so the chains still differ (R-hat remains meaningful) while run-to-run variation is removed. Package and Stan versions and the seed are written to `session_info.txt` with each output set. Change `bss_seed` only if a pathological seed is ever suspected.
 
@@ -307,7 +307,7 @@ To reproduce a run: clone `Coastal-Rec-Crab-BSS`; place the four input files in 
 
 ------------------------------------------------------------------------
 
-## 13. Scope: when this method applies, and when it must be re-derived
+### 13. Scope: when this method applies, and when it must be re-derived
 
 Method v1.0 is built for one fishery under one sampling design. It can be re-run season after season as long as the following hold. Where one breaks, the method must be revisited, not merely re-fed.
 
@@ -327,23 +327,23 @@ Method v1.0 is built for one fishery under one sampling design. It can be re-run
 - **A structural change in participation.** For example, a change in how commercial/charter vessels participate pre-season, or the opening of a new major access point (a jetty effort count, currently absent), would change what the components represent.
 - **A move to genuinely modeled per-gear catch.** Activating the per-gear CPUE path (raising the gear dimension above one; Section 16, GR-7) is a re-derivation, not a re-run: it requires an effort-share offset and a rule for multi-gear interviews, and it changes what the gear-type numbers mean.
 
-================================================================
+---
 
-# PART III: TECHNICAL REFERENCE
+## PART III: TECHNICAL REFERENCE
 
 ------------------------------------------------------------------------
 
-## 14. Model specification (`crab_bss_gear_resolved.stan`)
+### 14. Model specification (`crab_bss_gear_resolved.stan`)
 
-### 14.1 Effort process (shared with the pooled model)
+#### 14.1 Effort process (shared with the pooled model)
 
-```
+```text
 log(lambda_E[d]) = mu_E + omega_E[period(d)] + B1 * w[d] + B2 * holiday[d]
 ```
 
 The temporal deviation `omega_E` evolves as an AR(1) process:
 
-```
+```text
 omega_E[p] = phi_E * omega_E[p-1] + sigma_eps_E * epsilon[p-1]
 ```
 
@@ -351,7 +351,7 @@ where `period(d)` maps day `d` to its AR period index (biweekly for the ring-net
 
 **Adaptive resolution is off by default.** The AR resolution is fixed per sub-season (biweekly ring-net, monthly all-gear) with `ar_adaptive = FALSE`. The data-driven selector and per-population caps (shared `bss_ar_resolution.R`) are available by setting `ar_adaptive = TRUE`, but that is inference-changing and should be validated first. The fixed coarse AR is why the latent process carries only a small share of effort variance (Section 11, GR-14).
 
-### 14.2 Population effort construction and the gear-deployment effort unit
+#### 14.2 Population effort construction and the gear-deployment effort unit
 
 As of framework v5.5 **both fitted components run on gear-deployments** (pot lifts), routed through the shared module `03_R_functions/bss_effort_spec.R` so the BSS and PE always share a unit. The CPUE denominator is the number of gear deployments (`h = number_of_gear`), and the daily effort expansion is `L = tau`, the deployment turnover (how many times gear is pulled and reset per day). Effort in deployment units is formed as `E = lambda_E * E_scale * L`, and the run asserts that `E` and `h` carry the same unit before sampling.
 
@@ -365,9 +365,9 @@ As of framework v5.5 **both fitted components run on gear-deployments** (pot lif
 
 **Assumptions.** Dock gear count is proportional to total shore effort; `R_G` and `R_G_boat` are constant within a sub-season; every crabbing boat trailers a vehicle and trailer counts capture all private boat crabbing; jetty and beach effort is captured via the dock count as a spatial proxy; mean catch per commercial vessel is constant within each day-type stratum.
 
-### 14.3 Gear-type CPUE processes
+#### 14.3 Gear-type CPUE processes
 
-```
+```text
 log(lambda_C_gear[d, g]) = mu_C_gear[g] + omega_C_gear[period(d), g] + B1_C * w[d]
 ```
 
@@ -379,7 +379,7 @@ Each gear type `g` has its own baseline catch rate `mu_C_gear[g]` and its own AR
 
 **Assumptions.** Each gear type's CPUE evolves smoothly; gear types share the degree of temporal autocorrelation but have independent process variability; CPUE does not vary by day type within a period beyond the shared `B1_C` weekend/holiday effect.
 
-### 14.4 Weighted gear-type classification of interviews
+#### 14.4 Weighted gear-type classification of interviews
 
 Before classification, interviews are filtered for quality: only completed trips with at least `min_fishing_time` (default 0.5) crabber-hours are included. Gear types prohibited by regulation during the sub-season are then removed from each interview's gear list and the fractional weight is redistributed to the remaining reported types (Section 5). Gear types are detected with word-boundary regular expressions (`\bpot\b`, `\bring\s*net\b`, `\b(trap|star)\b`, `\bsnare\b`).
 
@@ -389,11 +389,11 @@ These weights build the `gear_weights` matrix and, aggregated, the `pi_gear` pro
 
 **Assumptions.** Equal weighting is a reasonable proxy when per-gear catch is not recorded; at least 15 effective interviews per gear type are needed for independent modeling, below which the type is collapsed; interviews with unrecognized gear types are assigned to the most common type.
 
-### 14.5 Gear-type proportions and their uncertainty
+#### 14.5 Gear-type proportions and their uncertainty
 
 The fraction of crabbers using each gear type, `pi_gear`, is computed from interview data as empirical proportions stratified by period and day type, with Laplace smoothing (alpha = 1) to prevent zero proportions:
 
-```
+```text
 pi_gear[period, day_type, g] = (n_weighted[period, day_type, g] + 1) / (N_weighted[period, day_type] + G_gear)
 ```
 
@@ -401,7 +401,7 @@ When a period by day-type cell has no interviews, the model falls back to period
 
 **Propagation.** In the generated quantities block, gear-type proportions are drawn from a Dirichlet posterior on each MCMC iteration, using the conjugate Dirichlet-multinomial relationship (Gelman et al. 2013, Ch. 3) with the raw weighted counts plus the Laplace constant as concentration parameters:
 
-```
+```text
 pi_draw[g] ~ Dirichlet(n_weighted[period, day_type, g] + 1,  for g = 1..G_gear)
 ```
 
@@ -409,7 +409,7 @@ In data-rich strata the draws are tightly concentrated around the point estimate
 
 **Assumptions.** Gear proportions vary by period and day type; in sparse strata the model borrows strength through the fallback hierarchy and the Dirichlet sampling reflects the reduced information through wider intervals; Laplace smoothing is adequate regularization.
 
-### 14.6 Observation models
+#### 14.6 Observation models
 
 - Gear counts (shore): `Gear_I ~ NegBinomial2(lambda_E * R_G, r_E)`, where `lambda_E` is crabbers and `R_G` is gear per crabber.
 - Trailer counts (boat): `T_I ~ NegBinomial2(lambda_E / R_G_boat, r_E)`, where `lambda_E` is gear in the water and `lambda_E / R_G_boat` is boat groups.
@@ -420,23 +420,23 @@ In data-rich strata the draws are tightly concentrated around the point estimate
 
 The negative binomial accommodates the overdispersion typical of recreational trip-level catch and count data (Maunder and Punt 2004; Hilbe 2011).
 
-### 14.7 Effort overdispersion (marginalized)
+#### 14.7 Effort overdispersion (marginalized)
 
 Each effort count is negative binomial with shape `r_E`. This was originally written as a Poisson-Gamma mixture with an explicit per-observation latent multiplier (a sparse parameterization that allocated a multiplier only for actual observations). Because the Gamma-Poisson mixture integrates exactly to the negative binomial (Hilbe 2011), the latent multipliers are marginalized analytically and the negative binomial is written directly (parity port B1.5). The change is inference-preserving (identical mean and variance), removes a high-dimensional latent block from the sampler, and makes the model block consistent with the `log_lik` block. The former per-observation count field is retained only for R-interface compatibility.
 
-### 14.8 I/E integration and effective day length
+#### 14.8 I/E integration and effective day length
 
 On I/E survey days, an observed ingress count enters as a lognormal constraint on the predicted trips (`lambda_E * L` on the shore/deployment scale, `lambda_E / R_G_boat * tau` on the boat group scale), a second independent constraint on the latent effort state that identifies the turnover `tau`. When no I/E data fall in a fit's window, the I/E likelihood contributes nothing and `tau` rests on its prior. The prior on the I/E scale `sigma_IE` is applied unconditionally (parity port B1.6), so that with no I/E data `sigma_IE` is proper rather than an improper flat direction; because it is decoupled from effort and catch in that case, this leaves those posteriors unchanged.
 
 For shore, an effective-day-length regression (log effective day length on a day-of-year quadratic and day type, fit from the I/E data) supplies the historical `L_effective` and remains available as a diagnostic; under the gear-deployment unit the shore expansion is the turnover `tau_shore` rather than an hours-based day length. Civil twilight (computed daily from `suncalc` at the Westport centroid, 46.904 N, 124.105 W, clamped to 9 to 17 hours) is retained only as a diagnostic column and as the last-resort fallback rung when there is effectively no I/E data.
 
-### 14.9 Daily catch by gear type
+#### 14.9 Daily catch by gear type
 
 The model produces two complementary representations of daily gear-type catch.
 
 **Expected daily catch** (`C_gear`), the deterministic product of the latent effort, the expansion, the gear-type proportion, and the gear-type CPUE for each MCMC iteration:
 
-```
+```text
 C_gear[d, g] = lambda_E[d] * E_scale * L[d] * pi_gear[period(d), day_type(d), g] * lambda_C_gear[d, g]
 ```
 
@@ -444,13 +444,13 @@ This uses the point-estimate `pi_gear` and adds no stochastic sampling; its spre
 
 **Predicted daily catch** (`C_gear_pred`), which adds gear-proportion sampling and count noise on top of the expected value:
 
-```
+```text
 C_gear_pred[d, g] = Poisson_draw(lambda_E[d] * E_scale * L[d] * pi_draw[g] * lambda_C_gear[d, g])
 ```
 
 where `pi_draw` is a Dirichlet sample for that day's period by day-type stratum (Section 14.5). Season totals (`C_sum`, `C_sum_gear`) and their credible intervals are computed from `C_gear_pred`, so the reported bounds account for effort, CPUE, gear-type allocation, and count noise. Using only the expected value for totals would understate uncertainty by omitting allocation variance; using only the predicted value for daily plots would produce noisy trajectories that obscure the trend.
 
-### 14.10 Key parameters and priors
+#### 14.10 Key parameters and priors
 
 | Parameter | Description | Prior |
 |---|---|---|
@@ -469,7 +469,7 @@ where `pi_draw` is a Dirichlet sample for that day's period by day-type stratum 
 
 Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in the relevant population by sub-season, eliminating prior-posterior conflict. `R_G_boat` is given a proper unconditional Lognormal(log 4, 0.5) prior, centered on about 4 gear per group; this prior is applied in every fit, including shore fits where `R_G_boat` enters no likelihood, because a bounded-below parameter with no prior and no likelihood carries an unbounded Jacobian direction that otherwise runs away (fix marker F1). The half-Cauchy(0, 2) variance priors are weakly informative; on the log scale, scale 2 implies a plausible factor of about `exp(2) = 7.4` change between periods, which accommodates genuine seasonal variation while preventing implausible magnitudes in data-sparse strata (Gelman 2006).
 
-### 14.11 Generated quantities and Stan file status
+#### 14.11 Generated quantities and Stan file status
 
 - `C_expected_sum` is the deterministic seasonal total used by the convergence gate (parity port B1.8), summed from `lambda_E * E_scale * L * lambda_C_gear` over days and gear.
 - `C[d, g] = Poisson_rng(...)` gives predictive daily draws including Poisson noise, reported separately for prediction intervals; `C_gear` and `C_gear_pred` are the trajectory and total quantities of Section 14.9.
@@ -480,7 +480,7 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
 
 ------------------------------------------------------------------------
 
-## 15. Design decisions and their rationale
+### 15. Design decisions and their rationale
 
 - **Two sub-seasons** are estimated independently because the pot closure creates a structural break in both effort and catch rates; pooling across it would blur two different regimes.
 - **A per-gear CPUE architecture** is the point of this model: gear regulations are a primary management lever, and a modeled per-gear catch rate with its own uncertainty is what supports regulatory questions that a proportional split cannot. The architecture is built even though the production configuration runs it inert at G = 1 (Section 16).
@@ -494,7 +494,7 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
 
 ------------------------------------------------------------------------
 
-## 16. Limitations and future directions
+### 16. Limitations and future directions
 
 **The standing caveats, stated honestly.**
 
@@ -524,13 +524,13 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
 
 ------------------------------------------------------------------------
 
-## 17. Weather and tide covariates: not used here
+### 17. Weather and tide covariates: not used here
 
 A weather-and-tide covariate module exists in the pooled track (`06_diagnostics/`) as a research diagnostic. It was built and run on the 2024-25 season to test whether weather improves the estimate, and the conclusion, documented in `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`, was to exclude covariates for all components under a pre-committed PSIS-LOO improvement margin: weather drives effort (not CPUE), and on routine data the AR(1) process already does the gap interpolation that weather could otherwise help with, so the covariate models were narrower but predicted held-out data worse. The gear-resolved model does not use the weather-tide module, and `run_weather` is only valid with the pooled model. The module is retained as a pooled-track contingency for seasons with extended sampling gaps under anomalous weather, evaluated by leave-one-week-out block cross-validation.
 
 ------------------------------------------------------------------------
 
-## 18. Glossary
+### 18. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -573,7 +573,7 @@ A weather-and-tide covariate module exists in the pooled track (`06_diagnostics/
 
 ------------------------------------------------------------------------
 
-## 19. Development history (summary)
+### 19. Development history (summary)
 
 Method v1.0 corresponds to gear-resolved framework code **v5.5** (2026-07-11). The model began as an adaptation of the WDFW freshwater-creel state-space framework, shared a single milestone line with the pooled model through v4, and branched at v5.0 into an independent gear-resolved track. The arc in one screen:
 
@@ -583,7 +583,7 @@ Method v1.0 corresponds to gear-resolved framework code **v5.5** (2026-07-11). T
 - **v5.3-v5.4:** the R-side data prep was aligned with the boat formulation the Stan model then expected (later superseded by the deployment scale), and the R-hat gate was tightened from 1.05 to 1.01 (Vehtari et al. 2021), in step with the pooled track.
 - **v5.5 (2026-07-11):** shore was moved onto the gear-deployment effort unit to match the boat, so both fitted components now share one effort unit with each other and with the pooled track. Chosen from the 2026-07-10 shore LOO comparison as the only harvest-unbiased shore unit (`beta_h = 1.05`, covering 1, against 0.57 for crabber-hours and 0.73 for gear-hours), on harvest-unbiasedness rather than marginal predictive fit. Resolves backlog GR-16 and sets `loo_effort_unit_comparison = FALSE` for production. This entry also retroactively records that the boat had already moved to gear-deployments via the shared effort module (fix markers F1, F2, P1).
 
-The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the gear-deployment scale, the single largest quantitative move in the model's history; F4 the CPUE diagnostics; F5 reporting; P0 the point-estimator population and ratio-of-sums fix; P1 the configurable effort unit; P2 the mu-hierarchy collapse) and the pooled parity ports (B1.3, B1.5, B1.6, B1.8, B1.9) are recorded, with their before/after numbers and the F1/F2 and P0 working notes, in **`BSS-GH-gear-type-CPUE-model-development-history.md`**. The outstanding backlog (GR-7 to GR-17) lives in `07_documentation/development_notes/20260710-OUTSTANDING_ISSUES.md`.
+The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the gear-deployment scale, the single largest quantitative move in the model's history; F4 the CPUE diagnostics; F5 reporting; P0 the point-estimator population and ratio-of-sums fix; P1 the configurable effort unit; P2 the mu-hierarchy collapse) and the pooled parity ports (B1.3, B1.5, B1.6, B1.8, B1.9) are recorded, with their before/after numbers and the F1/F2 and P0 working notes, in **`BSS-GH-gear-type-CPUE-model-development-history.md`**. The outstanding backlog (GR-7 to GR-17) lives in `07_documentation/development_notes/PIPELINE_STATUS.md`.
 
 **Reference-run figures, and a note on staleness.** The last full assembled totals on record are from the 2026-07-09 and 2026-07-10 reference runs, before the v5.5 shore deployment move. Because v5.5 changes the shore effort unit, the shore components must be refreshed by a v5.5 run before they are cited as current.
 
@@ -599,7 +599,7 @@ The 2026-07-10 run was the first in which all three fitted components reported o
 
 ------------------------------------------------------------------------
 
-## 20. References
+### 20. References
 
 Betancourt, M. (2017). A conceptual introduction to Hamiltonian Monte Carlo. *arXiv preprint* arXiv:1701.02434.
 
