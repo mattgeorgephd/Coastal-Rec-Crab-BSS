@@ -30,6 +30,13 @@ Thumbs.db
 *~
 .RDataTmp
 
+# --- R Markdown intermediate render artifacts ---
+# rmarkdown writes figures/deps to <report>_files/ next to the .Rmd during a
+# render and normally deletes it once the self-contained HTML is built; an
+# interrupted render (e.g. a killed or hung fit) leaves it behind. It is a
+# regenerable build artifact, so it is never tracked.
+*_files/
+
 # --- Saved R workspaces ---
 # RMD runs may dump a *_workspace.RData into their output/<date>/<model>/ folder.
 # These are large, regenerable, and machine-local, so they are not tracked. This

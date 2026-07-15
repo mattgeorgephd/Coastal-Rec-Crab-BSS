@@ -53,6 +53,14 @@ run_weather <- FALSE           # TRUE also runs the weather-tide covariate
 
 run_config <- list(
 
+  # --- Run label -----------------------------------------------------------
+  # Optional short label for THIS run's output subfolder, so same-day runs of a
+  # model no longer overwrite each other. Blank = the driver auto-appends a HHMMSS
+  # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
+  # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
+  # sets this per run automatically.
+  run_tag           = "",
+
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
   # resolved driver used "Rec Crab Grays Harbor Westport 2024-25" while pooled
@@ -233,7 +241,7 @@ run_config <- list(
   # an OPTIONAL same-day-effort density-dependence term (gamma_C) to CPUE; it couples the
   # CPUE and effort processes, so it is OFF by default and should be validated on a test
   # fit first. RE-COMPILES the Stan model.
-  estimate_cpue_density = TRUE,
+  estimate_cpue_density = FALSE,
 
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --

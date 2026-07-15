@@ -13,8 +13,10 @@ output:
     highlight: tango
 knit: >
   (function(input, ...) {
+    tag <- format(Sys.time(), "%H%M%S")
+    options(crab_run_tag = tag)
     d <- format(Sys.Date(), "%Y%m%d")
-    outdir <- file.path(dirname(dirname(normalizePath(input))), "05_output", d, "gear-type-CPUE-model")
+    outdir <- file.path(dirname(dirname(normalizePath(input))), "05_output", d, paste0("gear-type-CPUE-model-", tag))
     dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
     rmarkdown::render(input, output_dir = outdir, envir = new.env())
   })
@@ -101,9 +103,18 @@ sapply(load.lib, require, character=TRUE)
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
-# Create dated output directory
+# Create dated output directory. Unique per-run subfolder so same-day runs never
+# overwrite each other. run_config$run_tag (set in run_config.R, or by
+# run_rg_sweep.R) names the folder, e.g. gear-type-CPUE-model-run5; blank falls back
+# to a HHMMSS timestamp. The `knit:` block above stashes that timestamp in
+# options(crab_run_tag=) so a standalone RStudio knit keeps its HTML and this
+# driver's CSVs in the SAME folder.
 run_date <- format(Sys.Date(), "%Y%m%d")
-output_dir <- here("05_output", run_date, "gear-type-CPUE-model")
+.run_tag <- if (exists("run_config") && is.list(run_config) &&
+                !is.null(run_config$run_tag) && nzchar(run_config$run_tag)) {
+  run_config$run_tag
+} else getOption("crab_run_tag", format(Sys.time(), "%H%M%S"))
+output_dir <- here("05_output", run_date, paste0("gear-type-CPUE-model-", .run_tag))
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 
