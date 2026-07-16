@@ -41,7 +41,7 @@ model_rmd <- here::here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd")
 stopifnot(file.exists(model_rmd))
 
 # ---- Sweep grid ---------------------------------------------------------------
-rg_grid  <- c(1.0, 1.28, 1.5)   # R_G_prior_mu values (1.28 ~ the empirical value)
+rg_grid  <- c(1.28, 1.5)   # R_G_prior_mu values (1.28 ~ the empirical value)
 rg_sigma <- 0.3                 # prior SD; tighter binds harder (0.3 = production)
 
 banner <- function(msg) cat("\n", strrep("=", 74), "\n ", msg,
