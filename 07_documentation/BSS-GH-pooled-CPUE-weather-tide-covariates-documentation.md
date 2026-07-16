@@ -2,8 +2,8 @@
 
 - **Author:** Matt George (WDFW), with implementation support
 - **File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
-- **Version:** 0.2.1
-- **Date:** 2026-06-17
+- **Version:** 0.2.3
+- **Date:** 2026-06-21
 - **Companion to:** `BSS-GH-pooled-CPUE-model.Rmd` and `BSS-GH-pooled-CPUE-model-documentation.md`
 
 ---
@@ -11,6 +11,8 @@
 ## 1. Overview
 
 This module extends the Bayesian State-Space (BSS) pooled CPUE model for the Grays Harbor recreational Dungeness crab fishery by testing and optionally incorporating environmental covariates, specifically **tide features** and **weather/sea-state features**, into the daily log-linear predictors for effort (`lambda_E`) and CPUE (`lambda_C`).
+
+**Status note (not production):** this module is a forked, roughly v6.9-parity engine running on a pre-deployment-scale Stan model and has not been re-run, so its results must be re-based on the current pooled model before they are cited (see `PIPELINE_STATUS` Section 1 / T2.4).
 
 ### 1.1 Hypotheses tested
 

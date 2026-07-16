@@ -3,7 +3,7 @@
 ## Development history
 
 - **Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md` (the published gear-resolved method reference).
-- **Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.5** (2026-07-11), in which both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production.
+- **Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.6** (2026-07-12): both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production (v5.5), and `run_config.R` is now the base parameter set in parity with the pooled track's v7.9 (v5.6).
 - **Convention:** no em dashes.
 
 This file is the provenance record for the gear-resolved model. The published method document summarizes this history in one screen and refers here for the detail. Entries are newest-first. The version log traces the framework from the initial gear-resolved release (v5.0) through the empirical-proportion and data-alignment work (v5.1 to v5.4) to the shore effort-unit resolution (v5.5). The run-driven Stan fixes that do not carry a framework tag are recorded in their own section below the version log, and the outstanding backlog closes the log.
@@ -93,12 +93,12 @@ The Stan file `crab_bss_gear_resolved.stan` carries no vX.Y tag; it records its 
 
 ### Outstanding backlog (GR-7 to GR-17)
 
-The GR-series is maintained in `07_documentation/development_notes/20260710-OUTSTANDING_ISSUES.md`, which carries a per-item "Status after the 2026-07-10 run" block. An important caveat when reading the status column: the 2026-07-10 run's only code changes were P0, P1, and P2, so where a GR item's symptom cleared, the movement is usually a side-effect of P0 or P2 rather than a targeted GR fix. GR-8 is the clearest case: its funnel symptom cleared because P2 collapsed a separate `sigma_mu` level and pulled total divergences under the gate backstop, while the item's own proposed fix (the `ie_min_obs` guard and prior retune) never landed.
+The GR-series is maintained in `07_documentation/development_notes/20260710-OUTSTANDING_ISSUES.md`, which carries a per-item "Status after the 2026-07-10 run" block. An important caveat when reading the status column: the 2026-07-10 run's only code changes were P0, P1, and P2, so where a GR item's symptom cleared, the movement is usually a side-effect of P0 or P2 rather than a targeted GR fix. GR-8 is the clearest case: its funnel symptom cleared because P2 collapsed a separate `sigma_mu` level and pulled total divergences under the gate backstop, while the item's own proposed guard had not yet landed as of that run. (The `ie_min_obs_shore = 3` guard landed later, 2026-07-13, as batch item 5, resolving GR-8; the `sigma_IE` prior was deliberately left `exponential(5)`, so no prior retune was made. See the GR-8 row below.)
 
 | ID | Item | Status |
 | --- | --- | --- |
 | GR-7 | Option A / genuine per-gear CPUE unbuilt: `G = 1`, the per-gear machinery is inert, gear catch is PE-apportioned rather than modeled | OPEN |
-| GR-8 | `sigma_IE` funnel in shore_ring_net | PARTIAL. Symptom cleared by the P2 side-effect (divergences 598 -> 216, fraction 7.47% -> 2.7%), but the actual `ie_min_obs` guard / prior retune never landed; `sigma_IE` is still the #1 divergence driver (SMD -0.444) |
+| GR-8 | `sigma_IE` funnel in shore_ring_net | RESOLVED 2026-07-13 (item 5): the `ie_min_obs_shore = 3` guard landed in both models, dropping the I/E stream and decoupling `sigma_IE` for thin shore fits. The `sigma_IE` prior was deliberately left `exponential(5)` (per batch item 4), so the guard, not a prior retune, is the fix. |
 | GR-9 | shore_all_gear `sigma_IE = 0.603` unexplained | OPEN |
 | GR-10 | No `collapse_mu_hier` config lever (`use_mu_hier` is hardcoded) | OPEN |
 | GR-11 | Gate policy: the hard 5% divergence backstop overrides the scale-aware impact test | OPEN |
@@ -143,7 +143,7 @@ These are the consolidated working notes behind fix-marker P0 (2026-07-10, commi
 
 ## Appendix C: Numbers of record
 
-The two runs that bracket the F and P series. These are the component-level numbers the totals were assembled from; they are preserved here because the fit objects are not saved and the run outputs are the only durable record.
+The two runs that bracket the F and P series, plus the 2026-07-13 gear-resolved validation run (Run 2). These are the component-level numbers the totals were assembled from; they are preserved here because the fit objects are not saved and the run outputs are the only durable record.
 
 **20260709 run (commit 564071b).** Before the P0 PE fix and before the shore effort-unit decision.
 
@@ -166,14 +166,20 @@ Reported port total 88,238 (95% CI 75,656-106,266), using the PE for shore_ring_
 
 The 20260710 run is the first in which all three fitted components report on their BSS posteriors on the corrected effort scales, with the PE serving as a consistent cross-check rather than an inflated fallback. Framework v5.5 (2026-07-11) then moved the shore component onto gear-deployments to match the boat and closed GR-16.
 
+**20260713 run (Run 2), gear-resolved default.** The independent cross-check on the pooled Run 1.
+
+-   Reported port total BSS 82,995 (95% CI 70,238-101,111); all 3 fitted components pass the gate.
+-   Boat all-gear BSS 43,314, matching the pooled Run 1 boat (43,180) to 0.3% and confirming cross-model boat consistency on the deployment scale.
+-   Shore ring-net (the pot-closure sub-season) passes cleanly at biweekly AR (22 divergences, 0.27%), where the pooled ring-net failed at daily AR (1,165 divergences); this is the evidence that coarser shore AR is the fix for that pooled regression.
+-   Carries the 2026-07-13 gear-touching batch items: the stale crabber-hours labels fixed to gear-deployments (item 8), the PE monthly-share consolidated into `pe_monthly_effort_share.R` with the gear boat PE-fallback moved onto the deployment formula (item 9), and the PE empty-stratum pooled fallback applied to both PE tracks (item 2).
+
 ------------------------------------------------------------------------
 
 ## Current production configuration
 
-For a reader running the model today, the production state as of framework v5.5 (2026-07-11) is:
+For a reader running the model today, the production state as of framework v5.6 (2026-07-12) is:
 
 -   **Effort units.** Shore and boat both on gear-deployments (`h = number_of_gear`, `L = tau`); `loo_effort_unit_comparison = FALSE`. Both units have a linearity `beta_h` covering 1, so the season expansion is harvest-unbiased.
 -   **Fitted components.** Shore ring-net, shore all-gear, and private boat all-gear are fit as BSS and, in the latest run, all pass the convergence gate; commercial and charter is a census tally. `private_boat_ring_net` never fits and falls back to PE (GR-15).
 -   **Gates and filters.** R-hat < 1.01, n_eff > 400, a divergence-fraction backstop at 5%, and the scale-aware impact test (GR-11 notes the backstop can still override the impact test). `filter_incomplete_trips = TRUE`. `filter` and gate helpers are the shared modules, so pooled and gear-resolved cannot drift.
 -   **Known open dependencies on the reported number.** The boat catch rests on the `tau_boat = 1.2` prior until the boat I/E stream activates (GR-12), and per-gear catch is PE-apportioned rather than modeled because `G = 1` (GR-7). State both in any co-management number.
--   **The two header lags** (method-doc header `v5.4`, RMD banner `Framework v5.4`) are cosmetic and do not reflect the running code, which is v5.5.

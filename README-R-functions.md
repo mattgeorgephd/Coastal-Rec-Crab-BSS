@@ -30,9 +30,11 @@ One implementation each, called by both production drivers, so the two tracks ca
 | `bss_trailer_expansion.R` | `bss_trailer_par`, `bss_extract_pars`, `bss_trailer_multiplier` | Boat trailer-expansion adapter that abstracts the `R_T` (legacy) vs `R_G_boat` (current) split so downstream expansion code is unchanged. |
 | `bss_day_length.R` | `fetch_ie_data`, `estimate_L_effective`, `bss_day_length_civil`, `bss_assign_day_length` | I/E ingest and the effective-day-length (`L_effective`) model with the civil-twilight fallback ladder. |
 | `bss_timers.R` | `timer_start`, `timer_stop`, `bss_timer_log` | Section timers for the end-of-run timing summary. State lives in a module-local environment (reset on source), so no driver global is needed. |
+| `build_subseasons.R` | `build_subseasons` | Derives the pot-closure sub-seasons (the non-pot vs all-gear split) that both drivers fit separately, keeping the internal `ring_net_only` key for output-filename continuity. |
 | `prep_days_crab.R` | `prep_days_crab` | Builds the per-day calendar (indices, day type, day-type integer, effective day length). Takes `params` and derives day-typing inputs from it. |
 | `prep_population_summary.R` | `prep_population_summary` | Filters the data bundle to one population x sub-season and builds its effort, interview, and catch frames plus the gear/crabber ratios. |
 | `estimate_comm_charter.R` | `estimate_comm_charter` | Day-type-stratified census expansion of the commercial/charter vessel tally (with optional red-rock, guarded by `params$estimate_red_rock`). |
+| `pe_monthly_effort_share.R` | `pe_monthly_effort_share` | Consolidated PE monthly effort-share helper: the shared share math for spreading a PE-fallback component's catch and effort across months, with each driver keeping its own draw accumulation and uncertainty handling. |
 | `classify_day_type.R` | `classify_day_type` | Standalone day-type classifier for any date, used by diagnostic plots outside the estimation window. |
 
 ### Pooled-CPUE driver functions
@@ -57,7 +59,7 @@ Called only by `BSS-GH-gear-type-CPUE-model.Rmd`.
 
 ### Crab-specific BSS diagnostics
 
-Per-fit and per-run diagnostic writers, all `tryCatch`-wrapped so one fit cannot abort a run. They write the convergence, divergence, over-dispersion, PPC, and extended-output files catalogued in [05_output/README.md](05_output/README.md).
+Per-fit and per-run diagnostic writers, mostly `tryCatch`-wrapped so one fit cannot abort a run, plus two report-embedded pooled diagnostics (fishery-opener spillover and shore I/E representativeness) and the opener-calendar prep they use. The per-fit writers produce the convergence, divergence, over-dispersion, PPC, and extended-output files catalogued in [05_output/README.md](05_output/README.md).
 
 | File | Public function(s) | Role |
 |---|---|---|
@@ -65,6 +67,9 @@ Per-fit and per-run diagnostic writers, all `tryCatch`-wrapped so one fit cannot
 | `diagnose_effort_overdispersion.R` | `write_effort_overdispersion_diag` | Law-of-total-variance decomposition of each effort-count predictive variance (Poisson floor / NB over-dispersion / latent process). |
 | `divergence_diagnostic.R` | `diagnose_divergences` | Interactive, console divergence funnel-neck ranking (run by hand post-fit). |
 | `save_run_diagnostics.R` | `write_fit_extended_diagnostics`, `write_loo_diagnostics`, `write_run_level_diagnostics` | The extended per-fit output series (O1-O13) and the run-level PE-vs-BSS and gear-proportion summaries. |
+| `prep_fishery_events.R` | `prep_fishery_events` | Reads the MA2 finfish and razor-clam-dig opener calendars (`fishery_opener_dates.csv`, with the `.xlsx` workbooks as fallback) into per-date OPEN/CLOSED flags for the spillover diagnostic. |
+| `diagnose_fishery_spillover.R` | `diagnose_fishery_spillover` | Tests whether crab effort and CPUE differ on other-fishery opener days (pooled report Section 3.5). |
+| `diagnose_ie_representativeness.R` | `diagnose_ie_representativeness` | Shore I/E representativeness diagnostic: whether the I/E observation days are unrepresentative (measured on peak-effort days) or just sparse (pooled report). |
 
 ## Configuration and paths
 

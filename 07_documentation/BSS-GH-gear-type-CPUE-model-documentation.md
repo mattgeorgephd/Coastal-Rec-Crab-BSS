@@ -138,7 +138,7 @@ The harvest is built from three components, estimated separately and summed:
 
 1. **Shore crabbers** (dock + jetty + beach). Effort is indicated by gear counts at the docks.
 2. **Private boat crabbers.** Effort is indicated by trailer counts at the boat launch.
-3. **Commercial/charter vessels** crabbing recreationally pre-season. Estimated by a day-type-stratified expansion of the marina vessel tally (about 12,007 crab in the 2024-25 reference runs; this component is a census and does not carry a BSS fit).
+3. **Commercial/charter vessels** crabbing recreationally pre-season. Estimated by a day-type-stratified expansion of the marina vessel tally (about 11,986 crab in the 2024-25 reference runs; this component is a census and does not carry a BSS fit).
 
 The season is split into two **sub-seasons**, defined by the pot closure, and each is estimated independently:
 
@@ -593,7 +593,7 @@ The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the g
 | shore_all_gear | about 19,684 (BSS) | crabber-hours scale; PRE-REFRESH under v5.5 |
 | private_boat_all_gear | about 43,314 (BSS) | gear-deployment scale; current, but rests on the `tau_boat = 1.2` prior (GR-12) |
 | private_boat_ring_net | PE fallback | insufficient data (GR-15) |
-| commercial/charter | about 12,007 | day-type census; scale-independent |
+| commercial/charter | about 11,986 | day-type census; scale-independent |
 
 The 2026-07-10 run was the first in which all three fitted components reported on their BSS posteriors on corrected effort scales with the PE as a consistent cross-check. The v5.5 shore move then requires a confirming run before a refreshed port total is published.
 

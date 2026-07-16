@@ -8,6 +8,8 @@
 
 ---
 
+> **Point-in-time result, 2026-06-25 run.** This is a snapshot from a single run on the now-superseded weather module; production totals have since moved (the boat is 43,180 BSS in Run 1, on gear-deployments), so the v7.4-era comparison numbers here (e.g. the 56,266 production boat, the 12,400 module boat) should not be read as current pipeline numbers. The analytical conclusions below (the covariate-exclusion decision and coefficients) remain valid.
+
 ## 1. Purpose
 
 Test whether daily weather and tide covariates improve the Bayesian harvest model, by augmenting the effort and CPUE process equations with covariate terms and comparing the augmented model to the baseline by PSIS-LOO. The question is predictive: do covariates improve out-of-sample prediction enough to justify inclusion in the production estimate.

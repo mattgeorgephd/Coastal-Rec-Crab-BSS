@@ -1,7 +1,7 @@
 # Effort over-dispersion diagnostic: how to run and read it
 
-- **Companion to:** `R_functions/diagnose_effort_overdispersion.R`
-- **Purpose:** T1.5 step 2 (see `development_notes/PIPELINE_STATUS.md`, Section 4). Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
+- **Companion to:** `03_R_functions/diagnose_effort_overdispersion.R`
+- **Purpose:** T1.5 step 2 (see `development_notes/PIPELINE_STATUS.md`, Section 3). Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
 - **Date:** 2026-06-22
 - **No em dashes per project convention.**
 
@@ -13,11 +13,11 @@ The v7.0 PPC showed the negative-binomial effort model is over-dispersed (gear a
 
 ## 2. Why it needs the fits, not the CSVs
 
-The decomposition needs the joint posterior draws of the latent effort intensity `lambda_E_S` at each effort-observation day, plus the `r_E`, `R_G`, `R_T` draws. The committed outputs carry only summaries. So it runs on the in-memory `stanfit` objects. The function placed in `R_functions/` is auto-sourced and is callable in two modes.
+The decomposition needs the joint posterior draws of the latent effort intensity `lambda_E_S` at each effort-observation day, plus the `r_E`, `R_G`, `R_T` draws. The committed outputs carry only summaries. So it runs on the in-memory `stanfit` objects. The function placed in `03_R_functions/` is auto-sourced and is callable in two modes.
 
 ## 3. How to run
 
-**Pipeline mode (recommended).** Add this chunk after section 7.12 (the per-fit model diagnostics) in `BSS-GH-pooled-CPUE-model.Rmd`. It writes a committed output every run, alongside the PPC.
+**Pipeline mode (already wired in).** This diagnostic is already wired into the pooled driver `BSS-GH-pooled-CPUE-model.Rmd` and runs on every render, writing a committed output alongside the PPC. It ships at report section 11.1 (internally labeled 7.13). The code block below is shown for reference; you do not need to add it.
 
 ````r
 ```{r effort_overdispersion, eval = run_bss}
@@ -83,6 +83,8 @@ The three components are summed across observations and normalized to shares. Th
 ## 6. Expectation (a hypothesis, not a conclusion)
 
 Because the shore fits are well-identified (n_eff above 4,000, so the latent `lambda_E` is tightly pinned on observed days), I expect `share_latent` to be modest on the observed days and `share_nb_overdisp` to dominate, pointing to the `r_E` / `sigma_r_E` prior as the lever for shore. The boat, being weakly identified, may show a larger latent share. The diagnostic measures this rather than assuming it; read the verdict column and act per section 5.
+
+**Update (now confirmed).** Across the fits the NB observation over-dispersion dominates the effort predictive variance (roughly 81 to 91 percent), and the latent AR share is small (4 to 13 percent), so the `r_E` / `sigma_r_E` prior is the lever, as anticipated.
 
 ## 7. Outputs
 

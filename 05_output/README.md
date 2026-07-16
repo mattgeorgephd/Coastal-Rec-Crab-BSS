@@ -8,14 +8,15 @@ For the meaning of the populations, sub-seasons, and the PE-vs-BSS gate referenc
 
 ```text
 05_output/
-  <run_date>/                 # YYYYMMDD, set by run_date <- format(Sys.Date(), "%Y%m%d")
-    <model>/                  # one subfolder per driver run that day
+  <run_date>/                       # YYYYMMDD, set by run_date <- format(Sys.Date(), "%Y%m%d")
+    <model>-<run_tag>/              # one subfolder per driver run; run_tag names it
       <output files>
+    run_manifest_<timestamp>.txt    # one per orchestrated run, at the <run_date> level
 ```
 
-`output_dir <- here("05_output", run_date, "<model>")` is set once in each driver's setup chunk; every write lands under it. A folder is created fresh on the date you knit, so older dated folders are immutable records of past runs. Because the pipeline has grown over time, **older runs legitimately contain fewer or differently named files than recent ones**; that is history, not breakage.
+`output_dir <- here("05_output", run_date, "<model>-<run_tag>")` is set once in each driver's setup chunk; every write lands under it. The `run_tag` comes from `run_config.R` (or is set by `run_rg_sweep.R`) and names the folder, e.g. `pooled-CPUE-run1`, `gear-type-CPUE-model-run2`, or `pooled-CPUE-run5-RG-1.00`. When `run_tag` is blank the driver appends an `HHMMSS` timestamp instead, so two runs of the same model on the same day land in **different** folders and no longer overwrite each other. Older dated folders stay immutable records of past runs. The orchestrator also writes a `run_manifest_<timestamp>.txt` at the `<run_date>` level (one per orchestrated run). Because the pipeline has grown over time, **older runs legitimately contain fewer or differently named files than recent ones**; that is history, not breakage.
 
-The `<model>` subfolder name is whatever the driver set, and it has changed across versions. You will see, for example, `pooled-CPUE-model`, `pooled-CPUE`, `gear-type-CPUE-model`, and `pooled-CPUE-covariates`. The `*-covariates` subfolders are produced by the weather-tide module in `06_diagnostics/`, not by a production driver.
+The `<model>` prefix is whatever the driver set, and it has changed across versions. You will see, for example, `pooled-CPUE-model`, `pooled-CPUE`, `gear-type-CPUE-model`, and `pooled-CPUE-covariates`. Recent production-driver runs append the `-<run_tag>` suffix described above, so a current folder looks like `pooled-CPUE-run1`; older folders predate the run_tag scheme. The `*-covariates` subfolders are produced by the weather-tide module in `06_diagnostics/`, not by a production driver.
 
 ## File naming convention
 

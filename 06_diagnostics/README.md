@@ -1,6 +1,6 @@
 # 06_diagnostics
 
-The **experimental weather-tide covariate module**. This folder holds the one research driver that tests whether environmental covariates improve the effort and CPUE predictions of the production pooled model. It is **not a production estimator** and does not produce the official harvest number.
+The **experimental weather-tide covariate module** (and a prior-sensitivity sweep script). This folder holds the research driver that tests whether environmental covariates improve the effort and CPUE predictions of the production pooled model, alongside `run_rg_sweep.R`, the `R_G` prior-sensitivity sweep runner. The covariate module is **not a production estimator** and does not produce the official harvest number.
 
 For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); for the project overview, the [root README](../README.md).
 
@@ -9,6 +9,7 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
 | File | Role |
 |---|---|
 | `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | The covariate module driver (module v0.2.x). Layered on the **pooled** model only. Screens candidate tide/weather covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a leave-one-week-out block-CV fallback for true sampling gaps). |
+| `run_rg_sweep.R` | The T1.3 `R_G` prior-sensitivity sweep runner (three pooled runs at `R_G_prior_mu` = 1.0/1.28/1.5). |
 | `README.md` | This file. |
 
 The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and **collapses exactly to `crab_bss_pooled.stan` when `K_E = K_C = 0`**, so one file serves both the baseline and augmented fits.

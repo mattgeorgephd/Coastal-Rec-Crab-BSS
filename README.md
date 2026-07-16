@@ -128,7 +128,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
    - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
 3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
 4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
-5. Output is written to `05_output/YYYYMMDD/<model>/`.
+5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
 
 **Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
 
@@ -136,7 +136,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
 
 ## Output Files
 
-Each run writes to `05_output/YYYYMMDD/<model>/`. Both models produce PE and combined PE+BSS port totals, monthly estimates, catch by mode and gear type, a per-fit `convergence_report.csv`, a `pe_vs_bss_comparison.csv`, daily BSS effort/catch series, and `run_parameters.txt`. The pooled model additionally writes the I/E and `L_effective` diagnostics (`ie_analysis.csv`, `bss_L_effective_*.csv`, `L_effective_ie_detail.csv`). The gear-resolved model additionally writes gear-type catch with posterior uncertainty (`catch_by_gear_type_detail.csv`) and the monthly/area/mode breakdowns. See each model's documentation for the exact file list.
+Each run writes to `05_output/YYYYMMDD/<model>-<run_tag>/`. Both models produce PE and combined PE+BSS port totals, monthly estimates, catch by mode and gear type, a per-fit `convergence_report.csv`, a `pe_vs_bss_comparison.csv`, daily BSS effort/catch series, and `run_parameters.txt`. The pooled model additionally writes the I/E and `L_effective` diagnostics (`ie_analysis.csv`, `bss_L_effective_*.csv`, `L_effective_ie_detail.csv`). The gear-resolved model additionally writes gear-type catch with posterior uncertainty (`catch_by_gear_type_detail.csv`) and the monthly/area/mode breakdowns. See each model's documentation for the exact file list.
 
 ---
 
