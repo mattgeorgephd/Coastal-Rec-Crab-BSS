@@ -1005,7 +1005,7 @@ for(cg in bss_catch_groups) {
         next
       }
 
-      bss_data <- prep_bss_crab_pooled(days_ss, summ_ss, cg, params, pop, ie_data = ie_data)
+      bss_data <- prep_bss_crab_pooled(days_ss, summ_ss, cg, params, pop, gear_regime = ss$gear_regime, ie_data = ie_data)
       ar_resolutions[[label]] <- attr(bss_data, "ar_resolution")
 
       is_shore   <- (pop == "shore")

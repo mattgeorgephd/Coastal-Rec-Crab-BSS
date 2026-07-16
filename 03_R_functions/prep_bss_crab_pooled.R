@@ -8,7 +8,7 @@
 ###############################################################################
 
 prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population_name,
-                          ie_data = NULL) {
+                          gear_regime = NULL, ie_data = NULL) {
 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
@@ -36,10 +36,12 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # (bss_select_ar_resolution), so the pooled and gear-resolved tracks use ONE
   # selector and cannot drift. Pooled is the DATA-DRIVEN caller:
   # fixed_resolution = NULL means 'pick from data density, then apply the cap'.
-  # This reproduces the deleted inline logic exactly (data-driven if/else +
-  # res_rank cap + ar_force + period mapping), verified line-for-line.
+  # gear_regime lets the cap differ by sub-season (e.g. the pooled shore caps its
+  # thin pot-closure fit at biweekly while the all-gear fit stays data-driven at
+  # daily); NULL preserves the original per-population cap behavior.
   ar_sel        <- bss_select_ar_resolution(days, eff_d, population_name, params,
-                                             fixed_resolution = NULL)
+                                             fixed_resolution = NULL,
+                                             gear_regime = gear_regime)
   ar_resolution <- ar_sel$resolution
   P_n           <- ar_sel$P_n
   pvec          <- ar_sel$pvec

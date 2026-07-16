@@ -161,10 +161,27 @@ run_config <- list(
   #                  gear-resolved is ar_adaptive = FALSE (fixed period_bss), so its
   #                  map is dormant. Coarser than pooled: the gear-resolved latent AR
   #                  is P_n x (G*S), ~4x the pooled dimension with 4 gear types.
-  # A population absent from a map defaults to "daily" (no cap).
+  # A population absent from a map defaults to "daily" (no cap). A population's
+  # entry may be a single resolution (applied to all its sub-seasons) OR a named
+  # list keyed by gear_regime ("all_gear" | "pot_closure", from build_subseasons)
+  # for a PER-SUB-SEASON cap; an unlisted regime falls back to a "default" key,
+  # then to "daily". The pooled shore uses this to keep daily AR on the well-
+  # sampled all-gear fit while capping the thin pot-closure (ring-net) fit at
+  # biweekly: the pot-closure fit funnels at daily AR (~1,165 divergences on Run 1),
+  # fails its gate, and falls back to PE; biweekly removes the funnel so it reports
+  # BSS, matching the gear track's biweekly ring-net period_bss. all-gear is left
+  # data-driven (daily) because it fits cleanly there. The gear_resolved map takes
+  # the SAME per-sub-season structure; its values mirror the gear track's fixed
+  # period_bss (monthly all-gear, biweekly ring-net). NOTE the gear map is dormant
+  # in production: gear-resolved runs ar_adaptive = FALSE, so fixed_resolution =
+  # period_bss bypasses the cap. It is consulted only in the ar_adaptive = TRUE
+  # experiment, where it now agrees with the fixed periods instead of the old
+  # blanket "weekly".
   ar_max_resolution = list(
-    pooled        = list(shore = "daily",  private_boat = "monthly"),
-    gear_resolved = list(shore = "weekly", private_boat = "monthly")
+    pooled        = list(shore = list(all_gear = "daily",   pot_closure = "biweekly"),
+                         private_boat = "monthly"),
+    gear_resolved = list(shore = list(all_gear = "monthly", pot_closure = "biweekly"),
+                         private_boat = "monthly")
   ),
 
   # --- Ingress/egress input + shore day length (both models) ---------------

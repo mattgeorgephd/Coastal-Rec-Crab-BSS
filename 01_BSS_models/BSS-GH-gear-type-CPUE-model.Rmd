@@ -663,6 +663,7 @@ for(cg in bss_catch_groups) {
       # v5.1: Pass sub-season-specific period type
       bss_data <- prep_bss_crab_gear(days_ss, summ_ss, cg, params, pop, ss$period_bss,
                                 gear_exclude = ss$gear_exclude %||% character(0),
+                                gear_regime = ss$gear_regime,
                                 ie_data = ie_data)
       ar_resolutions[[label]] <- bss_data$.ar_resolution
 

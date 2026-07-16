@@ -8,7 +8,7 @@
 ###############################################################################
 
 prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_name, period_type,
-                          gear_exclude = character(0), ie_data = NULL) {
+                          gear_exclude = character(0), gear_regime = NULL, ie_data = NULL) {
 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
@@ -26,7 +26,8 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     eff_d            = eff_d,
     population_name  = population_name,
     params           = params,
-    fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else period_type
+    fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else period_type,
+    gear_regime      = gear_regime
   )
   ar_resolution <- ar_sel$resolution
   P_n  <- ar_sel$P_n

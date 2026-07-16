@@ -24,10 +24,16 @@
 #       is NOT silently overridden by ar_max_resolution.
 #   fixed_resolution = NULL      -> data-driven selection (daily / weekly /
 #       monthly), then capped by params$ar_max_resolution[[population_name]].
-#       This is the pooled track's behavior.
+#       This is the pooled track's behavior. The cap entry may be a scalar or a
+#       per-gear_regime named list (see gear_regime below).
 #
 #   params$ar_force[[population_name]] overrides BOTH modes. It is an experiment
 #   toggle; NULL (production) is a no-op.
+#
+#   gear_regime (optional) selects a per-sub-season cap when the population's
+#   ar_max_resolution entry is a named list (e.g. list(all_gear = "daily",
+#   pot_closure = "biweekly")). NULL, or a scalar cap entry, preserves the
+#   original per-population behavior. Only consulted in the data-driven branch.
 #
 # RESOLUTIONS
 #   "daily" > "weekly" > "biweekly" > "monthly" (finest to coarsest).
@@ -73,6 +79,7 @@
 
 bss_select_ar_resolution <- function(days, eff_d, population_name, params,
                                      fixed_resolution = NULL,
+                                     gear_regime = NULL,
                                      verbose = TRUE) {
 
   D <- nrow(days)
@@ -107,14 +114,22 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
 
     # Per-population cap (v6.5 / B1.2). Reduces the latent AR dimension where the
     # effort series cannot identify a finer process. Only ever coarsens.
-    pop_cap <- .bss_normalize_resolution(
-      params$ar_max_resolution[[population_name]] %||% "daily"
-    )
+    # The cap entry may be a scalar resolution OR a named list keyed by gear_regime
+    # ("all_gear" | "pot_closure") for a per-sub-season cap; a missing regime falls
+    # back to a "default" key, then to "daily".
+    cap_entry <- params$ar_max_resolution[[population_name]]
+    raw_cap   <- if (is.list(cap_entry)) {
+      regime_key <- if (!is.null(gear_regime)) gear_regime else "default"
+      cap_entry[[regime_key]] %||% cap_entry[["default"]] %||% "daily"
+    } else {
+      cap_entry %||% "daily"
+    }
+    pop_cap <- .bss_normalize_resolution(raw_cap)
     if (.bss_res_rank[[ar_resolution]] > .bss_res_rank[[pop_cap]]) {
       ar_resolution <- pop_cap
       if (verbose) {
-        cat(sprintf("  AR resolution capped to '%s' for %s (ar_max_resolution)\n",
-                    ar_resolution, population_name))
+        cat(sprintf("  AR resolution capped to '%s' for %s/%s (ar_max_resolution)\n",
+                    ar_resolution, population_name, gear_regime %||% "all"))
       }
     }
   }
