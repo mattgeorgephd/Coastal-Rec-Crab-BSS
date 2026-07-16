@@ -178,9 +178,11 @@ run_config <- list(
   # experiment, where it now agrees with the fixed periods instead of the old
   # blanket "weekly".
   ar_max_resolution = list(
-    pooled        = list(shore = list(all_gear = "daily",   pot_closure = "biweekly"),
+    pooled        = list(shore = list(all_gear = "daily",   
+                                      pot_closure = "biweekly"),
                          private_boat = "monthly"),
-    gear_resolved = list(shore = list(all_gear = "monthly", pot_closure = "biweekly"),
+    gear_resolved = list(shore = list(all_gear = "monthly", 
+                                      pot_closure = "biweekly"),
                          private_boat = "monthly")
   ),
 
