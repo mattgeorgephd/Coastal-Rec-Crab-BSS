@@ -6,15 +6,16 @@
 # diagnostic (diagnose_fishery_spillover.R) and the razor_dig shore-effort term
 # (item 1) can use them.
 #
-# SOURCE (single, required as of 2026-07-16): one consolidated daily calendar CSV,
-# 04_input_files/fishery_opener_dates.csv, with columns
-#   date, ma2_bottomfish, ma2_halibut, ma2_salmon,
+# SOURCE (single, required): one consolidated daily calendar workbook,
+# 04_input_files/fishery_opener_dates.xlsx (sheet "data"), with columns
+#   date, season, ma2_bottomfish, ma2_halibut, ma2_salmon,
 #   razor_long_beach, razor_twin_harbors, razor_copalis, razor_mocrocks, razor_kalaloch, razor_any
-# (each OPEN/CLOSED, one row per day). Override the filename with
-# params$fishery_opener_dates_file. The former per-fishery source workbooks
-# (MA2-fishing-dates*.xlsx, razor-clam-dig-dates*.xlsx) have been RETIRED: this
-# reader no longer falls back to them and stops with a clear error if the CSV is
-# absent, so a missing calendar can never silently disable the diagnostic.
+# (each OPEN/CLOSED, one row per day; date is ISO yyyy-mm-dd text; season is the
+# fishery season label). Override the filename with params$fishery_opener_dates_file
+# and the sheet with params$fishery_opener_sheet. The former per-fishery source
+# workbooks (MA2-fishing-dates*.xlsx, razor-clam-dig-dates*.xlsx) have been RETIRED:
+# this reader does not fall back to them and stops with a clear error if the
+# workbook is absent, so a missing calendar can never silently disable the diagnostic.
 #
 # razor_nearby_dig = any of params$razor_nearby_beaches open (default Twin Harbors +
 # Copalis + Mocrocks, the beaches nearest Grays Harbor). In the 2024-25 data Twin Harbors
@@ -26,18 +27,18 @@ prep_fishery_events <- function(params) {
   beach_col <- function(nm) paste0("razor_", gsub("[^a-z0-9]+", "_", tolower(trimws(nm))))
   nearby_names <- params$razor_nearby_beaches %||% c("Twin Harbors", "Copalis", "Mocrocks")
 
-  csv_path <- here::here("04_input_files",
-                         params$fishery_opener_dates_file %||% "fishery_opener_dates.csv")
+  opener_path <- here::here("04_input_files",
+                            params$fishery_opener_dates_file %||% "fishery_opener_dates.xlsx")
 
-  if (!file.exists(csv_path))
-    stop("Fishery-opener calendar not found: ", csv_path,
-         "\n  This consolidated CSV is now the only source (the MA2 / razor-clam ",
+  if (!file.exists(opener_path))
+    stop("Fishery-opener calendar not found: ", opener_path,
+         "\n  This consolidated workbook is now the only source (the MA2 / razor-clam ",
          "workbooks were retired).\n  Restore the file, point ",
          "run_config$fishery_opener_dates_file at it, or set ",
          "run_config$run_fishery_spillover_diag = FALSE to skip the diagnostic.",
          call. = FALSE)
 
-  d <- utils::read.csv(csv_path, stringsAsFactors = FALSE, check.names = FALSE)
+  d <- as.data.frame(readxl::read_excel(opener_path, sheet = params$fishery_opener_sheet %||% "data"))
   names(d) <- tolower(trimws(names(d)))
 
   ma2_flags <- tibble::tibble(

@@ -186,6 +186,28 @@ run_config <- list(
                          private_boat = "monthly")
   ),
 
+  # --- Input workbooks (all .xlsx, single "data" sheet) --------------------
+  # Every pipeline input is an .xlsx workbook (converted from CSV on 2026-07-16) with
+  # one "data" sheet; dates are ISO yyyy-mm-dd text. Filenames are parameters so a
+  # workbook can be swapped without touching the readers. The I/E, holiday, and
+  # fishery-opener workbooks keep their own filename keys in the sections below.
+  effort_file       = "effort_combined.xlsx",
+  interview_file    = "interview_combined.xlsx",
+  tally_file        = "wes_commercial_tally.xlsx",
+  input_sheet       = "data",         # sheet name shared by the flat input workbooks
+
+  # --- Input selection: which rows/sites each reader keeps -----------------
+  # Surfaced here (mirroring the ingress/egress ie_shore_location / ie_boat_location
+  # below) so a different port or site set can be run without editing fetch_crab_data*.
+  # A key left unset falls back to the historical Grays Harbor / Westport value.
+  gh_creel_location  = "Grays Harbor",                         # interview creel_location filter
+  gh_effort_areas    = c("Westport Docks Float 20","Westport Docks Float 17-21",
+                         "Westport Boat Launch","Westport Marina","Westport Jetty",
+                         "Ocean Shores Boat Launch","Damon Point"),   # effort creel_area whitelist
+  shore_dock_float20 = "Westport Docks Float 20",              # paired shore gear-count floats
+  shore_dock_float17 = "Westport Docks Float 17-21",
+  boat_launch_areas  = c("Westport Boat Launch","Ocean Shores Boat Launch"),  # boat-trailer count sites
+
   # --- Ingress/egress input + shore day length (both models) ---------------
   # Shore effort is expanded by the I/E-derived effective day length (~3.5-5 h),
   # not civil twilight (9-17 h). Fallback is automatic: regression -> grand mean
@@ -193,8 +215,12 @@ run_config <- list(
   # warning). Boats always use L = 24 h (gear soaks continuously).
   ie_data_file      = "ingress_egress.xlsx",
   ie_sheet          = "data",
-  ie_shore_location = "WDF20",
-  ie_boat_location  = "WBL",
+  ie_shore_location = "WDF20",       # location_name kept as the SHORE I/E series
+  ie_boat_location  = "WBL",         # location_name kept as the BOAT I/E series
+  ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E for the L_effective
+                                     #   regression (historical, current behavior). TRUE
+                                     #   restricts to season_filter via the workbook's
+                                     #   season column (now the fishery season label).
   use_ie_day_length = TRUE,
   ie_min_obs_for_regression = 5,
   # GR-8 (2026-07-13): minimum in-window I/E days required before the I/E likelihood is
@@ -239,7 +265,8 @@ run_config <- list(
   # prep_fishery_events STOPS if this file is absent (no silent fallback).
   run_fishery_spillover_diag = TRUE,
   razor_nearby_beaches = c("Twin Harbors", "Copalis", "Mocrocks"),
-  fishery_opener_dates_file = "fishery_opener_dates.csv",  # consolidated daily calendar; required.
+  fishery_opener_dates_file = "fishery_opener_dates.xlsx", # consolidated daily calendar; required.
+  fishery_opener_sheet      = "data",
 
   # --- razor_dig SHORE-effort term (item 1, 2026-07-13) --------------------
   # Adds a razor-dig day-type effect to the SHORE effort model (a B3 * razor[d] term,

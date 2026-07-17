@@ -96,7 +96,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # 0. SETUP - Load packages and configure environment
 # ===========================================================================
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here")
+load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
 install.lib <- load.lib[!load.lib %in% installed.packages()]
 for(lib in install.lib) install.packages(lib, dependencies=TRUE)
 sapply(load.lib, require, character=TRUE)

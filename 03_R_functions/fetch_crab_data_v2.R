@@ -5,31 +5,36 @@
 # with weighted gear-type classification, catch, commercial tally). Extracted
 # verbatim from the gear-resolved driver; pure given params. Auto-sourced by both
 # drivers via the 03_R_functions walk (only the gear-resolved driver calls it).
+#
+# INPUTS (2026-07-16): all inputs are now .xlsx workbooks with a single "data"
+# sheet. Filenames, the sheet name, the interview creel location, and the effort
+# site lists are run_config parameters (historical values as %||% defaults). Dates
+# are stored as ISO yyyy-mm-dd text and parsed with as.Date().
 ###############################################################################
 
 fetch_crab_data_v2 <- function(params) {
 
   cat("Reading data...\n")
+  in_sheet <- params$input_sheet %||% "data"
 
-  # --- Read effort CSV (dates in YYYY-MM-DD from re-exported file) ---
-  effort_raw <- read_csv(here("04_input_files","effort_combined.csv"), show_col_types=FALSE) |>
+  # --- Read effort workbook (ISO yyyy-mm-dd dates) ---
+  effort_raw <- readxl::read_excel(
+      here("04_input_files", params$effort_file %||% "effort_combined.xlsx"), sheet = in_sheet) |>
     filter(season == params$season_filter) |> mutate(date = as.Date(date))
 
-  # --- Read interview CSV (dates in M/D/YYYY from iForm export) ---
-  interview_raw <- read_csv(here("04_input_files","interview_combined.csv"), show_col_types=FALSE,
-    col_types = cols(date=col_date(format="%m/%d/%Y"), crabbers=col_double(),
-      number_of_gear=col_double(), dungeness_kept=col_double(), red_rock_kept=col_double(),
-      hours_fished=col_double(), crabber_hours=col_double(), gear_hours=col_double(),
-      completed_trip=col_character(), total_vehicles=col_double(), crabbing_holiday=col_integer())) |>
+  # --- Read interview workbook ---
+  interview_raw <- readxl::read_excel(
+      here("04_input_files", params$interview_file %||% "interview_combined.xlsx"), sheet = in_sheet) |>
+    mutate(completed_trip = as.character(completed_trip)) |>
     filter(season == params$season_filter)
 
   # --- Filter to Grays Harbor sites ---
-  gh_effort <- effort_raw |> filter(creel_area %in% c(
+  gh_effort <- effort_raw |> filter(creel_area %in% (params$gh_effort_areas %||% c(
     "Westport Docks Float 20","Westport Docks Float 17-21",
     "Westport Boat Launch","Westport Marina","Westport Jetty",
-    "Ocean Shores Boat Launch","Damon Point"))
+    "Ocean Shores Boat Launch","Damon Point")))
 
-  gh_interview <- interview_raw |> filter(creel_location == "Grays Harbor")
+  gh_interview <- interview_raw |> filter(creel_location == (params$gh_creel_location %||% "Grays Harbor"))
 
   # --- Classify each interview into a population ---
   gh_interview <- gh_interview |>
@@ -84,17 +89,19 @@ fetch_crab_data_v2 <- function(params) {
     filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time)
 
   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
+  dock_f20 <- params$shore_dock_float20 %||% "Westport Docks Float 20"
+  dock_f17 <- params$shore_dock_float17 %||% "Westport Docks Float 17-21"
   dock_effort <- gh_effort |>
-    filter(creel_area %in% c("Westport Docks Float 20","Westport Docks Float 17-21")) |>
+    filter(creel_area %in% c(dock_f20, dock_f17)) |>
     mutate(event_date = date,
            count_time_posix = as.POSIXct(paste(date,count_time), format="%Y-%m-%d %H:%M:%S", tz="America/Los_Angeles")) |>
     filter(!is.na(count_time_posix))
 
-  f20 <- dock_effort |> filter(creel_area=="Westport Docks Float 20") |>
+  f20 <- dock_effort |> filter(creel_area==dock_f20) |>
     arrange(event_date,count_time_posix) |> group_by(event_date) |>
     mutate(count_sequence=row_number()) |> ungroup()
 
-  f17 <- dock_effort |> filter(creel_area=="Westport Docks Float 17-21")
+  f17 <- dock_effort |> filter(creel_area==dock_f17)
 
   if(nrow(f17) > 0) {
     f17_paired <- f17 |>
@@ -114,7 +121,7 @@ fetch_crab_data_v2 <- function(params) {
 
   # --- BOAT EFFORT: Trailer counts at boat launches ---
   boat_effort <- gh_effort |>
-    filter(creel_area %in% c("Westport Boat Launch","Ocean Shores Boat Launch")) |>
+    filter(creel_area %in% (params$boat_launch_areas %||% c("Westport Boat Launch","Ocean Shores Boat Launch"))) |>
     mutate(event_date = date,
            count_time_posix = as.POSIXct(paste(date,count_time), format="%Y-%m-%d %H:%M:%S", tz="America/Los_Angeles"),
            count_quantity = as.numeric(boat_trailer_count)) |>
@@ -125,7 +132,8 @@ fetch_crab_data_v2 <- function(params) {
     mutate(section_num=1, count_type="Trailer Count", population="private_boat")
 
   # --- COMMERCIAL TALLY ---
-  comm_tally <- read_csv(here("04_input_files","wes_commercial_tally.csv"), show_col_types=FALSE) |>
+  comm_tally <- readxl::read_excel(
+      here("04_input_files", params$tally_file %||% "wes_commercial_tally.xlsx"), sheet = in_sheet) |>
     mutate(date = as.Date(date))
 
   cat(sprintf("\n  Shore effort obs: %d (%d days)\n", nrow(shore_effort), n_distinct(shore_effort$event_date)))

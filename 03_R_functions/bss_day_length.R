@@ -70,8 +70,14 @@ fetch_ie_data <- function(params) {
     ))
   }
 
-  ie_raw <- read_excel(ie_file, sheet = params$ie_sheet) |>
+  ie_raw <- readxl::read_excel(ie_file, sheet = params$ie_sheet) |>
     mutate(event_date = as.Date(date))
+
+  # Optional: restrict I/E to the current fishery season. Default FALSE preserves the
+  # historical pooling (the L_effective day-of-year regression intentionally uses all
+  # seasons of I/E). The ingress_egress `season` column is now the fishery season label.
+  if (isTRUE(params$ie_filter_by_season) && "season" %in% names(ie_raw))
+    ie_raw <- ie_raw |> filter(season == params$season_filter)
 
   ie_shore <- ie_raw |>
     filter(location_name == params$ie_shore_location) |>
