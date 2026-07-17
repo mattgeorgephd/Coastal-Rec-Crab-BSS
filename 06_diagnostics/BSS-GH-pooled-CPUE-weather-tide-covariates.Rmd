@@ -226,15 +226,13 @@ params <- list(
   local_tz     = "America/Los_Angeles"
 )
 
-# Crabbing holidays, copy from main model for day-type assignment
-crabbing_holiday_dates <- as.Date(c(
-  "2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08",
-  "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15",
-  "2025-07-04", "2025-09-01"
-))
-# The shared prep_days_crab() (03_R_functions/prep_days_crab.R) reads holidays and
-# day-typing inputs from params, so mirror them onto params for this module.
-params$crabbing_holiday_dates <- crabbing_holiday_dates
+# Crabbing holidays: read from the single-source workbook (04_input_files/crabbing_holidays.xlsx)
+# via 03_R_functions/read_crabbing_holidays.R, the same source the main models use, instead of a
+# hardcoded copy. The shared prep_days_crab() reads holidays from params, so set it there. (In an
+# orchestrated run params is inherited from the pooled model, which already carries season_filter
+# and crabbing_holidays_file.)
+params$crabbing_holiday_dates <- read_crabbing_holidays(params)
+crabbing_holiday_dates <- params$crabbing_holiday_dates
 
 subseason_1 <- list(name = "ring_net_only",
                     start = as.Date(params$est_date_start),

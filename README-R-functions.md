@@ -36,6 +36,7 @@ One implementation each, called by both production drivers, so the two tracks ca
 | `estimate_comm_charter.R` | `estimate_comm_charter` | Day-type-stratified census expansion of the commercial/charter vessel tally (with optional red-rock, guarded by `params$estimate_red_rock`). |
 | `pe_monthly_effort_share.R` | `pe_monthly_effort_share` | Consolidated PE monthly effort-share helper: the shared share math for spreading a PE-fallback component's catch and effort across months, with each driver keeping its own draw accumulation and uncertainty handling. |
 | `classify_day_type.R` | `classify_day_type` | Standalone day-type classifier for any date, used by diagnostic plots outside the estimation window. |
+| `read_crabbing_holidays.R` | `read_crabbing_holidays` | Single-source reader for the crabbing-holiday calendar (`04_input_files/crabbing_holidays.xlsx`), filtered to `season_filter`. Replaces the hardcoded `crabbing_holiday_dates` vector formerly in `run_config.R`; stops loudly if the file, columns, or season are missing. Each driver calls it once and sets `params$crabbing_holiday_dates`, so downstream consumers are unchanged. |
 
 ### Pooled-CPUE driver functions
 
@@ -67,7 +68,7 @@ Per-fit and per-run diagnostic writers, mostly `tryCatch`-wrapped so one fit can
 | `diagnose_effort_overdispersion.R` | `write_effort_overdispersion_diag` | Law-of-total-variance decomposition of each effort-count predictive variance (Poisson floor / NB over-dispersion / latent process). |
 | `divergence_diagnostic.R` | `diagnose_divergences` | Interactive, console divergence funnel-neck ranking (run by hand post-fit). |
 | `save_run_diagnostics.R` | `write_fit_extended_diagnostics`, `write_loo_diagnostics`, `write_run_level_diagnostics` | The extended per-fit output series (O1-O13) and the run-level PE-vs-BSS and gear-proportion summaries. |
-| `prep_fishery_events.R` | `prep_fishery_events` | Reads the MA2 finfish and razor-clam-dig opener calendars (`fishery_opener_dates.csv`, with the `.xlsx` workbooks as fallback) into per-date OPEN/CLOSED flags for the spillover diagnostic. |
+| `prep_fishery_events.R` | `prep_fishery_events` | Reads the consolidated MA2 finfish and razor-clam-dig opener calendar (`fishery_opener_dates.csv`, now the only source) into per-date OPEN/CLOSED flags for the spillover diagnostic. Stops if the CSV is absent; the former `.xlsx` fallback workbooks are retired. |
 | `diagnose_fishery_spillover.R` | `diagnose_fishery_spillover` | Tests whether crab effort and CPUE differ on other-fishery opener days (pooled report Section 3.5). |
 | `diagnose_ie_representativeness.R` | `diagnose_ie_representativeness` | Shore I/E representativeness diagnostic: whether the I/E observation days are unrepresentative (measured on peak-effort days) or just sparse (pooled report). |
 

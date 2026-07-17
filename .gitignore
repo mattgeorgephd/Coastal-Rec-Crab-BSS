@@ -36,6 +36,12 @@ Thumbs.db
 # interrupted render (e.g. a killed or hung fit) leaves it behind. It is a
 # regenerable build artifact, so it is never tracked.
 *_files/
+# ...but 04_input_files/ is a real, version-controlled input directory whose name
+# happens to end in "_files", so the glob above would silently untrack every NEW
+# file dropped into it (the existing inputs are tracked only because they predate
+# the rule). Re-include it explicitly so next season's data files are not lost.
+!04_input_files/
+!04_input_files/**
 
 # --- Saved R workspaces ---
 # RMD runs may dump a *_workspace.RData into their output/<date>/<model>/ folder.

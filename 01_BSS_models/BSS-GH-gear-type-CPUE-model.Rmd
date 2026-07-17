@@ -224,8 +224,12 @@ params <- modifyList(run_config, params)
 # Select this model's AR-resolution cap from the shared per-model map in run_config.
 params$ar_max_resolution <- run_config$ar_max_resolution$gear_resolved
 
-# Crabbing holidays come from run_config (single source of truth). Kept as a bare
-# object so any inline reference in this driver still resolves.
+# Crabbing holidays now live in an editable workbook (04_input_files/crabbing_holidays.xlsx),
+# read here via 03_R_functions/read_crabbing_holidays.R and filtered to season_filter, so the
+# season update is a spreadsheet edit rather than a code edit. Populate params$crabbing_holiday_dates
+# ONCE here; every downstream consumer (classify_day_type, prep_days_crab, estimate_comm_charter)
+# reads it from params unchanged. Kept as a bare object too so inline references still resolve.
+params$crabbing_holiday_dates <- read_crabbing_holidays(params)
 crabbing_holiday_dates <- params$crabbing_holiday_dates
 
 # --- Derived: catch groups vector used throughout ---

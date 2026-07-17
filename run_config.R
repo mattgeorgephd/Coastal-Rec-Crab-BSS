@@ -212,37 +212,34 @@ run_config <- list(
   day_length_min_hours = 9.0,
   day_length_max_hours = 17.0,
 
-  # --- Crabbing holidays (single source of truth for all three drivers) ----
-  # High-effort non-weekend days treated as weekend for day-typing. Update this
-  # ONE list each season; the models pull from here instead of their own copies.
-  crabbing_holiday_dates = as.Date(c(
-    "2024-11-29",  # Native American Heritage Day
-    "2024-12-31",  # New Year's Eve
-    "2025-01-01",  # New Year's Day
-    "2025-02-08",  # Super Bowl Eve
-    "2025-05-24",  # Memorial Day weekend - Saturday
-    "2025-05-25",  # Memorial Day weekend - Sunday
-    "2025-05-26",  # Memorial Day
-    "2025-06-15",  # Father's Day
-    "2025-07-04",  # Independence Day
-    "2025-09-01"   # Labor Day
-  )),
+  # --- Crabbing holidays (now in an editable workbook, not hardcoded here) --
+  # High-effort non-weekend days treated as weekend for day-typing. These used to be
+  # a hardcoded as.Date(c(...)) vector here and were duplicated in the weather module;
+  # they now live in ONE editable workbook, 04_input_files/crabbing_holidays.xlsx
+  # (columns: season, date, holiday_name), so the season-to-season update is a
+  # spreadsheet edit and multiple seasons coexist in one file. All three drivers read
+  # it via 03_R_functions/read_crabbing_holidays.R, which filters to season_filter and
+  # STOPS if the file, the required columns, or the requested season are missing (so a
+  # mistyped season can never silently blank out holiday day-typing). Override the
+  # name/sheet with these keys.
+  crabbing_holidays_file  = "crabbing_holidays.xlsx",
+  crabbing_holidays_sheet = "data",
 
   # --- Other-fishery opener dates (spillover DIAGNOSTIC; pooled report only) ----
-  # Daily OPEN/CLOSED calendars for Marine Area 2 finfish and coastal razor-clam digs,
-  # read by 03_R_functions/diagnose_fishery_spillover.R to test whether crab effort/CPUE
-  # differs on those dates (candidate day categories, like the crabbing holidays above).
-  # DIAGNOSTIC ONLY: it reports associations and changes no estimate. Set the toggle
-  # FALSE to skip it. razor_nearby_beaches are the beaches closest to Grays Harbor; note
-  # that in the 2024-25 data Twin Harbors is open on every listed dig day, so the nearby
-  # flag coincides with "any dig" that season (the report surfaces this overlap).
+  # One consolidated daily OPEN/CLOSED calendar for Marine Area 2 finfish and coastal
+  # razor-clam digs, read by 03_R_functions/prep_fishery_events.R and used by
+  # diagnose_fishery_spillover.R to test whether crab effort/CPUE differs on those dates
+  # (candidate day categories, like the crabbing holidays above). DIAGNOSTIC ONLY: it
+  # reports associations and changes no estimate. Set the toggle FALSE to skip it.
+  # razor_nearby_beaches are the beaches closest to Grays Harbor; note that in the
+  # 2024-25 data Twin Harbors is open on every listed dig day, so the nearby flag
+  # coincides with "any dig" that season (the report surfaces this overlap).
+  # As of 2026-07-16 the combined sheet below is the ONLY source: the former per-fishery
+  # workbooks (MA2-fishing-dates*.xlsx, razor-clam-dig-dates*.xlsx) are retired and
+  # prep_fishery_events STOPS if this file is absent (no silent fallback).
   run_fishery_spillover_diag = TRUE,
-  ma2_dates_file       = "MA2-fishing-dates-2023-2026.xlsx",
-  razor_dates_file     = "razor-clam-dig-dates-2021-2025.xlsx",
   razor_nearby_beaches = c("Twin Harbors", "Copalis", "Mocrocks"),
-  fishery_opener_dates_file = "fishery_opener_dates.csv",  # consolidated daily calendar (item 1);
-                                                           # prep_fishery_events reads this, falling
-                                                           # back to the two xlsx above if absent.
+  fishery_opener_dates_file = "fishery_opener_dates.csv",  # consolidated daily calendar; required.
 
   # --- razor_dig SHORE-effort term (item 1, 2026-07-13) --------------------
   # Adds a razor-dig day-type effect to the SHORE effort model (a B3 * razor[d] term,
