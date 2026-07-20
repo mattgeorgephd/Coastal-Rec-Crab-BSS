@@ -151,7 +151,7 @@ fetch_ie_data <- function(params) {
 
   if(nrow(ie_all |> filter(population == "shore")) > 0) {
     shore_ie <- ie_all |> filter(population == "shore")
-    cat(sprintf("  Shore L_effective: mean=%.1f hrs (range %.1f–%.1f)\n",
+    cat(sprintf("  Shore L_effective: mean=%.1f hrs (range %.1f-%.1f)\n",
                 mean(shore_ie$L_effective), min(shore_ie$L_effective), max(shore_ie$L_effective)))
   }
 
@@ -253,9 +253,9 @@ estimate_L_effective <- function(ie_data, pot_open_date, params) {
   ie_pred <- predict_L(ie_shore$event_date, ie_shore$day_type)
   ie_shore <- bind_cols(ie_shore, ie_pred |> rename(pred_L_mu = L_mu, pred_L_sigma = L_sigma))
 
-  cat(sprintf("\n  Predicted L_effective range: %.1f–%.1f hrs\n",
+  cat(sprintf("\n  Predicted L_effective range: %.1f-%.1f hrs\n",
               min(ie_shore$pred_L_mu), max(ie_shore$pred_L_mu)))
-  cat(sprintf("  Prediction uncertainty (sigma on log scale): %.2f–%.2f\n",
+  cat(sprintf("  Prediction uncertainty (sigma on log scale): %.2f-%.2f\n",
               min(ie_shore$pred_L_sigma), max(ie_shore$pred_L_sigma)))
 
   result <- list(

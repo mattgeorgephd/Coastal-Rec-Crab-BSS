@@ -247,7 +247,7 @@ cat(sprintf("Covariate run window: %s to %s (%d days)\n",
 
 
 # ===========================================================================
-# 1. NOAA CO-OPS TIDE DATA — availability check + chunked fetch + fallback
+# 1. NOAA CO-OPS TIDE DATA, availability check + chunked fetch + fallback
 #
 # CO-OPS API docs: https://api.tidesandcurrents.noaa.gov/api/prod/
 # Metadata API:    https://api.tidesandcurrents.noaa.gov/mdapi/prod/
@@ -431,7 +431,7 @@ fetch_tide_with_fallback <- function(stations_df, begin_date, end_date,
 
 
 # ===========================================================================
-# 2. NDBC BUOY DATA — offshore wind and wave
+# 2. NDBC BUOY DATA, offshore wind and wave
 #
 # NDBC serves fixed-width text files by buoy and year.
 # URL: https://www.ndbc.noaa.gov/view_text_file.php?filename={id}h{year}.txt.gz&dir=data/historical/stdmet/
@@ -1072,7 +1072,7 @@ departure_clustering_test <- function(per_interview_df, tide_obs, sun_cal) {
 
 
 # ===========================================================================
-# 5. LAYER B  —  Daily GAM screen
+# 5. LAYER B, Daily GAM screen
 #
 # Purpose: rapidly identify which daily tide/weather covariates carry
 # signal beyond day-of-year seasonality and weekend/holiday indicators.

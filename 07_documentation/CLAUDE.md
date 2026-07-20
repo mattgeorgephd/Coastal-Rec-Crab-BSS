@@ -36,7 +36,7 @@ This is the **one file you edit** for a routine run (do not edit `run_estimation
 - `model`, `"pooled"` or `"gear_resolved"`
 - `run_weather`, `TRUE`/`FALSE` (**only valid with `model = "pooled"`**; the orchestrator hard-stops early otherwise, before any multi-hour fit, because the weather module reuses the pooled run's in-memory objects)
 - the season window: `est_date_start`, `est_date_end`, and the structural dates (`pot_closure_start/end`, `pot_open_date`, `census_*`)
-- `crabbing_holiday_dates`, updated once per season
+- the holiday list, now the `04_input_files/crabbing_holidays.xlsx` workbook (was the `crabbing_holiday_dates` config vector; read by `read_crabbing_holidays.R`), updated once per season
 
 `run_config` is a flat list; a key a given model doesn't read is silently ignored, which is why model-specific toggles (`collapse_mu_hier`, `estimate_B1_C`, `ar_adaptive`, `use_boat_ie`, …) all live in the one shared list. Two toggles **force a Stan recompile** when changed: `razor_dig_mode` and `estimate_cpue_density`. Several sensitivity levers ship commented-out or `NULL` for production (`R_G_prior_mu/sigma`, `ar_force`). `bss_seed` is fixed for reproducibility, leave it fixed.
 
@@ -86,14 +86,13 @@ Key shared helpers to know: `bss_effort_spec.R` (single source of the effort uni
 
 ## Input data quirks (real, not bugs, do not "fix")
 
-From `04_input_files/` (see its README). These survive re-export and are matched in code:
+From `04_input_files/` (see its README). As of the 2026-07-16 input migration every model input is an **`.xlsx` workbook with a single `data` sheet** (previously a mix of CSVs), read via `readxl::read_excel`, with dates stored as ISO `yyyy-mm-dd` text parsed by `as.Date()`. Quirks that survive re-export and are matched in code:
 - Interview `number_of_gear` maps from **column N, not W** (duplicate iForm field name).
-- `effort_combined.csv` must be re-exported with **QUOTE_ALL** (commas in the notes field).
-- Interview dates are **M/D/YYYY** (`col_date(format="%m/%d/%Y")`).
 - The commercial `boat_type` is the typo **"Commerical"** (one m), matched by regex, don't correct the spelling without updating the matcher.
 - Windows/OneDrive long paths can exceed MAX_PATH; the code detects this and falls back to a short path.
+- Historical note (pre-migration, no longer applies): the CSVs needed `QUOTE_ALL` for the notes field, and carried **M/D/YYYY** dates that silently parsed to `NA` under the default reader; the xlsx conversion fixed both, and the notes / unused columns were dropped in the same modeling-only strip.
 
-`ingress_egress.xlsx` is **read by the pooled driver only** (feeds the `L_effective` day-length model). The gear-resolved driver's `fetch_crab_data_v2.R` reads only the three core CSVs. Inputs are not symmetric between the two models.
+`ingress_egress.xlsx` is read by **both** drivers (via `fetch_ie_data` in `bss_day_length.R`, called from the pooled and gear-resolved drivers alike), feeding the shore `L_effective` day-length model; the earlier "pooled driver only" claim was wrong (input-audit F1). The one genuinely pooled-only input is the opener calendar `fishery_opener_dates.xlsx`, read solely by the pooled report's spillover diagnostic, so it changes no estimate.
 
 ## Outputs
 

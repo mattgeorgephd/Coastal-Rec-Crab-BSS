@@ -138,17 +138,19 @@ run_config <- list(
   # R_G_prior_mu    = 1.27,
   # R_G_prior_sigma = 0.3,
 
-  # --- tau_boat prior sensitivity (GR-12; single-run projection, OFF by default) ---
+  # --- tau_boat prior sensitivity (GR-12; single-run projection, ON by default) ---
   # The boat catch is proportional to tau_boat (the boat deployment turnover) when tau
   # is prior-dominated, which it is whenever no in-window boat I/E days pin it (the
-  # 2024-25 case: 0 boat I/E days, so the boat total rests on the tau_boat prior). Set
-  # diagnose_tau_sensitivity = TRUE to have the gear driver PROJECT the boat and port
-  # totals across tau_sensitivity_grid in a single run (no refit), via
+  # 2024-25 case: 0 boat I/E days, so the boat total rests on the tau_boat prior). With
+  # diagnose_tau_sensitivity = TRUE the gear driver PROJECTS the boat and port totals
+  # across tau_sensitivity_grid in a single run (no refit), via
   # 03_R_functions/diagnose_tau_boat_sensitivity.R; it writes tau_boat_sensitivity.csv
   # plus an on-page table and states whether tau was prior-dominated (projection exact)
   # or not (projection = upper bound). For the EXACT multi-refit check that stays valid
   # even when boat I/E informs tau, source 06_diagnostics/run_tau_sweep.R instead.
-  diagnose_tau_sensitivity = FALSE,
+  # Default TRUE since the 2026-07-20 multi-refit sweep confirmed the projection
+  # reproduces the exact result to ~0.2% (boat elasticity 1.00), so it is ~free.
+  diagnose_tau_sensitivity = TRUE,
   tau_sensitivity_grid     = c(0.9, 1.0, 1.2, 1.5, 1.8),  # tau_boat_prior_mu values to project
 
   # --- BSS run-level settings (NOT per-fit tuning) -------------------------

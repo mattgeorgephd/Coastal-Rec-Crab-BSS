@@ -133,7 +133,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
 
   IE_n <- nrow(ie_match)
   if(IE_n > 0) {
-    cat(sprintf("  I/E observations: %d days (crabber-hrs range: %.0f–%.0f)\n",
+    cat(sprintf("  I/E observations: %d days (crabber-hrs range: %.0f-%.0f)\n",
                 IE_n, min(ie_match$ie_crabber_hours), max(ie_match$ie_crabber_hours)))
   } else {
     cat("  I/E observations: 0\n")

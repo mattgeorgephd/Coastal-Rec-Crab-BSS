@@ -214,7 +214,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   # =========================================================================
   # REGULATORY EXCLUSION: Remove gear types prohibited in this sub-season.
-  # During the ring-net sub-season (Sep 16 – Nov 30), pots are illegal.
+  # During the ring-net sub-season (Sep 16 - Nov 30), pots are illegal.
   # Any "Pot" detections are recording artifacts from multi-gear crabbers
   # naming gear they own rather than gear actually deployed. Attempting to
   # fit a Pot CPUE AR(1) process with <6 fractional interviews causes
@@ -255,7 +255,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     G_gear <- 1L
     gear_weight_matrix <- matrix(1.0, nrow = nrow(int_d), ncol = 1)
     colnames(gear_weight_matrix) <- "All"
-    cat("  Insufficient gear type diversity — using single 'All' category\n")
+    cat("  Insufficient gear type diversity, using single 'All' category\n")
   } else {
     gear_type_labels <- sort(gear_types_present)
     G_gear <- length(gear_type_labels)
@@ -422,7 +422,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     Crab_n=0L, day_Crab=integer(0), section_Crab=integer(0),
     Crab_I=integer(0), p_I_crab=1.0,
 
-    # Interview CPUE data (with gear weights — v5.1 Issue 4)
+    # Interview CPUE data (with gear weights, v5.1 Issue 4)
     # v5.3: For boats, h is gear-hours to match lambda_E (gear in water).
     # For shore, h remains crabber-hours.
     IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),

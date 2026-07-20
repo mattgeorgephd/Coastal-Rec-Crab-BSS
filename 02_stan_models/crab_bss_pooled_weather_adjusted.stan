@@ -1,5 +1,5 @@
 // =============================================================================
-// Pooled CPUE Crab Creel Model — WEATHER-ADJUSTED VARIANT
+// Pooled CPUE Crab Creel Model, WEATHER-ADJUSTED VARIANT
 // =============================================================================
 //
 // This is a surgical extension of crab_bss_pooled.stan. It adds daily tide and
