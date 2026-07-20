@@ -138,6 +138,19 @@ run_config <- list(
   # R_G_prior_mu    = 1.27,
   # R_G_prior_sigma = 0.3,
 
+  # --- tau_boat prior sensitivity (GR-12; single-run projection, OFF by default) ---
+  # The boat catch is proportional to tau_boat (the boat deployment turnover) when tau
+  # is prior-dominated, which it is whenever no in-window boat I/E days pin it (the
+  # 2024-25 case: 0 boat I/E days, so the boat total rests on the tau_boat prior). Set
+  # diagnose_tau_sensitivity = TRUE to have the gear driver PROJECT the boat and port
+  # totals across tau_sensitivity_grid in a single run (no refit), via
+  # 03_R_functions/diagnose_tau_boat_sensitivity.R; it writes tau_boat_sensitivity.csv
+  # plus an on-page table and states whether tau was prior-dominated (projection exact)
+  # or not (projection = upper bound). For the EXACT multi-refit check that stays valid
+  # even when boat I/E informs tau, source 06_diagnostics/run_tau_sweep.R instead.
+  diagnose_tau_sensitivity = FALSE,
+  tau_sensitivity_grid     = c(0.9, 1.0, 1.2, 1.5, 1.8),  # tau_boat_prior_mu values to project
+
   # --- BSS run-level settings (NOT per-fit tuning) -------------------------
   bss_chains        = 4,
   bss_cores         = 4,
@@ -275,7 +288,7 @@ run_config <- list(
   # adjusted shore-effort razor effect is significant at razor_dig_auto_p. Boat fits and
   # inactive runs pass razor = 0, so B3 stays decoupled (prior-only). Compare the shore-
   # effort elpd_loo against a "no" run to test the gain. RE-COMPILES the Stan model.
-  razor_dig_mode   = "auto",     # "no" | "yes" | "auto"
+  razor_dig_mode   = "no",       # "no" | "yes" | "auto"  (Run 3 disqualified razor-dig B3: no elpd gain; keep off unless deliberately re-testing)
   razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
 
   # --- CPUE holiday + density terms (item 6, 2026-07-13) -------------------
