@@ -59,7 +59,7 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "gear-type-run1",
+  run_tag           = "",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
