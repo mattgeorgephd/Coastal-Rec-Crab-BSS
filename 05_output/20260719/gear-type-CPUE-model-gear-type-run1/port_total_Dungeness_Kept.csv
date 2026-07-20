@@ -1,0 +1,3 @@
+"Catch_Group","Estimate","PE","BSS_median","BSS_lo95","BSS_hi95","composition","effort_units_note"
+"Dungeness_Kept","Effort (gear-deployments)",35342,44140,40350,48857,"BSS where gate passed; PE otherwise; census for comm/charter","Effort row is gear-deployments for both shore and boat (v5.5+)"
+"Dungeness_Kept","Catch",71157,82957,70340,101062,"BSS where gate passed; PE otherwise; census for comm/charter","Effort row is gear-deployments for both shore and boat (v5.5+)"

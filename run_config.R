@@ -33,7 +33,7 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "pooled"        # "pooled"  or  "gear_resolved"
+model       <- "gear_resolved"        # "pooled"  or  "gear_resolved"
 
 run_weather <- FALSE           # TRUE also runs the weather-tide covariate
                                # module AFTER the model. Only valid with
@@ -59,7 +59,7 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "",
+  run_tag           = "gear-type-run1",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -275,7 +275,7 @@ run_config <- list(
   # adjusted shore-effort razor effect is significant at razor_dig_auto_p. Boat fits and
   # inactive runs pass razor = 0, so B3 stays decoupled (prior-only). Compare the shore-
   # effort elpd_loo against a "no" run to test the gain. RE-COMPILES the Stan model.
-  razor_dig_mode   = "no",     # "no" | "yes" | "auto"
+  razor_dig_mode   = "auto",     # "no" | "yes" | "auto"
   razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
 
   # --- CPUE holiday + density terms (item 6, 2026-07-13) -------------------
