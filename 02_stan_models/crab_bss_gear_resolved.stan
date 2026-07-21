@@ -49,18 +49,21 @@
 //   derived EFFECTIVE day length in hours (~3.5-5 h), estimated as a parameter.
 //
 // G (GEAR DIMENSION) -- READ THIS BEFORE USING THIS MODEL
-//   The structure below supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over
-//   G*S, gear_IntC indexing). The R driver currently passes G = 1 and
-//   gear_IntC = 1 for every interview, so the per-gear machinery is INERT and the
-//   model is, in effect, a pooled-CPUE model with a gear dimension of length one.
-//
-//   It cannot simply be run with G > 1: the only effort observation is
-//   Gear_I ~ NB2(lambda_E[.,1] * R_G, r_E), which touches g = 1 alone, while
-//   E_sum and C_expected_sum sum lambda_E over all g. With G > 1 the unobserved
-//   effort processes would enter the totals identified by their priors only.
-//   Making this genuinely gear-resolved requires effort shares (the O[d,s,g]
-//   offset, fed by pi_gear_data) and a rule for multi-gear interviews. Tracked
-//   as Option A; do not raise G without it.
+//   The structure supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over G*S,
+//   gear_IntC indexing). GR-7 Phase 1 (2026-07-20) wires this up as Option A1:
+//     * EFFORT is a SINGLE process (one level per section: mu_E is [1,S], omega_E
+//       runs over S), split across gears by the DATA offset O[d,s,g] = pi_gear
+//       share (columns sum to 1 over g). The effort observations Gear_I / T_I / IE
+//       are therefore modelled against the TOTAL, sum_g lambda_E[.,g] = the level.
+//     * CPUE is PER GEAR (mu_C[g], omega_C over G*S), identified by each gear's
+//       single-gear interviews via gear_IntC. O is NOT applied to lambda_C (the
+//       share belongs to effort only; applying it to both would square it).
+//   Per-gear catch = level * pi_gear[g] * E_scale * L * lambda_C[g], and
+//   sum_g C_sum_gear == C_sum by construction. Because G*S == S at G = 1, ALL of
+//   the effort restructuring is behavior-neutral for the G = 1 production path;
+//   the driver only raises G (shore, via gear_resolved_G) once pi_gear feeds O.
+//   r_C and sigma_eps_C stay shared scalars across gears (a Phase 1 choice; a
+//   per-gear overdispersion is a later refinement).
 //
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
@@ -206,7 +209,14 @@ transformed data {
   // to -0.15) with sigma_mu_E's posterior equal to its half-Cauchy prior
   // (median ~1.1, hi95 ~7.5). Collapsing the layer removes a redundant funnel at
   // zero inferential cost: with one gear and one section there is nothing to pool.
-  int<lower=0, upper=1> use_mu_hier = (G * S > 1) ? 1 : 0;
+  // GR-7 A1: both mu-hierarchies pool over SECTIONS within a level/gear (mu_mu_E is
+  // one shared level; mu_mu_C is per gear). With one section the layer is a redundant
+  // funnel at ANY G, so collapse it on (S > 1) for both. Per-gear CPUE variation lives
+  // in mu_mu_C[g], not in this section layer. At G = 1 this equals the original
+  // use_mu_hier = (G*S > 1) = (S > 1), so the production path is unchanged; it also
+  // avoids the per-gear funnel the original (G*S > 1) form would switch on at G>1,S=1.
+  int<lower=0, upper=1> use_mu_hier_E = (S > 1) ? 1 : 0;
+  int<lower=0, upper=1> use_mu_hier_C = (S > 1) ? 1 : 0;
 }
 
 parameters {
@@ -221,14 +231,14 @@ parameters {
   // 5b: lognormal SD of the I/E crabber-hour observations.
   real<lower=0> sigma_IE;
   real<lower=0> sigma_eps_E;
-  cholesky_factor_corr[G*S] Lcorr_E;
+  cholesky_factor_corr[S] Lcorr_E;                 // GR-7 A1: effort AR over S (one shared level)
   real<lower=0> sigma_r_E;
   real<lower=0,upper=1> phi_E_scaled;
-  matrix[P_n-1, G*S] eps_E;
-  matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
-  real mu_mu_E[G];
+  matrix[P_n-1, S] eps_E;                          // GR-7 A1: over S, not G*S
+  matrix[1,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw); one level
+  real mu_mu_E[1];             // GR-7 A1: single shared effort level (was [G])
   real<lower=0> sigma_mu_E;
-  matrix[G * use_mu_hier, S] eps_mu_E;   // P2: 0 rows when G*S == 1
+  matrix[1 * use_mu_hier_E, S] eps_mu_E;   // effort hierarchy pools across sections only
 
   // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
   //       now marginalized into neg_binomial_2 in the model block, so the per-
@@ -247,14 +257,14 @@ parameters {
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
-  matrix[G * use_mu_hier, S] eps_mu_C;   // P2: 0 rows when G*S == 1
+  matrix[G * use_mu_hier_C, S] eps_mu_C;   // per-gear CPUE hierarchy; 0 rows when G*S == 1
 }
 
 transformed parameters {
-  matrix[G,S] mu_E;
+  matrix[1,S] mu_E;             // GR-7 A1: single shared effort level (was [G,S])
   real<lower=-1,upper=1> phi_E;
-  matrix[P_n, G*S] omega_E;
-  matrix[G,S] omega_E_0;        // B1.3: scaled from omega_E_0_raw below
+  matrix[P_n, S] omega_E;       // GR-7 A1: effort AR over S (was G*S)
+  matrix[1,S] omega_E_0;        // B1.3: scaled from omega_E_0_raw below; one level
   matrix<lower=0>[D,G] lambda_E_S[S];
   real<lower=0> r_E;
 
@@ -294,29 +304,39 @@ transformed parameters {
   omega_C[1,] = to_row_vector(omega_C_0);
   for (p in 2:P_n) {
     omega_E[p,] = to_row_vector(phi_E * to_vector(omega_E[p-1,]) +
-      diag_pre_multiply(rep_vector(sigma_eps_E, G*S), Lcorr_E) * to_vector(eps_E[p-1,]));
+      diag_pre_multiply(rep_vector(sigma_eps_E, S), Lcorr_E) * to_vector(eps_E[p-1,]));
     omega_C[p,] = to_row_vector(phi_C * to_vector(omega_C[p-1,]) +
       diag_pre_multiply(rep_vector(sigma_eps_C, G*S), Lcorr_C) * to_vector(eps_C[p-1,]));
   }
 
+  // GR-7 A1: effort mean is a SINGLE shared level (index 1); P2 hierarchy pools
+  // across sections only (use_mu_hier_E). Collapsed when S == 1.
+  for (s in 1:S) {
+    if (use_mu_hier_E == 1)
+      mu_E[1,s] = mu_mu_E[1] + eps_mu_E[1,s] * sigma_mu_E;
+    else
+      mu_E[1,s] = mu_mu_E[1];
+  }
+  // CPUE mean is PER GEAR; its hierarchy pools across the G*S gear-by-section cells.
   for (g in 1:G) {
     for (s in 1:S) {
-      // P2: collapse the (unidentified) hierarchical layer when G*S == 1.
-      if (use_mu_hier == 1) {
-        mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
+      if (use_mu_hier_C == 1)
         mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
-      } else {
-        mu_E[g,s] = mu_mu_E[g];
+      else
         mu_C[g,s] = mu_mu_C[g];
-      }
     }
-    for (d in 1:D) {
-      for (s in 1:S) {
-        lambda_E_S[s][d,g] = exp(mu_E[g,s] +
-          to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d]) * O[d,s,g];
+  }
+  for (d in 1:D) {
+    for (s in 1:S) {
+      // ONE effort level for this day/section (omega_E is indexed over S).
+      real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
+      for (g in 1:G) {
+        // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
+        lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
+        // Per-gear CPUE; O is NOT applied here (the gear share belongs to effort only).
         lambda_C_S[s][d,g] = exp(mu_C[g,s] +
           to_matrix(omega_C[period[d],], G, S)[g,s]
-          + use_B1_C * B1_C * w[d]) * O[d,s,g];
+          + use_B1_C * B1_C * w[d]);
       }
     }
   }
@@ -361,7 +381,8 @@ model {
 
   if (IE_n > 0) {
     for (i in 1:IE_n) {
-      real ie_pred = lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]];
+      // GR-7 A1: total effort across gears (= the shared level, since O sums to 1).
+      real ie_pred = sum(lambda_E_S[section_IE[i]][day_IE[i], ]) * L[day_IE[i]];
       // Boat: lambda_E is GEAR; divide by R_G_boat to predict boat groups, so
       // groups * tau = trips, matching the ingress count that IE_obs holds.
       if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;
@@ -383,16 +404,17 @@ model {
   // Do not move this inside a guard.
   R_G_boat ~ lognormal(log(4), 0.5);  // ~4 gear per group, with range ~2-8
 
+  // GR-7 A1: effort has a SINGLE shared level (index 1); CPUE is per gear.
+  mu_mu_E[1] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
+  for (s in 1:S) {
+    omega_E_0_raw[1,s] ~ std_normal();      // B1.3: prior on raw; omega_E_0 scaled in TP
+    if (use_mu_hier_E == 1) eps_mu_E[1,s] ~ std_normal();
+  }
   for (g in 1:G) {
-    mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
     mu_mu_C[g] ~ normal(value_normal_mu_mu_C, value_normal_sigma_mu_C);
     for (s in 1:S) {
-      omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
       omega_C_0_raw[g,s] ~ std_normal();
-      if (use_mu_hier == 1) {
-        eps_mu_E[g,s] ~ std_normal();
-        eps_mu_C[g,s] ~ std_normal();
-      }
+      if (use_mu_hier_C == 1) eps_mu_C[g,s] ~ std_normal();
     }
   }
 
@@ -404,17 +426,17 @@ model {
   //       only the per-observation latent eps parameters (and their funnel) are
   //       removed. The trailer keeps the gear-resolved / R_G_boat structure.
 
-  // --- Gear counts ---
+  // --- Gear counts: total gear across gear types = sum_g lambda_E[.,g] (GR-7 A1) ---
   for (i in 1:Gear_n) {
     Gear_I[i] ~ neg_binomial_2(
-      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+      sum(lambda_E_S[section_Gear[i]][day_Gear[i], ]) * R_G, r_E
     );
   }
 
   // --- Trailer counts: lambda_E = gear in water; trailers = gear / R_G_boat = groups ---
   for (i in 1:T_n) {
     T_I[i] ~ neg_binomial_2(
-      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
+      sum(lambda_E_S[section_T[i]][day_T[i], ]) / R_G_boat, r_E
     );
   }
 
@@ -437,7 +459,7 @@ model {
 
 generated quantities {
   matrix[G*S, G*S] Omega_C;
-  matrix[G*S, G*S] Omega_E;
+  matrix[S, S] Omega_E;               // GR-7 A1: effort correlation is over S
   matrix<lower=0>[D,G] lambda_Ctot_S[S];
   matrix<lower=0>[D,G] C[S];
   matrix<lower=0>[D,G] E[S];
@@ -485,12 +507,12 @@ generated quantities {
   // Mirror the model-block likelihood terms exactly (Gear_I, T_I, c).
   for (i in 1:Gear_n) {
     log_lik_gear[i] = neg_binomial_2_lpmf(
-      Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+      Gear_I[i] | sum(lambda_E_S[section_Gear[i]][day_Gear[i], ]) * R_G, r_E
     );
   }
   for (i in 1:T_n) {
     log_lik_trailer[i] = neg_binomial_2_lpmf(
-      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
+      T_I[i] | sum(lambda_E_S[section_T[i]][day_T[i], ]) / R_G_boat, r_E
     );
   }
   for (a in 1:IntC) {

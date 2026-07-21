@@ -310,6 +310,14 @@ run_config <- list(
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).
+  gear_resolved_G            = FALSE,  # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
+                                       #   (gear split by PE apportionment). TRUE turns on genuine
+                                       #   per-gear CPUE for SHORE fits (Option A1): only single-gear
+                                       #   interviews feed a gear-specific CPUE, multi-gear trips form
+                                       #   "Mixed", effort is split across gears by the pi_gear shares.
+                                       #   Boat stays G = 1 (Pot-dominated; Phase 0). Changes shore
+                                       #   inference, so validate by run. See
+                                       #   07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
                                        #   season period_bss (biweekly ring-net, monthly all-
                                        #   gear) EXACTLY. TRUE hands AR choice to the data-driven

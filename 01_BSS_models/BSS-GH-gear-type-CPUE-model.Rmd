@@ -1144,7 +1144,7 @@ write.csv(mode_table, file.path(output_dir, "catch_by_mode.csv"), row.names = FA
 
 ## 9. Catch by gear type
 
-Catch attributed to each gear type. **Known limitation (GR-7):** this model runs with `G = 1`, so the per-gear CPUE process is inert and this split is not a true gear resolution; most catch lands in an "All" bucket and the remainder is degenerate. For a real gear breakdown, use the pooled model's Dirichlet-propagated `catch_by_gear_type` instead. This table is retained for continuity, not for citation.
+Catch attributed to each gear type. **GR-7 status:** when `gear_resolved_G = TRUE` (Phase 1), the **shore** fits carry a genuine per-gear CPUE posterior (Pot / Ring Net / Trap / Snare / Mixed), so those rows are real BSS estimates with credible intervals; the **boat** stays pooled (`G = 1`, one "All" row, since Phase 0 showed it is Pot-dominated) and commercial/charter Pot enters by census. Single-gear interviews feed each gear's CPUE; multi-gear trips form the "Mixed" row (~33% of shore all-gear catch, the honest ceiling until sampling shifts toward single-gear reporting). When the toggle is OFF every fit is `G = 1` and the split is PE-apportioned (retained for continuity, not for citation). The per-gear catches reconcile to each population's all-gear total by construction (checked immediately below).
 
 ```{r gear-sec9-geartype}
 # ===========================================================================
@@ -1238,8 +1238,26 @@ gear_results[[length(gear_results)+1]] <- tibble(
 
 gear_df <- bind_rows(gear_results)
 message("\n--- Catch by Gear Type (BSS where available, PE fallback) ---\n")
-report_table(gear_df, caption = "Catch by gear type (G = 1; see the GR-7 caveat)")
+report_table(gear_df, caption = "Catch by gear type (BSS per-gear where resolved; PE-apportioned otherwise)")
 write.csv(gear_df, file.path(output_dir, "catch_by_gear_type_detail.csv"), row.names = FALSE)
+
+# GR-7 reconciliation gate: per-gear BSS catches must sum to each population's all-gear
+# total (identical draws in the Stan generated quantities). max_abs_draw_diff ~ 0 = valid.
+reco_rows <- list()
+for (pop in c("shore","private_boat")) for (ss in subseasons) {
+  b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
+  if (is.null(b) || bss_use_pe_for(b) || is.null(b$C_gear_draws)) next
+  if (is.matrix(b$C_gear_draws) && ncol(b$C_gear_draws) > 1) {
+    reco_rows[[length(reco_rows)+1]] <- tibble(
+      fit = short_fit(paste0(pop, "_", ss$name, "_Dungeness_Kept")),
+      G = ncol(b$C_gear_draws),
+      C_sum_median = round(median(b$C_draws)),
+      sum_gear_median = round(median(rowSums(b$C_gear_draws))),
+      max_abs_draw_diff = signif(max(abs(rowSums(b$C_gear_draws) - b$C_draws)), 3))
+  }
+}
+if (length(reco_rows) > 0) report_table(bind_rows(reco_rows),
+  caption = "GR-7 reconciliation: per-gear catches sum to the all-gear total (max_abs_draw_diff ~ 0 = valid).")
 
 # Port-level summary by gear type
 gear_port <- gear_df |>

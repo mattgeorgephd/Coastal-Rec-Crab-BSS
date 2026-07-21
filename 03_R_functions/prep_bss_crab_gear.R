@@ -282,24 +282,64 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     gear_weight_matrix <- gear_weight_matrix / rowSums(gear_weight_matrix)
   }
 
-  # --- Option B: the Stan model runs with G = 1 ------------------------------
-  # crab_bss_gear_resolved.stan supports G > 1 structurally, but its only effort
-  # observation touches g = 1 while E_sum / C_expected_sum sum over all g, so
-  # raising G would add effort processes identified by their priors alone. Until
-  # the gear-resolved reconstruction (Option A: effort shares in O[d,s,g] from
-  # pi_gear_data, plus a multi-gear interview rule), collapse the Stan-facing gear
-  # dimension to a single "All" category. The gear-composition diagnostics above
-  # are retained for reporting.
-  if(G_gear > 1) {
-    cat(sprintf("  NOTE: %d gear types qualify (%s), but this Stan model runs with\n",
-                G_gear, paste(gear_type_labels, collapse=", ")))
-    cat("        G = 1. Collapsing to a single 'All' CPUE process. Gear-type catch\n")
-    cat("        is reported by PE apportionment, not by the BSS. See Option A.\n")
+  # --- GR-7 Phase 1: per-gear CPUE (Option A1), shore only, via gear_resolved_G --
+  # Legacy behavior (production, gear_resolved_G off): collapse the Stan-facing gear
+  # dimension to a single "All" category, so gear-type catch is PE-apportioned. When
+  # gear_resolved_G = TRUE AND this is a shore fit, instead keep a genuine per-gear
+  # CPUE: only SINGLE-gear interviews feed a gear-specific CPUE (via gear_IntC),
+  # multi-gear interviews form "Mixed", and effort is split across gears by the
+  # pi_gear share through O[d,s,g] (see the Stan header's GR-7 A1 note). The boat
+  # stays G = 1 (Pot-dominated; Phase 0 audit).
+  gear_resolved <- isTRUE(params$gear_resolved_G) && is_shore
+
+  # Single-gear label per interview (NA = multi-gear or unrecognized -> Mixed).
+  single_lab <- dplyr::case_when(
+    int_d$n_gear_types_reported == 1 & int_d$has_pot      == 1 ~ "Pot",
+    int_d$n_gear_types_reported == 1 & int_d$has_ring_net == 1 ~ "Ring Net",
+    int_d$n_gear_types_reported == 1 & int_d$has_trap     == 1 ~ "Trap",
+    int_d$n_gear_types_reported == 1 & int_d$has_snare    == 1 ~ "Snare",
+    TRUE ~ NA_character_)
+
+  if (gear_resolved) {
+    single_counts <- table(factor(single_lab, levels = c("Pot","Ring Net","Trap","Snare")))
+    estimable     <- names(single_counts)[as.integer(single_counts) >= min_gear_n]
+    n_mixed_like  <- sum(is.na(single_lab))            # multi-gear + unrecognized
+    add_mixed     <- n_mixed_like >= min_gear_n
+    gear_type_labels <- sort(estimable)
+    if (add_mixed) gear_type_labels <- c(gear_type_labels, "Mixed")
+    G_gear <- length(gear_type_labels)
+  }
+
+  if (gear_resolved && G_gear >= 2) {
+    mixed_idx <- if (add_mixed) match("Mixed", gear_type_labels) else NA_integer_
+    # gear_IntC: single-gear -> its gear index; multi/unrecognized/sub-threshold -> Mixed.
+    gear_IntC_vec <- vapply(seq_len(nrow(int_d)), function(i) {
+      lab <- single_lab[i]
+      if (!is.na(lab) && lab %in% gear_type_labels) return(match(lab, gear_type_labels))
+      if (!is.na(mixed_idx)) return(mixed_idx)
+      return(1L)
+    }, integer(1))
+    # Hard one-hot weight matrix: Mixed is its OWN gear (whole share, not split).
+    gear_weight_matrix <- matrix(0.0, nrow = nrow(int_d), ncol = G_gear)
+    colnames(gear_weight_matrix) <- gear_type_labels
+    gear_weight_matrix[cbind(seq_len(nrow(int_d)), gear_IntC_vec)] <- 1.0
+    cat(sprintf("  GR-7 gear-resolved (A1): G = %d [%s]; single-gear feeds CPUE, Mixed = %d\n",
+                G_gear, paste(gear_type_labels, collapse = ", "), n_mixed_like))
+  } else {
+    # Legacy / fallback: single "All" CPUE process, G = 1, PE-apportioned gear split.
+    if (isTRUE(params$gear_resolved_G) && is_shore)
+      cat("  GR-7: <2 estimable gears under the single-gear rule; using G = 1 'All'\n")
+    else if (G_gear > 1)
+      cat(sprintf("  NOTE: %d gear types qualify; G = 1 this run (set gear_resolved_G = TRUE for per-gear CPUE)\n", G_gear))
     gear_type_labels <- "All"
     G_gear <- 1L
     gear_weight_matrix <- matrix(1.0, nrow = nrow(int_d), ncol = 1)
     colnames(gear_weight_matrix) <- "All"
+    gear_IntC_vec <- rep(1L, nrow(int_d))
   }
+
+  # GR-7 A1: raise the Stan-facing gear dimension (was hardcoded G <- 1L at line 14).
+  G <- G_gear
 
   cat(sprintf("  Gear types (%d): %s\n", G_gear, paste(gear_type_labels, collapse=", ")))
   cat(sprintf("  Effective N per gear type: %s\n",
@@ -357,6 +397,20 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     }
   }
 
+  # --- GR-7 A1: effort-share offset O[d,s,g] from pi_gear_data ---------------
+  # O is all-ones for G = 1 (production). For the per-gear build it carries the
+  # pi_gear effort share for each day's (period, day_type), so in Stan
+  # lambda_E[.,g] = (shared effort level) * O[.,.,g] with sum_g O = 1 (a
+  # deterministic gear split of one identified effort total).
+  O_arr <- array(1.0, dim = c(D, S, G))
+  if (gear_resolved && G > 1) {
+    dt_by_day <- days$day_type_idx
+    for (d in seq_len(D)) {
+      share <- pi_gear_data[pvec[d], dt_by_day[d], ]
+      for (s in seq_len(S)) O_arr[d, s, ] <- share
+    }
+  }
+
   # --- Day type indices for Stan ---
   day_type_idx_vec <- days$day_type_idx
 
@@ -400,7 +454,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     section_IE     = if(IE_n > 0) rep(1L, IE_n) else integer(0),
     IE_obs         = if(IE_n > 0) ie_match$ie_obs else numeric(0),
     ie_group_scale = ie_group_scale,
-    O=array(1.0, dim=c(D,S,G)),
+    O = O_arr,   # GR-7 A1: pi_gear effort share (all-ones when G = 1)
 
     # Sparse effort observation count
     n_effort_obs = n_effort_obs,
@@ -425,7 +479,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     # Interview CPUE data (with gear weights, v5.1 Issue 4)
     # v5.3: For boats, h is gear-hours to match lambda_E (gear in water).
     # For shore, h remains crabber-hours.
-    IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=rep(1L,nrow(int_d)),
+    IntC=nrow(int_d), day_IntC=int_d$day_index, gear_IntC=gear_IntC_vec,
     section_IntC=rep(1L,nrow(int_d)), c=as.integer(int_d$fish_count),
     # P1/F2: CPUE denominator, matched to the effort unit (see bss_effort_spec()).
     h = eff_spec$h_fun(int_d),
