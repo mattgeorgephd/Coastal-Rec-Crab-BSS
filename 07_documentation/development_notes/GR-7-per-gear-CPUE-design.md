@@ -1,6 +1,6 @@
 # GR-7: Genuine per-gear CPUE, design and implementation map
 
-**Status:** design (no code raised to `G > 1` yet). **Author context:** written 2026-07-20 against `main` after the `gear-type-run1` review. **Governing decisions (from Matt, 2026-07-20):** (1) the gear-resolved model should ultimately deliver a real per-gear CPUE, not a PE apportionment; (2) because the interview design records mixed-gear trips, **"Mixed" is treated as its own gear type for now**; (3) **only interviews that report a single gear type contribute to a gear-specific CPUE**; (4) the intent is to improve sampling over time so the Mixed share shrinks and gear-specific catch information grows.
+**Status:** Phase 0 executed 2026-07-20 (gear-coverage audit, Section 5: shore supports G = 5 / G = 4, boat stays G = 1, shore Mixed share 33%). Phase 1 (the `G > 1` build) is designed and specced below but NOT yet coded or run. **Author context:** written 2026-07-20 against `main` after the `gear-type-run1` review. **Governing decisions (from Matt, 2026-07-20):** (1) the gear-resolved model should ultimately deliver a real per-gear CPUE, not a PE apportionment; (2) because the interview design records mixed-gear trips, **"Mixed" is treated as its own gear type for now**; (3) **only interviews that report a single gear type contribute to a gear-specific CPUE**; (4) the intent is to improve sampling over time so the Mixed share shrinks and gear-specific catch information grows.
 
 This document maps the exact path from the current `G = 1` state to a genuinely gear-resolved fit, names every file and line that changes, and flags the one real identification decision that must be made deliberately (not silently).
 
@@ -53,14 +53,26 @@ Result: Pot/Ring Net/Snare/Trap CPUE come only from clean single-gear interviews
 
 ## 5. Data sufficiency (run this before building)
 
-The gate is `bss_min_gear_effective_n = 15` single-gear interviews per gear. Before any model change, tabulate single-gear interview counts per gear per sub-season from `interview_combined.xlsx`:
+The gate is `bss_min_gear_effective_n = 15` single-gear interviews per gear. Any gear below that in a sub-season folds to Mixed or a pooled "Other" and is reported by apportionment with an explicit flag, never fit as a `mu_C[g]`.
 
-- Any gear below 15 single-gear interviews in a sub-season is folded to Mixed or to a pooled "Other," and its catch reported by apportionment with an explicit flag (not as a BSS gear). Do not fit a `mu_C[g]` on < 15 interviews.
-- Expect the pot-closure sub-season (Sep 16-Nov 30, no pots) to support Ring Net and maybe Snare only; the all-gear sub-season (Dec 1+) to support Pot and Ring Net, with Trap/Snare likely thin. The 2024-25 counts will decide which gears are genuinely estimable; publish only those, Mixed, and an "Other/apportioned" remainder.
+**PHASE 0 RESULT (executed 2026-07-20 on `interview_combined.xlsx` via `06_diagnostics/gear_coverage_audit.R`; single-gear counts after the standard filters, pots excluded in the pot closure):**
+
+| population / sub-season | N | single-gear | Mixed | Mixed share | estimable gears (single >= 15) |
+|---|---:|---:|---:|---:|---|
+| shore / pot-closure | 856 | 652 | 198 | 23% | Ring Net (274), Trap (293), Snare (85), Mixed |
+| shore / all-gear | 2,743 | 1,841 | 893 | 33% | Pot (646), Ring Net (378), Trap (608), Snare (209), Mixed |
+| private_boat / pot-closure | 17 | 15 | 0 | 0% | none (stays PE, insufficient data) |
+| private_boat / all-gear | 145 | 135 | 9 | 6% | Pot (130) only |
+
+Three decisions fall out:
+
+- **Shore is where the resolution lives.** Shore all-gear supports a full G = 5 (Pot, Ring Net, Trap, Snare, Mixed); shore pot-closure supports G = 4 (Ring Net, Trap, Snare, Mixed; pots illegal). Every real gear clears the threshold with room to spare, so switching from the old fractional metric to the single-gear rule loses no shore gear.
+- **The boat is Pot-only.** Boat all-gear has 130 of 135 single-gear interviews as Pot; nothing else clears 15 and Mixed is only 9. So the boat stays G = 1 (there is no boat gear mix to resolve) and boat pot-closure stays PE. Per-gear CPUE is, for 2024-25, a shore feature.
+- **Mixed is the honest ceiling.** A third of shore all-gear interviews (33%) report multiple gear types, so ~33% of the shore all-gear catch lands in the Mixed bucket rather than a named gear. The resolution is real (the other ~67% splits across four gears with propagated uncertainty) but bounded; the season-over-season Mixed share is the KPI for how gear-resolved the estimate can become (Section 9).
 
 ## 6. Implementation, phased (each phase ends in a validating run)
 
-**Phase 0, data audit (no model change).** Add a diagnostic (or extend `save_run_diagnostics`) that prints single-gear interview counts per gear per sub-season and the Mixed share. Decide the estimable gear set. *Deliverable: a table; no fit.*
+**Phase 0, data audit (no model change). DONE 2026-07-20.** Delivered as the standalone `06_diagnostics/gear_coverage_audit.R`, which prints single-gear interview counts per gear per sub-season and the Mixed share and writes `gear_coverage_audit.csv`. Result in Section 5: shore all-gear G = 5, shore pot-closure G = 4, boat G = 1 (Pot-only), shore Mixed share 33%.
 
 **Phase 1, fixed-share A1, effort split only.** In `prep_bss_crab_gear.R`: stop the L293-302 collapse (guard it behind a `params$gear_resolved_G` toggle, default FALSE so production is unchanged); populate `O_E[d,s,g] = pi_gear_data[period(d), day_type(d), g]`; set `gear_IntC` per the Mixed rule; tie `mu_E[g]` (shared level). In `crab_bss_gear_resolved.stan`: split `O` into `O_E` (on `lambda_E`) and `O_C = 1` (on `lambda_C`); keep `mu_C[g]` free. Fit shore all-gear only (best-sampled). *Validate:* `sum_g C_sum_gear == C_sum` (gear catches reconcile to the all-gear total to within Monte-Carlo error); per-gear CPUE ordering is physically sensible; convergence gate passes; compare the gear split to the pooled Dirichlet split (they should agree in central tendency, with the BSS carrying wider, honest intervals).
 
