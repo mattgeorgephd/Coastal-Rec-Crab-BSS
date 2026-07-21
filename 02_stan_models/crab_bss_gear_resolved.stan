@@ -50,7 +50,7 @@
 //
 // G (GEAR DIMENSION) -- READ THIS BEFORE USING THIS MODEL
 //   The structure supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over G*S,
-//   gear_IntC indexing). GR-7 Phase 1 (2026-07-20) wires this up as Option A1:
+//   gear_IntC indexing). GR-7 Phase 1 (2026-07-20, VALIDATED) wires this up as Option A1:
 //     * EFFORT is a SINGLE process (one level per section: mu_E is [1,S], omega_E
 //       runs over S), split across gears by the DATA offset O[d,s,g] = pi_gear
 //       share (columns sum to 1 over g). The effort observations Gear_I / T_I / IE
