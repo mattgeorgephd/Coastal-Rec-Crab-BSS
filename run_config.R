@@ -59,7 +59,7 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "",
+  run_tag           = "gear_resolved_G = TRUE",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -310,7 +310,7 @@ run_config <- list(
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).
-  gear_resolved_G            = FALSE,  # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
+  gear_resolved_G            = TRUE,  # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
                                        #   (gear split by PE apportionment). TRUE turns on genuine
                                        #   per-gear CPUE for SHORE fits (Option A1): only single-gear
                                        #   interviews feed a gear-specific CPUE, multi-gear trips form
