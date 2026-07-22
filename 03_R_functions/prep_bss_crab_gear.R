@@ -1,3 +1,23 @@
+# -----------------------------------------------------------------------------
+# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
+# for Grays Harbor / Westport (WDFW).
+# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+#
+# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
+#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
+# Substantial portions of the methodology, structure, and R/Stan code originate
+# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
+# recreational crab are by WDFW.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License, version 3, as published by the Free
+# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
+# implied
+# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details. You should have received a copy of
+# the GNU General Public License along with this program (see the LICENSE file);
+# if not, see <https://www.gnu.org/licenses/>.
+# -----------------------------------------------------------------------------
 ###############################################################################
 # prep_bss_crab_gear.R  (gear-resolved driver)
 #
@@ -454,7 +474,19 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     section_IE     = if(IE_n > 0) rep(1L, IE_n) else integer(0),
     IE_obs         = if(IE_n > 0) ie_match$ie_obs else numeric(0),
     ie_group_scale = ie_group_scale,
-    O = O_arr,   # GR-7 A1: pi_gear effort share (all-ones when G = 1)
+    O_data = O_arr,   # GR-7 A1: fixed pi_gear effort share (all-ones when G = 1)
+
+    # --- GR-7 Phase 2: Dirichlet gear-share uncertainty (toggle) --------------
+    # gear_share_dirichlet turns the fixed O_data offset into a Dirichlet posterior
+    # pi_gear ~ Dirichlet(alpha0_gear + n_weighted_gear) per period x day_type, so the
+    # sampling uncertainty in the gear split flows into C_sum_gear. Forced off (0)
+    # unless G > 1: a 1-simplex is degenerate, so it is inert on the G = 1 production
+    # path and only activates for a gear-resolved (gear_resolved_G = TRUE) shore fit.
+    gear_share_dirichlet = as.integer(isTRUE(params$gear_share_dirichlet) && G > 1),
+    n_day_types          = n_day_types,
+    day_type_idx         = as.integer(days$day_type_idx),
+    n_weighted_gear      = n_weighted_gear,
+    alpha0_gear          = params$alpha0_gear %||% 1.0,
 
     # Sparse effort observation count
     n_effort_obs = n_effort_obs,

@@ -181,3 +181,11 @@ For the current state and the prioritized backlog (what is done and what remains
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
 
 See each model's development-history document for details.
+
+---
+
+## License and attribution
+
+Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 (GPL-3.0)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+
+This pipeline is a **derivative work of [CreelEstimates](https://github.com/dfw-wa/CreelEstimates)**, the WDFW freshwater creel estimation framework (also GPL-3.0). The BSS and PE methodology, the project structure, and substantial portions of the R and Stan code originate in CreelEstimates and remain copyright their authors under GPL-3.0; the adaptation to recreational Dungeness crab is by WDFW. See [`NOTICE`](NOTICE) for the full attribution. Every source file carries a GPL-3.0 header with the copyright and this attribution. If you use or redistribute this software, retain the license, the per-file headers, and this attribution, and cite CreelEstimates as the upstream source.

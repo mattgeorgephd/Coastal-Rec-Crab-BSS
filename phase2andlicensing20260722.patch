@@ -1,0 +1,1478 @@
+diff --git a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+index 4b92cc0..90600d5 100644
+--- a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+@@ -22,6 +22,29 @@ knit: >
+   })
+ ---
+ 
++<!--
++-----------------------------------------------------------------------------
++Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++for Grays Harbor / Westport (WDFW).
++Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++
++Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++  https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++Substantial portions of the methodology, structure, and R/Stan code originate
++in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++recreational crab are by WDFW.
++
++This program is free software: you can redistribute it and/or modify it under
++the terms of the GNU General Public License, version 3, as published by the Free
++Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++implied
++warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++General Public License for more details. You should have received a copy of
++the GNU General Public License along with this program (see the LICENSE file);
++if not, see <https://www.gnu.org/licenses/>.
++-----------------------------------------------------------------------------
++-->
++
+ ```{r setup, include=FALSE}
+ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                       fig.align = "center", fig.width = 10, fig.height = 6)
+diff --git a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+index 51693b1..6c6430c 100644
+--- a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+@@ -23,6 +23,29 @@ knit: >
+   })
+ ---
+ 
++<!--
++-----------------------------------------------------------------------------
++Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++for Grays Harbor / Westport (WDFW).
++Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++
++Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++  https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++Substantial portions of the methodology, structure, and R/Stan code originate
++in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++recreational crab are by WDFW.
++
++This program is free software: you can redistribute it and/or modify it under
++the terms of the GNU General Public License, version 3, as published by the Free
++Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++implied
++warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++General Public License for more details. You should have received a copy of
++the GNU General Public License along with this program (see the LICENSE file);
++if not, see <https://www.gnu.org/licenses/>.
++-----------------------------------------------------------------------------
++-->
++
+ ```{r setup, include=FALSE}
+ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                       fig.align = "center", fig.width = 10, fig.height = 6)
+diff --git a/02_stan_models/crab_bss_gear_resolved.stan b/02_stan_models/crab_bss_gear_resolved.stan
+index fc85733..f838f6d 100644
+--- a/02_stan_models/crab_bss_gear_resolved.stan
++++ b/02_stan_models/crab_bss_gear_resolved.stan
+@@ -1,3 +1,23 @@
++// -----------------------------------------------------------------------------
++// Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++// for Grays Harbor / Westport (WDFW).
++// Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++//
++// Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++//   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++// Substantial portions of the methodology, structure, and R/Stan code originate
++// in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++// recreational crab are by WDFW.
++//
++// This program is free software: you can redistribute it and/or modify it under
++// the terms of the GNU General Public License, version 3, as published by the Free
++// Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++// implied
++// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++// General Public License for more details. You should have received a copy of
++// the GNU General Public License along with this program (see the LICENSE file);
++// if not, see <https://www.gnu.org/licenses/>.
++// -----------------------------------------------------------------------------
+ // =============================================================================
+ // Gear-Resolved CPUE Crab Creel Model - Configurable Effort Units
+ // (crab_bss_gear_resolved.stan)
+@@ -65,6 +85,19 @@
+ //   r_C and sigma_eps_C stay shared scalars across gears (a Phase 1 choice; a
+ //   per-gear overdispersion is a later refinement).
+ //
++//   GR-7 Phase 2 (2026-07-20, gear_share_dirichlet toggle) adds share-sampling
++//   uncertainty on the gear split. Phase 1 treats the effort share O[d,s,g] as a
++//   fixed DATA offset (a point estimate of pi_gear from interview counts). Phase 2
++//   optionally replaces it with a PARAMETER pi_gear ~ Dirichlet(alpha0_gear +
++//   n_weighted_gear) per (BSS period, day_type), so the fact that the shares are
++//   themselves estimated from finite interview counts flows into the per-gear catch
++//   total C_sum_gear. pi_gear enters NO likelihood term (the effort observations sum
++//   over gear, and O's columns sum to 1 over gear), so its posterior is exactly that
++//   Dirichlet: it neither pulls on the effort/CPUE parameters nor changes C_sum; it
++//   only widens the split of that total across gears. gear_share_dirichlet = 0
++//   (default) restores the fixed-offset Phase 1 behavior with byte-identical output,
++//   and the R driver forces it to 0 whenever G = 1, where a 1-simplex is degenerate.
++//
+ // Holiday effect B2 separates holiday effort from regular weekends.
+ // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
+ //
+@@ -143,7 +176,25 @@ data {
+   vector<lower=0>[IE_n] IE_obs;
+   int<lower=0, upper=1> ie_group_scale;
+ 
+-  real<lower=0> O[D,S,G];
++  // GR-7 A1/Phase 2: the fixed gear-share effort offset (columns sum to 1 over g;
++  // all-ones at G = 1). Phase 1 used this DIRECTLY as O. Phase 2 renames it O_data
++  // and lets the Stan symbol O be either this fixed offset (gear_share_dirichlet = 0)
++  // or a Dirichlet posterior draw (= 1); see the transformed-parameters block.
++  real<lower=0> O_data[D,S,G];
++
++  // --- GR-7 Phase 2: optional Dirichlet gear-share uncertainty ----------------
++  // gear_share_dirichlet toggles whether the per-(period, day_type) gear shares are
++  // (0) the fixed O_data offset, reproducing Phase 1 exactly, or (1) a Dirichlet
++  // posterior pi_gear ~ Dirichlet(alpha0_gear + n_weighted_gear), so the sampling
++  // uncertainty in the shares propagates into the per-gear catch total C_sum_gear.
++  // n_weighted_gear holds the (possibly fractional) weighted interview counts per
++  // period x day_type x gear; alpha0_gear is the Dirichlet concentration floor that
++  // keeps unobserved cells proper. Off by default; the driver forces 0 when G = 1.
++  int<lower=0, upper=1> gear_share_dirichlet;
++  int<lower=1> n_day_types;
++  int<lower=1, upper=n_day_types> day_type_idx[D];
++  real<lower=0> n_weighted_gear[P_n, n_day_types, G];
++  real<lower=0> alpha0_gear;
+ 
+   // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
+   int<lower=0> n_effort_obs;
+@@ -258,6 +309,12 @@ parameters {
+   real mu_mu_C[G];
+   real<lower=0> sigma_mu_C;
+   matrix[G * use_mu_hier_C, S] eps_mu_C;   // per-gear CPUE hierarchy; 0 rows when G*S == 1
++
++  // GR-7 Phase 2: Dirichlet gear shares, one simplex per (BSS period, day_type).
++  // Zero rows (no parameters at all) when gear_share_dirichlet == 0, so the default
++  // path is unchanged. When 1, indexed in the transformed block by each day's
++  // period[d] and day_type_idx[d].
++  simplex[G] pi_gear[P_n * gear_share_dirichlet, n_day_types];
+ }
+ 
+ transformed parameters {
+@@ -326,17 +383,40 @@ transformed parameters {
+         mu_C[g,s] = mu_mu_C[g];
+     }
+   }
+-  for (d in 1:D) {
+-    for (s in 1:S) {
+-      // ONE effort level for this day/section (omega_E is indexed over S).
+-      real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
+-      for (g in 1:G) {
+-        // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
+-        lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
+-        // Per-gear CPUE; O is NOT applied here (the gear share belongs to effort only).
+-        lambda_C_S[s][d,g] = exp(mu_C[g,s] +
+-          to_matrix(omega_C[period[d],], G, S)[g,s]
+-          + use_B1_C * B1_C * w[d]);
++  // GR-7 Phase 2: resolve the effort-share offset O actually used this draw.
++  //  * gear_share_dirichlet == 0 (default): O = O_data, the fixed offset. Output is
++  //    byte-identical to the pre-Phase-2 model, where O was passed as data.
++  //  * gear_share_dirichlet == 1: O = the Dirichlet pi_gear draw, broadcast across
++  //    days by (period[d], day_type_idx[d]) and held constant across sections, which
++  //    matches how the R driver builds O_data. pi_gear enters no likelihood, so its
++  //    posterior is the Dirichlet(alpha0_gear + counts) prior and its uncertainty
++  //    reaches only the generated-quantity gear split (C_sum_gear), not C_sum or any
++  //    parameter.
++  //  O is declared LOCAL (inside this block) so it is not stored in the fit object:
++  //  it is redundant with the saved pi_gear, and keeping it local leaves the
++  //  default-path fit unchanged.
++  {
++    real O[D,S,G];
++    if (gear_share_dirichlet == 1) {
++      for (d in 1:D)
++        for (s in 1:S)
++          for (g in 1:G)
++            O[d,s,g] = pi_gear[period[d], day_type_idx[d], g];
++    } else {
++      O = O_data;
++    }
++    for (d in 1:D) {
++      for (s in 1:S) {
++        // ONE effort level for this day/section (omega_E is indexed over S).
++        real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
++        for (g in 1:G) {
++          // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
++          lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
++          // Per-gear CPUE; O is NOT applied here (the gear share belongs to effort only).
++          lambda_C_S[s][d,g] = exp(mu_C[g,s] +
++            to_matrix(omega_C[period[d],], G, S)[g,s]
++            + use_B1_C * B1_C * w[d]);
++        }
+       }
+     }
+   }
+@@ -418,6 +498,19 @@ model {
+     }
+   }
+ 
++  // GR-7 Phase 2: Dirichlet gear-share layer. Runs ONLY when toggled on (else
++  // pi_gear has no rows). Because pi_gear appears in no likelihood term, this
++  // statement IS its full conditional: each period x day_type share is
++  // Dirichlet(alpha0_gear + n_weighted_gear), i.e. the interview counts shrunk
++  // toward a flat alpha0_gear floor. The resulting share uncertainty enters the
++  // fit only through O in the transformed block, widening C_sum_gear without
++  // touching C_sum or the effort/CPUE parameters.
++  if (gear_share_dirichlet == 1) {
++    for (p in 1:P_n)
++      for (dt in 1:n_day_types)
++        pi_gear[p, dt] ~ dirichlet(rep_vector(alpha0_gear, G) + to_vector(n_weighted_gear[p, dt]));
++  }
++
+   // B1.5: effort-count overdispersion marginalized to neg_binomial_2. The prior
+   //       form was Gear_I ~ Poisson(lambda * eps_E_H_obs * R_G) with
+   //       eps_E_H_obs ~ Gamma(r_E, r_E); integrating out eps_E_H_obs gives
+diff --git a/02_stan_models/crab_bss_pooled.stan b/02_stan_models/crab_bss_pooled.stan
+index a4c0703..e64a8f5 100644
+--- a/02_stan_models/crab_bss_pooled.stan
++++ b/02_stan_models/crab_bss_pooled.stan
+@@ -1,3 +1,23 @@
++// -----------------------------------------------------------------------------
++// Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++// for Grays Harbor / Westport (WDFW).
++// Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++//
++// Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++//   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++// Substantial portions of the methodology, structure, and R/Stan code originate
++// in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++// recreational crab are by WDFW.
++//
++// This program is free software: you can redistribute it and/or modify it under
++// the terms of the GNU General Public License, version 3, as published by the Free
++// Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++// implied
++// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++// General Public License for more details. You should have received a copy of
++// the GNU General Public License along with this program (see the LICENSE file);
++// if not, see <https://www.gnu.org/licenses/>.
++// -----------------------------------------------------------------------------
+ // =============================================================================
+ // Pooled CPUE Crab Creel Model
+ // Adaptive-resolution AR(1) + CPUE Day-Type Effect + L_effective Uncertainty
+diff --git a/02_stan_models/crab_bss_pooled_weather_adjusted.stan b/02_stan_models/crab_bss_pooled_weather_adjusted.stan
+index 2e2df8f..b202157 100644
+--- a/02_stan_models/crab_bss_pooled_weather_adjusted.stan
++++ b/02_stan_models/crab_bss_pooled_weather_adjusted.stan
+@@ -1,3 +1,23 @@
++// -----------------------------------------------------------------------------
++// Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++// for Grays Harbor / Westport (WDFW).
++// Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++//
++// Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++//   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++// Substantial portions of the methodology, structure, and R/Stan code originate
++// in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++// recreational crab are by WDFW.
++//
++// This program is free software: you can redistribute it and/or modify it under
++// the terms of the GNU General Public License, version 3, as published by the Free
++// Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++// implied
++// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++// General Public License for more details. You should have received a copy of
++// the GNU General Public License along with this program (see the LICENSE file);
++// if not, see <https://www.gnu.org/licenses/>.
++// -----------------------------------------------------------------------------
+ // =============================================================================
+ // Pooled CPUE Crab Creel Model, WEATHER-ADJUSTED VARIANT
+ // =============================================================================
+diff --git a/03_R_functions/bss_ar_resolution.R b/03_R_functions/bss_ar_resolution.R
+index 0869597..dda3c0c 100644
+--- a/03_R_functions/bss_ar_resolution.R
++++ b/03_R_functions/bss_ar_resolution.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_ar_resolution.R
+ #
+diff --git a/03_R_functions/bss_convergence_gate.R b/03_R_functions/bss_convergence_gate.R
+index cc03dfd..02a3b71 100644
+--- a/03_R_functions/bss_convergence_gate.R
++++ b/03_R_functions/bss_convergence_gate.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_convergence_gate.R
+ #
+diff --git a/03_R_functions/bss_cpue_diagnostics.R b/03_R_functions/bss_cpue_diagnostics.R
+index 06000c9..c1e9c87 100644
+--- a/03_R_functions/bss_cpue_diagnostics.R
++++ b/03_R_functions/bss_cpue_diagnostics.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_cpue_diagnostics.R
+ #
+diff --git a/03_R_functions/bss_day_length.R b/03_R_functions/bss_day_length.R
+index 1c524f2..824dbe0 100644
+--- a/03_R_functions/bss_day_length.R
++++ b/03_R_functions/bss_day_length.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_day_length.R
+ #
+diff --git a/03_R_functions/bss_effort_spec.R b/03_R_functions/bss_effort_spec.R
+index a7a2ee6..2369461 100644
+--- a/03_R_functions/bss_effort_spec.R
++++ b/03_R_functions/bss_effort_spec.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_effort_spec.R
+ #
+diff --git a/03_R_functions/bss_timers.R b/03_R_functions/bss_timers.R
+index b158902..a935ce3 100644
+--- a/03_R_functions/bss_timers.R
++++ b/03_R_functions/bss_timers.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_timers.R
+ #
+diff --git a/03_R_functions/bss_trailer_expansion.R b/03_R_functions/bss_trailer_expansion.R
+index 208d104..e6624a7 100644
+--- a/03_R_functions/bss_trailer_expansion.R
++++ b/03_R_functions/bss_trailer_expansion.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # bss_trailer_expansion.R
+ #
+diff --git a/03_R_functions/build_subseasons.R b/03_R_functions/build_subseasons.R
+index b8dd3f0..36984c7 100644
+--- a/03_R_functions/build_subseasons.R
++++ b/03_R_functions/build_subseasons.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # build_subseasons.R  (shared by the pooled and gear-resolved drivers)
+ #
+diff --git a/03_R_functions/classify_day_type.R b/03_R_functions/classify_day_type.R
+index e93631b..5932b21 100644
+--- a/03_R_functions/classify_day_type.R
++++ b/03_R_functions/classify_day_type.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # classify_day_type.R
+ #
+diff --git a/03_R_functions/diagnose_effort_overdispersion.R b/03_R_functions/diagnose_effort_overdispersion.R
+index 16e0e02..7cdcaaa 100644
+--- a/03_R_functions/diagnose_effort_overdispersion.R
++++ b/03_R_functions/diagnose_effort_overdispersion.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ # =============================================================================
+ # diagnose_effort_overdispersion.R
+ #
+diff --git a/03_R_functions/diagnose_fishery_spillover.R b/03_R_functions/diagnose_fishery_spillover.R
+index a1c31ce..10b19b5 100644
+--- a/03_R_functions/diagnose_fishery_spillover.R
++++ b/03_R_functions/diagnose_fishery_spillover.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # diagnose_fishery_spillover.R  (called by the pooled report; diagnostic only)
+ #
+diff --git a/03_R_functions/diagnose_ie_representativeness.R b/03_R_functions/diagnose_ie_representativeness.R
+index 5a73715..bdefafa 100644
+--- a/03_R_functions/diagnose_ie_representativeness.R
++++ b/03_R_functions/diagnose_ie_representativeness.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # diagnose_ie_representativeness.R  (pooled report; diagnostic only)
+ #
+diff --git a/03_R_functions/diagnose_tau_boat_sensitivity.R b/03_R_functions/diagnose_tau_boat_sensitivity.R
+index 419918f..a36a7b3 100644
+--- a/03_R_functions/diagnose_tau_boat_sensitivity.R
++++ b/03_R_functions/diagnose_tau_boat_sensitivity.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # diagnose_tau_boat_sensitivity.R
+ #
+diff --git a/03_R_functions/divergence_diagnostic.R b/03_R_functions/divergence_diagnostic.R
+index 443208c..66bb923 100644
+--- a/03_R_functions/divergence_diagnostic.R
++++ b/03_R_functions/divergence_diagnostic.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ # =============================================================================
+ # divergence_diagnostic.R
+ # Localize the source of divergent transitions in a fitted pooled BSS, and test
+diff --git a/03_R_functions/estimate_comm_charter.R b/03_R_functions/estimate_comm_charter.R
+index 6767970..4102378 100644
+--- a/03_R_functions/estimate_comm_charter.R
++++ b/03_R_functions/estimate_comm_charter.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # estimate_comm_charter.R
+ #
+diff --git a/03_R_functions/fetch_crab_data.R b/03_R_functions/fetch_crab_data.R
+index c2dc600..1d5e26e 100644
+--- a/03_R_functions/fetch_crab_data.R
++++ b/03_R_functions/fetch_crab_data.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # fetch_crab_data.R  (pooled-CPUE driver)
+ #
+diff --git a/03_R_functions/fetch_crab_data_v2.R b/03_R_functions/fetch_crab_data_v2.R
+index bd28e24..2aac2ed 100644
+--- a/03_R_functions/fetch_crab_data_v2.R
++++ b/03_R_functions/fetch_crab_data_v2.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # fetch_crab_data_v2.R  (gear-resolved driver)
+ #
+diff --git a/03_R_functions/model_diagnostics.R b/03_R_functions/model_diagnostics.R
+index a7c58b8..380c051 100644
+--- a/03_R_functions/model_diagnostics.R
++++ b/03_R_functions/model_diagnostics.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ # =============================================================================
+ # 03_R_functions/model_diagnostics.R
+ # Per-fit model-behavior diagnostics for the pooled BSS. Auto-sourced by the
+diff --git a/03_R_functions/pe_monthly_effort_share.R b/03_R_functions/pe_monthly_effort_share.R
+index d66ec5c..fa9d352 100644
+--- a/03_R_functions/pe_monthly_effort_share.R
++++ b/03_R_functions/pe_monthly_effort_share.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # pe_monthly_effort_share.R  (shared by the pooled and gear-resolved drivers)
+ #
+diff --git a/03_R_functions/prep_bss_crab_gear.R b/03_R_functions/prep_bss_crab_gear.R
+index e73bf33..418e4a7 100644
+--- a/03_R_functions/prep_bss_crab_gear.R
++++ b/03_R_functions/prep_bss_crab_gear.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # prep_bss_crab_gear.R  (gear-resolved driver)
+ #
+@@ -454,7 +474,19 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
+     section_IE     = if(IE_n > 0) rep(1L, IE_n) else integer(0),
+     IE_obs         = if(IE_n > 0) ie_match$ie_obs else numeric(0),
+     ie_group_scale = ie_group_scale,
+-    O = O_arr,   # GR-7 A1: pi_gear effort share (all-ones when G = 1)
++    O_data = O_arr,   # GR-7 A1: fixed pi_gear effort share (all-ones when G = 1)
++
++    # --- GR-7 Phase 2: Dirichlet gear-share uncertainty (toggle) --------------
++    # gear_share_dirichlet turns the fixed O_data offset into a Dirichlet posterior
++    # pi_gear ~ Dirichlet(alpha0_gear + n_weighted_gear) per period x day_type, so the
++    # sampling uncertainty in the gear split flows into C_sum_gear. Forced off (0)
++    # unless G > 1: a 1-simplex is degenerate, so it is inert on the G = 1 production
++    # path and only activates for a gear-resolved (gear_resolved_G = TRUE) shore fit.
++    gear_share_dirichlet = as.integer(isTRUE(params$gear_share_dirichlet) && G > 1),
++    n_day_types          = n_day_types,
++    day_type_idx         = as.integer(days$day_type_idx),
++    n_weighted_gear      = n_weighted_gear,
++    alpha0_gear          = params$alpha0_gear %||% 1.0,
+ 
+     # Sparse effort observation count
+     n_effort_obs = n_effort_obs,
+diff --git a/03_R_functions/prep_bss_crab_pooled.R b/03_R_functions/prep_bss_crab_pooled.R
+index 07e5379..54b6107 100644
+--- a/03_R_functions/prep_bss_crab_pooled.R
++++ b/03_R_functions/prep_bss_crab_pooled.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # prep_bss_crab_pooled.R  (pooled-CPUE driver)
+ #
+diff --git a/03_R_functions/prep_days_crab.R b/03_R_functions/prep_days_crab.R
+index bb58178..5e23fc2 100644
+--- a/03_R_functions/prep_days_crab.R
++++ b/03_R_functions/prep_days_crab.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # prep_days_crab.R
+ #
+diff --git a/03_R_functions/prep_fishery_events.R b/03_R_functions/prep_fishery_events.R
+index 6d6aad0..3ed99c6 100644
+--- a/03_R_functions/prep_fishery_events.R
++++ b/03_R_functions/prep_fishery_events.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # prep_fishery_events.R  (shared; read by the fishery-opener diagnostic and the
+ # razor_dig effort term)
+diff --git a/03_R_functions/prep_population_summary.R b/03_R_functions/prep_population_summary.R
+index e45575f..fcf0e89 100644
+--- a/03_R_functions/prep_population_summary.R
++++ b/03_R_functions/prep_population_summary.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # prep_population_summary.R
+ #
+diff --git a/03_R_functions/read_crabbing_holidays.R b/03_R_functions/read_crabbing_holidays.R
+index 7a3ea43..ba8700e 100644
+--- a/03_R_functions/read_crabbing_holidays.R
++++ b/03_R_functions/read_crabbing_holidays.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # read_crabbing_holidays.R
+ #
+diff --git a/03_R_functions/run_pe_gear.R b/03_R_functions/run_pe_gear.R
+index b7b6d0a..95ee6ae 100644
+--- a/03_R_functions/run_pe_gear.R
++++ b/03_R_functions/run_pe_gear.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_pe_gear.R  (gear-resolved driver)
+ #
+diff --git a/03_R_functions/run_pe_pooled.R b/03_R_functions/run_pe_pooled.R
+index d29b570..42dc7d4 100644
+--- a/03_R_functions/run_pe_pooled.R
++++ b/03_R_functions/run_pe_pooled.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_pe_pooled.R  (pooled-CPUE driver)
+ #
+diff --git a/03_R_functions/save_run_diagnostics.R b/03_R_functions/save_run_diagnostics.R
+index 7941920..c3d5376 100644
+--- a/03_R_functions/save_run_diagnostics.R
++++ b/03_R_functions/save_run_diagnostics.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ # =============================================================================
+ # save_run_diagnostics.R
+ #
+diff --git a/06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd b/06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd
+index 2943481..355683c 100644
+--- a/06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd
++++ b/06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd
+@@ -5,6 +5,29 @@ date: "`r Sys.Date()`"
+ output: html_document
+ ---
+ 
++<!--
++-----------------------------------------------------------------------------
++Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++for Grays Harbor / Westport (WDFW).
++Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++
++Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++  https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++Substantial portions of the methodology, structure, and R/Stan code originate
++in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++recreational crab are by WDFW.
++
++This program is free software: you can redistribute it and/or modify it under
++the terms of the GNU General Public License, version 3, as published by the Free
++Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++implied
++warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++General Public License for more details. You should have received a copy of
++the GNU General Public License along with this program (see the LICENSE file);
++if not, see <https://www.gnu.org/licenses/>.
++-----------------------------------------------------------------------------
++-->
++
+ ```{r setup, include=FALSE}
+ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+ ```
+diff --git a/06_diagnostics/gear_coverage_audit.R b/06_diagnostics/gear_coverage_audit.R
+index ad93fb5..ad33efe 100644
+--- a/06_diagnostics/gear_coverage_audit.R
++++ b/06_diagnostics/gear_coverage_audit.R
+@@ -1,4 +1,24 @@
+ #!/usr/bin/env Rscript
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # gear_coverage_audit.R  --  GR-7 Phase 0: single-gear interview coverage audit.
+ #
+diff --git a/06_diagnostics/run_rg_sweep.R b/06_diagnostics/run_rg_sweep.R
+index 3b8f2f0..0a58216 100644
+--- a/06_diagnostics/run_rg_sweep.R
++++ b/06_diagnostics/run_rg_sweep.R
+@@ -1,4 +1,24 @@
+ #!/usr/bin/env Rscript
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_rg_sweep.R  --  T1.3 R_G prior-sensitivity sweep (pooled model).
+ #
+diff --git a/06_diagnostics/run_tau_sweep.R b/06_diagnostics/run_tau_sweep.R
+index 08bdedd..0499a32 100644
+--- a/06_diagnostics/run_tau_sweep.R
++++ b/06_diagnostics/run_tau_sweep.R
+@@ -1,4 +1,24 @@
+ #!/usr/bin/env Rscript
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_tau_sweep.R  --  tau_boat prior-sensitivity sweep (gear-resolved model).
+ #
+diff --git a/07_documentation/development_notes/GR-7-per-gear-CPUE-design.md b/07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
+index 91a86ae..a31211c 100644
+--- a/07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
++++ b/07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
+@@ -1,6 +1,6 @@
+ # GR-7: Genuine per-gear CPUE, design and implementation map
+ 
+-**Status:** Phase 0 executed 2026-07-20 (Section 5: shore G = 5 / G = 4, boat G = 1, Mixed 33%). **Phase 1 VALIDATED 2026-07-20** behind `gear_resolved_G` (default off; run `05_output/20260720/gear-type-CPUE-model-gear_resolved_G = TRUE`). The shore harvest is now genuinely per-gear (Option A1): shore all-gear fits **G = 5** (Pot / Ring Net / Snare / Trap / Mixed), shore pot-closure **G = 4**, boat stays **G = 1**. Convergence clean (shore all-gear 27 divergences = 0.34%, R-hat ~1.000, min gear n_eff ~8,000; pot-closure 4 divergences); reconciliation exact (`C_sum_gear` means sum to 20,346.17 = `C_sum` mean 20,346.16, so `sum_g C_sum_gear = C_sum` per draw); per-gear CPUE ordering matches the raw interview ratios (Trap highest). The neutrality run (`gear_resolved_G = FALSE`) reproduced production to < 0.1% with byte-identical PE, confirming the G = 1 path is unchanged. The shore all-gear total moved 20,127 -> 20,293 (**+0.82%**), the modest, expected difference between per-gear CPUE (fit on single-gear interviews) and one pooled CPUE, not a decomposition error. Phase 2 (Dirichlet shares) is drafted in Section 10. **Author context:** written 2026-07-20 against `main` after the `gear-type-run1` review. **Governing decisions (from Matt, 2026-07-20):** (1) the gear-resolved model should ultimately deliver a real per-gear CPUE, not a PE apportionment; (2) because the interview design records mixed-gear trips, **"Mixed" is treated as its own gear type for now**; (3) **only interviews that report a single gear type contribute to a gear-specific CPUE**; (4) the intent is to improve sampling over time so the Mixed share shrinks and gear-specific catch information grows.
++**Status:** Phase 0 executed 2026-07-20 (Section 5: shore G = 5 / G = 4, boat G = 1, Mixed 33%). **Phase 1 VALIDATED 2026-07-20** behind `gear_resolved_G` (default off; run `05_output/20260720/gear-type-CPUE-model-gear_resolved_G = TRUE`). The shore harvest is now genuinely per-gear (Option A1): shore all-gear fits **G = 5** (Pot / Ring Net / Snare / Trap / Mixed), shore pot-closure **G = 4**, boat stays **G = 1**. Convergence clean (shore all-gear 27 divergences = 0.34%, R-hat ~1.000, min gear n_eff ~8,000; pot-closure 4 divergences); reconciliation exact (`C_sum_gear` means sum to 20,346.17 = `C_sum` mean 20,346.16, so `sum_g C_sum_gear = C_sum` per draw); per-gear CPUE ordering matches the raw interview ratios (Trap highest). The neutrality run (`gear_resolved_G = FALSE`) reproduced production to < 0.1% with byte-identical PE, confirming the G = 1 path is unchanged. The shore all-gear total moved 20,127 -> 20,293 (**+0.82%**), the modest, expected difference between per-gear CPUE (fit on single-gear interviews) and one pooled CPUE, not a decomposition error. **Phase 2 (Dirichlet shares) is CODED 2026-07-21** behind a new `gear_share_dirichlet` toggle (default off; forced off at `G = 1`), output byte-identical to Phase 1 when off; it parses and type-checks under `rstan::stanc` 2.32.5 but is **not yet sampled**; see Section 10 for the as-built notes. **Not yet run** (validation gate in Section 10 is pending a `gear_resolved_G = TRUE, gear_share_dirichlet = TRUE` fit). **Author context:** written 2026-07-20 against `main` after the `gear-type-run1` review. **Governing decisions (from Matt, 2026-07-20):** (1) the gear-resolved model should ultimately deliver a real per-gear CPUE, not a PE apportionment; (2) because the interview design records mixed-gear trips, **"Mixed" is treated as its own gear type for now**; (3) **only interviews that report a single gear type contribute to a gear-specific CPUE**; (4) the intent is to improve sampling over time so the Mixed share shrinks and gear-specific catch information grows.
+ 
+ This document maps the exact path from the current `G = 1` state to a genuinely gear-resolved fit, names every file and line that changes, and flags the one real identification decision that must be made deliberately (not silently).
+ 
+@@ -76,7 +76,7 @@ Three decisions fall out:
+ 
+ **Phase 1, fixed-share A1, effort split only. DONE + VALIDATED 2026-07-20.** As built: `crab_bss_gear_resolved.stan` restructures the effort process to a single shared level over sections (`mu_E` is `[1,S]`, `omega_E` over `S`), split across gears by the `pi_gear` offset `O` applied to `lambda_E` only (`O` removed from `lambda_C`, so the share is not squared); both mu-hierarchies gate on `(S > 1)` rather than `(G*S > 1)`, which avoids a per-gear funnel at `S = 1` (the crab case) while staying identical at `G = 1`; `mu_C[g]` stays free (per-gear CPUE). `prep_bss_crab_gear.R` sets `G <- G_gear` for shore behind the `gear_resolved_G` toggle (default FALSE), assigns `gear_IntC` by the single-gear/Mixed rule with a hard one-hot weight matrix, and feeds `O` from `pi_gear_data`; the boat keeps `G = 1`. Because `G*S == S` at `G = 1`, every edit is behavior-neutral for production (confirmed by the neutrality run). The driver renders a reconciliation table (`sum_g C_sum_gear` vs `C_sum`). All Section 7 checks passed on the validating run.
+ 
+-**Phase 2, Dirichlet shares.** Promote `pi_gear` from fixed data to a Dirichlet parameter fed by `n_weighted_gear`, so share uncertainty propagates into the per-gear intervals. *Validate:* per-gear intervals widen appropriately; PSIS-LOO on the gear stream stays clean (0 Pareto k > 0.7, as the current pooled gear stream already achieves).
++**Phase 2, Dirichlet shares. CODED 2026-07-21 (behind `gear_share_dirichlet`, default off); parses under stanc 2.32.5, not yet sampled.** Promotes `pi_gear` from fixed data to a Dirichlet parameter fed by `n_weighted_gear`, so share uncertainty propagates into the per-gear intervals. As built: see the Section 10 "As built" note for the four deviations from the draft (data `O` renamed `O_data`; `O` resolved as a LOCAL variable so the default-path fit is unchanged; explicit `if/else` rather than a ternary for 0-row safety; driver forces the toggle off at `G = 1`). *Validate (PENDING a run):* per-gear intervals widen appropriately; the shore all-gear total and reconciliation are unchanged; convergence still passes; PSIS-LOO on the gear stream stays clean (0 Pareto k > 0.7, as the current pooled gear stream already achieves).
+ 
+ **Phase 3, extend to boat, then port.** Apply to `private_boat_all_gear`. The boat is thin (131 interviews, mostly Pot); it may support only Pot + Mixed. Gate on Phase 0 counts. *Validate:* boat gear-summed catch reconciles to the boat all-gear total (43,314 baseline); the boat total does not move (per-gear is a decomposition, not a re-estimation of the total).
+ 
+@@ -97,7 +97,7 @@ Results annotated from the 2026-07-20 `gear_resolved_G = TRUE` run.
+ 
+ - **Effort identification (Section 3), RESOLVED.** A1 with a single shared effort level converged cleanly on the shore all-gear G = 5 fit (27 divergences, min gear n_eff ~8,000), so the per-gear effort split is well-behaved; the funnel concern did not materialize (helped by gating both mu-hierarchies on `(S > 1)`).
+ - **Double-offset, FIXED.** `O` is applied to `lambda_E` only; the redundant `× O` on `lambda_C` was removed (behavior-neutral at G = 1 since `O = 1`).
+-- **Fixed shares understate the per-gear intervals (open, -> Phase 2).** `pi_gear` is fed as fixed point shares, so the per-gear intervals carry CPUE and effort-total uncertainty but NOT share uncertainty; they are slightly too narrow. Phase 2 (Section 10) promotes `pi_gear` to a Dirichlet to fix this.
++- **Fixed shares understate the per-gear intervals (CODED -> Phase 2, awaiting a run).** In the default path `pi_gear` is fed as fixed point shares, so the per-gear intervals carry CPUE and effort-total uncertainty but NOT share uncertainty; they are slightly too narrow. Phase 2 (Section 10), coded 2026-07-21 behind `gear_share_dirichlet`, promotes `pi_gear` to a Dirichlet to fix this; it needs a validating run before the narrower Phase 1 intervals are superseded.
+ - **Thin gears** (Trap, Snare) cleared 15 single-gear interviews for shore this season, but may not every season; keep the sub-threshold -> Mixed/Other fold ready.
+ - **Mixed dominance:** Mixed is ~26% of the shore all-gear catch (33% of interviews), the honest ceiling until field sampling shifts (Section 9).
+ - **Cross-gear correlation prior** (`lkj_corr_cholesky(1)` over `G*S`): converged fine at G = 5, but with thinner future data consider a tighter LKJ or a diagonal start.
+@@ -106,7 +106,16 @@ Results annotated from the 2026-07-20 `gear_resolved_G = TRUE` run.
+ 
+ The single highest-leverage change is upstream of the statistics: **record gear-specific catch at the interview**, so a mixed-gear trip's catch is attributed to gear rather than reported as a lump. Every interview moved from Mixed to single-gear directly strengthens a `mu_C[g]`. Track the Mixed share of interviews season over season as the KPI for how gear-resolved the estimate can be; the model can only resolve what the sampling distinguishes.
+ 
+-## 10. Phase 2 design: Dirichlet effort shares (draft, 2026-07-20)
++## 10. Phase 2 design: Dirichlet effort shares (CODED 2026-07-21)
++
++**As built (deviations from the draft below).** The implementation follows the draft's model and validation gate exactly, with four deliberate refinements made during coding:
++
++1. **The data offset is renamed `O` -> `O_data`; the Stan symbol `O` is now resolved per draw.** The draft said "keep the data `O` as the fallback." Keeping one name for both a data input and a parameter-derived value is not expressible in Stan, so the fixed offset is the data `O_data` and the effort share actually used is a separate `O` built in the transformed block. The driver stan_data key changed `O` -> `O_data` to match.
++2. **`O` is a LOCAL variable inside `transformed parameters`, not a saved transformed parameter.** Declaring `real O[D,S,G]` at transformed-parameters scope would store a `D x S x G` array in every draw of the fit object, including the `G = 1` production path (where it is a redundant array of ones). Building it inside a `{ ... }` local block keeps the default-path fit object byte-identical while still feeding `lambda_E`. It is redundant with the saved `pi_gear` anyway.
++3. **The on/off branch is an explicit `if/else` statement, not a `?:` ternary.** When `gear_share_dirichlet = 0` the `pi_gear` array has zero rows, so any evaluation of `pi_gear[period[d], day_type_idx[d]]` is out of bounds. An `if/else` statement guarantees only the taken branch executes; a ternary's branch-evaluation guarantee was not worth relying on for out-of-bounds safety. Same guard on the model-block Dirichlet loop (`if (gear_share_dirichlet == 1)`).
++4. **The driver forces the toggle off at `G = 1`.** `gear_share_dirichlet = as.integer(isTRUE(params$gear_share_dirichlet) && G > 1)`. A 1-simplex is degenerate (identically 1.0), so the Dirichlet is meaningless at `G = 1`; forcing it off keeps the boat and the production shore path inert regardless of the config flag. The parameter's first dimension is `P_n * gear_share_dirichlet`, so "off" is genuinely zero parameters.
++
++The model-block prior is written `pi_gear[p,dt] ~ dirichlet(rep_vector(alpha0_gear, G) + to_vector(n_weighted_gear[p,dt]))` (explicit `rep_vector` rather than the draft's scalar-plus-vector shorthand; identical result). `n_weighted_gear` is declared `real` (not `int`): under the non-gear-resolved multi-gear path the weighted counts are fractional, and even under the Phase 1 hard one-hot they arrive from R as doubles. Config knobs added to `run_config.R`: `gear_share_dirichlet = FALSE`, `alpha0_gear = 1.0`. **Status: coded 2026-07-21; parses and type-checks cleanly under `rstan::stanc` 2.32.5 (the repo's Stan version); the patch applies clean on a fresh HEAD worktree and every Stan data key is supplied by the driver. NOT yet SAMPLED** (the run-based validation gate below is pending).
+ 
+ **Problem.** Phase 1 feeds the effort shares `pi_gear` as FIXED point values (Laplace-smoothed empirical proportions per period x day_type). So the per-gear posterior `C_sum_gear[g] = level x pi_gear[g] x E_scale x L x lambda_C[g]` carries the CPUE and effort-total uncertainty but treats the gear split as KNOWN. The per-gear intervals are therefore too narrow, most severely in thin period x day_type cells where the point share rests on a handful of interviews. Phase 2 makes `pi_gear` a parameter with a Dirichlet posterior informed by the observed gear counts, so share uncertainty propagates into the per-gear intervals. The season/population TOTAL is unaffected (the shares still sum to 1), so this only widens the split, it does not move the headline.
+ 
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index f8d3052..388b260 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -12,7 +12,7 @@
+ | Component | Version | State |
+ |---|---|---|
+ | Pooled CPUE model (`crab_bss_pooled.stan`, `BSS-GH-pooled-CPUE-model.Rmd`) | pipeline code **v7.9 + Tier-2 batch** (2026-07-13) | Production, validated by Run 1 (`20260713`). Both fitted components on gear-deployments; boat on monthly AR by the resolution map (`ar_force = NULL`). |
+-| Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** + **GR-7 Phase 1** (2026-07-20) | Production. Shore + boat on gear-deployments. Default `G = 1` (gear split PE-apportioned); with `gear_resolved_G = TRUE` the SHORE fits carry genuine per-gear CPUE (all-gear G = 5, pot-closure G = 4), boat stays `G = 1` (GR-7 Phase 1, validated 2026-07-20). |
++| Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** + **GR-7 Phase 1** (2026-07-20) + **Phase 2 coded** | Production. Shore + boat on gear-deployments. Default `G = 1` (gear split PE-apportioned); with `gear_resolved_G = TRUE` the SHORE fits carry genuine per-gear CPUE (all-gear G = 5, pot-closure G = 4), boat stays `G = 1` (GR-7 Phase 1, validated 2026-07-20). **Phase 2** (Dirichlet gear shares, `gear_share_dirichlet`, default off; forced off at `G = 1`) is **coded 2026-07-21 (parses under stanc 2.32.5), not yet sampled**, output byte-identical to Phase 1 when off. |
+ | Weather/tide covariate module (`crab_bss_pooled_weather_adjusted.stan`, `06_diagnostics/...Rmd`) | ~v6.9 parity, **stale** | Not production. Forked engine, pre-deployment-scale Stan, not re-run since the day-length extraction. Do not cite its boat number. |
+ | Config surface (`run_config.R`) | base-params architecture (P5) | `run_config` is the base parameter set; each driver layers model-specific tuning via `modifyList(run_config, params_model)`. |
+ 
+@@ -159,6 +159,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ 
+ ### Tier 4: reproducibility and repository hygiene (correctness-neutral, publication-blocking)
+ 
++- **[CODED 2026-07-21, ACTION REQUIRED] GPL-3.0 licensing + CreelEstimates attribution.** This pipeline is a derivative of the freshwater `CreelEstimates` framework (GPL-3.0); the freshwater team asked for the license headers and attribution to be added. Added 2026-07-21: a per-file GPL-3.0 header on every R/Stan/Rmd source, a `NOTICE` file, a `LICENSE` file, and a README license section, all crediting `https://github.com/dfw-wa/CreelEstimates`. **Two actions remain before publishing:** (1) the `LICENSE` file still needs the full ~35 KB canonical GPL-3.0 text pasted in (a placeholder marks where; use gnu.org or GitHub's license template), and (2) WDFW must confirm the exact copyright holder/year lines in `LICENSE`/`NOTICE`. GPL-3.0 is not optional here, it is inherited from CreelEstimates as a derivative work. **Effort: trivial (paste + confirm).**
+ - **renv.lock (A4 / T4.1 / ORCH-25).** Still absent. A publication method with a multi-hour Stan pipeline needs a pinned dependency set; ~5 minutes with a large reproducibility payoff. Add a top-level runner too (`run_estimation.R` already serves this).
+ - **Output and repo hygiene (A1/A2 / T4.2 / ORCH-26).** `05_output/` is 1,017 tracked files / ~82 MB and grows each run, including pre-v6 runs not reproducible from current code; `.Rproj.user/` (5 files) is tracked despite being gitignored. Untrack `.Rproj.user`; decide an `output/` policy (gitignore + one canonical reference run, or Releases). Delete the stale `20260711/pooled-CPUE-morning` and `-afternoon` runs.
+ - **[DONE, item 7] A3: gear-resolved `max_divergences` doc/code reconciled.** Code and docs now agree on 5.
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..d729592
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,35 @@
++Coastal-Rec-Crab-BSS
++Copyright (C) 2024-2026 Washington Department of Fish and Wildlife
++
++This program is free software: you can redistribute it and/or modify it under
++the terms of the GNU General Public License, version 3, as published by the Free
++Software Foundation.
++
++This program is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
++PARTICULAR PURPOSE. See the GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License along with
++this program. If not, see <https://www.gnu.org/licenses/>.
++
++This project is a derivative work of CreelEstimates
++(https://github.com/dfw-wa/CreelEstimates), the WDFW freshwater creel estimation
++framework, licensed GPL-3.0. See the NOTICE file for attribution.
++
++===============================================================================
++ACTION REQUIRED BEFORE PUBLISHING
++===============================================================================
++The full, verbatim text of the GNU General Public License, version 3, must
++appear below this line. It runs ~35 KB and was omitted from this commit only
++because the authoring environment could not reproduce the legal text verbatim.
++Do NOT paraphrase or edit it; use the canonical text:
++
++  * copy from https://www.gnu.org/licenses/gpl-3.0.txt , or
++  * on GitHub, "Add file -> Create new file", name it LICENSE, click
++    "Choose a license template", pick "GNU General Public License v3.0"
++    (this inserts the exact canonical text, then re-add the copyright and
++    CreelEstimates attribution lines above).
++
++-------------------------------------------------------------------------------
++                    << PASTE THE FULL GPL-3.0 TEXT HERE >>
++-------------------------------------------------------------------------------
+diff --git a/NOTICE b/NOTICE
+new file mode 100644
+index 0000000..f457be0
+--- /dev/null
++++ b/NOTICE
+@@ -0,0 +1,42 @@
++NOTICE  --  Coastal-Rec-Crab-BSS
++
++Coastal-Rec-Crab-BSS
++Copyright (C) 2024-2026 Washington Department of Fish and Wildlife (WDFW)
++
++Licensed under the GNU General Public License, version 3 (GPL-3.0). See the
++LICENSE file for the full license text, or https://www.gnu.org/licenses/gpl-3.0.txt.
++
++
++ATTRIBUTION
++-----------
++This pipeline is a derivative work of CreelEstimates, the Washington Department
++of Fish and Wildlife freshwater creel estimation framework:
++
++    https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0)
++
++The Bayesian state-space (BSS) and point-estimator (PE) methodology, the project
++structure, and substantial portions of the R and Stan source originate in
++CreelEstimates and remain copyright their authors under GPL-3.0. Coastal-Rec-
++Crab-BSS adapts that framework to the recreational Dungeness crab fishery:
++gear-deployment effort units, a gear-resolved per-gear CPUE model, boat-trailer
++effort, ingress/egress day-length handling, and related changes, by WDFW.
++
++If you use, modify, or redistribute this software: retain this NOTICE and the
++LICENSE, keep the per-file copyright and license headers, and cite CreelEstimates
++as the upstream source.
++
++Confirm before publishing (WDFW):
++  * the exact copyright holder(s) and year(s) named above;
++  * whether individual CreelEstimates authors should be named here in addition
++    to the CreelEstimates project/URL;
++  * that GPL-3.0 is the intended license for this derivative (it must be, since
++    CreelEstimates is GPL-3.0 and this is a derivative work);
++  * the license VERSION election. This project is marked GPL-3.0-ONLY ("version 3
++    of the License", with no "or (at your option) any later version" clause). That
++    matches CreelEstimates, whose repository ships only the GPL-3.0 license text
++    with no "or later" grant in any source file, README, or DESCRIPTION; a
++    derivative of v3-only code cannot itself offer the "or later" option on the
++    upstream portions, and v3-only is in any case a valid election even if upstream
++    were v3-or-later. If the CreelEstimates authors confirm they intended
++    "GPL-3.0-or-later", the headers, this NOTICE, and LICENSE can be switched to the
++    "or later" wording; until then, v3-only is the accurate and conservative choice.
+diff --git a/README.md b/README.md
+index 14981e1..2b16ec9 100644
+--- a/README.md
++++ b/README.md
+@@ -181,3 +181,11 @@ For the current state and the prioritized backlog (what is done and what remains
+ | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
+ 
+ See each model's development-history document for details.
++
++---
++
++## License and attribution
++
++Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 (GPL-3.0)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++
++This pipeline is a **derivative work of [CreelEstimates](https://github.com/dfw-wa/CreelEstimates)**, the WDFW freshwater creel estimation framework (also GPL-3.0). The BSS and PE methodology, the project structure, and substantial portions of the R and Stan code originate in CreelEstimates and remain copyright their authors under GPL-3.0; the adaptation to recreational Dungeness crab is by WDFW. See [`NOTICE`](NOTICE) for the full attribution. Every source file carries a GPL-3.0 header with the copyright and this attribution. If you use or redistribute this software, retain the license, the per-file headers, and this attribution, and cite CreelEstimates as the upstream source.
+diff --git a/run_config.R b/run_config.R
+index e942c7b..d3efda7 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -1,3 +1,23 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_config.R  --  the single control surface for a production run.
+ #
+@@ -59,7 +79,7 @@ run_config <- list(
+   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
+   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
+   # sets this per run automatically.
+-  run_tag           = "gear_resolved_G = TRUE",
++  run_tag           = "gear_resolved_G = FALSE",
+ 
+   # --- Identifiers ---------------------------------------------------------
+   # These unify the two models onto one set of strings. The committed gear-
+@@ -310,7 +330,7 @@ run_config <- list(
+   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
+                                        #   TRUE matches the pooled model; FALSE drops B1_C
+                                        #   from the likelihood (v5.4 behavior).
+-  gear_resolved_G            = TRUE,  # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
++  gear_resolved_G            = FALSE, # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
+                                        #   (gear split by PE apportionment). TRUE turns on genuine
+                                        #   per-gear CPUE for SHORE fits (Option A1): only single-gear
+                                        #   interviews feed a gear-specific CPUE, multi-gear trips form
+@@ -318,6 +338,18 @@ run_config <- list(
+                                        #   Boat stays G = 1 (Pot-dominated; Phase 0). Changes shore
+                                        #   inference, so validate by run. See
+                                        #   07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
++  gear_share_dirichlet       = FALSE, # (gear-resolved) GR-7 Phase 2. FALSE = the gear split is the
++                                       #   fixed pi_gear point estimate (Phase 1; output unchanged).
++                                       #   TRUE replaces it with a Dirichlet posterior
++                                       #   pi_gear ~ Dirichlet(alpha0_gear + weighted interview counts)
++                                       #   per period x day_type, so share-sampling uncertainty widens
++                                       #   the per-gear catch total C_sum_gear (C_sum is untouched).
++                                       #   Requires gear_resolved_G = TRUE; inert (forced off) at G = 1.
++  alpha0_gear                = 1.0,    # (gear-resolved) GR-7 Phase 2 Dirichlet concentration floor.
++                                       #   1.0 = a flat (uniform) prior added to the counts; smaller
++                                       #   (e.g. 0.5) lets sparsely-sampled period x day_type cells
++                                       #   concentrate more on their observed gear, larger regularizes
++                                       #   toward an even split. Only used when gear_share_dirichlet.
+   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
+                                        #   season period_bss (biweekly ring-net, monthly all-
+                                        #   gear) EXACTLY. TRUE hands AR choice to the data-driven
+diff --git a/run_estimation.R b/run_estimation.R
+index f291e16..60a3e24 100644
+--- a/run_estimation.R
++++ b/run_estimation.R
+@@ -1,4 +1,24 @@
+ #!/usr/bin/env Rscript
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# -----------------------------------------------------------------------------
+ ###############################################################################
+ # run_estimation.R  --  top-level orchestrator for the crab creel estimation.
+ #

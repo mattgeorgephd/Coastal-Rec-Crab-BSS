@@ -1,3 +1,23 @@
+# -----------------------------------------------------------------------------
+# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
+# for Grays Harbor / Westport (WDFW).
+# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+#
+# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
+#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
+# Substantial portions of the methodology, structure, and R/Stan code originate
+# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
+# recreational crab are by WDFW.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License, version 3, as published by the Free
+# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
+# implied
+# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details. You should have received a copy of
+# the GNU General Public License along with this program (see the LICENSE file);
+# if not, see <https://www.gnu.org/licenses/>.
+# -----------------------------------------------------------------------------
 ###############################################################################
 # run_config.R  --  the single control surface for a production run.
 #
@@ -59,7 +79,7 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "gear_resolved_G = TRUE",
+  run_tag           = "gear_resolved_G = FALSE",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -310,7 +330,7 @@ run_config <- list(
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).
-  gear_resolved_G            = TRUE,  # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
+  gear_resolved_G            = FALSE, # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
                                        #   (gear split by PE apportionment). TRUE turns on genuine
                                        #   per-gear CPUE for SHORE fits (Option A1): only single-gear
                                        #   interviews feed a gear-specific CPUE, multi-gear trips form
@@ -318,6 +338,18 @@ run_config <- list(
                                        #   Boat stays G = 1 (Pot-dominated; Phase 0). Changes shore
                                        #   inference, so validate by run. See
                                        #   07_documentation/development_notes/GR-7-per-gear-CPUE-design.md
+  gear_share_dirichlet       = FALSE, # (gear-resolved) GR-7 Phase 2. FALSE = the gear split is the
+                                       #   fixed pi_gear point estimate (Phase 1; output unchanged).
+                                       #   TRUE replaces it with a Dirichlet posterior
+                                       #   pi_gear ~ Dirichlet(alpha0_gear + weighted interview counts)
+                                       #   per period x day_type, so share-sampling uncertainty widens
+                                       #   the per-gear catch total C_sum_gear (C_sum is untouched).
+                                       #   Requires gear_resolved_G = TRUE; inert (forced off) at G = 1.
+  alpha0_gear                = 1.0,    # (gear-resolved) GR-7 Phase 2 Dirichlet concentration floor.
+                                       #   1.0 = a flat (uniform) prior added to the counts; smaller
+                                       #   (e.g. 0.5) lets sparsely-sampled period x day_type cells
+                                       #   concentrate more on their observed gear, larger regularizes
+                                       #   toward an even split. Only used when gear_share_dirichlet.
   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
                                        #   season period_bss (biweekly ring-net, monthly all-
                                        #   gear) EXACTLY. TRUE hands AR choice to the data-driven

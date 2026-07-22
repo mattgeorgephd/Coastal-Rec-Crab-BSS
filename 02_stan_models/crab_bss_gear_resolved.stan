@@ -1,3 +1,23 @@
+// -----------------------------------------------------------------------------
+// Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
+// for Grays Harbor / Westport (WDFW).
+// Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+//
+// Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
+//   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
+// Substantial portions of the methodology, structure, and R/Stan code originate
+// in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
+// recreational crab are by WDFW.
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License, version 3, as published by the Free
+// Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
+// implied
+// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details. You should have received a copy of
+// the GNU General Public License along with this program (see the LICENSE file);
+// if not, see <https://www.gnu.org/licenses/>.
+// -----------------------------------------------------------------------------
 // =============================================================================
 // Gear-Resolved CPUE Crab Creel Model - Configurable Effort Units
 // (crab_bss_gear_resolved.stan)
@@ -64,6 +84,19 @@
 //   the driver only raises G (shore, via gear_resolved_G) once pi_gear feeds O.
 //   r_C and sigma_eps_C stay shared scalars across gears (a Phase 1 choice; a
 //   per-gear overdispersion is a later refinement).
+//
+//   GR-7 Phase 2 (2026-07-20, gear_share_dirichlet toggle) adds share-sampling
+//   uncertainty on the gear split. Phase 1 treats the effort share O[d,s,g] as a
+//   fixed DATA offset (a point estimate of pi_gear from interview counts). Phase 2
+//   optionally replaces it with a PARAMETER pi_gear ~ Dirichlet(alpha0_gear +
+//   n_weighted_gear) per (BSS period, day_type), so the fact that the shares are
+//   themselves estimated from finite interview counts flows into the per-gear catch
+//   total C_sum_gear. pi_gear enters NO likelihood term (the effort observations sum
+//   over gear, and O's columns sum to 1 over gear), so its posterior is exactly that
+//   Dirichlet: it neither pulls on the effort/CPUE parameters nor changes C_sum; it
+//   only widens the split of that total across gears. gear_share_dirichlet = 0
+//   (default) restores the fixed-offset Phase 1 behavior with byte-identical output,
+//   and the R driver forces it to 0 whenever G = 1, where a 1-simplex is degenerate.
 //
 // Holiday effect B2 separates holiday effort from regular weekends.
 // Effort: log(lambda_E) = mu + omega + B1*weekend + B2*holiday
@@ -143,7 +176,25 @@ data {
   vector<lower=0>[IE_n] IE_obs;
   int<lower=0, upper=1> ie_group_scale;
 
-  real<lower=0> O[D,S,G];
+  // GR-7 A1/Phase 2: the fixed gear-share effort offset (columns sum to 1 over g;
+  // all-ones at G = 1). Phase 1 used this DIRECTLY as O. Phase 2 renames it O_data
+  // and lets the Stan symbol O be either this fixed offset (gear_share_dirichlet = 0)
+  // or a Dirichlet posterior draw (= 1); see the transformed-parameters block.
+  real<lower=0> O_data[D,S,G];
+
+  // --- GR-7 Phase 2: optional Dirichlet gear-share uncertainty ----------------
+  // gear_share_dirichlet toggles whether the per-(period, day_type) gear shares are
+  // (0) the fixed O_data offset, reproducing Phase 1 exactly, or (1) a Dirichlet
+  // posterior pi_gear ~ Dirichlet(alpha0_gear + n_weighted_gear), so the sampling
+  // uncertainty in the shares propagates into the per-gear catch total C_sum_gear.
+  // n_weighted_gear holds the (possibly fractional) weighted interview counts per
+  // period x day_type x gear; alpha0_gear is the Dirichlet concentration floor that
+  // keeps unobserved cells proper. Off by default; the driver forces 0 when G = 1.
+  int<lower=0, upper=1> gear_share_dirichlet;
+  int<lower=1> n_day_types;
+  int<lower=1, upper=n_day_types> day_type_idx[D];
+  real<lower=0> n_weighted_gear[P_n, n_day_types, G];
+  real<lower=0> alpha0_gear;
 
   // Total effort observations (Gear_n + T_n). Each gets one eps_E_H_obs.
   int<lower=0> n_effort_obs;
@@ -258,6 +309,12 @@ parameters {
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
   matrix[G * use_mu_hier_C, S] eps_mu_C;   // per-gear CPUE hierarchy; 0 rows when G*S == 1
+
+  // GR-7 Phase 2: Dirichlet gear shares, one simplex per (BSS period, day_type).
+  // Zero rows (no parameters at all) when gear_share_dirichlet == 0, so the default
+  // path is unchanged. When 1, indexed in the transformed block by each day's
+  // period[d] and day_type_idx[d].
+  simplex[G] pi_gear[P_n * gear_share_dirichlet, n_day_types];
 }
 
 transformed parameters {
@@ -326,17 +383,40 @@ transformed parameters {
         mu_C[g,s] = mu_mu_C[g];
     }
   }
-  for (d in 1:D) {
-    for (s in 1:S) {
-      // ONE effort level for this day/section (omega_E is indexed over S).
-      real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
-      for (g in 1:G) {
-        // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
-        lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
-        // Per-gear CPUE; O is NOT applied here (the gear share belongs to effort only).
-        lambda_C_S[s][d,g] = exp(mu_C[g,s] +
-          to_matrix(omega_C[period[d],], G, S)[g,s]
-          + use_B1_C * B1_C * w[d]);
+  // GR-7 Phase 2: resolve the effort-share offset O actually used this draw.
+  //  * gear_share_dirichlet == 0 (default): O = O_data, the fixed offset. Output is
+  //    byte-identical to the pre-Phase-2 model, where O was passed as data.
+  //  * gear_share_dirichlet == 1: O = the Dirichlet pi_gear draw, broadcast across
+  //    days by (period[d], day_type_idx[d]) and held constant across sections, which
+  //    matches how the R driver builds O_data. pi_gear enters no likelihood, so its
+  //    posterior is the Dirichlet(alpha0_gear + counts) prior and its uncertainty
+  //    reaches only the generated-quantity gear split (C_sum_gear), not C_sum or any
+  //    parameter.
+  //  O is declared LOCAL (inside this block) so it is not stored in the fit object:
+  //  it is redundant with the saved pi_gear, and keeping it local leaves the
+  //  default-path fit unchanged.
+  {
+    real O[D,S,G];
+    if (gear_share_dirichlet == 1) {
+      for (d in 1:D)
+        for (s in 1:S)
+          for (g in 1:G)
+            O[d,s,g] = pi_gear[period[d], day_type_idx[d], g];
+    } else {
+      O = O_data;
+    }
+    for (d in 1:D) {
+      for (s in 1:S) {
+        // ONE effort level for this day/section (omega_E is indexed over S).
+        real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
+        for (g in 1:G) {
+          // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
+          lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
+          // Per-gear CPUE; O is NOT applied here (the gear share belongs to effort only).
+          lambda_C_S[s][d,g] = exp(mu_C[g,s] +
+            to_matrix(omega_C[period[d],], G, S)[g,s]
+            + use_B1_C * B1_C * w[d]);
+        }
       }
     }
   }
@@ -416,6 +496,19 @@ model {
       omega_C_0_raw[g,s] ~ std_normal();
       if (use_mu_hier_C == 1) eps_mu_C[g,s] ~ std_normal();
     }
+  }
+
+  // GR-7 Phase 2: Dirichlet gear-share layer. Runs ONLY when toggled on (else
+  // pi_gear has no rows). Because pi_gear appears in no likelihood term, this
+  // statement IS its full conditional: each period x day_type share is
+  // Dirichlet(alpha0_gear + n_weighted_gear), i.e. the interview counts shrunk
+  // toward a flat alpha0_gear floor. The resulting share uncertainty enters the
+  // fit only through O in the transformed block, widening C_sum_gear without
+  // touching C_sum or the effort/CPUE parameters.
+  if (gear_share_dirichlet == 1) {
+    for (p in 1:P_n)
+      for (dt in 1:n_day_types)
+        pi_gear[p, dt] ~ dirichlet(rep_vector(alpha0_gear, G) + to_vector(n_weighted_gear[p, dt]));
   }
 
   // B1.5: effort-count overdispersion marginalized to neg_binomial_2. The prior

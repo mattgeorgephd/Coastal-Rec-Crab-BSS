@@ -1,0 +1,42 @@
+NOTICE  --  Coastal-Rec-Crab-BSS
+
+Coastal-Rec-Crab-BSS
+Copyright (C) 2024-2026 Washington Department of Fish and Wildlife (WDFW)
+
+Licensed under the GNU General Public License, version 3 (GPL-3.0). See the
+LICENSE file for the full license text, or https://www.gnu.org/licenses/gpl-3.0.txt.
+
+
+ATTRIBUTION
+-----------
+This pipeline is a derivative work of CreelEstimates, the Washington Department
+of Fish and Wildlife freshwater creel estimation framework:
+
+    https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0)
+
+The Bayesian state-space (BSS) and point-estimator (PE) methodology, the project
+structure, and substantial portions of the R and Stan source originate in
+CreelEstimates and remain copyright their authors under GPL-3.0. Coastal-Rec-
+Crab-BSS adapts that framework to the recreational Dungeness crab fishery:
+gear-deployment effort units, a gear-resolved per-gear CPUE model, boat-trailer
+effort, ingress/egress day-length handling, and related changes, by WDFW.
+
+If you use, modify, or redistribute this software: retain this NOTICE and the
+LICENSE, keep the per-file copyright and license headers, and cite CreelEstimates
+as the upstream source.
+
+Confirm before publishing (WDFW):
+  * the exact copyright holder(s) and year(s) named above;
+  * whether individual CreelEstimates authors should be named here in addition
+    to the CreelEstimates project/URL;
+  * that GPL-3.0 is the intended license for this derivative (it must be, since
+    CreelEstimates is GPL-3.0 and this is a derivative work);
+  * the license VERSION election. This project is marked GPL-3.0-ONLY ("version 3
+    of the License", with no "or (at your option) any later version" clause). That
+    matches CreelEstimates, whose repository ships only the GPL-3.0 license text
+    with no "or later" grant in any source file, README, or DESCRIPTION; a
+    derivative of v3-only code cannot itself offer the "or later" option on the
+    upstream portions, and v3-only is in any case a valid election even if upstream
+    were v3-or-later. If the CreelEstimates authors confirm they intended
+    "GPL-3.0-or-later", the headers, this NOTICE, and LICENSE can be switched to the
+    "or later" wording; until then, v3-only is the accurate and conservative choice.
