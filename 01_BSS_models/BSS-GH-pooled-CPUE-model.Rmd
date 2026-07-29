@@ -466,6 +466,18 @@ timer_start("1_load_data")
 cat("\n", strrep("=",60), "\n LOADING DATA\n", strrep("=",60), "\n")
 dwg <- fetch_crab_data(params)
 ie_data <- fetch_ie_data(params)
+params$crab_fraction_rows <- attr(ie_data, "crab_fraction_rows")  # Phase 2b/3: crab-fraction classification (PE + BSS)
+
+# --- Phase 0: OSP Westport boat-count ingest + overlap calibration (diagnostic only) ---
+# fetch_osp_boat_counts() and diagnose_osp_trailer_overlap() live in 03_R_functions/
+# (auto-sourced). The diagnostic writes osp_trailer_overlap_calibration.csv,
+# osp_trailer_overlap_pairs.csv, osp_coverage_audit.csv and osp_trailer_overlap.png to
+# output_dir. osp_boat is the per-day OSP series (boat_effort schema) that Phase 1
+# consumes as a second boat effort stream. Guarded so a missing file cannot break a run.
+osp_boat <- tryCatch(fetch_osp_boat_counts(params),
+                     error = function(e) { cat("  OSP ingest skipped:", conditionMessage(e), "\n"); NULL })
+osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
+                        error = function(e) { cat("  OSP overlap diagnostic skipped:", conditionMessage(e), "\n"); NULL })
 
 # --- Fit L_effective regression ---
 L_eff_model <- NULL

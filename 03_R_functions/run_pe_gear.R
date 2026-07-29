@@ -65,6 +65,7 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
   #          BSS, so the BSS-PE gap is a model-disagreement diagnostic again
   #          rather than a unit artifact.
   is_shore_pe <- (population == "shore")
+  f_day_pe <- crab_fraction_point_day(!is_shore_pe, days, params)  # Phase 3: per-day crab fraction (1 for shore/off)
 
   if(is_shore_pe) {
     # P1: mirror the BSS's effort unit exactly, so the PE-BSS gap is a model
@@ -94,14 +95,14 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     if(length(ng_pe) > 0) gpg_pe <- mean(ng_pe)
     tau_pe <- params$tau_boat_prior_mu %||% 1.2
     effort_unit_pe <- "gear-deployments"
-    cat(sprintf("  PE boat scale: gear_per_group=%.2f, tau=%.2f (deployments)\n", gpg_pe, tau_pe))
-    days <- days |> mutate(L_pe = tau_pe)
+    cat(sprintf("  PE boat scale: gear_per_group=%.2f, tau=%.2f, mean f=%.3f (deployments, crab-directed)\n", gpg_pe, tau_pe, mean(f_day_pe)))
+    days <- days |> mutate(L_pe = tau_pe, f_crab_pe = f_day_pe)
     daily_effort <- summ$effort_index |>
       filter(count_sequence <= params$bss_max_count_seq) |>
       group_by(event_date, section_num) |>
       summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
-      left_join(days |> select(event_date,day_type,L_pe,period), by="event_date") |>
-      mutate(est_daily_effort = mean_count * gpg_pe * L_pe)
+      left_join(days |> select(event_date,day_type,L_pe,period,f_crab_pe), by="event_date") |>
+      mutate(est_daily_effort = mean_count * gpg_pe * L_pe * f_crab_pe)
   }
   results$effort_unit <- effort_unit_pe
 

@@ -209,6 +209,16 @@ data {
   int<lower=1> section_T[T_n];
   int<lower=0> T_I[T_n];
 
+  // --- Phase 1b: OSP boat-count observations (second boat effort stream) ---
+  // OSP_I is the DAILY BOAT TOTAL (all private boats) on OSP-sampled days. It
+  // observes the same latent effort (sum_g lambda_E) as the trailer stream, via a
+  // scale coefficient kappa_OSP (~ the OSP/trailer overlap ratio). Empty (OSP_n = 0)
+  // for shore fits and when use_osp_boat_counts = FALSE.
+  int<lower=0> OSP_n;
+  int<lower=1> day_OSP[OSP_n];
+  int<lower=1> section_OSP[OSP_n];
+  int<lower=0> OSP_I[OSP_n];
+
   int<lower=0> Crab_n;
   int<lower=1> day_Crab[Crab_n];
   int<lower=1> section_Crab[Crab_n];
@@ -249,6 +259,34 @@ data {
   real value_normal_sigma_mu_E;
   real value_cauchyDF_sigma_mu_C;
   real value_cauchyDF_sigma_mu_E;
+
+  // Phase 1b: kappa_OSP (OSP-to-trailer scale) lognormal prior, centered on the
+  // OSP/trailer overlap ratio (~3) measured by diagnose_osp_trailer_overlap().
+  real<lower=0> osp_scale_prior_mu;
+  real<lower=0> osp_scale_prior_sigma;
+
+  // Phase 2: crabbing fraction f (boat only). apply_crab_fraction = 0 pins f = 1
+  // (behavior-neutral: shore, or use_crab_fraction = FALSE). When estimate = 1, f is a
+  // Beta(alpha0, beta0) parameter (prior centered on the set value) optionally updated by
+  // the I/E crab-vs-total classification (n_crab of n_total); when estimate = 0, f is
+  // pinned to crab_fraction_value. f enters ONLY generated quantities, scaling boat
+  // effort and catch, so it never perturbs the effort/CPUE sampling.
+  int<lower=0,upper=1> apply_crab_fraction;
+  int<lower=0,upper=1> crab_fraction_estimate;
+  // Phase 3: f is per STRATUM (n_f_strata; = 1 reproduces the Phase 2 scalar).
+  // f_stratum[d] maps each day to its stratum (month / day_type / none).
+  int<lower=1> n_f_strata;
+  int<lower=1,upper=n_f_strata> f_stratum[D];
+  vector<lower=0,upper=1>[n_f_strata] crab_fraction_value;
+  vector<lower=0>[n_f_strata] crab_fraction_alpha0;
+  vector<lower=0>[n_f_strata] crab_fraction_beta0;
+  int<lower=0> crab_fraction_n_total[n_f_strata];
+  int<lower=0> crab_fraction_n_crab[n_f_strata];
+  // Phase 3: OSP-informs-tau toggle. 0 (default) keeps the free kappa_OSP scale (Phase 1);
+  // 1 makes the OSP mean use L (= tau_boat) as the turnover, so the dense OSP series
+  // identifies the boat turnover. See the dev note for the kappa_OSP (~2.7) vs
+  // tau_boat prior (~1.2) tension; validate by run before using.
+  int<lower=0,upper=1> osp_scale_is_tau;
 }
 
 transformed data {
@@ -299,6 +337,10 @@ parameters {
 
   real<lower=0> R_G;
   real<lower=0> R_G_boat;  // gear per boat group (replaces R_T)
+  real<lower=0> kappa_OSP;    // Phase 1b: OSP-to-trailer scale (within-day boat turnover)
+  real<lower=0> sigma_r_OSP;  // Phase 1b: OSP observation overdispersion (own r)
+  // Phase 3: per-stratum crabbing fraction. Length 0 when pinned/off (f_crab is then data).
+  vector<lower=0,upper=1>[n_f_strata * crab_fraction_estimate] f_crab_param;
 
   real<lower=0> sigma_eps_C;
   cholesky_factor_corr[G*S] Lcorr_C;
@@ -324,19 +366,30 @@ transformed parameters {
   matrix[1,S] omega_E_0;        // B1.3: scaled from omega_E_0_raw below; one level
   matrix<lower=0>[D,G] lambda_E_S[S];
   real<lower=0> r_E;
+  real<lower=0> r_OSP;   // Phase 1b: OSP observation overdispersion
 
   matrix[G,S] mu_C;
   real<lower=-1,upper=1> phi_C;
   real<lower=0> r_C;
   vector<lower=0>[D] L;   // 5b: parameter when estimate_L = 1, else fixed = L_data
   real<lower=0> E_scale;  // P1: 1 (crabbers) or R_G (gear)
+  vector<lower=0,upper=1>[n_f_strata] f_crab;   // Phase 3: per-stratum crabbing fraction
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
 
   E_scale = (effort_scale_gear == 1) ? R_G : 1.0;
 
+  // Phase 3: resolve per-stratum f_crab. apply = 0 -> 1 (shore / off); estimate = 1 ->
+  // the Beta parameters; else the pinned set values.
+  for (k in 1:n_f_strata) {
+    if (apply_crab_fraction == 0)         f_crab[k] = 1.0;
+    else if (crab_fraction_estimate == 1) f_crab[k] = f_crab_param[k];
+    else                                  f_crab[k] = crab_fraction_value[k];
+  }
+
   r_E = 1 / square(sigma_r_E);
+  r_OSP = 1 / square(sigma_r_OSP);   // Phase 1b
   r_C = 1 / square(sigma_r_C);
   phi_E = (phi_E_scaled * 2) - 1;
   phi_C = (phi_C_scaled * 2) - 1;
@@ -430,6 +483,7 @@ model {
   phi_E_scaled ~ beta(value_betashape_phi_E_scaled, value_betashape_phi_E_scaled);
   phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
+  sigma_r_OSP ~ cauchy(0, value_cauchyDF_sigma_r_E);   // Phase 1b: OSP overdispersion
   sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
   // Proper half-Cauchy priors, UNCONDITIONAL. When use_mu_hier == 0 these enter
   // no likelihood term, so they sample their prior; they are bounded below at 0
@@ -484,6 +538,21 @@ model {
   // Do not move this inside a guard.
   R_G_boat ~ lognormal(log(4), 0.5);  // ~4 gear per group, with range ~2-8
 
+  // Phase 1b: kappa_OSP proper prior UNCONDITIONALLY (proper even when OSP_n = 0,
+  // like R_G_boat / sigma_IE), centered on the OSP/trailer overlap ratio.
+  kappa_OSP ~ lognormal(log(osp_scale_prior_mu), osp_scale_prior_sigma);
+
+  // Phase 2: crabbing fraction. Beta prior on f (centered on the set value) + optional
+  // Binomial from the I/E crab-vs-total classification. Decoupled from effort/catch
+  // sampling (f enters only generated quantities), so no identifiability interaction.
+  if (crab_fraction_estimate == 1) {
+    for (k in 1:n_f_strata) {
+      f_crab_param[k] ~ beta(crab_fraction_alpha0[k], crab_fraction_beta0[k]);
+      if (crab_fraction_n_total[k] > 0)
+        crab_fraction_n_crab[k] ~ binomial(crab_fraction_n_total[k], f_crab_param[k]);
+    }
+  }
+
   // GR-7 A1: effort has a SINGLE shared level (index 1); CPUE is per gear.
   mu_mu_E[1] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
   for (s in 1:S) {
@@ -533,6 +602,18 @@ model {
     );
   }
 
+  // --- Phase 1b: OSP boat-count stream. OSP_I is the daily total of ALL private
+  // boats = (boat groups present = sum_g lambda_E / R_G_boat) * kappa_OSP, with
+  // kappa_OSP the within-day boat turnover (OSP/trailer overlap ratio). Own r_OSP.
+  for (i in 1:OSP_n) {
+    // Phase 3: osp_scale_is_tau = 1 uses L (tau_boat) as the turnover so OSP identifies
+    // tau; 0 keeps the free kappa_OSP (Phase 1). See dev note (kappa_OSP ~2.7 vs tau ~1.2).
+    OSP_I[i] ~ neg_binomial_2(
+      (sum(lambda_E_S[section_OSP[i]][day_OSP[i], ]) / R_G_boat)
+        * (osp_scale_is_tau == 1 ? L[day_OSP[i]] : kappa_OSP), r_OSP
+    );
+  }
+
   // --- Interview CPUE ---
   for (a in 1:IntC) {
     c[a] ~ neg_binomial_2(
@@ -561,6 +642,8 @@ generated quantities {
   real<lower=0> E_sum;
   real R_G_out;
   real R_G_boat_out;
+  real kappa_OSP_out;     // Phase 1b: OSP-to-trailer scale
+  vector[n_f_strata] f_crab_out;   // Phase 3: per-stratum crabbing fraction
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
 
@@ -588,12 +671,15 @@ generated quantities {
   // a stream is absent (log_lik_trailer for shore, log_lik_gear for the boat).
   vector[Gear_n] log_lik_gear;
   vector[T_n] log_lik_trailer;
+  vector[OSP_n] log_lik_osp;   // Phase 1b
   vector[IntC] log_lik_catch;
 
   Omega_C = multiply_lower_tri_self_transpose(Lcorr_C);
   Omega_E = multiply_lower_tri_self_transpose(Lcorr_E);
   R_G_out = R_G;
   R_G_boat_out = R_G_boat;
+  kappa_OSP_out = kappa_OSP;   // Phase 1b
+  f_crab_out = f_crab;         // Phase 2
   sigma_IE_out = sigma_IE;
   L_out = L;
 
@@ -606,6 +692,12 @@ generated quantities {
   for (i in 1:T_n) {
     log_lik_trailer[i] = neg_binomial_2_lpmf(
       T_I[i] | sum(lambda_E_S[section_T[i]][day_T[i], ]) / R_G_boat, r_E
+    );
+  }
+  for (i in 1:OSP_n) {   // Phase 1b
+    log_lik_osp[i] = neg_binomial_2_lpmf(
+      OSP_I[i] | (sum(lambda_E_S[section_OSP[i]][day_OSP[i], ]) / R_G_boat)
+        * (osp_scale_is_tau == 1 ? L[day_OSP[i]] : kappa_OSP), r_OSP
     );
   }
   for (a in 1:IntC) {
@@ -627,7 +719,7 @@ generated quantities {
     for (d in 1:D) {
       for (s in 1:S) {
         // P1: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g];
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]];
         C_expected_sum = C_expected_sum + lambda_Ctot_S[s][d,g];
         C_total[d] = C_total[d] + lambda_Ctot_S[s][d,g];
         if (lambda_Ctot_S[s][d,g] < 1e9) {
@@ -638,7 +730,7 @@ generated quantities {
         C_sum = C_sum + C[s][d,g];
         C_gear_pred[d,g] = C_gear_pred[d,g] + C[s][d,g];
         C_sum_gear[g]    = C_sum_gear[g] + C[s][d,g];
-        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d];
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * f_crab[f_stratum[d]];
         E_sum = E_sum + E[s][d,g];
       }
     }

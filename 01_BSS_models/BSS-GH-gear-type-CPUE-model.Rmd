@@ -417,6 +417,17 @@ dwg <- fetch_crab_data_v2(params)
 # L_eff_model is NULL when I/E data are absent or fewer than 3 shore days exist;
 # prep_days_crab() then falls back to civil twilight and warns.
 ie_data <- fetch_ie_data(params)
+params$crab_fraction_rows <- attr(ie_data, "crab_fraction_rows")  # Phase 2b/3: crab-fraction classification (PE + BSS)
+
+# --- Phase 0/1b: OSP Westport boat-count ingest + overlap calibration (diagnostic) ---
+# Mirrors the pooled driver. fetch_osp_boat_counts() + diagnose_osp_trailer_overlap()
+# live in 03_R_functions/ (auto-sourced); the diagnostic writes its CSVs + plot to
+# output_dir. Guarded so a missing file cannot break a run. The gear-resolved boat fit
+# consumes OSP via prep_bss_crab_gear() when use_osp_boat_counts = TRUE (Phase 1b).
+osp_boat <- tryCatch(fetch_osp_boat_counts(params),
+                     error = function(e) { message("  OSP ingest skipped: ", conditionMessage(e)); NULL })
+osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
+                        error = function(e) { message("  OSP overlap diagnostic skipped: ", conditionMessage(e)); NULL })
 
 L_eff_model <- NULL
 if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {

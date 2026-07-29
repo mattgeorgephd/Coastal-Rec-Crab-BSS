@@ -175,6 +175,31 @@ fetch_ie_data <- function(params) {
                 mean(shore_ie$L_effective), min(shore_ie$L_effective), max(shore_ie$L_effective)))
   }
 
+  # --- Phase 3: crabbing-fraction classification rows (crab-vs-total boats, per WBL row) ---
+  # Optional columns on the boat I/E (WBL) rows: params$ie_crab_col / ie_total_col. Emitted
+  # PER ROW so the crab-fraction helper (03_R_functions/crab_fraction.R) can aggregate by
+  # stratum (month / day_type). Absent columns (the current state; the WBL classification
+  # pilot is in progress) -> empty -> every stratum uses the set value. The preps/PE read
+  # this via params$crab_fraction_rows (the driver lifts attr(ie_data, "crab_fraction_rows")).
+  cf_crab_col  <- params$ie_crab_col  %||% "boats_crabbing"
+  cf_total_col <- params$ie_total_col %||% "boats_total"
+  cf_rows <- tibble(event_date = as.Date(character()),
+                    boats_crabbing = numeric(), boats_total = numeric())
+  wbl_raw <- ie_raw |> filter(location_name == params$ie_boat_location)
+  if (nrow(wbl_raw) > 0 && all(c(cf_crab_col, cf_total_col) %in% names(wbl_raw))) {
+    cf_rows <- wbl_raw |>
+      transmute(event_date     = as.Date(date),
+                boats_crabbing = suppressWarnings(as.numeric(.data[[cf_crab_col]])),
+                boats_total    = suppressWarnings(as.numeric(.data[[cf_total_col]]))) |>
+      filter(is.finite(boats_total))
+    .nt <- sum(cf_rows$boats_total, na.rm = TRUE); .nc <- sum(cf_rows$boats_crabbing, na.rm = TRUE)
+    cat(sprintf("  Crab-fraction I/E classification: %d WBL rows, %.0f total / %.0f crab boats (f_hat = %s)\n",
+                nrow(cf_rows), .nt, .nc, if (.nt > 0) sprintf("%.2f", .nc / .nt) else "NA"))
+  } else {
+    cat("  Crab-fraction I/E classification: columns absent; f will use the set-value fallback.\n")
+  }
+  attr(ie_all, "crab_fraction_rows") <- cf_rows
+
   return(ie_all)
 }
 

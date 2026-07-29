@@ -441,6 +441,30 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
+  # --- Phase 1b: OSP boat-count second effort stream (boat fits only) --------
+  # OSP daily boat TOTAL (all private boats), a second observation of the SAME
+  # latent effort (sum_g lambda_E) via kappa_OSP (the OSP/trailer overlap ratio ~3).
+  # fetch_osp_boat_counts() de-dups, keeps observed zeros, and windows the series;
+  # here we keep the days in THIS fit's day set. Behavior-neutral when OSP_n = 0
+  # (shore, or use_osp_boat_counts = FALSE): kappa_OSP samples its prior. Mirrors
+  # prep_bss_crab_pooled (Phase 1).
+  osp_match <- tibble(event_date = as.Date(character()), day_index = integer(), count_quantity = numeric())
+  if (!is_shore && isTRUE(params$use_osp_boat_counts)) {
+    osp_raw <- fetch_osp_boat_counts(params)
+    if (!is.null(osp_raw) && nrow(osp_raw) > 0) {
+      osp_match <- osp_raw |>
+        inner_join(days |> select(event_date, day_index), by = "event_date") |>
+        filter(!is.na(day_index))
+    }
+  }
+  OSP_n <- nrow(osp_match)
+  if (OSP_n > 0)
+    cat(sprintf("  OSP boat-count stream: %d in-window days (kappa_OSP prior center %.2f)\n",
+                OSP_n, params$osp_scale_prior_mu %||% 3.0))
+
+  # --- Phase 2/3: crabbing-fraction f Stan data (boat only, per stratum; see crab_fraction.R) ---
+  cf_data <- crab_fraction_stan_data(is_shore, days, params)
+
   # v5.3: Defensive check. Stan declares Gear_A_boat as int<lower=1>.
   # number_of_gear is stored as numeric (load_creel_data line ~305), so a
   # fractional value (e.g. 0.5) would pass the intA filter (> 0) but cast
@@ -504,6 +528,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
     T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
 
+    # Phase 1b: OSP boat-count stream (empty for shore / when toggle off)
+    OSP_n = OSP_n,
+    day_OSP = if(OSP_n > 0) osp_match$day_index else integer(0),
+    section_OSP = if(OSP_n > 0) rep(1L, OSP_n) else integer(0),
+    OSP_I = if(OSP_n > 0) as.integer(round(osp_match$count_quantity)) else integer(0),
+
     # Direct crabber counts (reserved)
     Crab_n=0L, day_Crab=integer(0), section_Crab=integer(0),
     Crab_I=integer(0), p_I_crab=1.0,
@@ -550,6 +580,22 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     value_normal_mu_mu_E=if(is_shore) log(25) else log(10),
     value_normal_sigma_mu_E=2,
     value_cauchyDF_sigma_mu_C=2, value_cauchyDF_sigma_mu_E=2,
+
+    # Phase 1b: OSP scale (kappa_OSP) prior center + log-SD (see prep_bss_crab_pooled).
+    osp_scale_prior_mu = params$osp_scale_prior_mu %||% 3.0,
+    osp_scale_prior_sigma = params$osp_scale_prior_sigma %||% 0.3,
+
+    # Phase 2/3: crabbing fraction f (boat only, per stratum); see 03_R_functions/crab_fraction.R.
+    apply_crab_fraction    = cf_data$apply_crab_fraction,
+    crab_fraction_estimate = cf_data$crab_fraction_estimate,
+    n_f_strata             = cf_data$n_f_strata,
+    f_stratum              = cf_data$f_stratum,
+    crab_fraction_value    = cf_data$crab_fraction_value,
+    crab_fraction_alpha0   = cf_data$crab_fraction_alpha0,
+    crab_fraction_beta0    = cf_data$crab_fraction_beta0,
+    crab_fraction_n_total  = cf_data$crab_fraction_n_total,
+    crab_fraction_n_crab   = cf_data$crab_fraction_n_crab,
+    osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
 
     # Metadata for output (not passed to Stan)
     .gear_type_labels = gear_type_labels,

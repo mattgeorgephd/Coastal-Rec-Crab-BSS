@@ -44,13 +44,14 @@ run_pe_pooled <- function(summ, days, params, population_name) {
   catch_groups <- if (isTRUE(params$estimate_red_rock)) c("Dungeness_Kept", "Red_Rock_Kept") else "Dungeness_Kept"
   results <- list()
   is_boat <- str_detect(population_name, "private_boat")
+  days$f_crab_pe <- crab_fraction_point_day(is_boat, days, params)  # Phase 3: per-day crab fraction (1 for shore/off)
 
   daily_effort <- summ$effort_index |>
     filter(count_sequence <= params$bss_max_count_seq) |>
     group_by(event_date, section_num) |>
     summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
     mutate(est_crabbers = mean_count * summ$crabbers_per_gear) |>
-    left_join(days |> select(event_date,day_type,day_length,period), by="event_date")
+    left_join(days |> select(event_date,day_type,day_length,period,f_crab_pe), by="event_date")
 
   if(is_boat) {
     # POOL-3: boat effort on the gear-DEPLOYMENT scale (matches the BSS via
@@ -63,10 +64,10 @@ run_pe_pooled <- function(summ, days, params, population_name) {
                       else (params$gear_per_group_default %||% 4.0)
     tau_boat_pe <- params$tau_boat_prior_mu %||% 1.2
     daily_effort <- daily_effort |>
-      mutate(est_daily_effort = mean_count * gear_per_group * tau_boat_pe)
+      mutate(est_daily_effort = mean_count * gear_per_group * tau_boat_pe * f_crab_pe)
     effort_unit_pe <- "gear-deployments"
-    cat(sprintf("  PE %s: gear_per_group=%.2f, tau=%.2f (gear-deployments)\n",
-                population_name, gear_per_group, tau_boat_pe))
+    cat(sprintf("  PE %s: gear_per_group=%.2f, tau=%.2f, mean f=%.3f (gear-deployments, crab-directed)\n",
+                population_name, gear_per_group, tau_boat_pe, mean(days$f_crab_pe)))
   } else {
     # POOL-7 (v7.7) shore-scale fix: shore effort on the unit set by
     # params$shore_effort_unit, via the shared bss_effort_spec(), so the PE matches

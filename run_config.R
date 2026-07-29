@@ -148,6 +148,52 @@ run_config <- list(
   tau_boat_prior_sigma   = 0.3,
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
 
+  # --- OSP second effort stream (Phase 1; boat only) -----------------------
+  # Adds the OSP daily boat-total series (fetch_osp_boat_counts) as a SECOND boat
+  # effort observation on the same latent lambda_E, scaled by kappa_OSP. FALSE (default)
+  # reproduces the pre-Phase-1 boat EXACTLY; set TRUE for the Phase 1 validation run.
+  # Pooled only for now (gear-resolved mirror is a follow-up). Changes the boat effort
+  # posterior, so validate by run.
+  use_osp_boat_counts   = FALSE,
+  osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
+                                      #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0)
+  osp_scale_prior_sigma = 0.3,
+
+  # --- Crabbing fraction f (Phase 2; boat only) ----------------------------
+  # f = share of private boats at the launch that are crabbing (vs other fisheries).
+  # Trailer and OSP counts are ALL boats, so f converts all-boat effort to crab effort;
+  # without f the model implicitly assumes f = 1 (biases the boat catch high). f is
+  # applied in the BSS boat generated quantities ONLY (scales effort + catch), decoupled
+  # from sampling. Hybrid: a Beta prior centered on the SET VALUE below, updated by the
+  # crab-creel I/E crab-vs-total classification once it lands (columns ie_crab_col /
+  # ie_total_col in ingress_egress.xlsx); until then f uses the set value.
+  # NOTE (2026-07-28): 0.3 is a STARTING set value chosen by Matt, NOT a measured
+  # estimate; it scales the boat catch to ~30% of the f = 1 value. Replace with the
+  # pilot's f_hat. The PE is NOT yet f-adjusted (Phase 2b), so the boat PE will read high
+  # vs the BSS until then. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat.
+  use_crab_fraction         = TRUE,
+  crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
+  crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
+  crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
+  crab_fraction_min_obs     = 20,     # min classified boats before the I/E Binomial updates f
+  ie_crab_col               = "boats_crabbing",  # ingress_egress column: crab-classified boats
+  ie_total_col              = "boats_total",     # ingress_egress column: total classified boats
+
+  # --- Crabbing-fraction stratification + OSP-tau (Phase 3) -----------------
+  # crab_fraction_strata: "none" (one scalar f = Phase 2) | "month" | "day_type" |
+  # "month_day_type". Per-stratum f (a Beta prior per stratum, updated by that stratum's
+  # I/E classification counts). "none" reproduces Phase 2 exactly. Move to "month" once the
+  # pilot classifies enough boats per month; a single annual f over-states the summer crab
+  # share (summer is tuna/salmon-dominated), which is where the harvest is largest.
+  crab_fraction_strata      = "none",
+  # osp_scale_is_tau: FALSE (default) keeps the free kappa_OSP OSP scale (Phase 1). TRUE
+  # makes the OSP mean use L (= tau_boat), so the dense OSP series identifies the boat
+  # turnover (closes GR-12). CAUTION: the Phase 0 overlap put the OSP/trailer ratio at ~2.7
+  # while tau_boat's prior is ~1.2; if those are the same within-day turnover, TRUE roughly
+  # DOUBLES the boat effort (partly offsetting the f reduction). It could also be a
+  # trailer-snapshot-timing artifact. Requires use_osp_boat_counts = TRUE. Validate by run.
+  osp_scale_is_tau          = FALSE,
+
   # --- R_G prior sensitivity (T1.3; OFF by default = data-driven) ----------
   # The pooled model's R_G prior (gear per crabber) is data-driven by default. To run
   # the R_G prior-sensitivity sweep (backlog T1.3 / critique 2), uncomment R_G_prior_mu
