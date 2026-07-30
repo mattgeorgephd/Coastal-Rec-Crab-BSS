@@ -53,7 +53,7 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "gear_resolved"        # "pooled"  or  "gear_resolved"
+model       <- "pooled"        # "pooled"  or  "gear_resolved"
 
 run_weather <- FALSE           # TRUE also runs the weather-tide covariate
                                # module AFTER the model. Only valid with
@@ -79,7 +79,7 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "gear_resolved_G = FALSE",
+  run_tag           = "step-1-baseline",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -171,7 +171,7 @@ run_config <- list(
   # estimate; it scales the boat catch to ~30% of the f = 1 value. Replace with the
   # pilot's f_hat. The PE is NOT yet f-adjusted (Phase 2b), so the boat PE will read high
   # vs the BSS until then. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat.
-  use_crab_fraction         = TRUE,
+  use_crab_fraction         = FALSE,
   crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
   crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
   crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
