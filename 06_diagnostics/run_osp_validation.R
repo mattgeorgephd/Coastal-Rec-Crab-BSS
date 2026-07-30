@@ -99,7 +99,10 @@ find_outdir <- function(model, run_tag) {
   if (length(hits)) hits[order(file.mtime(hits), decreasing = TRUE)][1] else NA_character_
 }
 
-num_from <- function(df, pick) tryCatch(suppressWarnings(as.numeric(pick(df))), error = function(e) NA_real_)
+num_from <- function(df, pick) {
+  v <- tryCatch(suppressWarnings(as.numeric(pick(df))), error = function(e) NA_real_)
+  if (length(v) == 1L) v else NA_real_          # guard zero-/multi-length -> NA
+}
 
 # Pull the headline numbers from a completed run's output folder.
 extract_summary <- function(step, model, run_tag, outdir, minutes, ok) {
@@ -114,9 +117,11 @@ extract_summary <- function(step, model, run_tag, outdir, minutes, ok) {
   if (is.na(outdir) || !dir.exists(outdir)) return(row)
 
   pt <- rd("port_total_Dungeness_Kept.csv")
-  if (!is.null(pt)) {
-    row$port_BSS_catch <- num_from(pt, function(d) d$BSS_median[d$Estimate == "Expected_Catch"])
-    row$port_PE_catch  <- num_from(pt, function(d) d$PE[d$Estimate == "Expected_Catch"])
+  if (!is.null(pt) && "Estimate" %in% names(pt)) {
+    # pooled labels the catch row "Expected_Catch"; gear-resolved labels it "Catch".
+    is_catch <- pt$Estimate %in% c("Expected_Catch", "Catch")
+    row$port_BSS_catch <- num_from(pt, function(d) d$BSS_median[is_catch])
+    row$port_PE_catch  <- num_from(pt, function(d) d$PE[is_catch])
   }
   pv <- rd("pe_vs_bss_comparison.csv")
   if (!is.null(pv)) {
@@ -135,8 +140,8 @@ extract_summary <- function(step, model, run_tag, outdir, minutes, ok) {
   if (!is.null(fs) && ncol(fs) >= 2) {
     v <- fs[[1]]; mcol <- if ("mean" %in% names(fs)) "mean" else names(fs)[2]
     gm <- function(pat) { i <- grepl(pat, v); if (any(i)) mean(suppressWarnings(as.numeric(fs[[mcol]][i])), na.rm = TRUE) else NA_real_ }
-    row$f_crab_mean    <- gm("^f_crab(_out)?\\[|^f_crab(_out)?$")
-    row$kappa_OSP_mean <- gm("^kappa_OSP")
+    row$f_crab_mean    <- gm("^f_crab_out(\\[|$)")
+    row$kappa_OSP_mean <- gm("^kappa_OSP_out$")
   }
   row
 }
@@ -160,7 +165,8 @@ for (j in JOBS) {
   done_dir <- find_outdir(j$model, run_tag)
   if (!is.na(done_dir) && file.exists(file.path(done_dir, "port_total_Dungeness_Kept.csv"))) {
     banner(sprintf("SKIP (already done): %s / %s", j$model, run_tag))
-    append_summary(extract_summary(j$step, j$model, run_tag, done_dir, NA_real_, TRUE))
+    tryCatch(append_summary(extract_summary(j$step, j$model, run_tag, done_dir, NA_real_, TRUE)),
+             error = function(e) message("  (summary skipped: ", conditionMessage(e), ")"))
     next
   }
 
@@ -189,7 +195,8 @@ for (j in JOBS) {
   mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
 
   outdir <- find_outdir(j$model, run_tag)
-  append_summary(extract_summary(j$step, j$model, run_tag, outdir, mins, ok))
+  tryCatch(append_summary(extract_summary(j$step, j$model, run_tag, outdir, mins, ok)),
+           error = function(e) message("  (summary skipped: ", conditionMessage(e), ")"))
   banner(sprintf("%s / %s  ->  %s  (%s min)", j$model, run_tag,
                  if (ok) "OK" else "FAILED", mins))
 }

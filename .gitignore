@@ -49,3 +49,4 @@ Thumbs.db
 # general glob replaces an earlier rule that ignored a single dated workspace path
 # (output/20260619/...), which no longer matched after the 05_output/ rename.
 *.RData
+.Rproj.user/shared/notebooks/paths
