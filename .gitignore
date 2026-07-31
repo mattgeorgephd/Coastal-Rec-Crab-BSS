@@ -50,3 +50,4 @@ Thumbs.db
 # (output/20260619/...), which no longer matched after the 05_output/ rename.
 *.RData
 .Rproj.user/shared/notebooks/paths
+.Rproj.user/shared/notebooks/paths
