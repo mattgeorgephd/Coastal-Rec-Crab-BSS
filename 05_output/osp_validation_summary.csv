@@ -1,0 +1,15 @@
+"step","model","run_tag","ok","minutes","outdir","port_BSS_catch","port_PE_catch","boat_BSS_catch","boat_BSS_effort","boat_PE_catch","boat_div_frac","boat_pass","f_crab_mean","kappa_OSP_mean"
+"step1-baseline","gear_resolved","OSPval-step1-baseline",TRUE,NA,"gear-type-CPUE-model-OSPval-step1-baseline",82825,71157,43120,14774,36468,0.0022,TRUE,1,3.14502586942049
+"step2-osp","pooled","OSPval-step2-osp",TRUE,221,"pooled-CPUE-OSPval-step2-osp",87560,71157,47260,16243,36468,0.0052,TRUE,1,3.14669550204811
+"step2-osp","gear_resolved","OSPval-step2-osp",TRUE,14.2,"gear-type-CPUE-model-OSPval-step2-osp",86817,71157,47126,16266,36468,0.0037,TRUE,1,3.1468732180569
+"step3-f030","pooled","OSPval-step3-f030",TRUE,191.2,"pooled-CPUE-OSPval-step3-f030",52131,44810,12597,4316,10940,0.007,TRUE,0.300449142873081,3.13740215760353
+"step3-f030","gear_resolved","OSPval-step3-f030",TRUE,15.2,"gear-type-CPUE-model-OSPval-step3-f030",51592,44810,12740,4314,10940,0.0015,TRUE,0.301694276014885,3.12801878846942
+"step3b-ospf","pooled","OSPval-step3b-ospf",TRUE,190.9,"pooled-CPUE-OSPval-step3b-ospf",53295,44810,13787,4763,10940,0.0052,TRUE,0.299677685580742,3.14352952054355
+"step3b-ospf","gear_resolved","OSPval-step3b-ospf",TRUE,16.2,"gear-type-CPUE-model-OSPval-step3b-ospf",52634,44810,13800,4792,10940,0.0013,TRUE,0.299910393056434,3.14118529096477
+"step4-fix020","pooled","OSPval-step4-fix020",TRUE,183.7,"pooled-CPUE-OSPval-step4-fix020",48045,41047,8682,2952,7294,0.0082,TRUE,0.2,3.14717574897107
+"step4-fix050","pooled","OSPval-step4-fix050",TRUE,246.4,"pooled-CPUE-OSPval-step4-fix050",61383,52338,21644,7364,18234,0.0039,TRUE,0.5,3.13211274638581
+"step4-fix100","pooled","OSPval-step4-fix100",TRUE,213.2,"pooled-CPUE-OSPval-step4-fix100",83590,71153,43193,14742,36464,0.0036,TRUE,0.9999,3.14011405010856
+"step5-fmonth","pooled","OSPval-step5-fmonth",TRUE,178.1,"pooled-CPUE-OSPval-step5-fmonth",52399,44810,12932,4397,10940,0.0081,TRUE,0.300178171107903,3.13794551100637
+"step5-fmonth","gear_resolved","OSPval-step5-fmonth",TRUE,16.7,"gear-type-CPUE-model-OSPval-step5-fmonth",51751,44810,12886,4392,10940,0.0027,TRUE,0.299813370445959,3.13000517230449
+"step6-osptau","pooled","OSPval-step6-osptau",TRUE,206.8,"pooled-CPUE-OSPval-step6-osptau",67223,44810,27668,9745,10940,0.0045,TRUE,0.300936761606825,3.1365593879802
+"step6-osptau","gear_resolved","OSPval-step6-osptau",TRUE,17.1,"gear-type-CPUE-model-OSPval-step6-osptau",66447,44810,27524,9748,10940,0.0015,TRUE,0.300786799963391,3.15348283120027
