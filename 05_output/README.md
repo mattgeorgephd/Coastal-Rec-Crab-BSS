@@ -45,6 +45,7 @@ The groups below reflect a recent pooled production run. A gear-resolved run pro
 | Gear | `catch_by_gear_type.csv`, `gear_proportions.csv` | Gear-type catch. In a pooled run these are derived after estimation from interview proportions; in a gear-resolved run they carry posterior uncertainty (see extras below). |
 | PE vs BSS | `pe_port_summary.csv`, `pe_vs_bss_comparison.csv`, `monthly_pe_vs_bss.csv` | Point Estimator results and the side-by-side reconciliation used by the convergence gate. |
 | I/E | `ie_analysis.csv`, `L_effective_ie_detail.csv` | Ingress/egress summary and the per-observation detail behind the `L_effective` regression. |
+| OSP and crabbing fraction | `osp_trailer_overlap_calibration.csv`, `osp_trailer_overlap_pairs.csv`, `osp_trailer_overlap.png`, `osp_coverage_audit.csv` | OSP-vs-trailer calibration, the paired overlap days, the calibration plot, and the OSP coverage audit (written once per run, boat only). The posterior `kappa_OSP_out` and `f_crab_out[...]` appear inside `bss_full_summary_private_boat_all_gear_*.csv`. |
 | Convergence and structure | `convergence_report.csv` (one file, all populations), `divergence_localization_*`, `sampler_diagnostics_*`, `structural_params_*`, `prior_vs_posterior_*` | R-hat / divergence / treedepth reporting, where divergences land, sampler behavior, structural parameters, and prior-vs-posterior overlap. |
 | Effort overdispersion | `effort_overdispersion_byobs_*`, `effort_overdispersion_decomp_*` | The sparse per-observation effort overdispersion, by observation and decomposed. |
 | Cross-validation (LOO) | `loo_summary_*`, `loo_pointwise_catch_*`, `loo_pointwise_gear_*` (shore), `loo_pointwise_trailer_*` (boat) | PSIS-LOO summaries and pointwise contributions by likelihood component. |
@@ -55,6 +56,8 @@ The groups below reflect a recent pooled production run. A gear-resolved run pro
 **Gear-resolved extras.** A `gear-type-CPUE-model` run adds per-gear detail such as `catch_by_gear_type_detail.csv` and `sensitivity_incomplete_by_gear.csv`, and its gear-type catch comes from the per-gear CPUE process rather than post-hoc proportions.
 
 **Weather-tide (covariates) runs.** A `*-covariates` subfolder looks different by design: paired `*_baseline` / `*_covariates` files, `loo_comparison_*` and `pareto_k_*`, GAM smooths (`gam_*_smooths.csv`), covariate effect and inclusion tables, `ci_width_comparison.csv`, `daily_covariates.csv`, and data-source logs (`asos_station_log.csv`, `ndbc_station_log.csv`, `tide_station_log.csv`). These come from `06_diagnostics/`; see [06_diagnostics/README.md](../06_diagnostics/README.md) and the conclusion in `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`.
+
+**Cross-run OSP validation summary.** The batch runner `06_diagnostics/run_osp_validation.R` appends one row per validation fit to `05_output/osp_validation_summary.csv` (at the `05_output/` root, not inside a dated run folder), so the OSP validation ladder can be compared across both models in one place.
 
 ## Why outputs are committed
 

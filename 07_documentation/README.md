@@ -38,9 +38,12 @@ The method documents summarize the history in one screen and point here for deta
 
 ## development_notes/
 
-`PIPELINE_STATUS.md` (above) consolidated and superseded the historical working notes that used to live here; those notes have since been deleted. The folder now contains just two files:
+`PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
 
 | File | Status |
 |---|---|
 | `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
 | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
+| `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
+
+**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md` (being added separately), and `osp_trailer_overlap.png`.

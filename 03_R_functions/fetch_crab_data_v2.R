@@ -48,6 +48,10 @@ fetch_crab_data_v2 <- function(params) {
     mutate(completed_trip = as.character(completed_trip)) |>
     filter(season == params$season_filter)
 
+  # gear_tampered flags interviews where the crabber believes a third party
+  # pulled their pots; it may be absent in older workbooks, so ensure it exists.
+  if (!"gear_tampered" %in% names(interview_raw)) interview_raw$gear_tampered <- NA_real_
+
   # --- Filter to Grays Harbor sites ---
   gh_effort <- effort_raw |> filter(creel_area %in% (params$gh_effort_areas %||% c(
     "Westport Docks Float 20","Westport Docks Float 17-21",
@@ -87,6 +91,7 @@ fetch_crab_data_v2 <- function(params) {
       section_num = 1,
       angler_count = as.integer(crabbers),
       number_of_gear = as.numeric(number_of_gear),
+      gear_tampered_num = suppressWarnings(as.numeric(gear_tampered)),
       hours_fished = as.numeric(hours_fished),
       crabber_hours_calc = as.numeric(crabber_hours),
       fishing_time_total = case_when(
@@ -106,6 +111,15 @@ fetch_crab_data_v2 <- function(params) {
       ),
       angler_final_int = case_when(population=="shore"~1L, population=="private_boat"~2L, TRUE~NA_integer_)
     ) |>
+    # --- Exclude non-crabbing and gear-tampered interviews --------------------
+    # number_of_gear == 0 means no crab gear was deployed, so the interview is
+    # non-crabbing regardless of trip-completion status (complete, incomplete, or
+    # blank completed_trip); drop all such rows. gear_tampered == 1 flags
+    # interviews where the crabber believes a third party pulled their pots, so
+    # catch and hours_fished are unreliable; drop those too. NA number_of_gear
+    # (gear count not recorded) is left untouched.
+    filter(is.na(number_of_gear) | number_of_gear != 0) |>
+    filter(is.na(gear_tampered_num) | gear_tampered_num != 1) |>
     filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time)
 
   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---

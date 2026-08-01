@@ -1,0 +1,613 @@
+diff --git a/01_BSS_models/README.md b/01_BSS_models/README.md
+index 20d8171..bc0507e 100644
+--- a/01_BSS_models/README.md
++++ b/01_BSS_models/README.md
+@@ -17,7 +17,7 @@ The experimental weather-tide covariate driver lives separately in `06_diagnosti
+ 
+ 1. **Setup chunk.** Loads packages, sets `run_date <- format(Sys.Date(), "%Y%m%d")`, sources every file in `03_R_functions/` with `purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)`, and sets `output_dir <- here("05_output", run_date, "<model>")`.
+ 2. **Configuration.** User-selectable toggles (season window, structural dates, catch groups, effort unit, filters, I/E settings, holidays, and the model-behavior levers) live in `run_config.R` at the repository root, the single control surface for a run. The setup chunk sources `run_config.R` automatically when the orchestrator has not already defined `run_config`, then applies it as an override with `params <- modifyList(params, run_config)`. The driver's own `params <- list(...)` chunk holds only this model's internal tuning: `bss_model_file` (the Stan filename), the per-fit sampler controls (`adapt_delta`, `max_treedepth`, iterations), the convergence-gate thresholds, and the AR-selector thresholds. For a routine run you edit `run_config.R`, not the `.Rmd`.
+-3. **Data prep.** Reads `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv` from `04_input_files/`, plus `ingress_egress.xlsx` (pooled).
++3. **Data prep.** Reads `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv` from `04_input_files/`, plus `ingress_egress.xlsx` (pooled). When `use_osp_boat_counts = TRUE`, both drivers also read `WBL_boat_counts.xlsx` (OSP daily boat totals) as a second boat-effort stream, and build the crabbing fraction f from the `boats_crabbing` / `boats_total` columns in `ingress_egress.xlsx`.
+ 4. **Fit.** Each population x sub-season is fit independently by calling `rstan::stan(file = here("02_stan_models", params$bss_model_file), ...)`.
+ 5. **Convergence gate.** Each fit is checked (R-hat, divergences, treedepth). A fit that fails the gate falls back to its PE estimate for that population; the boat all-gear fit is the usual fallback case.
+ 6. **Outputs.** Per-population daily series, port and monthly totals, PE-vs-BSS comparison, and a large set of diagnostics are written to `output_dir`. See [05_output/README.md](../05_output/README.md) for the file catalog.
+diff --git a/02_stan_models/README.md b/02_stan_models/README.md
+index b2e3600..74435ee 100644
+--- a/02_stan_models/README.md
++++ b/02_stan_models/README.md
+@@ -8,14 +8,18 @@ All three models share the same core architecture: an adaptive-resolution AR(1)
+ 
+ | File | Used by | CPUE structure | Distinguishing features |
+ |---|---|---|---|
+-| `crab_bss_pooled.stan` | pooled driver | **Single** pooled CPUE process across all gear | `B1_C` weekend CPUE effect; `L_effective` estimated as a parameter (lognormal prior, shore only) from the I/E regression; data-driven `R_G` prior; informative `R_T` Beta prior; non-centered AR(1) initial states |
+-| `crab_bss_gear_resolved.stan` | gear-resolved driver | **Per-gear** CPUE process (`mu_C` is `[G,S]`, `omega_C` runs over `G*S` with a Cholesky correlation), so gear-type catch carries posterior uncertainty | `B2` holiday effort effect separate from the `B1` weekend effect; gear-deployment effort formulation (`R_G_boat`; boat day length `L = tau` deployment turnover) |
++| `crab_bss_pooled.stan` | pooled driver | **Single** pooled CPUE process across all gear | `B1_C` weekend CPUE effect; `L_effective` estimated as a parameter (lognormal prior, shore only) from the I/E regression; data-driven `R_G` prior; informative `R_T` Beta prior; non-centered AR(1) initial states; OSP second boat-effort likelihood (scaled by `kappa_OSP`, or `tau_boat` when `osp_scale_is_tau`); `f_crab` scaling in the boat generated quantities only (decoupled from sampling, CPUE invariant) |
++| `crab_bss_gear_resolved.stan` | gear-resolved driver | **Per-gear** CPUE process (`mu_C` is `[G,S]`, `omega_C` runs over `G*S` with a Cholesky correlation), so gear-type catch carries posterior uncertainty | `B2` holiday effort effect separate from the `B1` weekend effect; gear-deployment effort formulation (`R_G_boat`; boat day length `L = tau` deployment turnover); OSP second boat-effort likelihood (scaled by `kappa_OSP`, or `tau_boat` when `osp_scale_is_tau`); `f_crab` scaling in the boat generated quantities only (decoupled from sampling, CPUE invariant) |
+ | `crab_bss_pooled_weather_adjusted.stan` | weather-tide module (`06_diagnostics/`) | Pooled, plus covariate blocks `gamma_E`/`gamma_C` on `mu_E`/`mu_C` | Adds `log_lik` for PSIS-LOO; **collapses to `crab_bss_pooled.stan` when `K_E = K_C = 0`** (zero-column covariate matrices), so one file serves both the baseline and augmented fits |
+ 
+ ## Effort unit: gear-deployments
+ 
+ Both models measure effort in **gear-deployments** (pot lifts), not a time-denominated unit. Interviews show crab catch is sub-linear in soak time (`crab_per_gear ~ h^0.13`), so crabber-hours and gear-hours are invalid CPUE denominators for pot/trap gear; an earlier gear-hours formulation with `L = 24` inflated boat catch by roughly 2x. For boats, `lambda_E` is gear in the water, `h = number_of_gear` (deployments), day length `L = tau` (a deployment-turnover *parameter*, identified by boat I/E ingress counts when available), and trailer counts map through `R_G_boat`; `E = lambda_E * tau` is gear-deployments per day. Shore likewise runs on gear-deployments (deployment turnover `tau_shore`). The single effort-unit contract lives in `03_R_functions/bss_effort_spec.R`, read by both the BSS prep and the Point Estimator so they always share a unit. See the `F2` header block in `crab_bss_gear_resolved.stan` for the full rationale.
+ 
++## OSP boat counts and the crabbing fraction f
++
++Two boat-side features are opt-in via `run_config` and behavior-neutral when off. When `use_osp_boat_counts = TRUE`, the OSP daily private-boat total enters as a second effort observation on the boat latent `lambda_E`, scaled by an OSP within-day turnover `kappa_OSP` (or by `tau_boat` when `osp_scale_is_tau = TRUE`, so the dense OSP series identifies boat turnover). When `use_crab_fraction = TRUE`, a crabbing fraction `f_crab` (the trailer and OSP counts are all boats, including salmon and tuna trips) scales boat effort and catch in the boat generated quantities only, leaving the sampling model and the CPUE process unchanged. With both toggles off, each model reproduces its prior trailer-only behavior.
++
+ ## Selecting a model
+ 
+ The driver's `bss_model_file` (or `bss_model_file_covariates`) parameter names the file. Earlier prototype models (`BSS_creel_model_02_*.stan`, `BSS_crab_model_01/02/03.stan`) from the freshwater-creel lineage are retired and are not in this folder.
+diff --git a/03_R_functions/fetch_crab_data.R b/03_R_functions/fetch_crab_data.R
+index 1d5e26e..7923e8d 100644
+--- a/03_R_functions/fetch_crab_data.R
++++ b/03_R_functions/fetch_crab_data.R
+@@ -48,6 +48,10 @@ fetch_crab_data <- function(params) {
+     mutate(completed_trip = as.character(completed_trip)) |>
+     filter(season == params$season_filter)
+ 
++  # gear_tampered flags interviews where the crabber believes a third party
++  # pulled their pots; it may be absent in older workbooks, so ensure it exists.
++  if (!"gear_tampered" %in% names(interview_raw)) interview_raw$gear_tampered <- NA_real_
++
+   gh_effort <- effort_raw |> filter(creel_area %in% (params$gh_effort_areas %||% c(
+     "Westport Docks Float 20","Westport Docks Float 17-21",
+     "Westport Boat Launch","Westport Marina","Westport Jetty",
+@@ -84,6 +88,7 @@ fetch_crab_data <- function(params) {
+       section_num = 1,
+       angler_count = as.integer(crabbers),
+       number_of_gear = as.numeric(number_of_gear),
++      gear_tampered_num = suppressWarnings(as.numeric(gear_tampered)),
+       hours_fished = as.numeric(hours_fished),
+       crabber_hours_calc = as.numeric(crabber_hours),
+       fishing_time_total = case_when(
+@@ -103,6 +108,15 @@ fetch_crab_data <- function(params) {
+       ),
+       angler_final_int = case_when(population=="shore"~1L, population=="private_boat"~2L, TRUE~NA_integer_)
+     ) |>
++    # --- Exclude non-crabbing and gear-tampered interviews --------------------
++    # number_of_gear == 0 means no crab gear was deployed, so the interview is
++    # non-crabbing regardless of trip-completion status (complete, incomplete, or
++    # blank completed_trip); drop all such rows. gear_tampered == 1 flags
++    # interviews where the crabber believes a third party pulled their pots, so
++    # catch and hours_fished are unreliable; drop those too. NA number_of_gear
++    # (gear count not recorded) is left untouched.
++    filter(is.na(number_of_gear) | number_of_gear != 0) |>
++    filter(is.na(gear_tampered_num) | gear_tampered_num != 1) |>
+     filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time) |>
+     filter(if_else(population == "private_boat",
+                    !is.na(gear_time_total) & gear_time_total > 0, TRUE))
+diff --git a/03_R_functions/fetch_crab_data_v2.R b/03_R_functions/fetch_crab_data_v2.R
+index 2aac2ed..e3bb686 100644
+--- a/03_R_functions/fetch_crab_data_v2.R
++++ b/03_R_functions/fetch_crab_data_v2.R
+@@ -48,6 +48,10 @@ fetch_crab_data_v2 <- function(params) {
+     mutate(completed_trip = as.character(completed_trip)) |>
+     filter(season == params$season_filter)
+ 
++  # gear_tampered flags interviews where the crabber believes a third party
++  # pulled their pots; it may be absent in older workbooks, so ensure it exists.
++  if (!"gear_tampered" %in% names(interview_raw)) interview_raw$gear_tampered <- NA_real_
++
+   # --- Filter to Grays Harbor sites ---
+   gh_effort <- effort_raw |> filter(creel_area %in% (params$gh_effort_areas %||% c(
+     "Westport Docks Float 20","Westport Docks Float 17-21",
+@@ -87,6 +91,7 @@ fetch_crab_data_v2 <- function(params) {
+       section_num = 1,
+       angler_count = as.integer(crabbers),
+       number_of_gear = as.numeric(number_of_gear),
++      gear_tampered_num = suppressWarnings(as.numeric(gear_tampered)),
+       hours_fished = as.numeric(hours_fished),
+       crabber_hours_calc = as.numeric(crabber_hours),
+       fishing_time_total = case_when(
+@@ -106,6 +111,15 @@ fetch_crab_data_v2 <- function(params) {
+       ),
+       angler_final_int = case_when(population=="shore"~1L, population=="private_boat"~2L, TRUE~NA_integer_)
+     ) |>
++    # --- Exclude non-crabbing and gear-tampered interviews --------------------
++    # number_of_gear == 0 means no crab gear was deployed, so the interview is
++    # non-crabbing regardless of trip-completion status (complete, incomplete, or
++    # blank completed_trip); drop all such rows. gear_tampered == 1 flags
++    # interviews where the crabber believes a third party pulled their pots, so
++    # catch and hours_fished are unreliable; drop those too. NA number_of_gear
++    # (gear count not recorded) is left untouched.
++    filter(is.na(number_of_gear) | number_of_gear != 0) |>
++    filter(is.na(gear_tampered_num) | gear_tampered_num != 1) |>
+     filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time)
+ 
+   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
+diff --git a/04_input_files/README.md b/04_input_files/README.md
+index ee983d7..5a1f381 100644
+--- a/04_input_files/README.md
++++ b/04_input_files/README.md
+@@ -11,12 +11,15 @@ All inputs are now `.xlsx` workbooks with a single `data` sheet (converted from
+ | File | Role | Read by | Reader | Key columns |
+ |---|---|---|---|---|
+ | `effort_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | `season, date, survey_id, creel_area, count_time, total_gear_count, boat_trailer_count` |
+-| `interview_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | 16 cols incl. `survey_id, date, crabbing_mode, boat_type, crabbers, gear_type, number_of_gear, dungeness_kept, red_rock_kept, hours_fished, crabber_hours, gear_hours, completed_trip, season, creel_location` |
++| `interview_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | 17 cols incl. `survey_id, date, crabbing_mode, boat_type, crabbers, gear_type, number_of_gear, dungeness_kept, red_rock_kept, hours_fished, crabber_hours, gear_hours, completed_trip, gear_tampered, season, creel_location` |
+ | `wes_commercial_tally.xlsx` | model | both drivers | `estimate_comm_charter` (+ a gear-report plot) | `date, season, private_tally, commercial_tally, charter_tally` |
+ | `ingress_egress.xlsx` | model | both drivers | `fetch_ie_data` | `location_name, date, season, day_type, crabbers_on, crabbers_off, crabber_flow, boats_in, boats_out, boat_flow` |
++| `WBL_boat_counts.xlsx` | model (OSP, optional) | both drivers | `fetch_osp_boat_counts` | `Year, Month, Day, WestportPrivateEffort` |
+ | `crabbing_holidays.xlsx` | day-typing | both drivers (+ weather module) | `read_crabbing_holidays` | `season, date, holiday_name` |
+ | `fishery_opener_dates.xlsx` | diagnostic | pooled only, via `prep_fishery_events` | `readxl::read_excel` | `date, season, ma2_bottomfish, ma2_halibut, ma2_salmon, razor_long_beach, razor_twin_harbors, razor_copalis, razor_mocrocks, razor_kalaloch, razor_any` |
+ 
++`WBL_boat_counts.xlsx` is a seventh, optional workbook (the OSP daily private-boat totals), read only when `run_config$use_osp_boat_counts = TRUE`; the "six workbooks" heading above predates it.
++
+ The former per-fishery opener workbooks (`MA2-fishing-dates-2023-2026.xlsx`, `razor-clam-dig-dates-2021-2025.xlsx`) are retired; their content is represented in `fishery_opener_dates.xlsx`.
+ 
+ ## Season columns (fishery season)
+@@ -32,7 +35,7 @@ Which readers filter on it:
+ 
+ ## Columns: trimmed to modeling-essential
+ 
+-The files carry only the columns the pipeline uses (a whole-repo reference scan drove the cut). Notable drops: the effort weather/vehicle/buoy/jetty counts and `notes`; the interview locality/`*_returned`/`notes`/`total_vehicles`/`crabbing_holiday`/`interview_time` fields; the tally `*_interviewed` columns and `notes`; and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model.
++The files carry only the columns the pipeline uses (a whole-repo reference scan drove the cut). Notable drops: the effort weather/vehicle/buoy/jetty counts and `notes`; the interview locality/`*_returned`/`notes`/`total_vehicles`/`crabbing_holiday`/`interview_time` fields; the tally `*_interviewed` columns and `notes`; and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model. A new `boats_crabbing` / `boats_total` classification pair (keys `ie_crab_col` / `ie_total_col`) is being added to `ingress_egress.xlsx` to update the crabbing fraction f once the WBL egress pilot lands.
+ 
+ ## Input options in run_config
+ 
+@@ -48,6 +51,7 @@ Each reader uses the config value with the historical Grays Harbor / Westport va
+ - **Dates are ISO text.** Each `date` column stores `yyyy-mm-dd` as text (not an Excel date cell) so `as.Date()` parses it identically in any timezone. Keep that format on re-export. This also resolves a prior defect where `effort_combined.csv` and `fishery_opener_dates.csv` had been re-exported as `M/D/YYYY`, which their `as.Date(date)` readers would have read as `NA`.
+ - **Sheet name.** Every workbook uses a single sheet named `data` (override per file via the sheet params above).
+ - **Interview gear column.** `number_of_gear` is the intended gear count (historically column N in the raw iForm export); keep the header name intact on regeneration.
++- **Interview row filters.** The readers drop non-crabbing rows (`number_of_gear == 0`, under any trip-completion status; an NA gear count is kept) and gear-tampered rows (`gear_tampered == 1`, all blank today). Keep the `completed_trip` and `gear_tampered` columns on regeneration.
+ - **Boat-type typo.** The source spells the commercial category "Commerical" (one 'm'); the prep matches it by regex, so do not "correct" it without updating the matcher.
+ 
+ ## Regenerating an input
+diff --git a/05_output/README.md b/05_output/README.md
+index ea2cde2..f23d20d 100644
+--- a/05_output/README.md
++++ b/05_output/README.md
+@@ -45,6 +45,7 @@ The groups below reflect a recent pooled production run. A gear-resolved run pro
+ | Gear | `catch_by_gear_type.csv`, `gear_proportions.csv` | Gear-type catch. In a pooled run these are derived after estimation from interview proportions; in a gear-resolved run they carry posterior uncertainty (see extras below). |
+ | PE vs BSS | `pe_port_summary.csv`, `pe_vs_bss_comparison.csv`, `monthly_pe_vs_bss.csv` | Point Estimator results and the side-by-side reconciliation used by the convergence gate. |
+ | I/E | `ie_analysis.csv`, `L_effective_ie_detail.csv` | Ingress/egress summary and the per-observation detail behind the `L_effective` regression. |
++| OSP and crabbing fraction | `osp_trailer_overlap_calibration.csv`, `osp_trailer_overlap_pairs.csv`, `osp_trailer_overlap.png`, `osp_coverage_audit.csv` | OSP-vs-trailer calibration, the paired overlap days, the calibration plot, and the OSP coverage audit (written once per run, boat only). The posterior `kappa_OSP_out` and `f_crab_out[...]` appear inside `bss_full_summary_private_boat_all_gear_*.csv`. |
+ | Convergence and structure | `convergence_report.csv` (one file, all populations), `divergence_localization_*`, `sampler_diagnostics_*`, `structural_params_*`, `prior_vs_posterior_*` | R-hat / divergence / treedepth reporting, where divergences land, sampler behavior, structural parameters, and prior-vs-posterior overlap. |
+ | Effort overdispersion | `effort_overdispersion_byobs_*`, `effort_overdispersion_decomp_*` | The sparse per-observation effort overdispersion, by observation and decomposed. |
+ | Cross-validation (LOO) | `loo_summary_*`, `loo_pointwise_catch_*`, `loo_pointwise_gear_*` (shore), `loo_pointwise_trailer_*` (boat) | PSIS-LOO summaries and pointwise contributions by likelihood component. |
+@@ -56,6 +57,8 @@ The groups below reflect a recent pooled production run. A gear-resolved run pro
+ 
+ **Weather-tide (covariates) runs.** A `*-covariates` subfolder looks different by design: paired `*_baseline` / `*_covariates` files, `loo_comparison_*` and `pareto_k_*`, GAM smooths (`gam_*_smooths.csv`), covariate effect and inclusion tables, `ci_width_comparison.csv`, `daily_covariates.csv`, and data-source logs (`asos_station_log.csv`, `ndbc_station_log.csv`, `tide_station_log.csv`). These come from `06_diagnostics/`; see [06_diagnostics/README.md](../06_diagnostics/README.md) and the conclusion in `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`.
+ 
++**Cross-run OSP validation summary.** The batch runner `06_diagnostics/run_osp_validation.R` appends one row per validation fit to `05_output/osp_validation_summary.csv` (at the `05_output/` root, not inside a dated run folder), so the OSP validation ladder can be compared across both models in one place.
++
+ ## Why outputs are committed
+ 
+ These results are checked into the repository so a given seasonal estimate and its diagnostics are preserved exactly as produced, without needing to re-run. The trade-off is repository size; this folder is the bulk of it. Per-run R workspaces (`*.RData`) and compiled model caches (`*.rds`) are **not** committed; they are git-ignored because they are machine-local and regenerate on demand (see `.gitignore`). If repository size becomes a problem, the alternative is to stop committing dated runs and keep only the inputs plus a tagged driver, accepting that past estimates would then have to be reproduced rather than read.
+diff --git a/06_diagnostics/README.md b/06_diagnostics/README.md
+index 94173d2..5b67ced 100644
+--- a/06_diagnostics/README.md
++++ b/06_diagnostics/README.md
+@@ -10,6 +10,7 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
+ |---|---|
+ | `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | The covariate module driver (module v0.2.x). Layered on the **pooled** model only. Screens candidate tide/weather covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a leave-one-week-out block-CV fallback for true sampling gaps). |
+ | `run_rg_sweep.R` | The T1.3 `R_G` prior-sensitivity sweep runner (three pooled runs at `R_G_prior_mu` = 1.0/1.28/1.5). |
++| `run_osp_validation.R` | Batches the OSP validation ladder across both production models and appends to `05_output/osp_validation_summary.csv`. A validation/diagnostic runner, not a production estimator. |
+ | `README.md` | This file. |
+ 
+ The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and **collapses exactly to `crab_bss_pooled.stan` when `K_E = K_C = 0`**, so one file serves both the baseline and augmented fits.
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+index 99ab386..b7b7eae 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+@@ -18,6 +18,17 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
+ 
+ ## Version log
+ 
++### 2026-07-31, OSP boat-count incorporation: second boat effort stream, crabbing fraction f, OSP-informs-tau, and two interview filters (branch `OSP-boat-count-incorporation`)
++
++The gear-resolved track gains the same boat-effort features as the pooled track (built as Phase 0 through Phase 3, validated by a 14-run batch across both models), on the branch `OSP-boat-count-incorporation`. Changes the boat estimate materially, so confirm by a production run; full review in `development_notes/osp-validation-review-2026-07-31.md`.
++
++-   **OSP second boat effort stream (Phase 1b, the gear-resolved mirror).** The OSP Westport Boat Launch daily boat total (`WBL_boat_counts.xlsx`, `fetch_osp_boat_counts`) enters `crab_bss_gear_resolved.stan` as a second boat effort observation on the same latent boat effort, scaled by `kappa_OSP`; the gear-resolved OSP mean sums `lambda_E_S` over the gear dimension before scaling. Toggle `use_osp_boat_counts`; FALSE reproduces the pre-Phase-1b boat exactly. Validation Step 2 raised the boat about 10% and tightened boat-effort CV 11.9% to 11.0%; the gear-resolved boat tracks the pooled boat within 1 to 2% at every step.
++-   **Crabbing fraction f (Phase 2 + 2b + 3).** Trailer and OSP counts are all boats, so `crab_fraction.R` multiplies boat effort and catch by f in the boat generated quantities only (decoupled from sampling; CPUE invariant; the boat is exactly linear in f), Beta prior centered on `crab_fraction_set` (0.3), updated by the `boats_crabbing` / `boats_total` classification once the WBL egress pilot lands; the PE is f-adjusted too. Per-stratum via `crab_fraction_strata`. 0.3 is a placeholder, not a measured estimate, and is the largest lever on the boat harvest.
++-   **OSP-informs-tau (`osp_scale_is_tau`, Phase 3), production ON.** Lets the dense OSP series identify `tau_boat` (the OSP mean uses `L` = `tau_boat` instead of the free `kappa_OSP`), closing GR-12. Resolved 2026-07-31: the trailer count is an instantaneous snapshot, so the OSP/trailer turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count; validation Step 6 puts the gear-resolved boat at about 27.5k vs Step 3b's 13.8k. Caveat: assumes the snapshot is timed representatively (not a fixed daily peak).
++-   **Two interview filters (`fetch_crab_data_v2.R`, matching the pooled `fetch_crab_data.R`).** Non-crabbing interviews (any `number_of_gear == 0` row, regardless of trip status) and gear-tampered interviews (`gear_tampered == 1`) are dropped. Net effect on the validated 2024-25 set is about 2 interviews (the rest were already excluded by the existing `crabbers > 0` / `min_fishing_time` filters); `gear_tampered` is all blank today. Note: v2 has no `private_boat` gear-time filter (the pooled reader does), so the explicit `number_of_gear == 0` rule partly harmonizes the two readers.
++-   **Production configuration (adopted 2026-07-31).** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` (`crab_fraction_set = 0.3`), `osp_scale_is_tau = TRUE`; production private-boat harvest about 27,500 Dungeness kept. All 14 validation runs converged; open decisions (pilot f_hat; confirm snapshot timing) are in the validation review.
++-   Files changed: `02_stan_models/crab_bss_gear_resolved.stan` (and the pooled Stan file); new `03_R_functions/fetch_osp_boat_counts.R`, `diagnose_osp_trailer_overlap.R`, `crab_fraction.R`; `fetch_crab_data_v2.R` (and `fetch_crab_data.R`) filters; `bss_day_length.R`; `prep_bss_crab_gear.R` / `prep_bss_crab_pooled.R`; `run_pe_gear.R` / `run_pe_pooled.R`; both drivers; `run_config.R`; new `04_input_files/WBL_boat_counts.xlsx`; new `06_diagnostics/run_osp_validation.R`; this history; the method documents; `development_notes/osp-validation-review-2026-07-31.md`.
++
+ ### v5.6 (2026-07-12), run_config base-parameter restructure (P5), parity with pooled v7.9
+ 
+ Config-architecture parity with the pooled track's v7.9. No Stan change, no estimate change, and no gear-resolved run was required.
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+index 3979de8..833118c 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+@@ -499,7 +499,7 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
+ **The standing caveats, stated honestly.**
+ 
+ - **G = 1, so per-gear catch is apportioned, not modeled (GR-7).** The Stan model supports a genuine per-gear CPUE process, but the R driver passes a single gear dimension, so the per-gear machinery is inert and gear-type catch comes from PE apportionment of interview proportions. The gear dimension cannot simply be raised: the only effort observation touches one gear dimension while the seasonal totals sum over all gear, so unmodeled effort processes would enter the totals identified by priors alone. The fully modeled path ("Option A") needs an effort-share offset fed by `pi_gear_data` and a rule for multi-gear interviews (the gear-weight matrix gives fractional weights, but a per-interview catch likelihood needs one gear per interview). Until it is built, read the per-gear split as an apportionment.
+-- **Boat catch rests on a thin `tau_boat` (GR-12).** `tau_boat = 1.2` is anchored on only two within-window boat I/E days (turnover 1.00 and 1.29). Boat catch is directly proportional to it. The boat I/E stream activates automatically once enough days fall inside a window (`ie_min_obs_boat`, default 2), but until it does, the boat total leans on this prior. State this dependence in any co-management number.
++- **Boat catch rests on a thin `tau_boat` (GR-12), now closed by OSP.** `tau_boat = 1.2` was anchored on only two within-window boat I/E days (turnover 1.00 and 1.29), and boat catch is directly proportional to it. The OSP boat-count stream (below, production ON) supplies a dense 148-day series that identifies the boat turnover directly, so `tau_boat` no longer leans on its prior. Resolved 2026-07-31: the trailer count is an instantaneous snapshot, so the OSP-implied turnover (~2.7 to 3.0) is real and the old ~1.2 was a ~2x under-count; see the OSP subsection below.
+ - **The gate backstop can override the impact test (GR-11).** The hard 5% divergence-fraction backstop can force a good BSS fit to fall back to PE even when the divergences demonstrably do not move the totals (Section 9). The backstop is kept on principle, but its 5% threshold and its precedence are an open policy question, to be revisited only after the PE fallback is validated.
+ - **`private_boat_ring_net` never fits (GR-15).** With about 17 interviews across September to November, this component has insufficient data and always falls back to PE.
+ - **Effort variance sits mostly in the observation term (GR-14).** Under the coarse fixed AR the latent process carries only about 4 to 13% of effort variance and the NB observation term about 81 to 91%. This is by design, not a defect, but it is why the AR contributes little to the effort fit.
+@@ -522,6 +522,13 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
+ - Add bootstrap or parametric uncertainty for the commercial/charter census.
+ - Make the mu-hierarchy collapse a configuration lever (GR-10), as the pooled track did with `collapse_mu_hier`.
+ 
++**OSP boat counts, the crabbing fraction f, and OSP-informs-tau (branch `OSP-boat-count-incorporation`, 2026-07-31).** The gear-resolved model carries the same boat-effort additions as the pooled model.
++
++- **OSP second effort stream.** The OSP Westport Boat Launch daily private-boat total (`04_input_files/WBL_boat_counts.xlsx`, `fetch_osp_boat_counts`, toggle `use_osp_boat_counts`, production ON) is a second boat effort observation on the same latent boat effort, scaled by `kappa_OSP`; in the gear-resolved likelihood the OSP mean sums the boat effort over gear (`sum(lambda_E_S[...])`). It contributes on its 148 operating days (mid-March to mid-October) and degrades to trailer-only outside them. Validation (Step 2) raised the boat about 10% and tightened boat-effort CV 11.9% to 11.0%.
++- **Crabbing fraction f.** Because trailer and OSP counts are ALL boats, `use_crab_fraction` (production ON) multiplies boat effort and catch by f in the boat generated quantities only, decoupled from sampling (CPUE invariant; the boat scales exactly linearly in f). f is a Beta prior centered on `crab_fraction_set` (production 0.3, a placeholder pending the WBL egress pilot, updated by the `boats_crabbing` / `boats_total` classification in `ingress_egress.xlsx`). It is the single largest lever on the boat harvest.
++- **OSP-informs-tau (`osp_scale_is_tau`, production ON).** Closes GR-12 by letting the OSP series identify `tau_boat` (the OSP mean uses `L` = `tau_boat` instead of the free `kappa_OSP`). Since the trailer count is an instantaneous snapshot, the OSP/trailer turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count; turning it on roughly doubles the boat (validation Step 6 boat ~27.5k vs Step 3b ~13.8k). Caveat: this assumes the snapshot is timed representatively (not a fixed daily peak).
++- **Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`; production private-boat harvest about 27,500 Dungeness kept. All 14 validation runs converged and both tracks reconcile within 1 to 2% at every step. Full evidence and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`.
++
+ ------------------------------------------------------------------------
+ 
+ ### 17. Weather and tide covariates: not used here
+@@ -582,6 +589,7 @@ Method v1.0 corresponds to gear-resolved framework code **v5.5** (2026-07-11). T
+ - **v5.1-v5.2:** empirical proportions and per-gear structure. Weighted fractional gear assignment replaced the priority hierarchy; `pi_gear` became data with Laplace smoothing; per-gear process-error was added; then the incomplete-trip filter, Dirichlet-sampled `pi_gear` in generated quantities, `C_gear` vs `C_gear_pred`, the divergence gate, the regulatory `gear_exclude`, and the minimum effective-N raise from 3 to 15.
+ - **v5.3-v5.4:** the R-side data prep was aligned with the boat formulation the Stan model then expected (later superseded by the deployment scale), and the R-hat gate was tightened from 1.05 to 1.01 (Vehtari et al. 2021), in step with the pooled track.
+ - **v5.5 (2026-07-11):** shore was moved onto the gear-deployment effort unit to match the boat, so both fitted components now share one effort unit with each other and with the pooled track. Chosen from the 2026-07-10 shore LOO comparison as the only harvest-unbiased shore unit (`beta_h = 1.05`, covering 1, against 0.57 for crabber-hours and 0.73 for gear-hours), on harvest-unbiasedness rather than marginal predictive fit. Resolves backlog GR-16 and sets `loo_effort_unit_comparison = FALSE` for production. This entry also retroactively records that the boat had already moved to gear-deployments via the shared effort module (fix markers F1, F2, P1).
++- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31).** The boat gains the OSP Westport Boat Launch daily boat-total as a second effort stream (scaled by `kappa_OSP`; the gear-resolved OSP mean sums boat effort over gear), a crabbing fraction f applied in the boat generated quantities (production 0.3 placeholder, boat linear in f, CPUE invariant), and `osp_scale_is_tau` (production ON) which closes GR-12 by identifying `tau_boat` from the dense OSP series. With the trailer count confirmed an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0) is real and `tau_boat` ~1.2 was a ~2x under-count, so production boat is about 27,500 Dungeness kept. Validated by a 14-run batch (both tracks reconcile within 1 to 2%); see `development_notes/osp-validation-review-2026-07-31.md`. Two interview data fixes ride along (non-crabbing `number_of_gear = 0` and `gear_tampered = 1` rows dropped).
+ 
+ The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the gear-deployment scale, the single largest quantitative move in the model's history; F4 the CPUE diagnostics; F5 reporting; P0 the point-estimator population and ratio-of-sums fix; P1 the configurable effort unit; P2 the mu-hierarchy collapse) and the pooled parity ports (B1.3, B1.5, B1.6, B1.8, B1.9) are recorded, with their before/after numbers and the F1/F2 and P0 working notes, in **`BSS-GH-gear-type-CPUE-model-development-history.md`**. The outstanding backlog (GR-7 to GR-17) lives in `07_documentation/development_notes/PIPELINE_STATUS.md`.
+ 
+@@ -591,7 +599,7 @@ The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the g
+ |---|---|---|
+ | shore_ring_net | about 6,936 (BSS) | crabber-hours scale; PRE-REFRESH under v5.5 |
+ | shore_all_gear | about 19,684 (BSS) | crabber-hours scale; PRE-REFRESH under v5.5 |
+-| private_boat_all_gear | about 43,314 (BSS) | gear-deployment scale; current, but rests on the `tau_boat = 1.2` prior (GR-12) |
++| private_boat_all_gear | about 43,314 (BSS) at f = 1, pre-OSP; about 27,500 under the 2026-07-31 production config | gear-deployment scale; the 43,314 rests on `tau_boat = 1.2` (GR-12) and f = 1; production adds OSP (`osp_scale_is_tau`, closes GR-12) and f = 0.3, PRE-REFRESH pending a production run |
+ | private_boat_ring_net | PE fallback | insufficient data (GR-15) |
+ | commercial/charter | about 11,986 | day-type census; scale-independent |
+ 
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+index 8f4dc3c..ae7eefb 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+@@ -14,6 +14,18 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
+ 
+ ## Version log
+ 
++### 2026-07-31, OSP boat-count incorporation: second boat effort stream, crabbing fraction f, OSP-informs-tau, and two interview filters (branch `OSP-boat-count-incorporation`)
++
++Three boat-effort features and two interview data fixes, built as sequential patches (Phase 0 through Phase 3) and validated by a 14-run batch across both models. This lands on the branch `OSP-boat-count-incorporation`, not yet on the Method v1.0 trunk. It changes the boat estimate materially, so it must be confirmed by a production run; the batch numbers below are the validation evidence. Full review in `development_notes/osp-validation-review-2026-07-31.md`.
++
++-   **OSP second boat effort stream (Phase 1; both tracks).** The OSP Westport Boat Launch (WBL) daily private-boat total (`04_input_files/WBL_boat_counts.xlsx`, new reader `03_R_functions/fetch_osp_boat_counts.R`) enters as a SECOND boat effort observation on the same latent `lambda_E`: `OSP_I[i] ~ neg_binomial_2((lambda_E / R_G_boat) * kappa_OSP, r_OSP)` in `crab_bss_pooled.stan`, and the gear-resolved mirror (Phase 1b) sums `lambda_E_S` over gear. `kappa_OSP` is the OSP within-day boat turnover, prior centered at `osp_scale_prior_mu = 3.0`. Toggle `use_osp_boat_counts`; FALSE reproduces the pre-Phase-1 boat exactly. OSP covers 148 days (mid-March to mid-October); on the other 217 days the model runs trailer-only, so the pre-OSP behavior is the emergent fallback with no special-casing (`osp_coverage_audit.csv`, and the calibration in `diagnose_osp_trailer_overlap.R`). Validation Step 2: OSP raised the boat about 10% (pooled boat catch 43.3k to 47.3k) and tightened boat-effort CV 12.2% to 11.2%; the 87 "OSP only" days are the substantive gain (direct effort observations the trailer series lacked).
++-   **Crabbing fraction f (Phase 2 + 2b + 3; boat only).** Trailer and OSP counts are ALL boats, so at f = 1 every launched boat is counted as a crabber and the boat catch is biased high. `03_R_functions/crab_fraction.R` (`crab_fraction_stan_data`, `crab_fraction_point_day`, `crab_fraction_strata_labels`) builds a Beta prior centered on `crab_fraction_set` (0.3), updated by the crab-creel ingress/egress crab-vs-total classification (`ingress_egress.xlsx` columns `boats_crabbing` / `boats_total`) once the WBL egress pilot lands. f multiplies boat effort and catch in the BSS boat GENERATED QUANTITIES ONLY (`f_crab[f_stratum[d]]`), decoupled from sampling, so it cannot affect convergence and leaves CPUE invariant; the PE is f-adjusted too (Phase 2b). Phase 3 makes f per-stratum (`crab_fraction_strata` in none/month/day_type/month_day_type; "none" reproduces the scalar). Validation Steps 3/4 confirm the boat is exactly linear in f (0.2/0.5/1.0 give boat catch 8.7k/21.6k/43.2k, CPUE invariant at ~2.96, and f = 1 reproduces the pre-f baseline to 0.1%), and Step 5 confirms `strata = "month"` with no pilot data returns a length-(#months) `f_crab_out` vector all at 0.3. **0.3 is a placeholder chosen by Matt, not a measured estimate, and it is the single largest lever on the boat harvest.**
++-   **OSP-informs-tau (`osp_scale_is_tau`, Phase 3) and the turnover resolution.** With the toggle on, the OSP mean uses `L` (= `tau_boat`) in place of the free `kappa_OSP`, so the dense OSP series identifies the boat turnover directly (closes GR-12, where `tau_boat` had rested on two winter I/E days). The Phase 0 overlap and the model agree the OSP/trailer within-day turnover is about 2.7 to 3.0 (validation posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) against the old `tau_boat` prior of about 1.2. **Resolved 2026-07-31: the crab-creel trailer count is an instantaneous snapshot** (Matt), so the 2.7 to 3.0 is real within-day turnover and `tau_boat` ~1.2 was a roughly 2x under-count. `osp_scale_is_tau` is therefore adopted as the production default (TRUE): validation Step 6 puts the boat at about 27.7k (pooled) vs Step 3b's 13.8k, essentially double, with an elevated boat `distortion_E` (~0.10, vs <0.02 baseline) that is the intended signal of OSP overriding the weak trailer-based tau prior (the metric name is read here, not its exact internal definition). Caveat retained: the exact multiplier assumes the snapshot is timed representatively (not a fixed daily peak); a peak-timed snapshot would understate turnover, making 2.7 a floor.
++-   **Two interview filters (both readers `fetch_crab_data.R` / `fetch_crab_data_v2.R`).** (1) Non-crabbing interviews are dropped: any row with `number_of_gear == 0` (no crab gear deployed), regardless of trip-completion status (complete, incomplete, or blank `completed_trip`). NA gear counts are left untouched. (2) A new `gear_tampered` column: `gear_tampered == 1` rows (crabber believes a third party pulled their pots, so catch and hours_fished are unreliable) are dropped; the column is currently all blank, so this removes nothing yet. On the 2024-25 Grays Harbor set the non-crabbing rule targets 233 rows but only 2 currently survive the existing `crabbers > 0` / `min_fishing_time` filters, so the net effect on the validated numbers is about 2 interviews (negligible; every targeted row carries zero Dungeness, including the 10 incomplete-trip rows); a confirmatory re-run is the clean certification.
++-   **Production configuration (adopted 2026-07-31).** `run_config.R` defaults set to `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` (`crab_fraction_set = 0.3`), `osp_scale_is_tau = TRUE`. Production private-boat harvest about 27,700 Dungeness kept. All 14 validation runs converged (boat divergence fraction 0.13 to 0.82%), both tracks reconcile within 1 to 2% at every step, and shore is byte-identical across every toggle combination (the boat-only machinery does not leak into shore).
++-   **Open decisions (not code):** the pilot f_hat to replace 0.3, and confirming the trailer snapshot is timed representatively before the 2x is treated as final. Both are in the validation review.
++-   Files changed: `02_stan_models/crab_bss_pooled.stan` and `crab_bss_gear_resolved.stan` (OSP data block + likelihood + `kappa_OSP` / `osp_scale_is_tau`; `f_crab` vector in generated quantities); new `03_R_functions/fetch_osp_boat_counts.R`, `diagnose_osp_trailer_overlap.R`, `crab_fraction.R`; `03_R_functions/fetch_crab_data.R`, `fetch_crab_data_v2.R` (the two interview filters), `bss_day_length.R` (per-row I/E classification), `prep_bss_crab_pooled.R` / `prep_bss_crab_gear.R`, `run_pe_pooled.R` / `run_pe_gear.R`; both drivers; `run_config.R`; new `04_input_files/WBL_boat_counts.xlsx`; new `06_diagnostics/run_osp_validation.R`; this history; the method documents; `development_notes/osp-validation-review-2026-07-31.md` and the phase design notes.
++
+ ### 2026-07-13/14, Tier-2 + parity batch (nine items) and the Runs 1-5 validation campaign
+ 
+ Nine items landed on top of the 2026-07-12 baseline (2026-07-13, across two applied patches) and were validated by a five-run campaign; Run 1 (pooled default config) is now the authoritative run. The forward-looking detail lives in `development_notes/PIPELINE_STATUS.md`.
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+index f27b6b2..e4b47a8 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+@@ -408,7 +408,15 @@ For seasonal totals the Poisson noise largely averages out, so the two are simil
+ 
+ The boat effort unit was corrected in v7.6 (POOL-1 + POOL-3): the boat now runs on gear-deployments, matching the gear-resolved model. The degenerate trailer expansion (`R_T` pinned at about 1) is replaced by `T_I ~ NB2(lambda_E / R_G_boat, r_E)`, with gear-per-group learned as `R_G_boat` from interviews, and the CPUE denominator becomes `number_of_gear` (deployments) with `L = tau_boat`, replacing the old expansion that assigned every trailer-day a full gear-per-group times a flat 24-hour soak. This is justified because catch is not linear in soak time for pots (the saturation diagnostic gives catch per gear scaling as about soak-hours^0.25), so any time-denominated effort unit is invalid. On this scale the gear-resolved model reports a boat total about 25% below the old pooled gear-hours figure (43,314 vs 56,266). The 2026-07-11 run is now complete, and it shows the pooled boat did NOT follow: on gear-deployments the pooled boat holds at 54,481 (median), essentially unchanged (about -3.2%), because within one pipeline the unit change is catch-neutral (rescaling `lambda_C` and the effort process inversely conserves `E x CPUE`). The correction is therefore an interpretive fix (it removes the `R_T`-pinned-at-1 degeneracy and makes the saturation/linearity diagnostics valid), not a boat-harvest change. Because the boat PE and BSS now share the `bss_effort_spec.R` unit, the remaining PE-vs-BSS gap is a genuine model-vs-design disagreement rather than a unit artifact. The reconciling run has now been done. On the weekly boat AR the pooled boat (54,481) sat above both the gear-resolved boat (43,314) and the design anchor (PE effort times interview ratio-of-sums, about 40,000); on **monthly** boat AR (`05_output/20260713/pooled-CPUE-run1`) the pooled boat falls to **43,180** (median) and matches the independent gear-resolved boat on all three quantities: catch 43,180 vs 43,314, effort 14,707 vs 14,805 deployments, model CPUE ~2.95 vs 2.93 crab/deployment. The weekly-vs-monthly AR resolution, not the effort unit, was the entire source of the pooled-vs-gear-resolved boat gap: monthly AR cannot chase sparse-week effort spikes, so the sparse-month over-imputation collapses (June boat BSS/PE fell from 8.7x to 4.1x). Monthly should be adopted as the production boat AR cap. Run 1's empty-stratum pooled PE fallback raised the boat PE to 37,638 (implied CPUE 3.02), closing the boat PE-vs-BSS gap to about 15% (1.15x, from 1.9x); the reported boat is the BSS at 43,180, cross-checked against the independent gear-resolved boat (43,314).
+ 
+-The data-thinness half of the caveat is unchanged: the boat still rests on a sparse trailer-count series, and `tau_boat` leans on its prior until boat ingress/egress counts accumulate, so the wide posterior stands. The durable fix is a more informative effort series (for example, access-point or camera exit counts), not further parameter surgery on the shared model.
++The data-thinness half of the caveat is now being addressed by the OSP boat-count work (branch `OSP-boat-count-incorporation`, 2026-07-31), which supplies exactly the more informative effort series the caveat called for, rather than further parameter surgery on the shared model.
++
++**OSP boat counts (the second effort stream).** The Ocean Shores Patrol Westport Boat Launch (WBL) daily private-boat total (`04_input_files/WBL_boat_counts.xlsx`, read by `fetch_osp_boat_counts`, toggle `use_osp_boat_counts`, production ON) is added as a SECOND boat effort observation on the same latent `lambda_E`, scaled by an OSP within-day turnover `kappa_OSP`: `OSP_I[i] ~ neg_binomial_2((lambda_E / R_G_boat) * kappa_OSP, r_OSP)`. It contributes on its 148 operating days (mid-March to mid-October); on non-operating days the model runs on trailer counts alone, so the pre-OSP behavior is the emergent fallback with no special-casing. Validation (Step 2) shows OSP raises the boat effort about 10% and tightens it modestly (boat-effort CV 12.2% to 11.2%), with the larger value coming from 87 "OSP only" days that carry a direct effort observation the trailer series lacked.
++
++**Crabbing fraction f (all-boat to crab-effort conversion).** Trailer counts AND OSP counts are ALL private boats at the launch, not just crabbers, so at f = 1 the model counts every launched boat as a crabber and biases the boat catch high in a mixed salmon/tuna/crab fishery. `use_crab_fraction` (production ON) multiplies the boat effort and catch by f in the BSS boat generated quantities ONLY, decoupled from sampling, so it cannot affect convergence and leaves CPUE invariant (validation Step 3/Step 4 confirm the boat scales exactly linearly in f: 0.2/0.5/1.0 give 8.7k/21.6k/43.2k, with f = 1 reproducing the pre-f baseline). f is a Beta prior centered on `crab_fraction_set` (production 0.3), to be updated by the crab-creel ingress/egress crab-vs-total classification (`ingress_egress.xlsx` columns `boats_crabbing` / `boats_total`) once the WBL egress pilot lands. **0.3 is a placeholder chosen by Matt, not a measured estimate**, and it is the single largest lever on the boat harvest; replace it with the pilot's f_hat.
++
++**OSP-informs-tau (`osp_scale_is_tau`, production ON) and the turnover resolution.** GR-12 (boat catch rests on a `tau_boat` anchored on two winter I/E days) is closed by letting the dense OSP series identify the boat turnover directly: with `osp_scale_is_tau = TRUE` the OSP mean uses `L` (= `tau_boat`) in place of the free `kappa_OSP`. The Phase 0 overlap and the model agree that the OSP/trailer within-day turnover is about 2.7 to 3.0 (validation posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]), while the old `tau_boat` prior was about 1.2. **Resolved 2026-07-31: the crab-creel trailer count is an instantaneous snapshot**, so that 2.7 to 3.0 is real within-day turnover and `tau_boat` about 1.2 was a roughly 2x under-count of boat effort; turning the toggle on corrects it and roughly doubles the boat (validation Step 6 boat about 27.7k vs Step 3b about 13.8k). One caveat is retained honestly: the exact multiplier assumes the trailer snapshot is timed representatively (not fixed at a daily peak); a peak-timed snapshot would understate turnover, so 2.7 is a floor rather than a ceiling.
++
++**Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`. The production private-boat harvest is about 27,700 Dungeness kept (down from about 43k at f = 1 via the 0.3 crab share, then up about 2x via the OSP turnover correction). All 14 validation runs converged; the full evidence, the run matrix, and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`, with the change log in the development-history document.
+ 
+ ------------------------------------------------------------------------
+ 
+@@ -471,6 +479,7 @@ Method v1.0 is the frozen method label; it was first frozen against pipeline cod
+ - **v7.6 (2026-07-10):** POOL-1 + POOL-3. The private boat is moved onto the gear-deployment scale, matching the gear-resolved model: `R_T` (pinned at ~1) is replaced by `R_G_boat` with `T_I ~ NB2(lambda_E / R_G_boat)` and `Gear_A_boat ~ poisson(R_G_boat)`, and the boat CPUE denominator becomes `number_of_gear` with `L = tau_boat` instead of gear-hours with `L = 24`. This resolves the private-boat effort-unit caveat in Section 16. The 2026-07-11 run showed this is catch-neutral (the boat held at 54,481, about -3.2%, NOT the ~-25% originally predicted toward the gear-resolved boat); it corrects the boat's unit and interpretation but does not move the boat harvest. Shore is unchanged.
+ - **v7.7 (2026-07-11):** Shore moved onto the gear-deployment scale, so both components now share one effort unit (gear-deployments) with the gear-resolved model. The shore CPUE denominator becomes `number_of_gear` with `E_scale = R_G` and `L = tau_shore` (~1.7 turnover), replacing crabber-hours. This settles the shore half of the effort-unit question (backlog GR-16) using the 2026-07-10 shore LOO comparison (shore all_gear, n = 1649): gear-deployments is the only shore unit whose linearity coefficient covers 1 (`beta_h = 1.05`, 95% CI 0.94 to 1.15, flag off), against crabber-hours (0.57) and gear-hours (0.73), and the only one with no estimator-triad drift (ratio-of-sums 0.87 ~= mean-of-ratios 0.85 ~= model-implied 0.85 crab per deployment). gear-hours had a marginally better catch-stream `elpd_loo` (-3131 vs -3190 for deployments), but that predictive edge comes from the CPUE process absorbing the sub-linearity, which is what biases the season expansion; the choice therefore prioritizes harvest-unbiasedness over marginal predictive fit. There is no Stan change (the v7.6 `effort_scale_gear` / `E_scale` machinery already supports shore), but the shore BSS publication number moves.
+ - **v7.8 (2026-07-11):** Behavior-preserving code refactor (helper functions extracted to `03_R_functions/`, all user toggles centralized in `run_config.R`) plus the shore-PE completion fix: the pooled `run_pe` shore branch now reads its unit from `bss_effort_spec.R`, so the shore PE runs on gear-deployments to match the shore BSS (previously it was left on crabber-hours). The 2026-07-11 v7.8 run confirmed the fix (shore all-gear PE effort moved from 42,541 to 18,104; BSS unchanged) and refreshed the totals.
++- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31; not yet merged to Method v1.0).** Three boat-effort additions, validated by a 14-run batch and detailed in `development_notes/osp-validation-review-2026-07-31.md` and the development-history document: the OSP Westport Boat Launch daily boat-total as a second effort stream on `lambda_E` (scaled by `kappa_OSP`); a crabbing fraction f that converts all-boat effort to crab effort in the boat generated quantities (production 0.3, a placeholder pending the WBL egress pilot; the boat scales exactly linearly in f, CPUE invariant); and `osp_scale_is_tau`, which lets the dense OSP series identify the boat turnover and closes GR-12. Because the crab-creel trailer count was confirmed to be an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0; posterior `kappa_OSP` = 3.15) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so production `osp_scale_is_tau = TRUE`. Production private-boat harvest about 27,700 Dungeness kept. Two interview data fixes ride along: non-crabbing interviews (any `number_of_gear = 0` row, regardless of trip status) and gear-tampered interviews (`gear_tampered = 1`) are dropped.
+ - **v7.9 (2026-07-12):** Config/gate refinement, no estimate change. `run_config.R` is now the base parameter set with each model layering its own tuning on top (`params <- modifyList(run_config, params_model)`), and the per-model AR resolution map moved into `run_config.R`. The pooled divergence-fraction backstop was tightened from 0.15 to 0.05 to match the gear-resolved model (the scale-aware impact test remains the primary gate; the 2026-07-11 fits all sit under 5%, so no gating decision changes).
+ - **2026-07-12 (later):** Two follow-ons. (a) The boat monthly-AR reconciliation run: on monthly boat AR (`05_output/20260713/pooled-CPUE-run1`) the pooled boat falls from the weekly 54,481 to 43,180, matching the independent gear-resolved boat (43,314) on catch, effort, and CPUE. The AR resolution, not the effort unit, was the source of the pooled-vs-gear-resolved boat gap; monthly should be the production boat AR cap. (b) A report display pass: the driver now renders the incomplete-trip sensitivity, PPC calibration, effort over-dispersion, the CPUE validity triad, per-fit coverage, PSIS-LOO, and top divergence drivers on the page, and curates the wide convergence table. The forward-looking backlog is consolidated in `development_notes/PIPELINE_STATUS.md`.
+ 
+diff --git a/07_documentation/README.md b/07_documentation/README.md
+index 5adf821..cac6ee8 100644
+--- a/07_documentation/README.md
++++ b/07_documentation/README.md
+@@ -38,9 +38,12 @@ The method documents summarize the history in one screen and point here for deta
+ 
+ ## development_notes/
+ 
+-`PIPELINE_STATUS.md` (above) consolidated and superseded the historical working notes that used to live here; those notes have since been deleted. The folder now contains just two files:
++`PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
+ 
+ | File | Status |
+ |---|---|
+ | `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
+ | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
++| `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
++
++**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md` (being added separately), and `osp_trailer_overlap.png`.
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index 388b260..b282b13 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -57,6 +57,14 @@ Reported port total (gated): BSS median **83,488** (95% CI 70,866 - 102,897; pre
+ 2. **The BSS sits above the PE, but the boat PE gap is now mostly closed (Run 1).** On 7/12, ratio-of-sums (P0) left the boat PE at 22,823 (implied CPUE 1.84), far below the interview ratio-of-sums (3.36) and the BSS latent CPUE (~2.95): P0 fixes the WITHIN-stratum estimator (it made the SHORE PE consistent, implied 0.865 vs RoS 0.873) but not the ACROSS-stratum effort weighting. Run 1's empty-stratum pooled fallback (item 2) targets exactly that, stopping the zeroing of effort-bearing but interview-empty boat strata: the boat PE rose to 37,638 (implied CPUE 3.02), closing ~75% of the gap to the interview ratio-of-sums, and the boat PE-vs-BSS ratio fell from 1.9x to 1.15x. The reported boat remains the BSS (43,180), cross-checked against the gear-resolved boat (Run 2, 43,314); the residual ~15% is genuine effort/CPUE imputation over the 80%-extrapolated boat series (fact 3), not a PE estimator artifact.
+ 3. **The harvest is summer-dominated and lean on extrapolation, now quantified (T1.1a).** The boat all-gear BSS catch (the single largest component, ~43k) is **79.8% extrapolated** on Run 1: only 66 of 289 all-gear days (23%) carry a boat interview, and the AR process supplies the other 80% of the catch. Shore all-gear is 48.5% extrapolated (145/289 sampled), shore pot-closure 30.9% (51/76). This is the largest standing threat to the headline number's credibility, and it is the residual behind the boat's 15% PE-vs-BSS gap in fact 2. Report the boat number with this caveat attached. Run 2 reproduces the profile on the gear track (boat 79.9%, shore all-gear 52.5%, shore pot-closure 31.8%).
+ 
++**Update 2026-07-31 (OSP boat-count incorporation branch `OSP-boat-count-incorporation`; not yet merged to the production trunk).** Three boat-effort features, built as Phase 0 to Phase 3 patches and validated by a 14-run batch across both models (`05_output/osp_validation_summary.csv`; full review in `development_notes/osp-validation-review-2026-07-31.md`):
++
++- **OSP second boat effort stream (`use_osp_boat_counts`, production ON).** The OSP Westport Boat Launch daily boat-total (`04_input_files/WBL_boat_counts.xlsx`, `fetch_osp_boat_counts`) enters both Stan models as a second boat effort observation on the same latent `lambda_E`, scaled by `kappa_OSP`. It covers 148 days (mid-March to mid-October) and degrades to trailer-only outside them. Validation Step 2: raises the boat about 10%, tightens boat-effort CV about 1 point; 87 "OSP only" days carry a direct effort observation the trailer series lacked.
++- **Crabbing fraction f (`use_crab_fraction`, production ON, `crab_fraction_set = 0.3`).** Trailer and OSP counts are all boats, so f converts all-boat effort to crab effort in the boat generated quantities only (decoupled from sampling; CPUE invariant; boat exactly linear in f). 0.3 is a placeholder pending the WBL egress pilot and is now the largest single lever on the boat (Tier 1, below).
++- **OSP-informs-tau (`osp_scale_is_tau`, production ON) closes GR-12.** The dense OSP series identifies `tau_boat` directly. Resolved 2026-07-31: the crab-creel trailer count is an instantaneous snapshot, so the OSP/trailer turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count; production `osp_scale_is_tau = TRUE` roughly doubles the boat (Step 6 vs Step 3b).
++
++**Production config (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` (0.3), `osp_scale_is_tau = TRUE`. Under it the private-boat harvest is about **27,700** Dungeness kept (pooled) / **27,500** (gear-resolved) and the port total about **67,200** / **66,400** (Step 6), replacing the f = 1, pre-OSP boat of ~43k. All 14 runs converged, both tracks reconcile within 1 to 2%, and shore is byte-identical across every toggle (the boat-only machinery does not leak into shore). Two interview data fixes ride along (any `number_of_gear == 0` row and any `gear_tampered == 1` row dropped; about 2 interviews leave the validated 2024-25 set, all zero-catch). **Not yet certified by a single production run** with filters + OSP + f + tau all on together; that run is the clean confirmation. Open field items: the egress pilot's f_hat (Tier 1) and confirming the trailer snapshot timing (Section 6).
++
+ ---
+ 
+ ## 2. Repository map
+@@ -134,6 +142,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ - **T1.1(b) [OPEN, needs external data]: external validation (B4).** Still requires a benchmark the repo does not contain: dockside census totals, a known-total year, or the legacy estimator. The strongest internal cross-checks now in place are the two independent BSS pipelines agreeing on the boat (~43.2k; Run 1 43,180, Run 2 43,314) and the per-component PE-vs-BSS comparison (P0 confirmed on Run 1); neither is a true external check. Pursue a benchmark before publication.
+ - **[DONE, Run 5 2026-07-14/15] T1.3: R_G prior sensitivity.** The sweep ran at `R_G_prior_mu` = 1.0 / 1.28 / 1.5 (sigma 0.3) via `run_rg_sweep.R`. **Result: robust.** Every per-component BSS catch is invariant to the prior (shore all-gear 20,699 / 20,693 / 20,698 vs 20,607 data-driven; ring-net ~6,260; boat 43,146 / 43,200 / 43,329 vs 43,180), because the shore `R_G` is data-identified (~1.28 regardless of prior) and the boat expands on `R_G_boat` = 3.55 (also data-identified), with the boat's own `R_G` a prior-tracking nuisance (1.00 -> 1.28 -> 1.50) that does not drive the boat catch. The only movement was the port total (77,887 to 83,172), and it is a gate artifact: the shore daily-AR fits' divergence fraction wobbles around the 0.05 backstop and flips shore all-gear between its stable (~20,700) BSS and its ~15,665 PE. Two follow-ons: it strengthens the Tier-2 coarser-shore-AR case (below), and it exposes a gate-calibration point (below). Optional extension: the same sweep on the `L_effective` prior (`tau_shore` / `tau_boat`, already live). **Effort: done.**
+ - **T1.4 [DONE + CONFIRMED 2026-07-12]: commercial/charter vessel split.** `estimate_comm_charter` applies separate per-vessel Dungeness (and red-rock) means for commercial vs charter vessels (from `boat_type_clean`, Guide folded into Charter) to the matching tally columns, with a fallback to the pooled mean for a class with no interviews. **Run result:** the split moved the census from 12,007 (single pooled mean, 7/11) to 11,986 (7/12), a small net change this season because the tally mix happens to sit near the pooled mean, but the mechanism is now correct for seasons where the commercial:charter mix diverges. Applies to both tracks (shared estimator). Renders in Section 4.2. Still pair with a census uncertainty interval (T3.5).
++- **[NEW, branch 2026-07-31] Crabbing fraction f pilot: the top open boat-credibility measurement.** With OSP now identifying `tau_boat` (GR-12 resolved, Tier 3), the crabbing fraction f has taken over as the single largest lever on the boat harvest: trailer and OSP counts are all boats, and the boat catch scales exactly linearly in f (validation Step 4, elasticity 1.0, the same profile tau had). Production ships f = `crab_fraction_set` = 0.3, a placeholder chosen by Matt with zero supporting observations, so it moves the boat harvest by ~70% versus f = 1 on assumption alone. The WBL egress crab-vs-total classification pilot (columns `boats_crabbing` / `boats_total` in `ingress_egress.xlsx`) is the critical path; it also unlocks time-varying f by month (`crab_fraction_strata = "month"`), which the summer-dominated harvest needs because a single annual f over-states the summer crab share (summer is tuna/salmon-dominated). Until the pilot lands, report the boat with the f = 0.3 caveat and the Step 4 f-sweep as the sensitivity band. **Effort: field pilot (not code); the f code is built and validated.**
+ 
+ ### Tier 2: accuracy, cross-track parity, or credibility
+ 
+@@ -152,7 +161,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ - **T3.1 / B6 / critique 5: sub-season boundary edge effect.** The hard Dec 1 split fits two independent BSS with no cross-boundary anchor, ballooning the interval at the seam. Either document as a known artifact or move to a single regime-switching model with a `pot_available` indicator. **Effort: medium (doc) to high (model).**
+ - **[DONE, item 6] T3.3 / critique 4 extension: holiday CPUE term and optional density-dependence.** The holiday CPUE term `B2_C` is now always-on and a same-day-effort density term `gamma_C` is available (`estimate_cpue_density`, off by default). Run 1 result: `B2_C` is indistinguishable from zero for both reported fits (shore -0.18 [-0.58, 0.21], boat -0.19 [-0.85, 0.62]), so there is no holiday-specific CPUE effect beyond the weekend term `B1_C`. `gamma_C` remains available to test density-dependence when wanted. **[TESTED, Run 4, density disqualified]** Run 4 set `estimate_cpue_density = TRUE`. The one fit that completed (shore pot-closure) returned `gamma_C` = -0.10 [-1.43, 1.20], indistinguishable from zero, with catch unchanged; the larger shore all-gear fit hung, one chain running ~17x slower than the other three (~29 s/iteration vs ~1.7) and saturating max treedepth, the classic stuck-chain signature of the ridge that coupling same-day effort into the CPUE level induces. Density-dependence is not identified in this data and destabilizes the larger fit, so keep it **off by default**, which is exactly why it ships off. **Effort: done (leave off).**
+ - **GR-7: genuine per-gear CPUE. PHASE 1 DONE + VALIDATED (2026-07-20).** Built as Option A1 behind `gear_resolved_G` (default off): the Stan effort process is one shared level split by the `pi_gear` share offset `O` (on `lambda_E` only), with per-gear CPUE identified by single-gear interviews and multi-gear trips folded to a "Mixed" gear (Matt's decisions). The `gear_resolved_G = TRUE` run resolves the SHORE harvest into real per-gear BSS posteriors (all-gear G = 5: Pot 3,757 / Ring Net 1,965 / Snare 1,746 / Trap 7,534 / Mixed 5,239; pot-closure G = 4), converged cleanly (27 / 4 divergences, R-hat ~1.000, min gear n_eff ~8,000), with `sum_g C_sum_gear = C_sum` exact and per-gear CPUE ordering matching the interview ratios (Trap highest). The shore total moved +0.82% (per-gear vs pooled CPUE, not a decomposition error); the boat stays `G = 1` (Phase 0: Pot-dominated). So the gear model now gives a usable gear breakdown for shore, no longer only the pooled Dirichlet split. **Open:** Phase 2 (Dirichlet `pi_gear` so the per-gear intervals include share uncertainty; they are currently slightly too narrow), a per-gear PPC/LOO read, and whether `gear_resolved_G = TRUE` becomes the gear-model default. Full design + validation evidence in `GR-7-per-gear-CPUE-design.md` (Sections 5-10). **Effort remaining: medium (Phase 2).**
+-- **GR-12: `tau_boat` identification.** Boat catch is proportional to `tau_boat = 1.2`, whose prior rests on 2 WBL I/E days; the boat I/E stream is built and activates once >=2 days fall in a window. The egress-classification pilot is the critical path. State this dependence in any co-management number. **Effort: medium (pilot).**
++- **GR-12: `tau_boat` identification. [RESOLVED via OSP, branch 2026-07-31].** Boat catch is proportional to `tau_boat` (was 1.2, resting on 2 WBL I/E days). The OSP boat-count stream now identifies boat turnover directly: with `osp_scale_is_tau = TRUE` (production) the dense 148-day OSP series sets the boat turnover in place of the thin I/E prior. Since the crab-creel trailer count is an instantaneous snapshot, the OSP-implied turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so the production boat roughly doubles (Section 1, 2026-07-31 update). The egress-classification pilot's role shifts from tau to the crabbing fraction f (Tier 1). One caveat: the exact multiplier assumes the trailer snapshot is timed representatively, not at a fixed daily peak (Section 6). **Effort: done (tau identification); the pilot now feeds f, not tau.**
+   - **QUANTIFIED 2026-07-20** (`run_tau_sweep.R`, outputs `05_output/20260720/gear-type-CPUE-model-tau-{0.90,1.20,1.50}`). The boat is exactly prior-dominated: boat all-gear BSS catch is proportional to `tau_boat` with **elasticity 1.00** (32,424 / 43,314 / 54,258 crab at tau = 0.90 / 1.20 / 1.50; boat/tau constant to 0.4%), all three fits converging cleanly. The port total moves **71,796 / 83,020 / 94,146** (±13.5% across 0.9-1.5; port elasticity ~0.53, the boat's share of the port). The BSS-vs-PE boat gap is tau-invariant (~19%), so tau shifts the boat *level*, not its relation to the design anchor. The reported boat 95% CI already carries the tau `sigma = 0.3` spread; the sweep shows that a biased prior *center* rescales the boat (and ~53% of the port) proportionally and is NOT captured in that CI, so the egress-classification pilot is the single highest-leverage boat-credibility measurement. The single-run projection (`diagnose_tau_sensitivity`, now default TRUE in `run_config.R`) reproduced these refits to ~0.2%, so the multi-hour sweep need not be repeated; the toggle carries the sensitivity table on every gear run.
+ - **Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
+ - **T3.2 / critique 11: shore soak-time basis.** Largely mooted now that shore is on gear-deployments rather than crabber-hours, but a one-line confirmation in the docs is worth it. **Effort: trivial.**
+@@ -181,7 +190,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ 
+ ## 6. Field-protocol items for 2025-26 (not code)
+ 
+-These require sampling-design changes, not code, and should feed the field plan: **jetty and beach direct effort counts** (critique 3 / D3; shore effort currently proxied by dock gear counts); **minimum summer coverage targets by mode** (motivated by T1.1, the estimate's weakest point); **interview-time vs effort-count-time representativeness checks** (critique 10); and confirming effort-count and incomplete-trip protocols. Spatial heterogeneity within the port (Float 20 vs 17-21, critique 11) is a design choice, not currently modeled.
++These require sampling-design changes, not code, and should feed the field plan: **jetty and beach direct effort counts** (critique 3 / D3; shore effort currently proxied by dock gear counts); **minimum summer coverage targets by mode** (motivated by T1.1, the estimate's weakest point); **interview-time vs effort-count-time representativeness checks** (critique 10); and confirming effort-count and incomplete-trip protocols. Two items were added by the 2026-07-31 OSP work: **the WBL egress crab-vs-total classification pilot** (the crabbing fraction f is a 0.3 placeholder and the largest lever on the boat harvest; the pilot's `boats_crabbing` / `boats_total` counts, ideally stratified by month, replace it, and are the top open boat-credibility measurement, Tier 1); and **confirming the crab-creel trailer-count snapshot timing** (the production `osp_scale_is_tau = TRUE` correction assumes the trailer snapshot is taken at a representative instant, not a fixed daily peak; a peak-timed snapshot would make the ~2x turnover correction a floor rather than a point estimate, so this measurement bounds the boat's level). Spatial heterogeneity within the port (Float 20 vs 17-21, critique 11) is a design choice, not currently modeled.
+ 
+ ---
+ 
+diff --git a/07_documentation/development_notes/osp-validation-review-2026-07-31.md b/07_documentation/development_notes/osp-validation-review-2026-07-31.md
+new file mode 100644
+index 0000000..9fe6687
+--- /dev/null
++++ b/07_documentation/development_notes/osp-validation-review-2026-07-31.md
+@@ -0,0 +1,85 @@
++# OSP boat-count validation: review of all 14 runs (2026-07-31)
++
++**Branch:** `OSP-boat-count-incorporation`. **Source of truth:** `05_output/osp_validation_summary.csv` plus the per-run CSVs under `05_output/{20260729,20260730,20260731}/`. Numbers below are medians, Dungeness Kept (matching the summary and the `port_total` `BSS_median` convention); credible intervals and coefficients of variation use the posterior mean and 2.5/97.5% from `bss_summary_private_boat_all_gear_Dungeness_Kept.csv` and say so. Convention: no em dashes.
++
++## Verdict
++
++All 14 runs completed and converged. The batch is mechanically clean: the six validation gates all pass, both models reconcile at every step, and nothing in the OSP or f machinery leaks into the shore mode. The two questions the batch surfaced have now been decided:
++
++1. **The crabbing fraction f is the largest single lever on the private-boat harvest, and 0.3 is still a placeholder.** The boat catch scales exactly linearly with f (0.2 to 8.7k, 0.5 to 21.6k, 1.0 to 43.2k). Production ships f = 0.3 pending the WBL egress pilot, which is the only thing that turns 0.3 into data. This is the one remaining open input.
++2. **The OSP-vs-trailer within-day turnover conflict is resolved.** With OSP on and its scale free, the model estimates that scale (`kappa_OSP`) at 3.15, 95% [2.50, 3.91], while the trailer-based `tau_boat` sat at about 1.2. The crab-creel trailer count was confirmed (2026-07-31) to be an instantaneous snapshot, so the 2.7 to 3.0 turnover is real and `tau_boat` about 1.2 was a roughly 2x under-count of boat effort. Production therefore adopts `osp_scale_is_tau = TRUE`, which raises the boat about 2x (Step 6 boat about 27.7k vs Step 3b's 13.8k).
++
++**Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`. Production private-boat harvest about 27,700 Dungeness kept (pooled), about 27,500 (gear-resolved).
++
++## The run matrix
++
++Medians, Dungeness Kept. "boat" = `private_boat (All gear)`; "port" = whole-fishery total. All 14 rows have `boat_pass = TRUE`; boat divergence fraction is 0.13 to 0.82% throughout.
++
++| Step | Model | OSP | f | tau | Boat catch | Boat effort | Port catch (BSS) | f_out | kappa_OSP |
++|---|---|---|---|---|---|---|---|---|---|
++| 1 baseline | pooled | off | off | off | 43,333 | 14,716 | 83,599 | 1 | (prior) |
++| 1 baseline | gear | off | off | off | 43,120 | 14,774 | 82,825 | 1 | 3.145* |
++| 2 osp | pooled | on | off | off | 47,260 | 16,243 | 87,560 | 1 | 3.147 |
++| 2 osp | gear | on | off | off | 47,126 | 16,266 | 86,817 | 1 | 3.147 |
++| 3 f030 | pooled | off | 0.3 | off | 12,597 | 4,316 | 52,131 | 0.300 | (prior) |
++| 3 f030 | gear | off | 0.3 | off | 12,740 | 4,314 | 51,592 | 0.302 | 3.128* |
++| 3b ospf | pooled | on | 0.3 | off | 13,787 | 4,763 | 53,295 | 0.300 | 3.144 |
++| 3b ospf | gear | on | 0.3 | off | 13,800 | 4,792 | 52,634 | 0.300 | 3.141 |
++| 4 fix020 | pooled | off | 0.2 pin | off | 8,682 | 2,952 | 48,045 | 0.200 | (prior) |
++| 4 fix050 | pooled | off | 0.5 pin | off | 21,644 | 7,364 | 61,383 | 0.500 | (prior) |
++| 4 fix100 | pooled | off | 1.0 pin | off | 43,193 | 14,742 | 83,590 | 1.000 | (prior) |
++| 5 fmonth | pooled | off | 0.3 x10 | off | 12,932 | 4,397 | 52,399 | ~0.300 | (prior) |
++| 5 fmonth | gear | off | 0.3 x10 | off | 12,886 | 4,392 | 51,751 | ~0.300 | 3.130* |
++| 6 osptau | pooled | on | 0.3 | on | 27,668 | 9,745 | 67,223 | 0.301 | (prior) |
++| 6 osptau | gear | on | 0.3 | on | 27,524 | 9,748 | 66,447 | 0.301 | 3.153* |
++
++\* When OSP is off or `osp_scale_is_tau` is on, `kappa_OSP` is not in the likelihood and reverts to its prior (mean ~3.14, 95% [1.66, 5.43]). It is data-informed only in Steps 2 and 3b (95% narrows to about [2.50, 3.91]). This is the correct, expected behavior and is itself a useful check. **Step 6 is the production configuration.**
++
++## Part 1: mechanical validation, every gate passed
++
++**Behavior-neutrality holds.** Step 4 `fix100` (f pinned to 1.0) reproduces the f-off boat level to 0.1% (boat catch 43,193 vs baseline 43,333; effort 14,742 vs 14,716). Step 5 with `strata = "month"` and no pilot data returns the scalar-0.3 totals with `f_crab_out` a length-10 per-month vector all at about 0.300.
++
++**f is exactly linear and CPUE is invariant.** f acts as a pure post-hoc multiplier on boat catch and effort, leaving CPUE untouched, exactly as the "generated quantities only, decoupled from sampling" design promised: f = 0.2/0.3/0.5/1.0 give boat catch/effort ratios to the f-off baseline of 0.200/0.300/0.500/0.999, with CPUE holding at 2.96 to 2.97 across the whole 5x range. No convergence cost (every f-run under 0.85% divergences).
++
++**Shore is fully insulated.** Shore catch and effort are byte-identical (`C_sum` 20,821, `E_sum` 24,162) across every batch run, OSP on, f on, tau on, f swept. The fits are seeded, so any leak of the boat-only machinery into shore would show as a changed number; it does not.
++
++**Convergence is uniform.** All 14 boat fits pass (divergence fraction 0.13 to 0.82%, Rhat ~1.00, n_eff in the thousands); both shore fits pass in every run. The one `pass_convergence = FALSE` row in every `convergence_report.csv`, including the baseline, is `private_boat_ring_net_only`, which lacks the data for a BSS fit and falls back to PE by design.
++
++**Both models reconcile.** Pooled and gear-resolved agree within 1 to 2% at every step (Step 2 boat 47,260 vs 47,126; Step 3 12,597 vs 12,740; Step 6 27,668 vs 27,524).
++
++## Part 2: OSP raises the boat about 10% and tightens it modestly
++
++Turning OSP on (Step 2, f off) moves the boat up about 10% in both models (pooled effort 14.7k to 16.2k) and improves precision modestly (boat-effort CV 12.2% to 11.2% pooled, 11.9% to 11.0% gear; roughly 8% relative, 16% in variance). The season-total 95% interval width barely changes because the level rose at the same time. The level rise is prior-influenced: with `osp_scale_is_tau = FALSE` the free `kappa_OSP` (prior mean 3.0) absorbs most of the OSP/trailer discrepancy and `lambda_E` rises about 10% to reconcile. The more durable value of OSP is the 87 "OSP only" days (Part 4) that carry a direct effort observation the trailer series lacked.
++
++## Part 3: the turnover conflict, resolved
++
++When OSP is on and free, the model's posterior for `kappa_OSP` is 3.15, 95% [2.50, 3.91] (both models, Step 2), much tighter than the prior [1.66, 5.43], so the 61 overlap days genuinely inform it. `kappa_OSP` and `tau_boat` are structurally the same quantity (within-day boat turnover = OSP daily total / instantaneous boats), and they disagreed by about 2.6x. The raw overlap agrees with the model and shows the answer depends on what the trailer count measures (`osp_trailer_overlap_calibration.csv`, n = 61 paired days):
++
++| Trailer metric treated as the snapshot | corr | implied turnover |
++|---|---|---|
++| mean per visit | 0.965 | 3.03 |
++| max per day | 0.983 | 2.74 |
++| sum per day | 0.899 | 2.01 |
++
++**Resolution (2026-07-31): the crab-creel trailer count is an instantaneous snapshot.** Under that protocol the OSP/trailer ratio is the true within-day turnover, so 2.7 to 3.0 is real and `tau_boat` about 1.2 was a roughly 2x under-count of boat effort. `osp_scale_is_tau = TRUE` therefore corrects a real bias rather than importing an artifact, and is adopted for production. The consequence is the Step 6 doubling: boat catch 13,787 (Step 3b) to 27,668 (Step 6), 2.01x, in both models. A corroborating signal: the boat `distortion_E` diagnostic rises from about 0.008 (baseline) and 0.018 (Step 2) to about 0.10 (pooled) and 0.16 (gear) in Step 6, the fingerprint of OSP overriding the weak trailer-based `tau_boat` prior. (The metric name is read here, not its exact internal definition, so treat that as corroboration; the 2x level change is not in doubt.)
++
++**One caveat retained honestly.** The exact multiplier assumes the trailer snapshot is timed representatively. If it is taken at a fixed near-peak time, occupancy is overstated and the ratio understates true turnover, so 2.7 to 3.0 is a floor rather than a ceiling (the correction would be at least this large, not smaller). Confirming the snapshot timing tightens the multiplier; it does not change its direction.
++
++## Part 4: coverage and the trailer fallback, confirmed
++
++From `osp_coverage_audit.csv` (365 days): OSP operates 245 days (mid-March to mid-October) and is present on 148 days, every one inside the operating window and zero outside. Within the window: 61 OSP+trailer days (these identify `kappa_OSP` / `tau_boat`), 87 OSP-only days (OSP is the sole effort observation), 49 trailer-only, 48 neither. The 120 non-operating days run on trailer-only or nothing, so the model degrades to the pre-OSP behavior with no special-casing: the fallback is an emergent property, not a switch.
++
++## Part 5: scope of the batch, and the two interview fixes that ride along
++
++- Every f-run uses the set value 0.3 because the WBL egress pilot has not delivered per-stratum counts; Step 5's per-month vector is therefore all 0.3. The time-varying machinery is validated as plumbing, not as an estimate, and cannot bind until the pilot classifies enough boats per stratum.
++- The f sweep (Step 4) is pooled-only; defensible because f is a purely multiplicative post-processing step with no sampling interaction and both models already agree at the f = 0.3 point.
++- OSP precision was assessed at the season-total level (about 1 point of CV). The daily/monthly in-window tightening on the 87 OSP-only days was not quantified; that is the natural next diagnostic if OSP is to be justified on precision rather than level.
++- **The two interview data fixes postdate these runs.** Any interview with `number_of_gear == 0` (no crab gear deployed, regardless of trip-completion status) and any gear-tampered interview (`gear_tampered == 1`) are now dropped in both readers. On the 2024-25 Grays Harbor set the non-crabbing rule targets 233 rows but only 2 currently survive the existing `crabbers > 0` / `min_fishing_time` filters, and every targeted row carries zero Dungeness (including the 10 incomplete-trip `completed_trip == 0` rows added when this was widened from the original complete/blank-only spec); `gear_tampered` is all blank today. So the net effect on the numbers above is about 2 interviews (negligible), but a confirmatory production run with the filters in place is the clean certification, consistent with the "validate by run" discipline.
++
++## Part 6: production recommendation and the open decision
++
++**On OSP and tau.** Adopted for production: `use_osp_boat_counts = TRUE`, `osp_scale_is_tau = TRUE`. The instantaneous-snapshot confirmation makes the turnover correction real, so leaving tau off would knowingly ship a roughly 2x low bias on boat effort. Production boat harvest about 27,700 (pooled) / 27,500 (gear-resolved). The residual work is to confirm the snapshot is timed representatively (Part 3); it can only raise the correction, not reverse it.
++
++**On f.** Ship f = 0.3 with the caveat surfaced prominently and the Step 4 sweep shown as the sensitivity band, because it is the least-wrong point estimate and the sweep already brackets it. This is a placeholder resting on zero observations and driving the entire boat harvest linearly; the WBL egress pilot's f_hat is the real unblock, and time-varying f by month can bind only once the pilot classifies enough boats per stratum.
++
++**The one remaining question to route to the field/ops side:** when will the WBL egress pilot deliver per-stratum crab-vs-total classification counts, and at what stratum resolution? Everything in the code is ready for that answer the moment it arrives.
+diff --git a/README-R-functions.md b/README-R-functions.md
+index 1a6c5d6..71b87da 100644
+--- a/README-R-functions.md
++++ b/README-R-functions.md
+@@ -15,7 +15,7 @@ For the project overview and the PE-vs-BSS split these functions implement, see
+ 
+ ## Function groups
+ 
+-The 2026-07-11 refactor pulled the per-driver data-prep, PE, BSS-prep, and utility functions out of the two `.Rmd` drivers and into this folder (previously they were inline in each `.Rmd`). The files now fall into four groups.
++The 2026-07-11 refactor pulled the per-driver data-prep, PE, BSS-prep, and utility functions out of the two `.Rmd` drivers and into this folder (previously they were inline in each `.Rmd`). The files now fall into five groups.
+ 
+ ### Shared driver modules (pooled + gear-resolved)
+ 
+@@ -44,7 +44,7 @@ Called only by `BSS-GH-pooled-CPUE-model.Rmd`; named to avoid a collision with t
+ 
+ | File | Function | Role |
+ |---|---|---|
+-| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. |
++| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
+ | `run_pe_pooled.R` | `run_pe_pooled` | Pooled Point Estimator (stratified effort and catch). The shore branch reads its effort unit and CPUE denominator from `bss_effort_spec`, so the shore PE matches the shore BSS (2026-07-11 fix). |
+ | `prep_bss_crab_pooled.R` | `prep_bss_crab_pooled` | Build the Stan data list for `crab_bss_pooled.stan`. |
+ 
+@@ -54,10 +54,20 @@ Called only by `BSS-GH-gear-type-CPUE-model.Rmd`.
+ 
+ | File | Function | Role |
+ |---|---|---|
+-| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. |
++| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
+ | `run_pe_gear.R` | `run_pe_gear` | Gear-resolved Point Estimator, with the P0/P1/P2 fixes (explicit population argument, `bss_effort_spec` effort unit, ratio-of-sums stratum CPUE, and a scale-consistency assertion). |
+ | `prep_bss_crab_gear.R` | `prep_bss_crab_gear` | Build the Stan data list for `crab_bss_gear_resolved.stan`. |
+ 
++### OSP boat counts and crabbing fraction
++
++Feature functions from the OSP boat-count incorporation branch, used by both production drivers. The first reads the OSP daily boat-total as a second boat-effort stream; the second calibrates it against the trailer counts; the third builds the crabbing fraction `f`.
++
++| File | Public function(s) | Role |
++|---|---|---|
++| `fetch_osp_boat_counts.R` | `fetch_osp_boat_counts` | Reads `04_input_files/WBL_boat_counts.xlsx` as the OSP daily boat-total stream (the second boat-effort observation on `lambda_E`), gated by `run_config$use_osp_boat_counts`. |
++| `diagnose_osp_trailer_overlap.R` | `diagnose_osp_trailer_overlap` | Calibrates the OSP boat-total against the trailer counts on overlapping days and writes the OSP-vs-trailer calibration, pairs, plot, and coverage audit. |
++| `crab_fraction.R` | `crab_fraction_strata_labels`, `crab_fraction_stan_data`, `crab_fraction_point_day` | Builds the Beta-prior crabbing fraction `f` (per-stratum / per-day) that scales boat effort and catch in the BSS boat generated quantities and the PE. |
++
+ ### Crab-specific BSS diagnostics
+ 
+ Per-fit and per-run diagnostic writers, mostly `tryCatch`-wrapped so one fit cannot abort a run, plus two report-embedded pooled diagnostics (fishery-opener spillover and shore I/E representativeness) and the opener-calendar prep they use. The per-fit writers produce the convergence, divergence, over-dispersion, PPC, and extended-output files catalogued in [05_output/README.md](05_output/README.md).
+diff --git a/README.md b/README.md
+index 2b16ec9..d77d01c 100644
+--- a/README.md
++++ b/README.md
+@@ -16,7 +16,7 @@ Estimates total recreational Dungeness crab harvest at Westport and the greater
+ Three crabbing populations are estimated independently and summed for the port total:
+ 
+ 1. **Shore crabbers** (dock + jetty + beach), effort from gear counts, BSS + PE.
+-2. **Private boat crabbers**, effort from trailer counts, BSS + PE.
++2. **Private boat crabbers**, effort from trailer counts, BSS + PE. Boat effort now also uses the OSP daily boat-total as a second effort stream, and a crabbing fraction f converts all-boat counts to crab effort.
+ 3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
+ 
+ Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, the modular R pipeline in `03_R_functions/`, and a single run configuration in `run_config.R`. They differ in how catch-per-unit-effort (CPUE) is modeled.
+@@ -126,6 +126,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
+    - `interview_combined.csv` (interviews; dates in M/D/YYYY format)
+    - `wes_commercial_tally.csv` (daily vessel tally)
+    - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
++   - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when use_osp_boat_counts=TRUE)
+ 3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
+ 4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
+ 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
+@@ -159,6 +160,8 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
+ - **Boat type typo:** iForm exports "Commerical" (one 'm'), handled by regex.
+ - **Windows MAX_PATH:** with OneDrive and long paths the output directory may exceed 260 characters; the code detects this and falls back to a short path.
+ - **Boat all-gear convergence:** the private boat all-gear BSS fit was historically prone to non-convergence (sparse trailer-count effort series). Dedicated sampler tuning (v6.2), the scale-aware convergence gate (v7.0), and moving the boat onto the gear-deployment effort scale (v7.6) have largely resolved this; the boat now typically reports its BSS posterior and falls back to PE only if a fit fails the gate. See the pooled model documentation.
++- **Non-crabbing interview filter:** interviews with `number_of_gear == 0` are dropped as non-crabbing before estimation, regardless of trip-completion status (complete, incomplete, or blank `completed_trip`); an unrecorded NA gear count is kept. Applied by both loaders (`fetch_crab_data` and `fetch_crab_data_v2`).
++- **Gear-tampered interview filter:** interviews with `gear_tampered == 1` are dropped, since the crabber believes a third party pulled their pots and the recorded catch and hours are unreliable. The column is all blank today, so it removes nothing yet.
+ 
+ ---
+ 
+@@ -179,6 +182,7 @@ For the current state and the prioritized backlog (what is done and what remains
+ | v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
+ | v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
+ | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
++| OSP boat-count incorporation branch (2026-07-31) | pooled + gear-resolved | OSP second boat effort stream (kappa_OSP), crabbing fraction f (default 0.3), OSP-identifies-tau (osp_scale_is_tau, production ON after the trailer count was confirmed an instantaneous snapshot), non-crabbing + gear-tampered interview filters |
+ 
+ See each model's development-history document for details.
+ 
+diff --git a/run_config.R b/run_config.R
+index 5356740..5c4bfed 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -150,13 +150,16 @@ run_config <- list(
+ 
+   # --- OSP second effort stream (Phase 1; boat only) -----------------------
+   # Adds the OSP daily boat-total series (fetch_osp_boat_counts) as a SECOND boat
+-  # effort observation on the same latent lambda_E, scaled by kappa_OSP. FALSE (default)
+-  # reproduces the pre-Phase-1 boat EXACTLY; set TRUE for the Phase 1 validation run.
+-  # Pooled only for now (gear-resolved mirror is a follow-up). Changes the boat effort
+-  # posterior, so validate by run.
+-  use_osp_boat_counts   = FALSE,
++  # effort observation on the same latent lambda_E, scaled by the OSP within-day
++  # turnover kappa_OSP. Both tracks (pooled + gear-resolved) carry the stream. FALSE
++  # reproduces the pre-Phase-1 boat EXACTLY. PRODUCTION DEFAULT = TRUE (adopted
++  # 2026-07-31, validation batch): OSP contributes on its 148 operating days and the
++  # model degrades to trailer-only outside them. Changes the boat effort posterior,
++  # so validate by run.
++  use_osp_boat_counts   = TRUE,
+   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
+-                                      #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0)
++                                      #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;
++                                      #   validation posterior kappa_OSP = 3.15, 95% [2.50, 3.91])
+   osp_scale_prior_sigma = 0.3,
+ 
+   # --- Crabbing fraction f (Phase 2; boat only) ----------------------------
+@@ -167,11 +170,13 @@ run_config <- list(
+   # from sampling. Hybrid: a Beta prior centered on the SET VALUE below, updated by the
+   # crab-creel I/E crab-vs-total classification once it lands (columns ie_crab_col /
+   # ie_total_col in ingress_egress.xlsx); until then f uses the set value.
+-  # NOTE (2026-07-28): 0.3 is a STARTING set value chosen by Matt, NOT a measured
+-  # estimate; it scales the boat catch to ~30% of the f = 1 value. Replace with the
+-  # pilot's f_hat. The PE is NOT yet f-adjusted (Phase 2b), so the boat PE will read high
+-  # vs the BSS until then. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat.
+-  use_crab_fraction         = FALSE,
++  # NOTE: 0.3 is a STARTING set value chosen by Matt, NOT a measured estimate; it scales
++  # the boat catch and effort to ~30% of the f = 1 value (validation Step 3/Step 4 confirm
++  # the boat scales exactly linearly in f, CPUE invariant). Replace with the WBL egress
++  # pilot's f_hat when it lands. The PE is f-adjusted too (Phase 2b), so the boat PE and
++  # BSS both carry f. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat
++  # (f = 1). PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
++  use_crab_fraction         = TRUE,
+   crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
+   crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
+   crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
+@@ -186,13 +191,18 @@ run_config <- list(
+   # pilot classifies enough boats per month; a single annual f over-states the summer crab
+   # share (summer is tuna/salmon-dominated), which is where the harvest is largest.
+   crab_fraction_strata      = "none",
+-  # osp_scale_is_tau: FALSE (default) keeps the free kappa_OSP OSP scale (Phase 1). TRUE
+-  # makes the OSP mean use L (= tau_boat), so the dense OSP series identifies the boat
+-  # turnover (closes GR-12). CAUTION: the Phase 0 overlap put the OSP/trailer ratio at ~2.7
+-  # while tau_boat's prior is ~1.2; if those are the same within-day turnover, TRUE roughly
+-  # DOUBLES the boat effort (partly offsetting the f reduction). It could also be a
+-  # trailer-snapshot-timing artifact. Requires use_osp_boat_counts = TRUE. Validate by run.
+-  osp_scale_is_tau          = FALSE,
++  # osp_scale_is_tau: makes the OSP mean use L (= tau_boat) as the within-day boat
++  # turnover, so the dense OSP series (148 days) identifies tau_boat directly (closes
++  # GR-12). FALSE keeps the free kappa_OSP OSP scale (Phase 1), which quarantines the
++  # turnover question. PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
++  # RESOLVED 2026-07-31: the crab-creel trailer count is an INSTANTANEOUS snapshot, so the
++  # OSP/trailer ratio (~2.7-3.0; model kappa_OSP = 3.15) is REAL within-day boat turnover,
++  # and the old tau_boat prior (~1.2) was a ~2x UNDER-count. TRUE therefore corrects that
++  # bias and raises the boat effort/catch ~2x vs the free-kappa_OSP config (validation
++  # Step 6 boat ~27.7k vs Step 3b ~13.8k). Caveat retained: the exact multiplier assumes
++  # the trailer snapshot is timed representatively (not a fixed daily peak); see the
++  # 2026-07-31 validation review. Requires use_osp_boat_counts = TRUE. Validate by run.
++  osp_scale_is_tau          = TRUE,
+ 
+   # --- R_G prior sensitivity (T1.3; OFF by default = data-driven) ----------
+   # The pooled model's R_G prior (gear per crabber) is data-driven by default. To run

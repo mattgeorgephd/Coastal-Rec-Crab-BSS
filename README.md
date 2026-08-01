@@ -16,7 +16,7 @@ Estimates total recreational Dungeness crab harvest at Westport and the greater 
 Three crabbing populations are estimated independently and summed for the port total:
 
 1. **Shore crabbers** (dock + jetty + beach), effort from gear counts, BSS + PE.
-2. **Private boat crabbers**, effort from trailer counts, BSS + PE.
+2. **Private boat crabbers**, effort from trailer counts, BSS + PE. Boat effort now also uses the OSP daily boat-total as a second effort stream, and a crabbing fraction f converts all-boat counts to crab effort.
 3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
 
 Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, the modular R pipeline in `03_R_functions/`, and a single run configuration in `run_config.R`. They differ in how catch-per-unit-effort (CPUE) is modeled.
@@ -126,6 +126,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
    - `interview_combined.csv` (interviews; dates in M/D/YYYY format)
    - `wes_commercial_tally.csv` (daily vessel tally)
    - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
+   - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when use_osp_boat_counts=TRUE)
 3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
 4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
@@ -159,6 +160,8 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 - **Boat type typo:** iForm exports "Commerical" (one 'm'), handled by regex.
 - **Windows MAX_PATH:** with OneDrive and long paths the output directory may exceed 260 characters; the code detects this and falls back to a short path.
 - **Boat all-gear convergence:** the private boat all-gear BSS fit was historically prone to non-convergence (sparse trailer-count effort series). Dedicated sampler tuning (v6.2), the scale-aware convergence gate (v7.0), and moving the boat onto the gear-deployment effort scale (v7.6) have largely resolved this; the boat now typically reports its BSS posterior and falls back to PE only if a fit fails the gate. See the pooled model documentation.
+- **Non-crabbing interview filter:** interviews with `number_of_gear == 0` are dropped as non-crabbing before estimation, regardless of trip-completion status (complete, incomplete, or blank `completed_trip`); an unrecorded NA gear count is kept. Applied by both loaders (`fetch_crab_data` and `fetch_crab_data_v2`).
+- **Gear-tampered interview filter:** interviews with `gear_tampered == 1` are dropped, since the crabber believes a third party pulled their pots and the recorded catch and hours are unreliable. The column is all blank today, so it removes nothing yet.
 
 ---
 
@@ -179,6 +182,7 @@ For the current state and the prioritized backlog (what is done and what remains
 | v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
 | v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
+| OSP boat-count incorporation branch (2026-07-31) | pooled + gear-resolved | OSP second boat effort stream (kappa_OSP), crabbing fraction f (default 0.3), OSP-identifies-tau (osp_scale_is_tau, production ON after the trailer count was confirmed an instantaneous snapshot), non-crabbing + gear-tampered interview filters |
 
 See each model's development-history document for details.
 

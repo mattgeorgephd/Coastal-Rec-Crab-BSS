@@ -10,6 +10,7 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
 |---|---|
 | `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | The covariate module driver (module v0.2.x). Layered on the **pooled** model only. Screens candidate tide/weather covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a leave-one-week-out block-CV fallback for true sampling gaps). |
 | `run_rg_sweep.R` | The T1.3 `R_G` prior-sensitivity sweep runner (three pooled runs at `R_G_prior_mu` = 1.0/1.28/1.5). |
+| `run_osp_validation.R` | Batches the OSP validation ladder across both production models and appends to `05_output/osp_validation_summary.csv`. A validation/diagnostic runner, not a production estimator. |
 | `README.md` | This file. |
 
 The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and **collapses exactly to `crab_bss_pooled.stan` when `K_E = K_C = 0`**, so one file serves both the baseline and augmented fits.

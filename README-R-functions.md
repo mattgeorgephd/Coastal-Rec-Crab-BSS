@@ -15,7 +15,7 @@ For the project overview and the PE-vs-BSS split these functions implement, see 
 
 ## Function groups
 
-The 2026-07-11 refactor pulled the per-driver data-prep, PE, BSS-prep, and utility functions out of the two `.Rmd` drivers and into this folder (previously they were inline in each `.Rmd`). The files now fall into four groups.
+The 2026-07-11 refactor pulled the per-driver data-prep, PE, BSS-prep, and utility functions out of the two `.Rmd` drivers and into this folder (previously they were inline in each `.Rmd`). The files now fall into five groups.
 
 ### Shared driver modules (pooled + gear-resolved)
 
@@ -44,7 +44,7 @@ Called only by `BSS-GH-pooled-CPUE-model.Rmd`; named to avoid a collision with t
 
 | File | Function | Role |
 |---|---|---|
-| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. |
+| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
 | `run_pe_pooled.R` | `run_pe_pooled` | Pooled Point Estimator (stratified effort and catch). The shore branch reads its effort unit and CPUE denominator from `bss_effort_spec`, so the shore PE matches the shore BSS (2026-07-11 fix). |
 | `prep_bss_crab_pooled.R` | `prep_bss_crab_pooled` | Build the Stan data list for `crab_bss_pooled.stan`. |
 
@@ -54,9 +54,19 @@ Called only by `BSS-GH-gear-type-CPUE-model.Rmd`.
 
 | File | Function | Role |
 |---|---|---|
-| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. |
+| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
 | `run_pe_gear.R` | `run_pe_gear` | Gear-resolved Point Estimator, with the P0/P1/P2 fixes (explicit population argument, `bss_effort_spec` effort unit, ratio-of-sums stratum CPUE, and a scale-consistency assertion). |
 | `prep_bss_crab_gear.R` | `prep_bss_crab_gear` | Build the Stan data list for `crab_bss_gear_resolved.stan`. |
+
+### OSP boat counts and crabbing fraction
+
+Feature functions from the OSP boat-count incorporation branch, used by both production drivers. The first reads the OSP daily boat-total as a second boat-effort stream; the second calibrates it against the trailer counts; the third builds the crabbing fraction `f`.
+
+| File | Public function(s) | Role |
+|---|---|---|
+| `fetch_osp_boat_counts.R` | `fetch_osp_boat_counts` | Reads `04_input_files/WBL_boat_counts.xlsx` as the OSP daily boat-total stream (the second boat-effort observation on `lambda_E`), gated by `run_config$use_osp_boat_counts`. |
+| `diagnose_osp_trailer_overlap.R` | `diagnose_osp_trailer_overlap` | Calibrates the OSP boat-total against the trailer counts on overlapping days and writes the OSP-vs-trailer calibration, pairs, plot, and coverage audit. |
+| `crab_fraction.R` | `crab_fraction_strata_labels`, `crab_fraction_stan_data`, `crab_fraction_point_day` | Builds the Beta-prior crabbing fraction `f` (per-stratum / per-day) that scales boat effort and catch in the BSS boat generated quantities and the PE. |
 
 ### Crab-specific BSS diagnostics
 

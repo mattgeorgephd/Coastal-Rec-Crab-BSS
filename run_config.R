@@ -150,13 +150,16 @@ run_config <- list(
 
   # --- OSP second effort stream (Phase 1; boat only) -----------------------
   # Adds the OSP daily boat-total series (fetch_osp_boat_counts) as a SECOND boat
-  # effort observation on the same latent lambda_E, scaled by kappa_OSP. FALSE (default)
-  # reproduces the pre-Phase-1 boat EXACTLY; set TRUE for the Phase 1 validation run.
-  # Pooled only for now (gear-resolved mirror is a follow-up). Changes the boat effort
-  # posterior, so validate by run.
-  use_osp_boat_counts   = FALSE,
+  # effort observation on the same latent lambda_E, scaled by the OSP within-day
+  # turnover kappa_OSP. Both tracks (pooled + gear-resolved) carry the stream. FALSE
+  # reproduces the pre-Phase-1 boat EXACTLY. PRODUCTION DEFAULT = TRUE (adopted
+  # 2026-07-31, validation batch): OSP contributes on its 148 operating days and the
+  # model degrades to trailer-only outside them. Changes the boat effort posterior,
+  # so validate by run.
+  use_osp_boat_counts   = TRUE,
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
-                                      #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0)
+                                      #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;
+                                      #   validation posterior kappa_OSP = 3.15, 95% [2.50, 3.91])
   osp_scale_prior_sigma = 0.3,
 
   # --- Crabbing fraction f (Phase 2; boat only) ----------------------------
@@ -167,11 +170,13 @@ run_config <- list(
   # from sampling. Hybrid: a Beta prior centered on the SET VALUE below, updated by the
   # crab-creel I/E crab-vs-total classification once it lands (columns ie_crab_col /
   # ie_total_col in ingress_egress.xlsx); until then f uses the set value.
-  # NOTE (2026-07-28): 0.3 is a STARTING set value chosen by Matt, NOT a measured
-  # estimate; it scales the boat catch to ~30% of the f = 1 value. Replace with the
-  # pilot's f_hat. The PE is NOT yet f-adjusted (Phase 2b), so the boat PE will read high
-  # vs the BSS until then. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat.
-  use_crab_fraction         = FALSE,
+  # NOTE: 0.3 is a STARTING set value chosen by Matt, NOT a measured estimate; it scales
+  # the boat catch and effort to ~30% of the f = 1 value (validation Step 3/Step 4 confirm
+  # the boat scales exactly linearly in f, CPUE invariant). Replace with the WBL egress
+  # pilot's f_hat when it lands. The PE is f-adjusted too (Phase 2b), so the boat PE and
+  # BSS both carry f. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat
+  # (f = 1). PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
+  use_crab_fraction         = TRUE,
   crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
   crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
   crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
@@ -186,13 +191,18 @@ run_config <- list(
   # pilot classifies enough boats per month; a single annual f over-states the summer crab
   # share (summer is tuna/salmon-dominated), which is where the harvest is largest.
   crab_fraction_strata      = "none",
-  # osp_scale_is_tau: FALSE (default) keeps the free kappa_OSP OSP scale (Phase 1). TRUE
-  # makes the OSP mean use L (= tau_boat), so the dense OSP series identifies the boat
-  # turnover (closes GR-12). CAUTION: the Phase 0 overlap put the OSP/trailer ratio at ~2.7
-  # while tau_boat's prior is ~1.2; if those are the same within-day turnover, TRUE roughly
-  # DOUBLES the boat effort (partly offsetting the f reduction). It could also be a
-  # trailer-snapshot-timing artifact. Requires use_osp_boat_counts = TRUE. Validate by run.
-  osp_scale_is_tau          = FALSE,
+  # osp_scale_is_tau: makes the OSP mean use L (= tau_boat) as the within-day boat
+  # turnover, so the dense OSP series (148 days) identifies tau_boat directly (closes
+  # GR-12). FALSE keeps the free kappa_OSP OSP scale (Phase 1), which quarantines the
+  # turnover question. PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
+  # RESOLVED 2026-07-31: the crab-creel trailer count is an INSTANTANEOUS snapshot, so the
+  # OSP/trailer ratio (~2.7-3.0; model kappa_OSP = 3.15) is REAL within-day boat turnover,
+  # and the old tau_boat prior (~1.2) was a ~2x UNDER-count. TRUE therefore corrects that
+  # bias and raises the boat effort/catch ~2x vs the free-kappa_OSP config (validation
+  # Step 6 boat ~27.7k vs Step 3b ~13.8k). Caveat retained: the exact multiplier assumes
+  # the trailer snapshot is timed representatively (not a fixed daily peak); see the
+  # 2026-07-31 validation review. Requires use_osp_boat_counts = TRUE. Validate by run.
+  osp_scale_is_tau          = TRUE,
 
   # --- R_G prior sensitivity (T1.3; OFF by default = data-driven) ----------
   # The pooled model's R_G prior (gear per crabber) is data-driven by default. To run

@@ -11,11 +11,14 @@ All inputs are now `.xlsx` workbooks with a single `data` sheet (converted from 
 | File | Role | Read by | Reader | Key columns |
 |---|---|---|---|---|
 | `effort_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | `season, date, survey_id, creel_area, count_time, total_gear_count, boat_trailer_count` |
-| `interview_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | 16 cols incl. `survey_id, date, crabbing_mode, boat_type, crabbers, gear_type, number_of_gear, dungeness_kept, red_rock_kept, hours_fished, crabber_hours, gear_hours, completed_trip, season, creel_location` |
+| `interview_combined.xlsx` | model | both drivers | `fetch_crab_data` / `_v2` | 17 cols incl. `survey_id, date, crabbing_mode, boat_type, crabbers, gear_type, number_of_gear, dungeness_kept, red_rock_kept, hours_fished, crabber_hours, gear_hours, completed_trip, gear_tampered, season, creel_location` |
 | `wes_commercial_tally.xlsx` | model | both drivers | `estimate_comm_charter` (+ a gear-report plot) | `date, season, private_tally, commercial_tally, charter_tally` |
 | `ingress_egress.xlsx` | model | both drivers | `fetch_ie_data` | `location_name, date, season, day_type, crabbers_on, crabbers_off, crabber_flow, boats_in, boats_out, boat_flow` |
+| `WBL_boat_counts.xlsx` | model (OSP, optional) | both drivers | `fetch_osp_boat_counts` | `Year, Month, Day, WestportPrivateEffort` |
 | `crabbing_holidays.xlsx` | day-typing | both drivers (+ weather module) | `read_crabbing_holidays` | `season, date, holiday_name` |
 | `fishery_opener_dates.xlsx` | diagnostic | pooled only, via `prep_fishery_events` | `readxl::read_excel` | `date, season, ma2_bottomfish, ma2_halibut, ma2_salmon, razor_long_beach, razor_twin_harbors, razor_copalis, razor_mocrocks, razor_kalaloch, razor_any` |
+
+`WBL_boat_counts.xlsx` is a seventh, optional workbook (the OSP daily private-boat totals), read only when `run_config$use_osp_boat_counts = TRUE`; the "six workbooks" heading above predates it.
 
 The former per-fishery opener workbooks (`MA2-fishing-dates-2023-2026.xlsx`, `razor-clam-dig-dates-2021-2025.xlsx`) are retired; their content is represented in `fishery_opener_dates.xlsx`.
 
@@ -32,7 +35,7 @@ Which readers filter on it:
 
 ## Columns: trimmed to modeling-essential
 
-The files carry only the columns the pipeline uses (a whole-repo reference scan drove the cut). Notable drops: the effort weather/vehicle/buoy/jetty counts and `notes`; the interview locality/`*_returned`/`notes`/`total_vehicles`/`crabbing_holiday`/`interview_time` fields; the tally `*_interviewed` columns and `notes`; and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model.
+The files carry only the columns the pipeline uses (a whole-repo reference scan drove the cut). Notable drops: the effort weather/vehicle/buoy/jetty counts and `notes`; the interview locality/`*_returned`/`notes`/`total_vehicles`/`crabbing_holiday`/`interview_time` fields; the tally `*_interviewed` columns and `notes`; and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model. A new `boats_crabbing` / `boats_total` classification pair (keys `ie_crab_col` / `ie_total_col`) is being added to `ingress_egress.xlsx` to update the crabbing fraction f once the WBL egress pilot lands.
 
 ## Input options in run_config
 
@@ -48,6 +51,7 @@ Each reader uses the config value with the historical Grays Harbor / Westport va
 - **Dates are ISO text.** Each `date` column stores `yyyy-mm-dd` as text (not an Excel date cell) so `as.Date()` parses it identically in any timezone. Keep that format on re-export. This also resolves a prior defect where `effort_combined.csv` and `fishery_opener_dates.csv` had been re-exported as `M/D/YYYY`, which their `as.Date(date)` readers would have read as `NA`.
 - **Sheet name.** Every workbook uses a single sheet named `data` (override per file via the sheet params above).
 - **Interview gear column.** `number_of_gear` is the intended gear count (historically column N in the raw iForm export); keep the header name intact on regeneration.
+- **Interview row filters.** The readers drop non-crabbing rows (`number_of_gear == 0`, under any trip-completion status; an NA gear count is kept) and gear-tampered rows (`gear_tampered == 1`, all blank today). Keep the `completed_trip` and `gear_tampered` columns on regeneration.
 - **Boat-type typo.** The source spells the commercial category "Commerical" (one 'm'); the prep matches it by regex, so do not "correct" it without updating the matcher.
 
 ## Regenerating an input
