@@ -160,7 +160,7 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 - **Boat type typo:** iForm exports "Commerical" (one 'm'), handled by regex.
 - **Windows MAX_PATH:** with OneDrive and long paths the output directory may exceed 260 characters; the code detects this and falls back to a short path.
 - **Boat all-gear convergence:** the private boat all-gear BSS fit was historically prone to non-convergence (sparse trailer-count effort series). Dedicated sampler tuning (v6.2), the scale-aware convergence gate (v7.0), and moving the boat onto the gear-deployment effort scale (v7.6) have largely resolved this; the boat now typically reports its BSS posterior and falls back to PE only if a fit fails the gate. See the pooled model documentation.
-- **Non-crabbing interview filter:** interviews with `number_of_gear == 0` are dropped as non-crabbing before estimation, regardless of trip-completion status (complete, incomplete, or blank `completed_trip`); an unrecorded NA gear count is kept. Applied by both loaders (`fetch_crab_data` and `fetch_crab_data_v2`).
+- **Non-crabbing interview filter:** interviews with `number_of_gear == 0` are dropped as non-crabbing before estimation, regardless of trip-completion status (complete, incomplete, or blank `completed_trip`); an unrecorded NA gear count is kept. Applied by the shared reader `fetch_crab_data` (called by both drivers; the former pooled/gear reader split was merged 2026-08-01).
 - **Gear-tampered interview filter:** interviews with `gear_tampered == 1` are dropped, since the crabber believes a third party pulled their pots and the recorded catch and hours are unreliable. The column is all blank today, so it removes nothing yet.
 
 ---

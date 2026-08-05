@@ -44,7 +44,7 @@ Called only by `BSS-GH-pooled-CPUE-model.Rmd`; named to avoid a collision with t
 
 | File | Function | Role |
 |---|---|---|
-| `fetch_crab_data.R` | `fetch_crab_data` | Read and assemble the pooled model's inputs and classify interviews by population. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
+| `fetch_crab_data.R` | `fetch_crab_data` | Shared reader for BOTH tracks (merged 2026-08-01 from the former fetch_crab_data / _v2 pair; the one differing private-boat filter is now the `boat_require_gear_time` param, TRUE for pooled, FALSE for gear-resolved). Reads and assembles inputs and classifies interviews by population; drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. Per-gear CPUE classification is downstream in `prep_bss_crab_gear.R`, not here. |
 | `run_pe_pooled.R` | `run_pe_pooled` | Pooled Point Estimator (stratified effort and catch). The shore branch reads its effort unit and CPUE denominator from `bss_effort_spec`, so the shore PE matches the shore BSS (2026-07-11 fix). |
 | `prep_bss_crab_pooled.R` | `prep_bss_crab_pooled` | Build the Stan data list for `crab_bss_pooled.stan`. |
 
@@ -54,7 +54,6 @@ Called only by `BSS-GH-gear-type-CPUE-model.Rmd`.
 
 | File | Function | Role |
 |---|---|---|
-| `fetch_crab_data_v2.R` | `fetch_crab_data_v2` | Read and assemble the gear-resolved model's inputs, with weighted gear-type classification of interviews. Also drops non-crabbing (`number_of_gear == 0`, any trip status) and gear-tampered (`gear_tampered == 1`) interviews. |
 | `run_pe_gear.R` | `run_pe_gear` | Gear-resolved Point Estimator, with the P0/P1/P2 fixes (explicit population argument, `bss_effort_spec` effort unit, ratio-of-sums stratum CPUE, and a scale-consistency assertion). |
 | `prep_bss_crab_gear.R` | `prep_bss_crab_gear` | Build the Stan data list for `crab_bss_gear_resolved.stan`. |
 

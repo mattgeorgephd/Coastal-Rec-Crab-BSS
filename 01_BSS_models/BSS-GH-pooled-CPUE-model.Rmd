@@ -191,6 +191,11 @@ params <- list(
   # --- Stan model file ---
   bss_model_file    = "crab_bss_pooled.stan",
 
+  # --- Shared reader behavior (merged fetch_crab_data, 2026-08-01) ---
+  # TRUE = the historical pooled reader: drop private_boat interviews with no
+  # positive gear_time_total. (The gear-resolved driver sets FALSE.)
+  boat_require_gear_time = TRUE,
+
   # --- BSS sampler defaults ---
   bss_adapt_delta   = 0.9,
 

@@ -18,6 +18,11 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-08-01, Merged the gear-resolved reader `fetch_crab_data_v2` into the shared `fetch_crab_data` (branch `OSP-boat-count-incorporation`)
+
+Behavior-preserving. The gear-resolved reader `fetch_crab_data_v2.R` was near-identical to the pooled `fetch_crab_data.R`, differing only by one filter (the pooled reader drops private_boat interviews with no positive `gear_time_total`; v2 kept them). The two are now one shared `fetch_crab_data(params)`; this driver calls it with `boat_require_gear_time = FALSE`, reproducing the former v2 behavior exactly. `fetch_crab_data_v2.R` is deleted. The per-gear CPUE classification the v2 header advertised was never in this reader; it lives in `prep_bss_crab_gear.R`. Validate by run (expect byte-identical to the pre-merge v2 reader).
+-   Files changed: `03_R_functions/fetch_crab_data.R` (now shared) and `fetch_crab_data_v2.R` (deleted); this driver (call site + `boat_require_gear_time = FALSE` in `params`) and the pooled driver; `README.md`, `README-R-functions.md`, `07_documentation/CLAUDE.md`, this method document, `development_notes/PIPELINE_STATUS.md`, and this history.
+
 ### 2026-07-31, OSP boat-count incorporation: second boat effort stream, crabbing fraction f, OSP-informs-tau, and two interview filters (branch `OSP-boat-count-incorporation`)
 
 The gear-resolved track gains the same boat-effort features as the pooled track (built as Phase 0 through Phase 3, validated by a 14-run batch across both models), on the branch `OSP-boat-count-incorporation`. Changes the boat estimate materially, so confirm by a production run; full review in `development_notes/osp-validation-review-2026-07-31.md`.

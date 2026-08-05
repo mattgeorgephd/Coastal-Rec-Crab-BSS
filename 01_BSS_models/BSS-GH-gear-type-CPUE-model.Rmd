@@ -165,6 +165,12 @@ params <- list(
   # --- Stan model file ---
   bss_model_file    = "crab_bss_gear_resolved.stan",
 
+  # --- Shared reader behavior (merged fetch_crab_data, 2026-08-01) ---
+  # FALSE reproduces the former fetch_crab_data_v2: keep private_boat interviews
+  # regardless of gear_time_total (the pooled reader drops boats with no positive
+  # gear-time). Behavior-neutral for this track vs the pre-merge _v2 reader.
+  boat_require_gear_time = FALSE,
+
   # --- Default BSS period (overridden per sub-season: biweekly pot-closure, monthly all-gear) ---
   period_bss        = "month",
 
@@ -342,8 +348,9 @@ pot_closure_markers <- function(params, labels = TRUE) {
 # ===========================================================================
 
 
-# fetch_crab_data_v2() now lives in 03_R_functions/fetch_crab_data_v2.R
-# (auto-sourced). Extracted verbatim; behavior unchanged.
+# fetch_crab_data() (the shared reader, formerly fetch_crab_data_v2) lives in
+# 03_R_functions/fetch_crab_data.R (auto-sourced). This driver sets
+# boat_require_gear_time = FALSE in params to reproduce the former _v2 behavior.
 
 
 # ===========================================================================
@@ -410,7 +417,7 @@ pot_closure_markers <- function(params, labels = TRUE) {
 # ---- 7.0 LOAD DATA ----
 timer_start("1_load_data")
 message("\n", strrep("=",60), "\n LOADING DATA\n", strrep("=",60), "\n")
-dwg <- fetch_crab_data_v2(params)
+dwg <- fetch_crab_data(params)
 
 # --- Ingress/egress data + L_effective model (shared with the pooled driver) ---
 # fetch_ie_data() and estimate_L_effective() live in 03_R_functions/bss_day_length.R.

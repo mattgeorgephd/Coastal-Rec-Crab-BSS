@@ -19,13 +19,19 @@
 # if not, see <https://www.gnu.org/licenses/>.
 # -----------------------------------------------------------------------------
 ###############################################################################
-# fetch_crab_data.R  (pooled-CPUE driver)
+# fetch_crab_data.R  (shared: pooled + gear-resolved drivers)
 #
-# Read and assemble the pooled-CPUE model's input data (effort counts, interviews,
-# catch, commercial tally) from 04_input_files/ and classify interviews by
-# population. Extracted verbatim from the pooled driver; pure given params.
-# Auto-sourced by both drivers via the 03_R_functions walk (only the pooled driver
-# calls it).
+# Read and assemble a model's input data (effort counts, interviews, catch,
+# commercial tally) from 04_input_files/ and classify interviews by population.
+# Pure given params; auto-sourced by both drivers and called by BOTH. This single
+# reader replaced the former fetch_crab_data / fetch_crab_data_v2 pair (2026-08-01):
+# the two were identical except for one private-boat filter, now controlled by
+# params$boat_require_gear_time. Gear-type CPUE classification is NOT done here; it
+# is downstream in prep_bss_crab_gear.R, so this function is the same for both tracks.
+#
+# params$boat_require_gear_time (default TRUE): drop private_boat interviews with no
+# positive gear_time_total. TRUE reproduces the historical pooled reader; the
+# gear-resolved driver sets FALSE to reproduce the historical fetch_crab_data_v2.
 #
 # INPUTS (2026-07-16): all inputs are now .xlsx workbooks with a single "data"
 # sheet (converted from CSV). Filenames, the sheet name, the interview creel
@@ -38,6 +44,9 @@
 fetch_crab_data <- function(params) {
   cat("Reading data...\n")
   in_sheet <- params$input_sheet %||% "data"
+  # Drop private_boat interviews with no positive gear_time_total? TRUE = pooled
+  # (historical fetch_crab_data); the gear-resolved driver sets FALSE (historical _v2).
+  req_boat_gear_time <- isTRUE(params$boat_require_gear_time %||% TRUE)
 
   effort_raw <- readxl::read_excel(
       here("04_input_files", params$effort_file %||% "effort_combined.xlsx"), sheet = in_sheet) |>
@@ -118,8 +127,8 @@ fetch_crab_data <- function(params) {
     filter(is.na(number_of_gear) | number_of_gear != 0) |>
     filter(is.na(gear_tampered_num) | gear_tampered_num != 1) |>
     filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time) |>
-    filter(if_else(population == "private_boat",
-                   !is.na(gear_time_total) & gear_time_total > 0, TRUE))
+    filter(!req_boat_gear_time | population != "private_boat" |
+           (!is.na(gear_time_total) & gear_time_total > 0))
 
   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
   dock_f20 <- params$shore_dock_float20 %||% "Westport Docks Float 20"
