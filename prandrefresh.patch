@@ -1,0 +1,747 @@
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+index 7ab4ec7..8930d07 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md
+@@ -527,7 +527,7 @@ Prior rationale. `R_G` is centered on the empirical gear-per-crabber ratio in th
+ - **OSP second effort stream.** The OSP Westport Boat Launch daily private-boat total (`04_input_files/WBL_boat_counts.xlsx`, `fetch_osp_boat_counts`, toggle `use_osp_boat_counts`, production ON) is a second boat effort observation on the same latent boat effort, scaled by `kappa_OSP`; in the gear-resolved likelihood the OSP mean sums the boat effort over gear (`sum(lambda_E_S[...])`). It contributes on its 148 operating days (mid-March to mid-October) and degrades to trailer-only outside them. Validation (Step 2) raised the boat about 10% and tightened boat-effort CV 11.9% to 11.0%.
+ - **Crabbing fraction f.** Because trailer and OSP counts are ALL boats, `use_crab_fraction` (production ON) multiplies boat effort and catch by f in the boat generated quantities only, decoupled from sampling (CPUE invariant; the boat scales exactly linearly in f). f is a Beta prior centered on `crab_fraction_set` (production 0.3, a placeholder pending the WBL egress pilot, updated by the `boats_crabbing` / `boats_total` classification in `ingress_egress.xlsx`). It is the single largest lever on the boat harvest.
+ - **OSP-informs-tau (`osp_scale_is_tau`, production ON).** Closes GR-12 by letting the OSP series identify `tau_boat` (the OSP mean uses `L` = `tau_boat` instead of the free `kappa_OSP`). Since the trailer count is an instantaneous snapshot, the OSP/trailer turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count; turning it on roughly doubles the boat (validation Step 6 boat ~27.5k vs Step 3b ~13.8k). Caveat: this assumes the snapshot is timed representatively (not a fixed daily peak).
+-- **Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`; production private-boat harvest about 27,500 Dungeness kept. All 14 validation runs converged and both tracks reconcile within 1 to 2% at every step. Full evidence and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`.
++- **Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`. Confirmed by the production run `05_output/20260805/gear-type-CPUE-model-boat-count-validation-run` (all fits converged): the private-boat harvest is **27,524** Dungeness kept (BSS median) and the **port total is 66,461** (95% CI 50,259 to 91,309; PE port 44,810). The run reproduces the pre-merge gear validation (Step 6) fit-for-fit, and the two production tracks reconcile to 0.6% on the boat and 1.3% on the port. Full evidence and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`.
+ 
+ ------------------------------------------------------------------------
+ 
+@@ -589,17 +589,19 @@ Method v1.0 corresponds to gear-resolved framework code **v5.5** (2026-07-11). T
+ - **v5.1-v5.2:** empirical proportions and per-gear structure. Weighted fractional gear assignment replaced the priority hierarchy; `pi_gear` became data with Laplace smoothing; per-gear process-error was added; then the incomplete-trip filter, Dirichlet-sampled `pi_gear` in generated quantities, `C_gear` vs `C_gear_pred`, the divergence gate, the regulatory `gear_exclude`, and the minimum effective-N raise from 3 to 15.
+ - **v5.3-v5.4:** the R-side data prep was aligned with the boat formulation the Stan model then expected (later superseded by the deployment scale), and the R-hat gate was tightened from 1.05 to 1.01 (Vehtari et al. 2021), in step with the pooled track.
+ - **v5.5 (2026-07-11):** shore was moved onto the gear-deployment effort unit to match the boat, so both fitted components now share one effort unit with each other and with the pooled track. Chosen from the 2026-07-10 shore LOO comparison as the only harvest-unbiased shore unit (`beta_h = 1.05`, covering 1, against 0.57 for crabber-hours and 0.73 for gear-hours), on harvest-unbiasedness rather than marginal predictive fit. Resolves backlog GR-16 and sets `loo_effort_unit_comparison = FALSE` for production. This entry also retroactively records that the boat had already moved to gear-deployments via the shared effort module (fix markers F1, F2, P1).
+-- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31).** The boat gains the OSP Westport Boat Launch daily boat-total as a second effort stream (scaled by `kappa_OSP`; the gear-resolved OSP mean sums boat effort over gear), a crabbing fraction f applied in the boat generated quantities (production 0.3 placeholder, boat linear in f, CPUE invariant), and `osp_scale_is_tau` (production ON) which closes GR-12 by identifying `tau_boat` from the dense OSP series. With the trailer count confirmed an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0) is real and `tau_boat` ~1.2 was a ~2x under-count, so production boat is about 27,500 Dungeness kept. Validated by a 14-run batch (both tracks reconcile within 1 to 2%); see `development_notes/osp-validation-review-2026-07-31.md`. Two interview data fixes ride along (non-crabbing `number_of_gear = 0` and `gear_tampered = 1` rows dropped).
++- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31).** The boat gains the OSP Westport Boat Launch daily boat-total as a second effort stream (scaled by `kappa_OSP`; the gear-resolved OSP mean sums boat effort over gear), a crabbing fraction f applied in the boat generated quantities (production 0.3 placeholder, boat linear in f, CPUE invariant), and `osp_scale_is_tau` (production ON) which closes GR-12 by identifying `tau_boat` from the dense OSP series. With the trailer count confirmed an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0) is real and `tau_boat` ~1.2 was a ~2x under-count, so production boat is 27,524 Dungeness kept, port total 66,461, confirmed by the run `05_output/20260805/gear-type-CPUE-model-boat-count-validation-run`. Validated by a 14-run batch plus the production confirmation run (both tracks reconcile within 1 to 2%); see `development_notes/osp-validation-review-2026-07-31.md`. Two interview data fixes ride along (non-crabbing `number_of_gear = 0` and `gear_tampered = 1` rows dropped).
+ 
+ The run-driven Stan fix markers (F1 the unconditional `R_G_boat` prior; F2 the gear-deployment scale, the single largest quantitative move in the model's history; F4 the CPUE diagnostics; F5 reporting; P0 the point-estimator population and ratio-of-sums fix; P1 the configurable effort unit; P2 the mu-hierarchy collapse) and the pooled parity ports (B1.3, B1.5, B1.6, B1.8, B1.9) are recorded, with their before/after numbers and the F1/F2 and P0 working notes, in **`BSS-GH-gear-type-CPUE-model-development-history.md`**. The outstanding backlog (GR-7 to GR-17) lives in `07_documentation/development_notes/PIPELINE_STATUS.md`.
+ 
+-**Reference-run figures, and a note on staleness.** The last full assembled totals on record are from the 2026-07-09 and 2026-07-10 reference runs, before the v5.5 shore deployment move. Because v5.5 changes the shore effort unit, the shore components must be refreshed by a v5.5 run before they are cited as current.
++**Reference-run figures (refreshed 2026-08-05).** These are the confirmed figures from the production run `05_output/20260805/gear-type-CPUE-model-boat-count-validation-run` (gear-deployment scale, production config OSP + f = 0.3 + `osp_scale_is_tau`), which reproduces the pre-merge validation fit-for-fit. They supersede the pre-v5.5, pre-OSP totals; the pre-OSP f = 1 boat figure is retained for provenance.
+ 
+-| Component | Reference figure | Basis and status |
++| Component | Reference figure (BSS median) | Basis and status |
+ |---|---|---|
+-| shore_ring_net | about 6,936 (BSS) | crabber-hours scale; PRE-REFRESH under v5.5 |
+-| shore_all_gear | about 19,684 (BSS) | crabber-hours scale; PRE-REFRESH under v5.5 |
+-| private_boat_all_gear | about 43,314 (BSS) at f = 1, pre-OSP; about 27,500 under the 2026-07-31 production config | gear-deployment scale; the 43,314 rests on `tau_boat = 1.2` (GR-12) and f = 1; production adds OSP (`osp_scale_is_tau`, closes GR-12) and f = 0.3, PRE-REFRESH pending a production run |
++| shore_ring_net | 6,258 | gear-deployment scale; confirmed 2026-08-05 |
++| shore_all_gear | 20,124 | gear-deployment scale; confirmed 2026-08-05 |
++| private_boat_all_gear | 27,524 (production); was about 43,314 at f = 1, pre-OSP | gear-deployment scale; production adds OSP (`osp_scale_is_tau`, closes GR-12) and f = 0.3; the 43,314 was the f = 1, `tau_boat` = 1.2 baseline |
++| comm/charter (census) | about 11,986 | day-type-stratified vessel-tally census |
++| **port total** | **66,461** (95% CI 50,259 to 91,309) | assembled BSS total; PE port 44,810 |
+ | private_boat_ring_net | PE fallback | insufficient data (GR-15) |
+ | commercial/charter | about 11,986 | day-type census; scale-independent |
+ 
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+index e4b47a8..07a128d 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
+@@ -416,7 +416,7 @@ The data-thinness half of the caveat is now being addressed by the OSP boat-coun
+ 
+ **OSP-informs-tau (`osp_scale_is_tau`, production ON) and the turnover resolution.** GR-12 (boat catch rests on a `tau_boat` anchored on two winter I/E days) is closed by letting the dense OSP series identify the boat turnover directly: with `osp_scale_is_tau = TRUE` the OSP mean uses `L` (= `tau_boat`) in place of the free `kappa_OSP`. The Phase 0 overlap and the model agree that the OSP/trailer within-day turnover is about 2.7 to 3.0 (validation posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]), while the old `tau_boat` prior was about 1.2. **Resolved 2026-07-31: the crab-creel trailer count is an instantaneous snapshot**, so that 2.7 to 3.0 is real within-day turnover and `tau_boat` about 1.2 was a roughly 2x under-count of boat effort; turning the toggle on corrects it and roughly doubles the boat (validation Step 6 boat about 27.7k vs Step 3b about 13.8k). One caveat is retained honestly: the exact multiplier assumes the trailer snapshot is timed representatively (not fixed at a daily peak); a peak-timed snapshot would understate turnover, so 2.7 is a floor rather than a ceiling.
+ 
+-**Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`. The production private-boat harvest is about 27,700 Dungeness kept (down from about 43k at f = 1 via the 0.3 crab share, then up about 2x via the OSP turnover correction). All 14 validation runs converged; the full evidence, the run matrix, and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`, with the change log in the development-history document.
++**Production configuration (adopted 2026-07-31):** `use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` with `crab_fraction_set = 0.3`, `osp_scale_is_tau = TRUE`. Confirmed by the production run `05_output/20260804/pooled-CPUE-boat-count-validation-run` (all fits converged): the private-boat harvest is **27,684** Dungeness kept (BSS median; 95% CI 11,432 to 53,617) and the **port total is 67,312** (95% CI 50,601 to 93,461; PE port 44,810). That is down from about 43k at f = 1 via the 0.3 crab share, then up about 2x via the OSP turnover correction, and the run reproduces the pre-merge validation batch (Step 6) fit-for-fit. The full evidence, the run matrix, and the two open decisions (the pilot f_hat, and confirming the snapshot timing) are in `development_notes/osp-validation-review-2026-07-31.md`, with the change log in the development-history document.
+ 
+ ------------------------------------------------------------------------
+ 
+@@ -479,7 +479,7 @@ Method v1.0 is the frozen method label; it was first frozen against pipeline cod
+ - **v7.6 (2026-07-10):** POOL-1 + POOL-3. The private boat is moved onto the gear-deployment scale, matching the gear-resolved model: `R_T` (pinned at ~1) is replaced by `R_G_boat` with `T_I ~ NB2(lambda_E / R_G_boat)` and `Gear_A_boat ~ poisson(R_G_boat)`, and the boat CPUE denominator becomes `number_of_gear` with `L = tau_boat` instead of gear-hours with `L = 24`. This resolves the private-boat effort-unit caveat in Section 16. The 2026-07-11 run showed this is catch-neutral (the boat held at 54,481, about -3.2%, NOT the ~-25% originally predicted toward the gear-resolved boat); it corrects the boat's unit and interpretation but does not move the boat harvest. Shore is unchanged.
+ - **v7.7 (2026-07-11):** Shore moved onto the gear-deployment scale, so both components now share one effort unit (gear-deployments) with the gear-resolved model. The shore CPUE denominator becomes `number_of_gear` with `E_scale = R_G` and `L = tau_shore` (~1.7 turnover), replacing crabber-hours. This settles the shore half of the effort-unit question (backlog GR-16) using the 2026-07-10 shore LOO comparison (shore all_gear, n = 1649): gear-deployments is the only shore unit whose linearity coefficient covers 1 (`beta_h = 1.05`, 95% CI 0.94 to 1.15, flag off), against crabber-hours (0.57) and gear-hours (0.73), and the only one with no estimator-triad drift (ratio-of-sums 0.87 ~= mean-of-ratios 0.85 ~= model-implied 0.85 crab per deployment). gear-hours had a marginally better catch-stream `elpd_loo` (-3131 vs -3190 for deployments), but that predictive edge comes from the CPUE process absorbing the sub-linearity, which is what biases the season expansion; the choice therefore prioritizes harvest-unbiasedness over marginal predictive fit. There is no Stan change (the v7.6 `effort_scale_gear` / `E_scale` machinery already supports shore), but the shore BSS publication number moves.
+ - **v7.8 (2026-07-11):** Behavior-preserving code refactor (helper functions extracted to `03_R_functions/`, all user toggles centralized in `run_config.R`) plus the shore-PE completion fix: the pooled `run_pe` shore branch now reads its unit from `bss_effort_spec.R`, so the shore PE runs on gear-deployments to match the shore BSS (previously it was left on crabber-hours). The 2026-07-11 v7.8 run confirmed the fix (shore all-gear PE effort moved from 42,541 to 18,104; BSS unchanged) and refreshed the totals.
+-- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31; not yet merged to Method v1.0).** Three boat-effort additions, validated by a 14-run batch and detailed in `development_notes/osp-validation-review-2026-07-31.md` and the development-history document: the OSP Westport Boat Launch daily boat-total as a second effort stream on `lambda_E` (scaled by `kappa_OSP`); a crabbing fraction f that converts all-boat effort to crab effort in the boat generated quantities (production 0.3, a placeholder pending the WBL egress pilot; the boat scales exactly linearly in f, CPUE invariant); and `osp_scale_is_tau`, which lets the dense OSP series identify the boat turnover and closes GR-12. Because the crab-creel trailer count was confirmed to be an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0; posterior `kappa_OSP` = 3.15) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so production `osp_scale_is_tau = TRUE`. Production private-boat harvest about 27,700 Dungeness kept. Two interview data fixes ride along: non-crabbing interviews (any `number_of_gear = 0` row, regardless of trip status) and gear-tampered interviews (`gear_tampered = 1`) are dropped.
++- **OSP boat-count incorporation (branch `OSP-boat-count-incorporation`, 2026-07-31; not yet merged to Method v1.0).** Three boat-effort additions, validated by a 14-run batch and detailed in `development_notes/osp-validation-review-2026-07-31.md` and the development-history document: the OSP Westport Boat Launch daily boat-total as a second effort stream on `lambda_E` (scaled by `kappa_OSP`); a crabbing fraction f that converts all-boat effort to crab effort in the boat generated quantities (production 0.3, a placeholder pending the WBL egress pilot; the boat scales exactly linearly in f, CPUE invariant); and `osp_scale_is_tau`, which lets the dense OSP series identify the boat turnover and closes GR-12. Because the crab-creel trailer count was confirmed to be an instantaneous snapshot, the OSP-implied turnover (~2.7 to 3.0; posterior `kappa_OSP` = 3.15) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so production `osp_scale_is_tau = TRUE`. Production private-boat harvest 27,684 Dungeness kept, port total 67,312, confirmed by the run `05_output/20260804/pooled-CPUE-boat-count-validation-run`. Two interview data fixes ride along: non-crabbing interviews (any `number_of_gear = 0` row, regardless of trip status) and gear-tampered interviews (`gear_tampered = 1`) are dropped.
+ - **v7.9 (2026-07-12):** Config/gate refinement, no estimate change. `run_config.R` is now the base parameter set with each model layering its own tuning on top (`params <- modifyList(run_config, params_model)`), and the per-model AR resolution map moved into `run_config.R`. The pooled divergence-fraction backstop was tightened from 0.15 to 0.05 to match the gear-resolved model (the scale-aware impact test remains the primary gate; the 2026-07-11 fits all sit under 5%, so no gating decision changes).
+ - **2026-07-12 (later):** Two follow-ons. (a) The boat monthly-AR reconciliation run: on monthly boat AR (`05_output/20260713/pooled-CPUE-run1`) the pooled boat falls from the weekly 54,481 to 43,180, matching the independent gear-resolved boat (43,314) on catch, effort, and CPUE. The AR resolution, not the effort unit, was the source of the pooled-vs-gear-resolved boat gap; monthly should be the production boat AR cap. (b) A report display pass: the driver now renders the incomplete-trip sensitivity, PPC calibration, effort over-dispersion, the CPUE validity triad, per-fit coverage, PSIS-LOO, and top divergence drivers on the page, and curates the wide convergence table. The forward-looking backlog is consolidated in `development_notes/PIPELINE_STATUS.md`.
+ 
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index 7715e55..df1c10c 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -169,7 +169,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ ### Tier 4: reproducibility and repository hygiene (correctness-neutral, publication-blocking)
+ 
+ - **[CODED 2026-07-21, ACTION REQUIRED] GPL-3.0 licensing + CreelEstimates attribution.** This pipeline is a derivative of the freshwater `CreelEstimates` framework (GPL-3.0); the freshwater team asked for the license headers and attribution to be added. Added 2026-07-21: a per-file GPL-3.0 header on every R/Stan/Rmd source, a `NOTICE` file, a `LICENSE` file, and a README license section, all crediting `https://github.com/dfw-wa/CreelEstimates`. **Two actions remain before publishing:** (1) the `LICENSE` file still needs the full ~35 KB canonical GPL-3.0 text pasted in (a placeholder marks where; use gnu.org or GitHub's license template), and (2) WDFW must confirm the exact copyright holder/year lines in `LICENSE`/`NOTICE`. GPL-3.0 is not optional here, it is inherited from CreelEstimates as a derivative work. **Effort: trivial (paste + confirm).**
+-- **renv.lock (A4 / T4.1 / ORCH-25).** Still absent. A publication method with a multi-hour Stan pipeline needs a pinned dependency set; ~5 minutes with a large reproducibility payoff. Add a top-level runner too (`run_estimation.R` already serves this).
++- **[DONE, 2026-08-07] renv.lock (A4 / T4.1 / ORCH-25).** A top-level `renv.lock` now pins R 4.2.2 and the ~99 CRAN packages recorded in the confirmation run's `session_info.txt` (the exact environment that produced the confirmed production estimates). Caveat: it was reconstructed from `session_info.txt`, not `renv::snapshot()`, so it carries no package hashes and covers the two production models' observed dependencies (the experimental weather module additionally needs `geosphere`). Run `renv::restore()` to validate it, or `renv::init()` + `renv::snapshot()` in your environment to regenerate the fully canonical lock with hashes. `run_estimation.R` already serves as the top-level runner.
+ - **Output and repo hygiene (A1/A2 / T4.2 / ORCH-26).** `05_output/` is 1,017 tracked files / ~82 MB and grows each run, including pre-v6 runs not reproducible from current code; `.Rproj.user/` (5 files) is tracked despite being gitignored. Untrack `.Rproj.user`; decide an `output/` policy (gitignore + one canonical reference run, or Releases). Delete the stale `20260711/pooled-CPUE-morning` and `-afternoon` runs.
+ - **[DONE, item 7] A3: gear-resolved `max_divergences` doc/code reconciled.** Code and docs now agree on 5.
+ - **[DONE, item 8] Stale gear-resolved output labels.** The crabber-hours labels (PE plot title, `effort_units_note`) are fixed to gear-deployments.
+diff --git a/PULL_REQUEST.md b/PULL_REQUEST.md
+new file mode 100644
+index 0000000..b2d8e69
+--- /dev/null
++++ b/PULL_REQUEST.md
+@@ -0,0 +1,54 @@
++# Incorporate OSP boat counts: second effort stream, crabbing fraction f, OSP-informs-tau
++
++**Branch:** `OSP-boat-count-incorporation` -> `main`
++**Status:** validated by run on both models; ready for review.
++**Convention:** no em dashes.
++
++## Summary
++
++Adds the OSP Westport Boat Launch (WBL) daily boat-count series to the private-boat effort model, converts all-boat effort to crab effort with a crabbing fraction `f`, and lets the dense OSP series identify the within-day boat turnover (`tau_boat`), resolving the long-standing GR-12 dependence on two winter I/E days. Two interview data fixes and a reader-deduplication refactor ride along. The production config is now the committed default, and both models have been re-run to confirm the numbers.
++
++This is a boat-effort change; shore and commercial/charter are untouched.
++
++## What changed
++
++- **OSP second boat-effort stream (Phase 1, both models).** `04_input_files/WBL_boat_counts.xlsx`, read by `03_R_functions/fetch_osp_boat_counts.R`, enters both Stan models as a second observation on the latent boat effort `lambda_E`, scaled by the OSP within-day turnover `kappa_OSP`. Calibration/coverage diagnostics in `03_R_functions/diagnose_osp_trailer_overlap.R`. Toggle `use_osp_boat_counts`. OSP covers 148 days (mid-March to mid-October); outside that window the model runs trailer-only, so the pre-OSP behavior is the emergent fallback.
++- **Crabbing fraction f (Phase 2/2b/3, boat only).** `03_R_functions/crab_fraction.R`. Trailer and OSP counts are all boats, so `f` converts all-boat effort to crab effort in the boat generated quantities only, decoupled from sampling, so it never affects convergence and leaves CPUE invariant. Beta prior centered on `crab_fraction_set` (production 0.3), updatable per-stratum by the WBL egress classification once it lands. The Point Estimator is f-adjusted too.
++- **OSP-informs-tau (`osp_scale_is_tau`, Phase 3), production ON.** The dense OSP series identifies `tau_boat` directly. The crab-creel trailer count was confirmed to be an instantaneous snapshot, so the OSP/trailer within-day turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a roughly 2x under-count; turning this on corrects that.
++- **Two interview filters (both readers).** Non-crabbing interviews (`number_of_gear == 0`, any trip-completion status) and gear-tampered interviews (a new `gear_tampered == 1` column) are dropped. `gear_tampered` is all blank today, so it removes nothing yet.
++- **Reader de-duplication.** `fetch_crab_data.R` and `fetch_crab_data_v2.R` were near-identical (one differing private-boat filter). They are now one shared `fetch_crab_data(params)` called by both drivers, with the differing filter behind `params$boat_require_gear_time` (TRUE pooled, FALSE gear). `fetch_crab_data_v2.R` is deleted.
++- **`renv.lock`.** A top-level lockfile pins R 4.2.2 and the ~99 CRAN packages used to produce the estimates (see Reproducibility below).
++
++## Production configuration (committed default)
++
++`use_osp_boat_counts = TRUE`, `use_crab_fraction = TRUE` (`crab_fraction_set = 0.3`), `osp_scale_is_tau = TRUE`.
++
++Note this default diverges from the frozen Method v1.0 (f = 1, no OSP); it is the intended production change, and the method-doc reference numbers have been refreshed to it.
++
++## Confirmed harvest numbers (2024-25, Dungeness kept)
++
++| Model | Private boat (BSS median) | Port total (BSS median) | PE port | Confirmation run |
++|---|---|---|---|---|
++| Pooled | 27,684 | 67,312 (95% CI 50,601 to 93,461) | 44,810 | `05_output/20260804/pooled-CPUE-boat-count-validation-run` |
++| Gear-resolved | 27,524 | 66,461 (95% CI 50,259 to 91,309) | 44,810 | `05_output/20260805/gear-type-CPUE-model-boat-count-validation-run` |
++
++The two independent pipelines reconcile to 0.6% on the boat and 1.3% on the port, the strongest internal cross-check available.
++
++## Validation evidence
++
++- **14-run validation batch** (`05_output/osp_validation_summary.csv`; review in `07_documentation/development_notes/osp-validation-review-2026-07-31.md`). All runs converged. Key checks: the boat catch is exactly linear in `f` (0.2/0.5/1.0 give 8.7k/21.6k/43.2k, CPUE invariant), `f = 1` reproduces the pre-f baseline to 0.1%, shore is byte-identical across every toggle (no leakage), and both models reconcile at every step.
++- **Two production confirmation runs** (the table above). Both converge, and each reproduces its pre-merge validation Step 6 fit-for-fit (interview counts and every component `C_sum` byte-identical), which certifies that the reader merge and the interview filters are behavior-neutral on the current data. The two `boat_require_gear_time` branches (TRUE pooled, FALSE gear) are each exercised by one of the runs.
++
++## Known limitations and next steps (not blockers)
++
++- **The crabbing fraction `f = 0.3` is a placeholder,** the largest single lever on the boat harvest, pending the WBL egress crab-vs-total classification pilot. The boat scales linearly in `f`, so the Step 4 sweep in the review is the current sensitivity band. Time-varying `f` by month is coded and validated as plumbing; it binds once the pilot classifies enough boats per stratum.
++- **The `osp_scale_is_tau` correction assumes a representative trailer snapshot** (not a fixed daily peak). A peak-timed snapshot would make the ~2x turnover correction a floor rather than a point estimate. Confirming the snapshot-timing protocol tightens the multiplier; it does not change its direction. See PIPELINE_STATUS Section 6.
++
++## Notes for reviewers
++
++- **Diff size.** The code and documentation change is about 50 files; the branch-vs-main diff is much larger because committed `05_output/` run artifacts (the validation batch and the two confirmation runs) are included per the repository's standing commit-outputs policy. Review the non-`05_output` files for the substance.
++- **`renv.lock` provenance.** It was reconstructed from the confirmation run's `session_info.txt` (the exact environment used), not from `renv::snapshot()`. It therefore carries no package hashes and covers the two production models' observed dependencies; the experimental weather module additionally needs `geosphere`. Run `renv::restore()` to validate, or `renv::init()` + `renv::snapshot()` locally to regenerate the fully canonical lock.
++
++## Reproducibility
++
++R 4.2.2, rstan 2.32.7 (fixed `bss_seed = 20260619`). Restore the environment with `renv::restore()` against the committed `renv.lock`, place inputs in `04_input_files/`, set the model in `run_config.R`, and run `Rscript run_estimation.R`.
+diff --git a/renv.lock b/renv.lock
+new file mode 100644
+index 0000000..ebd01b6
+--- /dev/null
++++ b/renv.lock
+@@ -0,0 +1,607 @@
++{
++  "R": {
++    "Version": "4.2.2",
++    "Repositories": [
++      {
++        "Name": "CRAN",
++        "URL": "https://cloud.r-project.org"
++      }
++    ]
++  },
++  "Packages": {
++    "backports": {
++      "Package": "backports",
++      "Version": "1.4.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "broom": {
++      "Package": "broom",
++      "Version": "1.0.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "bslib": {
++      "Package": "bslib",
++      "Version": "0.10.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "cachem": {
++      "Package": "cachem",
++      "Version": "1.1.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "callr": {
++      "Package": "callr",
++      "Version": "3.7.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "cellranger": {
++      "Package": "cellranger",
++      "Version": "1.1.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "checkmate": {
++      "Package": "checkmate",
++      "Version": "2.1.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "cli": {
++      "Package": "cli",
++      "Version": "3.6.5",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "codetools": {
++      "Package": "codetools",
++      "Version": "0.2-19",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "crayon": {
++      "Package": "crayon",
++      "Version": "1.5.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "curl": {
++      "Package": "curl",
++      "Version": "5.0.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "data.table": {
++      "Package": "data.table",
++      "Version": "1.14.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "DBI": {
++      "Package": "DBI",
++      "Version": "1.1.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "dbplyr": {
++      "Package": "dbplyr",
++      "Version": "2.3.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "dichromat": {
++      "Package": "dichromat",
++      "Version": "2.0-0.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "digest": {
++      "Package": "digest",
++      "Version": "0.6.31",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "dplyr": {
++      "Package": "dplyr",
++      "Version": "1.2.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "ellipsis": {
++      "Package": "ellipsis",
++      "Version": "0.3.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "evaluate": {
++      "Package": "evaluate",
++      "Version": "1.0.5",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "farver": {
++      "Package": "farver",
++      "Version": "2.1.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "fastmap": {
++      "Package": "fastmap",
++      "Version": "1.2.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "forcats": {
++      "Package": "forcats",
++      "Version": "1.0.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "fs": {
++      "Package": "fs",
++      "Version": "1.6.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "gargle": {
++      "Package": "gargle",
++      "Version": "1.3.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "generics": {
++      "Package": "generics",
++      "Version": "0.1.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "ggplot2": {
++      "Package": "ggplot2",
++      "Version": "4.0.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "glue": {
++      "Package": "glue",
++      "Version": "1.8.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "googledrive": {
++      "Package": "googledrive",
++      "Version": "2.0.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "googlesheets4": {
++      "Package": "googlesheets4",
++      "Version": "1.0.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "gridExtra": {
++      "Package": "gridExtra",
++      "Version": "2.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "gt": {
++      "Package": "gt",
++      "Version": "1.3.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "gtable": {
++      "Package": "gtable",
++      "Version": "0.3.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "haven": {
++      "Package": "haven",
++      "Version": "2.5.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "here": {
++      "Package": "here",
++      "Version": "1.0.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "hms": {
++      "Package": "hms",
++      "Version": "1.1.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "htmltools": {
++      "Package": "htmltools",
++      "Version": "0.5.9",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "httr": {
++      "Package": "httr",
++      "Version": "1.4.5",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "inline": {
++      "Package": "inline",
++      "Version": "0.3.21",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "jquerylib": {
++      "Package": "jquerylib",
++      "Version": "0.1.4",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "jsonlite": {
++      "Package": "jsonlite",
++      "Version": "2.0.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "knitr": {
++      "Package": "knitr",
++      "Version": "1.51",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "labeling": {
++      "Package": "labeling",
++      "Version": "0.4.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "lattice": {
++      "Package": "lattice",
++      "Version": "0.20-45",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "lifecycle": {
++      "Package": "lifecycle",
++      "Version": "1.0.5",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "loo": {
++      "Package": "loo",
++      "Version": "2.9.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "lubridate": {
++      "Package": "lubridate",
++      "Version": "1.9.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "magrittr": {
++      "Package": "magrittr",
++      "Version": "2.0.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "Matrix": {
++      "Package": "Matrix",
++      "Version": "1.5-3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "matrixStats": {
++      "Package": "matrixStats",
++      "Version": "0.63.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "mgcv": {
++      "Package": "mgcv",
++      "Version": "1.8-41",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "modelr": {
++      "Package": "modelr",
++      "Version": "0.1.10",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "nlme": {
++      "Package": "nlme",
++      "Version": "3.1-162",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "otel": {
++      "Package": "otel",
++      "Version": "0.2.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "patchwork": {
++      "Package": "patchwork",
++      "Version": "1.2.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "pillar": {
++      "Package": "pillar",
++      "Version": "1.11.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "pkgbuild": {
++      "Package": "pkgbuild",
++      "Version": "1.4.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "pkgconfig": {
++      "Package": "pkgconfig",
++      "Version": "2.0.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "png": {
++      "Package": "png",
++      "Version": "0.1-8",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "prettyunits": {
++      "Package": "prettyunits",
++      "Version": "1.1.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "processx": {
++      "Package": "processx",
++      "Version": "3.8.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "ps": {
++      "Package": "ps",
++      "Version": "1.9.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "purrr": {
++      "Package": "purrr",
++      "Version": "1.0.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "QuickJSR": {
++      "Package": "QuickJSR",
++      "Version": "1.9.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "R6": {
++      "Package": "R6",
++      "Version": "2.6.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "ragg": {
++      "Package": "ragg",
++      "Version": "1.2.5",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "RColorBrewer": {
++      "Package": "RColorBrewer",
++      "Version": "1.1-3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "Rcpp": {
++      "Package": "Rcpp",
++      "Version": "1.0.10",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "RcppParallel": {
++      "Package": "RcppParallel",
++      "Version": "5.1.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "readr": {
++      "Package": "readr",
++      "Version": "2.1.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "readxl": {
++      "Package": "readxl",
++      "Version": "1.4.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "reprex": {
++      "Package": "reprex",
++      "Version": "2.0.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rlang": {
++      "Package": "rlang",
++      "Version": "1.1.7",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rmarkdown": {
++      "Package": "rmarkdown",
++      "Version": "2.20",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rprojroot": {
++      "Package": "rprojroot",
++      "Version": "2.0.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rstan": {
++      "Package": "rstan",
++      "Version": "2.32.7",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rstudioapi": {
++      "Package": "rstudioapi",
++      "Version": "0.14",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "rvest": {
++      "Package": "rvest",
++      "Version": "1.0.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "S7": {
++      "Package": "S7",
++      "Version": "0.2.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "sass": {
++      "Package": "sass",
++      "Version": "0.4.10",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "scales": {
++      "Package": "scales",
++      "Version": "1.4.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "StanHeaders": {
++      "Package": "StanHeaders",
++      "Version": "2.32.10",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "stringi": {
++      "Package": "stringi",
++      "Version": "1.7.12",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "stringr": {
++      "Package": "stringr",
++      "Version": "1.5.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "suncalc": {
++      "Package": "suncalc",
++      "Version": "0.5.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "systemfonts": {
++      "Package": "systemfonts",
++      "Version": "1.0.4",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "textshaping": {
++      "Package": "textshaping",
++      "Version": "0.3.6",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "tibble": {
++      "Package": "tibble",
++      "Version": "3.3.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "tidyr": {
++      "Package": "tidyr",
++      "Version": "1.3.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "tidyselect": {
++      "Package": "tidyselect",
++      "Version": "1.2.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "tidyverse": {
++      "Package": "tidyverse",
++      "Version": "1.3.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "timechange": {
++      "Package": "timechange",
++      "Version": "0.2.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "tzdb": {
++      "Package": "tzdb",
++      "Version": "0.3.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "utf8": {
++      "Package": "utf8",
++      "Version": "1.2.3",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "V8": {
++      "Package": "V8",
++      "Version": "7.0.0",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "vctrs": {
++      "Package": "vctrs",
++      "Version": "0.7.1",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "withr": {
++      "Package": "withr",
++      "Version": "3.0.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "xfun": {
++      "Package": "xfun",
++      "Version": "0.56",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "xml2": {
++      "Package": "xml2",
++      "Version": "1.5.2",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    },
++    "yaml": {
++      "Package": "yaml",
++      "Version": "2.3.7",
++      "Source": "Repository",
++      "Repository": "CRAN"
++    }
++  }
++}
