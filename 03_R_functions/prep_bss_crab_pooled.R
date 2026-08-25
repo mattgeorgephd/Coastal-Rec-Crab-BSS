@@ -27,8 +27,11 @@
 # resolved prep_bss_crab_gear). Pure given its arguments.
 ###############################################################################
 
+# force_resolution (improvement 7): when non-NULL, use this AR resolution verbatim,
+# bypassing both the coverage rule and ar_max_resolution. The escalation ladder in the
+# driver passes each rung in turn; NULL preserves the historical data-driven behaviour.
 prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population_name,
-                          gear_regime = NULL, ie_data = NULL) {
+                          gear_regime = NULL, ie_data = NULL, force_resolution = NULL) {
 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
@@ -60,7 +63,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # thin pot-closure fit at biweekly while the all-gear fit stays data-driven at
   # daily); NULL preserves the original per-population cap behavior.
   ar_sel        <- bss_select_ar_resolution(days, eff_d, population_name, params,
-                                             fixed_resolution = NULL,
+                                             fixed_resolution = force_resolution,
                                              gear_regime = gear_regime)
   ar_resolution <- ar_sel$resolution
   P_n           <- ar_sel$P_n
@@ -147,6 +150,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   osp_match <- tibble(event_date = as.Date(character()), day_index = integer(), count_quantity = numeric())
   if (!is_shore && isTRUE(params$use_osp_boat_counts)) {
     osp_raw <- fetch_osp_boat_counts(params)
+    # improvement 8: the crab-only rows ride along as an attribute. Prefer whatever the
+    # driver already lifted into params (one read per run); fall back to this read so the
+    # prep works standalone.
+    if (is.null(params$osp_crab_rows)) params$osp_crab_rows <- attr(osp_raw, "osp_crab_rows")
     if (!is.null(osp_raw) && nrow(osp_raw) > 0) {
       osp_match <- osp_raw |>
         inner_join(days |> select(event_date, day_index), by = "event_date") |>
@@ -162,7 +169,15 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   cf_data <- crab_fraction_stan_data(is_shore, days, params)
 
   # --- I/E observations (shore only) ---
-  ie_match <- tibble(event_date = Date(), ie_crabber_hours = numeric())
+  # improvement 1/2 fix: the OBSERVED quantity now follows the effort unit, via
+  # eff_spec$ie_obs_col. Under gear-deployments the Stan predicted mean is
+  # lambda_E * tau_shore = crabber TRIPS, so the observation is the crabber ARRIVAL count
+  # (ie_trips); under a time unit it stays crabber-hours. Before this fix the deployment
+  # path compared crabber-hours against crabber-trips (a ~4x scale mismatch; see
+  # bss_effort_spec.R). Set params$ie_shore_obs_unit = "crabber_hours" to reproduce it.
+  ie_obs_col  <- eff_spec$ie_obs_col  %||% "ie_crabber_hours"
+  ie_obs_unit <- eff_spec$ie_obs_unit %||% "crabber-hours"
+  ie_match <- tibble(event_date = Date(), ie_obs = numeric())
   # The I/E stream is fed for SHORE only (predicted mean lambda_E * L = crabber-
   # hours). With POOL-1/POOL-3 the boat is now on the gear-deployment scale, so a
   # boat I/E observation would be boat TRIPS with predicted mean
@@ -170,16 +185,23 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # that is a follow-up; the boat I/E is empty for the 2024-25 window anyway (no
   # WBL ingress days inside it), so leaving it off here is behavior-neutral.
   if(!is.null(ie_data) && nrow(ie_data) > 0 && is_shore) {
+    if (!ie_obs_col %in% names(ie_data))
+      stop("prep_bss_crab_pooled(): the I/E observation column '", ie_obs_col,
+           "' required by effort unit '", eff_spec$unit, "' is missing from ie_data. ",
+           "fetch_ie_data() should emit it; check 03_R_functions/bss_day_length.R.",
+           call. = FALSE)
     ie_match <- ie_data |>
       filter(population == "shore") |>
       inner_join(days |> select(event_date, day_index), by = "event_date") |>
-      filter(!is.na(day_index), ie_crabber_hours > 0)
+      mutate(ie_obs = suppressWarnings(as.numeric(.data[[ie_obs_col]]))) |>
+      filter(!is.na(day_index), is.finite(ie_obs), ie_obs > 0)
   }
 
   IE_n <- nrow(ie_match)
   if(IE_n > 0) {
-    cat(sprintf("  I/E observations: %d days (crabber-hrs range: %.0f-%.0f)\n",
-                IE_n, min(ie_match$ie_crabber_hours), max(ie_match$ie_crabber_hours)))
+    cat(sprintf("  I/E observations: %d days (%s range: %.0f-%.0f; predicted lambda_E * L where L is %s)\n",
+                IE_n, ie_obs_unit, min(ie_match$ie_obs), max(ie_match$ie_obs),
+                eff_spec$L_unit %||% "the expansion factor"))
   } else {
     cat("  I/E observations: 0\n")
   }
@@ -227,22 +249,29 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     isTRUE(params$collapse_mu_hier)
   }
 
-  # item 1: razor-dig shore EFFORT covariate. Non-zero only for a shore fit when the razor
-  # term is active (params$razor_dig_active, set by the driver from razor_dig_mode and, in
-  # "auto" mode, the spillover diagnostic p-value); otherwise all zeros, so B3 stays
-  # decoupled (prior-only, like sigma_IE at IE_n = 0). Dig dates come from the consolidated
-  # opener calendar (params$razor_dig_dates, the nearby-beach dig days).
-  razor_vec <- if (is_shore && isTRUE(params$razor_dig_active)) {
-    as.numeric(days$event_date %in% (params$razor_dig_dates %||% as.Date(character(0))))
-  } else rep(0, D)
-  if (is_shore && isTRUE(params$razor_dig_active))
-    cat(sprintf("  razor_dig effort term ACTIVE (%d razor days in window)\n", sum(razor_vec)))
+  # improvement 4: OTHER-FISHERY OPENER EFFORT COVARIATES (generalizes the razor-only B3).
+  # The driver has already run the screen and stored the per-population selection in
+  # params$opener_selected and the per-date flags in params$opener_flags. Here we build
+  # this fit's own D x K_open matrix and drop any column that is not identifiable inside
+  # THIS window. K_open = 0 reproduces the pre-2026-08-25 model exactly.
+  # The compatibility razor_dig_mode switch contributes its column through `extra`, and
+  # opener_design_matrix() de-duplicates, so razor can never be counted twice.
+  razor_extra <- if (is_shore && isTRUE(params$razor_dig_active)) "razor_nearby_dig" else character(0)
+  open_sel    <- (params$opener_selected %||% list())[[population_name]] %||% character(0)
+  open_spec   <- opener_design_matrix(days, open_sel, params$opener_flags, params,
+                                      extra = razor_extra)
+  if (open_spec$K_open > 0)
+    cat(sprintf("  Opener effort covariates (%d): %s\n", open_spec$K_open,
+                paste(open_spec$labels, collapse = ", ")))
+  for (msg in open_spec$dropped)
+    cat(sprintf("  Opener covariate DROPPED for this fit: %s\n", msg))
 
   stan_data <- list(
     D=D, G=G, S=S,
     P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
-    razor=razor_vec,
+    K_open = as.integer(open_spec$K_open),
+    X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
     O=array(1.0, dim=c(D,S,G)),
     collapse_mu_hier = as.integer(collapse_flag),   # POOL-4 lever (0 = v6.8 default)
 
@@ -291,7 +320,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     IE_n = IE_n,
     day_IE = if(IE_n > 0) ie_match$day_index else integer(0),
     section_IE = if(IE_n > 0) rep(1L, IE_n) else integer(0),
-    IE_crabber_hours = if(IE_n > 0) ie_match$ie_crabber_hours else numeric(0),
+    IE_crabber_hours = if(IE_n > 0) ie_match$ie_obs else numeric(0),   # unit per eff_spec$ie_obs_unit
 
     # Tightened Cauchy scales
     value_cauchyDF_sigma_eps_E=1, value_cauchyDF_sigma_r_E=1,
@@ -300,7 +329,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     value_normal_sigma_B1=1, value_normal_sigma_B2=1,
     value_normal_sigma_B1_C=1,
     value_normal_sigma_B2_C=1,   # item 6a (holiday CPUE effect)
-    value_normal_sigma_B3=1,     # item 1 (razor-dig effort effect)
+    value_normal_sigma_B_open=1,   # improvement 4 (opener effort covariates)
     estimate_cpue_density=as.integer(isTRUE(params$estimate_cpue_density)),  # item 6b (off by default)
     log_E_ref=mu_E_prior,        # item 6b: center the density covariate at the effort level prior
     value_normal_mu_mu_C=mu_C_prior, value_normal_sigma_mu_C=2,
@@ -324,6 +353,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     crab_fraction_beta0    = cf_data$crab_fraction_beta0,
     crab_fraction_n_total  = cf_data$crab_fraction_n_total,
     crab_fraction_n_crab   = cf_data$crab_fraction_n_crab,
+    # improvement 8: OSP crab-only counts as a hard lower bound on f
+    osp_crab_lower         = cf_data$osp_crab_lower,
+    osp_f_n_total          = cf_data$osp_f_n_total,
+    osp_f_n_crab           = cf_data$osp_f_n_crab,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))
     # POOL-1: R_T_alpha / R_T_beta removed. R_G_boat carries a fixed lognormal prior
     # in the Stan model (log(4), 0.5), matching crab_bss_gear_resolved.stan.
@@ -331,18 +364,30 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
 
   # Store AR resolution for downstream reporting
   attr(stan_data, "ar_resolution") <- ar_resolution
+  # improvement 6: the POST-FILTER interview count the CPUE likelihood actually sees, so
+  # the driver can apply bss_min_interviews_fitted. The pre-existing sufficiency guard
+  # counts UNFILTERED interviews and therefore reads looser than reality.
+  attr(stan_data, "n_interviews_fitted") <- nrow(int_d)
+  # improvement 4: column labels for B_open (Stan carries only the index).
+  attr(stan_data, "opener_labels") <- open_spec$labels
 
   # POOL-5: attach the per-interview CPUE data + effort-unit tags so the shared CPUE
   # diagnostics (03_R_functions/bss_cpue_diagnostics.R) run per fit. The tags feed
   # bss_assert_effort_units() (effort E and the CPUE denominator h must share a unit).
-  # With POOL-1/POOL-3 the boat is now gear-deployments/gear-deployments and shore is
-  # crabber-hours/crabber-hours, both self-consistent, so the assertion passes; the
+  # As of v7.7 BOTH components are gear-deployments/gear-deployments (the shore line here
+  # used to say crabber-hours and was stale from before the shore unit move), so the
+  # assertion passes; the
   # saturation/linearity CSVs then confirm the deployment scale is valid for pots
   # (boat catch is flat in soak HOURS but linear in deployments). cpue_data is an
   # ATTRIBUTE, not a stan_data list entry, so rstan never processes it (GR-13); the
   # two dot-prefixed unit tags are plain scalars, tolerated by rstan::stan().
   stan_data[[".effort_unit"]] <- eff_spec$unit   # E = lambda_E * E_scale * L, same unit as h
   stan_data[[".h_unit"]]      <- eff_spec$unit
+  # L's OWN unit, which is NOT the effort unit: L is a turnover (dimensionless) under
+  # gear-deployments and hours under a time unit. Kept separate so the L output CSV can
+  # label the column correctly instead of borrowing the effort unit.
+  stan_data[[".L_unit"]]      <- eff_spec$L_unit %||% NA_character_
+  stan_data[[".ie_obs_unit"]] <- ie_obs_unit
   # gear_time_total is retained for the saturation diagnostic even though the boat
   # no longer uses it as the CPUE denominator (h is now number_of_gear).
   attr(stan_data, "cpue_data") <- tibble(

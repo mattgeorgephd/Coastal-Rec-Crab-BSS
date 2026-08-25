@@ -195,3 +195,89 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
     obs_per_week  = obs_per_week
   )
 }
+
+
+###############################################################################
+# bss_ar_ladder()  --  improvement 7 (2026-08-25): the escalation ladder.
+#
+# WHAT PROBLEM THIS SOLVES
+#   Until now, AR resolution was decided in two steps that both happen BEFORE any
+#   sampling: a coverage rule (is the effort series dense enough for daily?) and a
+#   per-population cap in run_config (ar_max_resolution). The cap is the part that
+#   encodes sampler behaviour, and it was hand-tuned from earlier runs: shore
+#   pot-closure was capped at biweekly because it funnelled at daily on Run 1, the boat
+#   at monthly because it diverged on ~100% of iterations at daily. That works, but it
+#   freezes a per-season empirical finding into config, and a fit that FAILS its gate is
+#   demoted straight to the Point Estimator rather than being retried somewhere it could
+#   succeed.
+#
+#   The ladder replaces the hand-tuning with a procedure: start at the finest rung, fit,
+#   put the result through the SAME convergence gate that decides PE-vs-BSS, and if it
+#   fails, coarsen one rung and refit. Stop at the first rung that passes. Every
+#   component then reports at the finest resolution it can actually support, decided by
+#   that run's own sampler behaviour.
+#
+# WHAT IT COSTS
+#   Every rung is a real multi-hour MCMC fit. On the 2024-25 config the two capped
+#   components will burn their known-bad rungs before settling where the caps already put
+#   them. That is why params$ar_escalate ships FALSE and why the ladder is auditable
+#   (ar_escalation_log.csv records every attempt, its gate verdict, and its runtime).
+#
+# WHAT IT IS NOT
+#   It is not a substitute for the coverage rule. Coverage answers "can this series
+#   identify a daily process at all"; the ladder answers "does the sampler survive it".
+#   With ar_escalate_respect_cap = TRUE the ladder starts from the capped rung instead of
+#   the top, which is the cheap variant: no extra fits when the caps are already right,
+#   but it cannot discover that a cap is too coarse.
+#
+# DEGENERATE RUNGS ARE DROPPED
+#   A rung that yields the same period count as a finer rung already on the ladder, or
+#   fewer than min_periods periods, is removed: refitting an identical model wastes hours,
+#   and a 1-2 period AR is not an AR. For a 76-day pot-closure window that removes
+#   nothing (daily 76 / weekly ~11 / biweekly 6 / monthly 3); for a short window it can
+#   collapse the ladder to a single rung, which the caller reports.
+#
+# RETURNS a character vector of resolutions, finest to coarsest, length >= 1.
+###############################################################################
+bss_ar_ladder <- function(days, eff_d, population_name, params,
+                          fixed_resolution = NULL, gear_regime = NULL,
+                          min_periods = 3L) {
+
+  # ar_force is an experiment override and outranks everything, including the ladder.
+  if (!is.null(params$ar_force) && !is.null(params$ar_force[[population_name]]))
+    return(.bss_normalize_resolution(params$ar_force[[population_name]]))
+
+  base_sel <- bss_select_ar_resolution(days, eff_d, population_name, params,
+                                       fixed_resolution = fixed_resolution,
+                                       gear_regime = gear_regime, verbose = FALSE)
+
+  if (!isTRUE(params$ar_escalate)) return(base_sel$resolution)
+
+  ladder <- vapply(params$ar_escalate_ladder %||% c("daily", "weekly", "biweekly", "monthly"),
+                   .bss_normalize_resolution, character(1), USE.NAMES = FALSE)
+  ladder <- ladder[order(-.bss_res_rank[ladder])]   # finest first
+
+  # Start rung. Default: the top of the ladder (the point of the feature). With
+  # ar_escalate_respect_cap the ladder starts no finer than what the cap + coverage rule
+  # already chose.
+  if (isTRUE(params$ar_escalate_respect_cap))
+    ladder <- ladder[.bss_res_rank[ladder] <= .bss_res_rank[[base_sel$resolution]]]
+  if (length(ladder) == 0) ladder <- base_sel$resolution
+
+  # Drop rungs that are degenerate or duplicate an existing rung's period count.
+  D <- nrow(days)
+  p_of <- function(res) {
+    if (res == "daily")    D
+    else if (res == "weekly")   max(as.integer(days$week_index),  na.rm = TRUE)
+    else if (res == "biweekly") max(as.integer(ceiling(days$day_index / 14)), na.rm = TRUE)
+    else                        max(as.integer(days$month_index), na.rm = TRUE)
+  }
+  pn   <- vapply(ladder, p_of, numeric(1))
+  keep <- !duplicated(pn) & (pn >= min_periods)
+  # Never return an empty ladder: if every rung is degenerate, keep the coarsest.
+  if (!any(keep)) keep[length(keep)] <- TRUE
+  ladder <- ladder[keep]
+
+  max_att <- params$ar_escalate_max_attempts %||% length(ladder)
+  utils::head(ladder, max(1L, as.integer(max_att)))
+}

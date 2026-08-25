@@ -32,8 +32,27 @@
 #   crabbers present, averages only 3.5 to 5.0 hours. Using civil twilight
 #   therefore overestimates shore effort by roughly 2x. L_effective corrects it.
 #
-#   Boats are unaffected: their gear soaks continuously, so L = 24 by
-#   construction (the gear-hours formulation), set in each driver's prep_bss_crab.
+#   Boats do NOT use a day length at all. STALE COMMENT CORRECTED 2026-08-25: the old
+#   text here said "L = 24 by construction (the gear-hours formulation)", which stopped
+#   being true at POOL-3 / v7.6 when the boat moved to gear-deployments. The boat's L is
+#   tau_boat, the deployment turnover (~1.2), set by bss_effort_spec().
+#
+# WHAT PRODUCTION ACTUALLY EXPANDS ON (improvement 2, 2026-08-25)
+#   Since the v7.7 shore unit move, SHORE also expands on a turnover, not on a day
+#   length: E = lambda_E * R_G * tau_shore. Both quantities come from the same 15-minute
+#   I/E presence series:
+#       L_effective = crabber-hours / peak present   (~5.3 h mean)
+#       turnover    = arrivals      / peak present   (~1.72 over 30 WDF20 days)
+#   and their ratio is the implied trip length, 5.26 / 1.72 = 3.07 h against an interview
+#   mean trip length of 3.23 h, which is the free consistency check on the method.
+#   L_effective is still computed every run (it sets the day_length column the
+#   diagnostics and the civil-twilight comparison use) but it is NOT on the estimation
+#   path unless shore_effort_unit is set back to a time unit. The fallback ladder below
+#   therefore governs a DIAGNOSTIC quantity in the production configuration.
+#
+#   Consequence for the I/E likelihood: because the predicted quantity is
+#   lambda_E * tau = TRIPS, the observation must be the arrival count, not crabber-hours.
+#   That pairing is now owned by bss_effort_spec()$ie_obs_col; see the note there.
 #
 # THE FALLBACK LADDER (automatic, no toggle)
 #   estimate_L_effective() degrades WITHIN the same estimand rather than

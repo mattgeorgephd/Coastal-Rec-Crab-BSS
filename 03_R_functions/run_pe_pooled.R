@@ -58,7 +58,15 @@ run_pe_pooled <- function(summ, days, params, population_name) {
     # bss_effort_spec()): gear_per_group * tau_boat deployments per day, replacing
     # the old flat gear-hours (gear_per_group * 24). Keeping PE and BSS on the same
     # unit makes the PE-vs-BSS gap a model disagreement, not a unit artifact.
-    ratio_data <- summ$interview |>
+    # GEAR-RATIO SOURCE. summ$interview_gear (optional) lets a caller supply a DIFFERENT
+    # interview frame for the gear ratio than for the CPUE; the incomplete-trip diagnostic
+    # (improvement 5) uses it to keep an interrupted trip's fully-observed gear count while
+    # still dropping its truncated catch. Absent -> summ$interview, i.e. unchanged.
+    # NOTE this frame is NOT incomplete-trip filtered in production, so the boat PE's
+    # gear-per-group already behaves like the diagnostic's "gear_only" arm while the boat
+    # BSS's R_G_boat behaves like "exclude". That inconsistency is real and is surfaced by
+    # sensitivity_incomplete_trips.csv.
+    ratio_data <- (summ$interview_gear %||% summ$interview) |>
       filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
     gear_per_group <- if(nrow(ratio_data) > 0) mean(ratio_data$number_of_gear)
                       else (params$gear_per_group_default %||% 4.0)
@@ -86,14 +94,70 @@ run_pe_pooled <- function(summ, days, params, population_name) {
   total_days_strat <- days |> filter(open_section_1) |>
     group_by(period, day_type) |> summarise(n_total_days=n(), .groups="drop")
 
-  effort_strat <- daily_effort |>
+  # EMPTY-EFFORT STRATA (2026-08-25). effort_strat is built from SAMPLED days and then
+  # left-joined to the calendar, so a (period x day_type) cell with calendar days but no
+  # sampled day never appears here and contributes ZERO effort. That is a real downward
+  # bias whenever a day type is unsampled in a week, and it got worse for thin components
+  # when Friday moved out of the weekend stratum (improvement 3). The right_join below
+  # makes those cells VISIBLE so they can be counted and, optionally, filled.
+  strat_sampled <- daily_effort |>
     group_by(section_num, period, day_type) |>
     summarise(mean_daily=mean(est_daily_effort,na.rm=TRUE),
               sd_daily=sd(est_daily_effort,na.rm=TRUE),
-              n_sampled=n(), .groups="drop") |>
-    left_join(total_days_strat, by=c("period","day_type")) |>
+              n_sampled=n(), .groups="drop")
+
+  effort_strat <- strat_sampled |>
+    full_join(total_days_strat, by=c("period","day_type")) |>
+    filter(!is.na(n_total_days)) |>
+    mutate(section_num = replace_na(section_num, 1),
+           n_sampled   = replace_na(n_sampled, 0L),
+           empty_effort_stratum = n_sampled == 0)
+
+  n_empty_strata <- sum(effort_strat$empty_effort_stratum)
+  n_empty_days   <- sum(effort_strat$n_total_days[effort_strat$empty_effort_stratum], na.rm = TRUE)
+  n_cal_days     <- sum(effort_strat$n_total_days, na.rm = TRUE)
+
+  if (identical(params$pe_empty_effort_stratum %||% "zero", "day_type") && n_empty_strata > 0) {
+    # Fill with this sub-season's mean daily effort for the SAME day type (weekend days
+    # run 1.7 to 2.3x weekdays, so a day-type-blind fill would be worse than the zero it
+    # replaces), falling back to the overall sub-season mean when that day type is
+    # unsampled everywhere.
+    dt_mean <- daily_effort |>
+      group_by(day_type) |>
+      summarise(dt_mean_daily = mean(est_daily_effort, na.rm = TRUE), .groups = "drop")
+    all_mean <- mean(daily_effort$est_daily_effort, na.rm = TRUE)
+    effort_strat <- effort_strat |>
+      left_join(dt_mean, by = "day_type") |>
+      mutate(mean_daily = if_else(empty_effort_stratum,
+                                  coalesce(dt_mean_daily, all_mean), mean_daily),
+             sd_daily   = if_else(empty_effort_stratum, NA_real_, sd_daily)) |>
+      select(-dt_mean_daily)
+  } else {
+    effort_strat <- effort_strat |>
+      mutate(mean_daily = if_else(empty_effort_stratum, 0, mean_daily))
+  }
+
+  effort_strat <- effort_strat |>
     mutate(est_total = mean_daily * n_total_days,
            se_total = sqrt((n_total_days^2)*replace_na(sd_daily^2,0)/pmax(n_sampled,1)))
+
+  results$n_empty_effort_strata <- n_empty_strata
+  results$n_empty_effort_days   <- n_empty_days
+  if (n_empty_strata > 0) {
+    .msg <- sprintf(paste0("  PE %s: %d of %d week x day-type strata carry calendar days but NO ",
+                           "sampled day (%d of %d days, %.1f%%); filled by '%s'.\n"),
+                    population_name, n_empty_strata,
+                    nrow(effort_strat), n_empty_days, n_cal_days,
+                    100 * n_empty_days / max(n_cal_days, 1),
+                    params$pe_empty_effort_stratum %||% "zero")
+    cat(.msg)
+    if (n_empty_days / max(n_cal_days, 1) > 0.05 &&
+        identical(params$pe_empty_effort_stratum %||% "zero", "zero"))
+      cat(paste0("  *** WARNING: more than 5% of this component's days sit in an unsampled ",
+                 "stratum and are being expanded at ZERO effort. That biases this PE DOWN, and ",
+                 "the missing days are disproportionately weekend/holiday days, which carry ",
+                 "1.7-2.3x weekday effort. Consider pe_empty_effort_stratum = \"day_type\". ***\n"))
+  }
 
   results$effort_total <- sum(effort_strat$est_total, na.rm=TRUE)
   results$effort_se <- sqrt(sum(effort_strat$se_total^2, na.rm=TRUE))

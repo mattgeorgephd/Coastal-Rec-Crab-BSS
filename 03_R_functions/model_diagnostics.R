@@ -42,7 +42,15 @@ bss_structural_summary <- function(fit) {
             "sigma_r_E", "sigma_r_C", "r_E", "r_C",
             "sigma_mu_E", "sigma_mu_C",
             "sigma_IE", "R_G", "R_T", "R_G_boat",
-            "B1", "B2", "B1_C")
+            "B1", "B2", "B1_C",
+            # Added 2026-08-25. Closes the standing Tier-4 item "surface B2_C in the
+            # curated report tables": the always-on holiday CPUE term, the opener effort
+            # covariates (improvement 4), the density term when active, and the boat
+            # scale/fraction parameters were all written only to bss_full_summary_*, so a
+            # reader had to open the full summary to see terms that move the estimate.
+            "B2_C", "gamma_C", "B_open",
+            "kappa_OSP", "sigma_r_OSP", "r_OSP",
+            "f_crab", "f_lower")
   pars <- pars[pars %in% fit@model_pars]
   s <- summary(fit, pars = pars)$summary
   out <- data.frame(parameter = rownames(s),

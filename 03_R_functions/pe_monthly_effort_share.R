@@ -28,11 +28,22 @@
 # scale; the gear block pools modes), so ONLY the share math is centralized here.
 #
 # The daily effort matches run_pe_*(): boat on the gear-DEPLOYMENT scale
-# (mean_count * gear_per_group * tau_boat, day-length-free), shore on crabber-hours
-# (mean_count * crabbers_per_gear * day_length). gear_per_group is recomputed from the
-# same sub-season interview filter run_pe uses, so the split stays consistent with the PE.
-# The share is normalized, so it changes only the across-month distribution, never the
-# component total.
+# (mean_count * gear_per_group * tau_boat, day-length-free) and shore on whatever unit
+# bss_effort_spec() reports, which in production is gear-deployments
+# (mean_count * tau_shore, also day-length-free).
+#
+# IMPROVEMENT 1 FIX (2026-08-25). The shore branch used to be hard-coded to the
+# crabber-hours formula, mean_count * crabbers_per_gear * day_length, left over from
+# before the v7.7 shore unit move. Because day_length is the seasonal L_effective
+# regression, that quietly re-weighted the shore monthly PE distribution toward
+# long-day summer months. The share is normalized, so component and port TOTALS were
+# never affected -- but the monthly split was, and the monthly split is what the
+# PE-fallback components' monthly tables and plots are built from. Now it uses the same
+# unit the shore PE and shore BSS use, so all three agree.
+#
+# gear_per_group is recomputed from the same sub-season interview filter run_pe uses, so
+# the split stays consistent with the PE. The share is normalized, so it changes only the
+# across-month distribution, never the component total.
 #
 # na.rm defaults TRUE: a day in effort_index with no day_length/month_label match is
 # dropped rather than nulling the whole month. This standardizes the one na.rm difference
@@ -46,9 +57,16 @@ pe_monthly_effort_share <- function(pop, summ_ss, days_ss, params, na.rm = TRUE)
   gpg_pe <- params$gear_per_group_default %||% 4.0
   tau_pe <- params$tau_boat_prior_mu %||% 1.2
   if (is_boat_pe) {
-    rd_pe <- summ_ss$interview |>
+    rd_pe <- (summ_ss$interview_gear %||% summ_ss$interview) |>
       dplyr::filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
     if (nrow(rd_pe) > 0) gpg_pe <- mean(rd_pe$number_of_gear)
+  }
+  # Shore multiplier / expansion, mirroring run_pe_*() exactly (improvement 1 fix).
+  if (!is_boat_pe) {
+    spec_pe   <- bss_effort_spec(TRUE, days_ss, params)
+    gear_mult <- if (spec_pe$effort_scale_gear == 1L) 1.0 else summ_ss$crabbers_per_gear
+    tau_shore <- params$tau_shore_prior_mu %||% 1.7
+    use_tau   <- identical(spec_pe$unit, "gear-deployments")
   }
   pe_daily <- summ_ss$effort_index |>
     dplyr::filter(count_sequence <= params$bss_max_count_seq) |>
@@ -57,7 +75,7 @@ pe_monthly_effort_share <- function(pop, summ_ss, days_ss, params, na.rm = TRUE)
     dplyr::left_join(dplyr::select(days_ss, event_date, day_length, month_label),
                      by = "event_date") |>
     dplyr::mutate(daily_effort = if (is_boat_pe) mean_count * gpg_pe * tau_pe
-                                 else mean_count * summ_ss$crabbers_per_gear * day_length)
+                                 else mean_count * gear_mult * (if (use_tau) tau_shore else day_length))
   pe_daily |>
     dplyr::group_by(month_label) |>
     dplyr::summarise(month_effort = sum(daily_effort, na.rm = na.rm), .groups = "drop") |>

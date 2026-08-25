@@ -133,6 +133,18 @@ data {
   vector<lower=0,upper=1>[D] w;
   vector<lower=0,upper=1>[D] holiday;
 
+  // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES, mirroring
+  // crab_bss_pooled.stan. K_open = 0 reproduces the pre-2026-08-25 effort process
+  // EXACTLY (no parameter, no term). The gear-resolved effort mean is a single shared
+  // level split across gears by O, so the opener covariates attach to that shared
+  // level, not per gear.
+  int<lower=0> K_open;
+  // Passed FLAT (column-major, length D * K_open) rather than as a matrix, so the data
+  // block never contains a zero-extent container: rstan marshals a zero-length vector
+  // reliably (the same pattern the empty effort streams already use), whereas a D x 0
+  // matrix is an unnecessary edge case. Rebuilt as a matrix in transformed data.
+  vector[D * K_open] X_open_flat;
+
   // 5b/F2: the per-day effort expansion factor L.
   //   shore: effective day length in HOURS (I/E-derived L_mu).
   //   boat : tau, the deployment TURNOVER (dimensionless), prior-centred on
@@ -248,6 +260,7 @@ data {
   real value_normal_sigma_B1;
   real value_normal_sigma_B2;
   real value_normal_sigma_B1_C;
+  real value_normal_sigma_B_open; // improvement 4: opener effort-covariate prior scale
   // B1.9 parity: switch the weekend CPUE effect on (1) or off (0). When 0, B1_C
   // is still sampled from its prior but drops out of the likelihood, so
   // log_lik_catch is that of the reduced model and elpd_loo is directly
@@ -282,6 +295,36 @@ data {
   vector<lower=0>[n_f_strata] crab_fraction_beta0;
   int<lower=0> crab_fraction_n_total[n_f_strata];
   int<lower=0> crab_fraction_n_crab[n_f_strata];
+  // improvement 8 (2026-08-25): OSP crab-ONLY counts as a HARD LOWER BOUND on f.
+  // OSP cannot see combo trips (crab + another fishery is labelled by the other
+  // fishery), so its crab-only share bounds f from below rather than estimating it:
+  //     f_lower[k] ~ Beta(1,1),  osp_f_n_crab[k] ~ Binomial(osp_f_n_total[k], f_lower[k])
+  //     f[k]       = f_lower[k] + (1 - f_lower[k]) * theta[k]
+  // With osp_crab_lower = 0, or in a stratum with no OSP classification, f_lower[k] = 0
+  // and f[k] = theta[k], reproducing Phase 2/3 exactly. See the pooled model for the
+  // full note; the two models carry identical f machinery on purpose.
+  int<lower=0,upper=1> osp_crab_lower;
+  // Per-stratum totals: used ONLY as the has-data flag and for reporting. The
+  // likelihood below is per DAY, not on these sums -- see the next paragraph.
+  int<lower=0> osp_f_n_total[n_f_strata];
+  int<lower=0> osp_f_n_crab[n_f_strata];
+  // WHY PER-DAY AND WHY BETA-BINOMIAL. A Binomial on the stratum SUM would treat
+  // every boat-day as an independent Bernoulli trial: summing ~150 operating days at
+  // ~50 boats gives n ~ 7,500 and an f_lower posterior SD near 0.005, which is not
+  // remotely supported by ~150 correlated daily observations. The crab share moves
+  // day to day with weather, tide and which other fishery is open, so the honest
+  // model is one observation PER DAY with an estimated overdispersion:
+  //     osp_f_crab[i] ~ beta_binomial(osp_f_total[i], f_lower*kappa, (1-f_lower)*kappa)
+  // kappa is identified by the spread of the daily shares (large kappa -> binomial,
+  // small kappa -> strongly overdispersed), so the bound's precision is measured
+  // rather than assumed. This matters because f multiplies the boat total linearly
+  // and the bound is HARD: an over-precise f_lower would force f up with unearned
+  // confidence.
+  int<lower=0> OSPF_n;
+  int<lower=1,upper=n_f_strata> osp_f_stratum[OSPF_n];
+  int<lower=0> osp_f_total[OSPF_n];
+  int<lower=0> osp_f_crab[OSPF_n];
+  real<lower=0> osp_f_kappa_prior_mu;
   // Phase 3: OSP-informs-tau toggle. 0 (default) keeps the free kappa_OSP scale (Phase 1);
   // 1 makes the OSP mean use L (= tau_boat) as the turnover, so the dense OSP series
   // identifies the boat turnover. See the dev note for the kappa_OSP (~2.7) vs
@@ -306,11 +349,18 @@ transformed data {
   // avoids the per-gear funnel the original (G*S > 1) form would switch on at G>1,S=1.
   int<lower=0, upper=1> use_mu_hier_E = (S > 1) ? 1 : 0;
   int<lower=0, upper=1> use_mu_hier_C = (S > 1) ? 1 : 0;
+
+  // improvement 4: rebuild the opener design matrix from the flat vector.
+  matrix[D, K_open] X_open;
+  for (k in 1:K_open)
+    for (d in 1:D)
+      X_open[d, k] = X_open_flat[(k - 1) * D + d];
 }
 
 parameters {
   real B1;
   real B2;
+  vector[K_open] B_open;   // improvement 4: opener effort covariates (length 0 when unused)
   real B1_C;   // B1.9 parity: weekend/holiday effect on CPUE (pooled model L244)
 
   // 5b: non-centered lognormal deviation for L. Size 0 when estimate_L = 0, so
@@ -340,7 +390,15 @@ parameters {
   real<lower=0> kappa_OSP;    // Phase 1b: OSP-to-trailer scale (within-day boat turnover)
   real<lower=0> sigma_r_OSP;  // Phase 1b: OSP observation overdispersion (own r)
   // Phase 3: per-stratum crabbing fraction. Length 0 when pinned/off (f_crab is then data).
-  vector<lower=0,upper=1>[n_f_strata * crab_fraction_estimate] f_crab_param;
+  // improvement 8: this is now theta, the share of the NOT-crab-labelled boats that were
+  // also crabbing, not f itself. With no OSP lower bound they coincide (f = theta).
+  vector<lower=0,upper=1>[n_f_strata * crab_fraction_estimate] f_theta;
+  // improvement 8: the OSP-observed crab-only share, the hard lower bound on f.
+  vector<lower=0,upper=1>[n_f_strata * osp_crab_lower] f_lower_param;
+  // Beta-binomial concentration for the DAILY OSP crab-only shares. Proper prior
+  // unconditionally, like kappa_OSP / R_G_boat / sigma_IE, so it is decoupled but
+  // proper when the stream is absent.
+  real<lower=0> osp_f_kappa;
 
   real<lower=0> sigma_eps_C;
   cholesky_factor_corr[G*S] Lcorr_C;
@@ -374,17 +432,25 @@ transformed parameters {
   vector<lower=0>[D] L;   // 5b: parameter when estimate_L = 1, else fixed = L_data
   real<lower=0> E_scale;  // P1: 1 (crabbers) or R_G (gear)
   vector<lower=0,upper=1>[n_f_strata] f_crab;   // Phase 3: per-stratum crabbing fraction
+  vector<lower=0,upper=1>[n_f_strata] f_lower;  // improvement 8: OSP crab-only lower bound
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
 
   E_scale = (effort_scale_gear == 1) ? R_G : 1.0;
 
+  // Phase 3 + improvement 8: resolve per-stratum f_crab. f = f_lower + (1-f_lower)*theta,
+  // so f can never fall below the crab-only share OSP directly observed; f_lower = 0
+  // whenever the bound is off or the stratum carries no OSP classification, giving
+  // f = theta (Phase 2/3 behaviour). Original note follows.
   // Phase 3: resolve per-stratum f_crab. apply = 0 -> 1 (shore / off); estimate = 1 ->
   // the Beta parameters; else the pinned set values.
   for (k in 1:n_f_strata) {
+    if (osp_crab_lower == 1 && osp_f_n_total[k] > 0) f_lower[k] = f_lower_param[k];
+    else                                             f_lower[k] = 0.0;
+
     if (apply_crab_fraction == 0)         f_crab[k] = 1.0;
-    else if (crab_fraction_estimate == 1) f_crab[k] = f_crab_param[k];
+    else if (crab_fraction_estimate == 1) f_crab[k] = f_lower[k] + (1 - f_lower[k]) * f_theta[k];
     else                                  f_crab[k] = crab_fraction_value[k];
   }
 
@@ -461,7 +527,10 @@ transformed parameters {
     for (d in 1:D) {
       for (s in 1:S) {
         // ONE effort level for this day/section (omega_E is indexed over S).
-        real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d];
+        // improvement 4: opener effort covariates on the shared effort level. K_open = 0
+        // drops the term entirely, so the default path is byte-identical.
+        real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d]
+          + (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0);
         for (g in 1:G) {
           // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
           lambda_E_S[s][d,g] = exp(log_level_E) * O[d,s,g];
@@ -493,6 +562,7 @@ model {
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
+  B_open ~ normal(0, value_normal_sigma_B_open);  // improvement 4: opener effort covariates
   // Proper prior regardless of use_B1_C. When use_B1_C = 0 this parameter does
   // not enter the likelihood, so it simply samples its prior.
   B1_C ~ normal(0, value_normal_sigma_B1_C);
@@ -547,10 +617,27 @@ model {
   // sampling (f enters only generated quantities), so no identifiability interaction.
   if (crab_fraction_estimate == 1) {
     for (k in 1:n_f_strata) {
-      f_crab_param[k] ~ beta(crab_fraction_alpha0[k], crab_fraction_beta0[k]);
+      // improvement 8: the Beta prior now sits on theta. With no OSP bound f = theta and
+      // this IS the historical prior on f; in an OSP-informed stratum the R side hands
+      // over the combo-share prior instead.
+      f_theta[k] ~ beta(crab_fraction_alpha0[k], crab_fraction_beta0[k]);
+      // Egress classification (combo trips INCLUDED), binding on f itself.
       if (crab_fraction_n_total[k] > 0)
-        crab_fraction_n_crab[k] ~ binomial(crab_fraction_n_total[k], f_crab_param[k]);
+        crab_fraction_n_crab[k] ~ binomial(crab_fraction_n_total[k], f_crab[k]);
     }
+  }
+  // improvement 8: OSP crab-only stream. Binomial on the OBSERVED OSP daily totals, so f
+  // stays out of the effort/CPUE likelihoods and the boat remains exactly linear in f.
+  osp_f_kappa ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
+  if (osp_crab_lower == 1) {
+    for (k in 1:n_f_strata) f_lower_param[k] ~ beta(1, 1);
+    // One observation per OSP day. osp_f_stratum only ever points at strata that
+    // cleared the minimum, so f_lower_param there is the live parameter (never the
+    // pinned 0 that f_lower carries for data-free strata).
+    for (i in 1:OSPF_n)
+      osp_f_crab[i] ~ beta_binomial(osp_f_total[i],
+                                    f_lower_param[osp_f_stratum[i]] * osp_f_kappa,
+                                    (1 - f_lower_param[osp_f_stratum[i]]) * osp_f_kappa);
   }
 
   // GR-7 A1: effort has a SINGLE shared level (index 1); CPUE is per gear.
@@ -644,6 +731,9 @@ generated quantities {
   real R_G_boat_out;
   real kappa_OSP_out;     // Phase 1b: OSP-to-trailer scale
   vector[n_f_strata] f_crab_out;   // Phase 3: per-stratum crabbing fraction
+  vector[n_f_strata] f_lower_out;
+  real osp_f_kappa_out;        // improvement 8: daily-share overdispersion of the OSP bound  // improvement 8: OSP crab-only lower bound on f
+  vector[K_open] B_open_out;       // improvement 4 (labels travel out of band; see the driver)
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
 
@@ -680,6 +770,9 @@ generated quantities {
   R_G_boat_out = R_G_boat;
   kappa_OSP_out = kappa_OSP;   // Phase 1b
   f_crab_out = f_crab;         // Phase 2
+  f_lower_out = f_lower;
+  osp_f_kappa_out = osp_f_kappa;       // improvement 8
+  B_open_out = B_open;         // improvement 4
   sigma_IE_out = sigma_IE;
   L_out = L;
 
