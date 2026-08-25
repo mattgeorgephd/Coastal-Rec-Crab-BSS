@@ -395,10 +395,17 @@ parameters {
   vector<lower=0,upper=1>[n_f_strata * crab_fraction_estimate] f_theta;
   // improvement 8: the OSP-observed crab-only share, the hard lower bound on f.
   vector<lower=0,upper=1>[n_f_strata * osp_crab_lower] f_lower_param;
-  // Beta-binomial concentration for the DAILY OSP crab-only shares. Proper prior
-  // unconditionally, like kappa_OSP / R_G_boat / sigma_IE, so it is decoupled but
-  // proper when the stream is absent.
-  real<lower=0> osp_f_kappa;
+  // Beta-binomial concentration for the DAILY OSP crab-only shares. Declared with
+  // SIZE ZERO when the bound is off, not as an unconditional scalar. The house pattern
+  // (kappa_OSP, R_G_boat, sigma_IE) is "proper prior unconditionally", but that pattern
+  // exists to stop an unused parameter becoming an IMPROPER flat direction -- and a
+  // zero-size parameter has no direction to make proper. Keeping it zero-size means the
+  // unconstrained parameter vector is UNCHANGED when the feature is off, which preserves
+  // the fixed-seed RNG stream and lets a default-config run reproduce a pre-2026-08-25
+  // run bit for bit. That exact reproduction is the sharpest available test that this
+  // patch is behaviour-neutral where it claims to be, and it is worth more than the
+  // symmetry with the older parameters.
+  vector<lower=0>[osp_crab_lower] osp_f_kappa;
 
   real<lower=0> sigma_eps_C;
   cholesky_factor_corr[G*S] Lcorr_C;
@@ -628,16 +635,16 @@ model {
   }
   // improvement 8: OSP crab-only stream. Binomial on the OBSERVED OSP daily totals, so f
   // stays out of the effort/CPUE likelihoods and the boat remains exactly linear in f.
-  osp_f_kappa ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
   if (osp_crab_lower == 1) {
+    osp_f_kappa[1] ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
     for (k in 1:n_f_strata) f_lower_param[k] ~ beta(1, 1);
     // One observation per OSP day. osp_f_stratum only ever points at strata that
     // cleared the minimum, so f_lower_param there is the live parameter (never the
     // pinned 0 that f_lower carries for data-free strata).
     for (i in 1:OSPF_n)
       osp_f_crab[i] ~ beta_binomial(osp_f_total[i],
-                                    f_lower_param[osp_f_stratum[i]] * osp_f_kappa,
-                                    (1 - f_lower_param[osp_f_stratum[i]]) * osp_f_kappa);
+                                    f_lower_param[osp_f_stratum[i]] * osp_f_kappa[1],
+                                    (1 - f_lower_param[osp_f_stratum[i]]) * osp_f_kappa[1]);
   }
 
   // GR-7 A1: effort has a SINGLE shared level (index 1); CPUE is per gear.
@@ -771,7 +778,7 @@ generated quantities {
   kappa_OSP_out = kappa_OSP;   // Phase 1b
   f_crab_out = f_crab;         // Phase 2
   f_lower_out = f_lower;
-  osp_f_kappa_out = osp_f_kappa;       // improvement 8
+  osp_f_kappa_out = (osp_crab_lower == 1) ? osp_f_kappa[1] : 0.0;       // improvement 8
   B_open_out = B_open;         // improvement 4
   sigma_IE_out = sigma_IE;
   L_out = L;

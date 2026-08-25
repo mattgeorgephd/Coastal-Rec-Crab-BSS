@@ -112,7 +112,10 @@ data {
   // HMC trajectories and the RNG stream, so a fixed-seed rerun will not diff to zero
   // against Run 6. Judge a baseline-reproduction run on medians and intervals within
   // Monte Carlo error, not by comparing CSVs byte for byte. (The gear-resolved model
-  // never carried B3 and only gains zero-size containers, so IT is bit-identical.)
+  // never carried B3, and every parameter this patch adds there is zero-size at the
+  // default settings, so IT is bit-identical and is the sharp canary for this batch --
+  // which is why crab_bss_gear_resolved.stan's osp_f_kappa is declared as a
+  // size-zero-when-off vector rather than an unconditional scalar.)
   // The driver owns column selection (manual, or automatic on the spillover diagnostic's
   // multiplicity-adjusted p-values) and passes the column labels back out of band.
   // CPUE deliberately gets no opener covariate: every opener-vs-catch-rate test in the
@@ -340,10 +343,17 @@ parameters {
   vector<lower=0,upper=1>[n_f_strata * crab_fraction_estimate] f_theta;
   // improvement 8: the OSP-observed crab-only share, the hard lower bound on f.
   vector<lower=0,upper=1>[n_f_strata * osp_crab_lower] f_lower_param;
-  // Beta-binomial concentration for the DAILY OSP crab-only shares. Proper prior
-  // unconditionally, like kappa_OSP / R_G_boat / sigma_IE, so it is decoupled but
-  // proper when the stream is absent.
-  real<lower=0> osp_f_kappa;
+  // Beta-binomial concentration for the DAILY OSP crab-only shares. Declared with
+  // SIZE ZERO when the bound is off, not as an unconditional scalar. The house pattern
+  // (kappa_OSP, R_G_boat, sigma_IE) is "proper prior unconditionally", but that pattern
+  // exists to stop an unused parameter becoming an IMPROPER flat direction -- and a
+  // zero-size parameter has no direction to make proper. Keeping it zero-size means the
+  // unconstrained parameter vector is UNCHANGED when the feature is off, which preserves
+  // the fixed-seed RNG stream and lets a default-config run reproduce a pre-2026-08-25
+  // run bit for bit. That exact reproduction is the sharpest available test that this
+  // patch is behaviour-neutral where it claims to be, and it is worth more than the
+  // symmetry with the older parameters.
+  vector<lower=0>[osp_crab_lower] osp_f_kappa;
 
   real<lower=0> sigma_IE;
 
@@ -531,16 +541,16 @@ model {
   // linear in f and the model CPUE remains invariant (the validated Phase 2/3 property).
   // Proper prior unconditionally, so an unused f_lower_param is decoupled-but-proper,
   // exactly like sigma_IE at IE_n = 0.
-  osp_f_kappa ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
   if (osp_crab_lower == 1) {
+    osp_f_kappa[1] ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
     for (k in 1:n_f_strata) f_lower_param[k] ~ beta(1, 1);
     // One observation per OSP day. osp_f_stratum only ever points at strata that
     // cleared the minimum, so f_lower_param there is the live parameter (never the
     // pinned 0 that f_lower carries for data-free strata).
     for (i in 1:OSPF_n)
       osp_f_crab[i] ~ beta_binomial(osp_f_total[i],
-                                    f_lower_param[osp_f_stratum[i]] * osp_f_kappa,
-                                    (1 - f_lower_param[osp_f_stratum[i]]) * osp_f_kappa);
+                                    f_lower_param[osp_f_stratum[i]] * osp_f_kappa[1],
+                                    (1 - f_lower_param[osp_f_stratum[i]]) * osp_f_kappa[1]);
   }
 
   if (estimate_L == 1) {
@@ -675,7 +685,7 @@ generated quantities {
   kappa_OSP_out = kappa_OSP;   // Phase 1
   f_crab_out = f_crab;         // Phase 2
   f_lower_out = f_lower;
-  osp_f_kappa_out = osp_f_kappa;       // improvement 8
+  osp_f_kappa_out = (osp_crab_lower == 1) ? osp_f_kappa[1] : 0.0;       // improvement 8
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
   B2_C_out = B2_C;
