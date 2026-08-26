@@ -1,0 +1,7 @@
+"rung","model","run_tag","ok","minutes","outdir","port_BSS_catch","port_BSS_lo95","port_BSS_hi95","port_BSS_effort","port_PE_catch","shore_ag_BSS_catch","shore_pc_BSS_catch","boat_ag_BSS_catch","boat_ag_BSS_effort","boat_pc_method","boat_pc_PE_catch","shore_ag_sigma_IE","shore_ag_B1","shore_ag_R_G","shore_ag_L_med","shore_ag_L_width","shore_ag_neff","fits_passed","ar_resolutions","empty_effort_note"
+1,"gear_resolved","PV1-baseline",FALSE,2.1,"gear-type-CPUE-model-PV1-baseline",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+1,"pooled","PV1-baseline",FALSE,1.5,"pooled-CPUE-PV1-baseline",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+2,"pooled","PV2-ie-unit",FALSE,1.5,"pooled-CPUE-PV2-ie-unit",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+3,"pooled","PV3-weekend",FALSE,1.6,"pooled-CPUE-PV3-weekend",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+4,"pooled","PV4-minint",FALSE,0.3,"pooled-CPUE-PV4-minint",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+5,"gear_resolved","PV5-gear-ship",FALSE,0.2,"gear-type-CPUE-model-PV5-gear-ship",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA

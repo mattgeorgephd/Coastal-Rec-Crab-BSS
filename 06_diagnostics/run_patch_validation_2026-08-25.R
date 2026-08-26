@@ -110,7 +110,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE          # TRUE: resolve and print everything, fit nothing. START HERE.
+DRY_RUN <- FALSE          # TRUE: resolve and print everything, fit nothing. START HERE.
 MODE    <- "cumulative"   # "cumulative" (rung N = rung N-1 + one change) | "isolated"
 RUNGS   <- 1:5            # subset to re-run part of the ladder, e.g. 2:4
 RESUME  <- TRUE           # skip a rung whose output folder already looks complete
