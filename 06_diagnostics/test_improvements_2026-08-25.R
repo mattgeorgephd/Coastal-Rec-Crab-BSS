@@ -25,7 +25,8 @@ here <- function(...) file.path(.root, ...)
 setwd(.root)
 
 for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
-            "bss_opener_covariates.R","diagnose_incomplete_trips.R")) source(file.path("03_R_functions", f))
+            "bss_opener_covariates.R","diagnose_incomplete_trips.R",
+            "bss_stan_fit.R")) source(file.path("03_R_functions", f))
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -251,6 +252,84 @@ local({
   chk("shipped: pe_empty_effort_stratum = zero (historical)", identical(rc$pe_empty_effort_stratum, "zero"))
   chk("shipped: filter_incomplete_trips still TRUE (diagnostic only)", identical(rc$filter_incomplete_trips, TRUE))
   chk("shipped: crab_fraction_strata unchanged", identical(rc$crab_fraction_strata, "none"))
+})
+
+
+# ---------- 9. STAN DATA CONTRACT ----------
+# THE TEST THAT WAS MISSING. The 2026-08-25 patch declared five new variables in both
+# .stan data blocks (OSPF_n, osp_f_stratum, osp_f_total, osp_f_crab,
+# osp_f_kappa_prior_mu) and forwarded three of the eight new crab_fraction_stan_data()
+# fields out of the prep functions. Stan then failed at data initialization on every
+# fit, rstan returned an EMPTY stanfit instead of raising, and the run died 300 lines
+# downstream in apply() with "dim(X) must have a positive length". Every fit of every
+# rung of the validation ladder was lost to it.
+#
+# Three layers of guard, cheapest first:
+#   9a  the parser itself is sane (a silently-empty parse would make 9b/9c vacuous)
+#   9b  every declared Stan data variable is at least MENTIONED in the prep that builds
+#       that model's data list  --  a static check, no data files, runs in milliseconds
+#   9c  every crab-fraction field the Stan models declare is returned by EVERY return
+#       path of crab_fraction_stan_data()  --  exact, exercised on real return values
+# The exact per-fit check lives in bss_assert_stan_data(), which bss_stan_fit() runs
+# before every sampler call.
+local({
+  models <- c(pooled        = file.path("02_stan_models", "crab_bss_pooled.stan"),
+              gear_resolved = file.path("02_stan_models", "crab_bss_gear_resolved.stan"))
+  preps  <- c(pooled        = file.path("03_R_functions", "prep_bss_crab_pooled.R"),
+              gear_resolved = file.path("03_R_functions", "prep_bss_crab_gear.R"))
+
+  # 9a. parser sanity
+  np <- bss_stan_data_names(models[["pooled"]])
+  chk("stan data parser returns a plausible variable count", length(np) > 60, length(np))
+  chk("stan data parser finds old-style array declarations", all(c("period","O") %in% np))
+  chk("stan data parser finds the improvement-8 block",
+      all(c("OSPF_n","osp_f_stratum","osp_f_total","osp_f_crab","osp_f_kappa_prior_mu") %in% np))
+
+  # 9b. every declared variable is mentioned in its prep
+  for (m in names(models)) {
+    need <- bss_stan_data_names(models[[m]])
+    src  <- paste(readLines(preps[[m]], warn = FALSE), collapse = "\n")
+    miss <- need[!vapply(need, function(v)
+      grepl(paste0("(^|[^A-Za-z0-9_.])", v, "([^A-Za-z0-9_]|$)"), src, perl = TRUE),
+      logical(1))]
+    chk(sprintf("%s: every Stan data variable is built in %s", m, basename(preps[[m]])),
+        length(miss) == 0, if (length(miss)) paste("MISSING:", paste(miss, collapse=", ")) else "")
+  }
+
+  # 9c. every crab-fraction field, on every return path of crab_fraction_stan_data()
+  cf_need <- intersect(bss_stan_data_names(models[["pooled"]]),
+                       bss_stan_data_names(models[["gear_resolved"]]))
+  cf_need <- grep("^(apply_crab_fraction|crab_fraction_.+|n_f_strata|f_stratum|osp_crab_lower|osp_f_.+|OSPF_n)$",
+                  cf_need, value = TRUE)
+  chk("crab-fraction contract is non-trivial", length(cf_need) >= 16, length(cf_need))
+
+  paths <- list(
+    `shore / feature off` = crab_fraction_stan_data(TRUE,  days289, P,  quiet = TRUE),
+    `boat, f pinned`      = crab_fraction_stan_data(FALSE, days289,
+                              modifyList(P, list(crab_fraction_fixed = 0.35)), quiet = TRUE),
+    `boat, f estimated`   = crab_fraction_stan_data(FALSE, days289, P,  quiet = TRUE))
+  for (nm in names(paths)) {
+    miss <- setdiff(cf_need, names(paths[[nm]]))
+    chk(sprintf("crab_fraction_stan_data covers the contract (%s)", nm),
+        length(miss) == 0, if (length(miss)) paste("MISSING:", paste(miss, collapse=", ")) else "")
+  }
+
+  # 9d. the guards themselves fire
+  good <- as.list(setNames(rep(list(0L), length(np)), np))
+  chk("bss_assert_stan_data passes a complete list",
+      isTRUE(tryCatch(bss_assert_stan_data(good, models[["pooled"]], "unit"),
+                      error = function(e) conditionMessage(e))))
+  chk("bss_assert_stan_data rejects a missing variable",
+      grepl("OSPF_n", tryCatch({bss_assert_stan_data(good[setdiff(np, "OSPF_n")],
+                                                     models[["pooled"]], "unit"); ""},
+                               error = function(e) conditionMessage(e)), fixed = TRUE))
+  bad_na <- good; bad_na$L_data <- c(1, NA, 3)
+  chk("bss_assert_stan_data rejects a non-finite value",
+      grepl("L_data", tryCatch({bss_assert_stan_data(bad_na, models[["pooled"]], "unit"); ""},
+                               error = function(e) conditionMessage(e)), fixed = TRUE))
+  chk("bss_assert_fit_usable rejects a non-stanfit",
+      grepl("EMPTY stanfit", tryCatch({bss_assert_fit_usable(NULL, "unit"); ""},
+                                      error = function(e) conditionMessage(e)), fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

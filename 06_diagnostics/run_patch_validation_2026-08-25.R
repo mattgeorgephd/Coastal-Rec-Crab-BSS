@@ -153,6 +153,54 @@ prefix <- list(pooled = "pooled-CPUE-", gear_resolved = "gear-type-CPUE-model-")
 stopifnot(all(file.exists(unlist(model_rmd))))
 
 # ---------------------------------------------------------------------------
+# PRE-FLIGHT: the R-to-Stan data contract.
+#
+# Added 2026-08-26 after the first attempt at this ladder lost all six model-runs to a
+# defect this check finds in milliseconds. Five variables were declared in both .stan
+# data blocks and never passed by the prep functions; Stan failed at data initialization
+# on every fit, rstan returned an empty stanfit instead of raising, and the run died three
+# layers downstream with "dim(X) must have a positive length". Nothing about that message
+# named the cause, and the fits are hours apart, so the cost of NOT running this check is
+# the whole batch.
+#
+# Deliberately runs in the DRY RUN too, and needs no packages: it is a text parse of the
+# .stan data block against the prep source. bss_assert_stan_data() repeats the check
+# exactly, per fit, immediately before each sampler call.
+# ---------------------------------------------------------------------------
+local({
+  src_fn <- .here("03_R_functions", "bss_stan_fit.R")
+  if (!file.exists(src_fn)) {
+    warning("bss_stan_fit.R not found; skipping the Stan data-contract pre-flight.", call. = FALSE)
+    return(invisible(NULL))
+  }
+  e <- new.env(); sys.source(src_fn, envir = e)
+  pairs <- list(
+    pooled        = c("crab_bss_pooled.stan",        "prep_bss_crab_pooled.R"),
+    gear_resolved = c("crab_bss_gear_resolved.stan", "prep_bss_crab_gear.R"))
+  fail <- character(0)
+  for (m in names(pairs)) {
+    stan_f <- .here("02_stan_models", pairs[[m]][1])
+    prep_f <- .here("03_R_functions", pairs[[m]][2])
+    if (!file.exists(stan_f) || !file.exists(prep_f)) next
+    need <- e$bss_stan_data_names(stan_f)
+    src  <- paste(readLines(prep_f, warn = FALSE), collapse = "\n")
+    miss <- need[!vapply(need, function(v)
+      grepl(paste0("(^|[^A-Za-z0-9_.])", v, "([^A-Za-z0-9_]|$)"), src, perl = TRUE),
+      logical(1))]
+    cat(sprintf("  pre-flight  %-14s %2d Stan data variables, %d not built in %s\n",
+                m, length(need), length(miss), basename(prep_f)))
+    if (length(miss))
+      fail <- c(fail, sprintf("%s: %s (not built in %s)", m,
+                              paste(miss, collapse = ", "), basename(prep_f)))
+  }
+  if (length(fail))
+    stop("PRE-FLIGHT FAILED, the R-to-Stan data contract is broken. Every fit would ",
+         "return an empty stanfit.\n  ", paste(fail, collapse = "\n  "),
+         "\n  Fix the prep function(s) before starting the ladder; see the 2026-08-26 ",
+         "entry in development_notes/PIPELINE_STATUS.md.", call. = FALSE)
+})
+
+# ---------------------------------------------------------------------------
 # The pre-patch configuration. Every key here is a 2026-08-25 addition or change,
 # set back to what the code did before the patch. NOTE bss_min_interviews_fitted = 0:
 # the post-filter floor did not exist before, and leaving it NULL would make it inherit
@@ -621,7 +669,24 @@ for (i in RUNGS) {
       }
       TRUE
     }, error = function(e) {
-      message("*** RUNG ", L$id, " / ", m, " FAILED: ", conditionMessage(e)); FALSE })
+      message("*** RUNG ", L$id, " / ", m, " FAILED: ", conditionMessage(e))
+      # 2026-08-26: the render error is often NOT the cause. A Stan chain failure surfaces
+      # downstream (rstan returns an empty stanfit rather than raising), so point the
+      # operator at what the sampler itself said before they start guessing.
+      od <- tryCatch(get("output_dir", envir = run_env, inherits = FALSE),
+                     error = function(e2) NA_character_)
+      if (!is.na(od) && dir.exists(od)) {
+        logs <- list.files(od, pattern = "^stan_console_.*\\.log$", full.names = TRUE)
+        if (length(logs)) {
+          last <- logs[which.max(file.mtime(logs))]
+          message("    Stan console for the last fit attempted (", basename(last), "):")
+          message(paste0("      ", utils::tail(readLines(last, warn = FALSE), 8), collapse = "\n"))
+        } else {
+          message("    No stan_console_*.log in ", od,
+                  " -- the run failed before or during the first sampler call.")
+        }
+      }
+      FALSE })
     mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
 
     r <- extract_run(L$id, m, run_tag, find_outdir(m, run_tag), mins, ok)

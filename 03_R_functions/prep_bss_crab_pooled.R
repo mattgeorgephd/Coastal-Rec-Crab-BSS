@@ -357,6 +357,16 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     osp_crab_lower         = cf_data$osp_crab_lower,
     osp_f_n_total          = cf_data$osp_f_n_total,
     osp_f_n_crab           = cf_data$osp_f_n_crab,
+    # 2026-08-26 FIX: these five were declared in the .stan data block by the
+    # 2026-08-25 patch but never forwarded out of crab_fraction_stan_data(), so Stan
+    # failed at data initialization on every fit and returned an empty stanfit. See
+    # 03_R_functions/bss_stan_fit.R, which now refuses to sample with an incomplete
+    # data list rather than letting the failure surface 300 lines downstream.
+    OSPF_n                 = cf_data$OSPF_n,
+    osp_f_stratum          = cf_data$osp_f_stratum,
+    osp_f_total            = cf_data$osp_f_total,
+    osp_f_crab             = cf_data$osp_f_crab,
+    osp_f_kappa_prior_mu   = cf_data$osp_f_kappa_prior_mu,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))
     # POOL-1: R_T_alpha / R_T_beta removed. R_G_boat carries a fixed lognormal prior
     # in the Stan model (log(4), 0.5), matching crab_bss_gear_resolved.stan.

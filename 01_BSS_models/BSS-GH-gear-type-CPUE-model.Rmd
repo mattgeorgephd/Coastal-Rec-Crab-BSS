@@ -822,9 +822,20 @@ for(cg in bss_catch_groups) {
                     fit_iter, fit_warmup, fit_treedep, fit_delta))
 
         timer_start(paste0("BSS_", label, "_att", attempt))
-        fit_try <- rstan::stan(
+        # 2026-08-26: guarded wrapper, 03_R_functions/bss_stan_fit.R. On the happy path
+        # this is rstan::stan() with the same arguments, same seed, same RNG stream, so
+        # fits are unchanged. It adds two pre/post checks that would have turned the
+        # 2026-08-25 "dim(X) must have a positive length" failure into a one-line error
+        # naming the missing Stan data variable: a data-completeness check before the
+        # sampler, and an empty-stanfit check after it. log_file keeps the Stan console
+        # for this fit in output_dir, so a chain failure stays diagnosable even though
+        # this chunk is results='hide'.
+        fit_try <- bss_stan_fit(
           file = here("02_stan_models", params$bss_model_file),
           data = bss_data_try,
+          label = sprintf("%s att%d", label, attempt),
+          log_file = file.path(output_dir,
+                               sprintf("stan_console_%s_att%d.log", label, attempt)),
           chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
           control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
           seed = params$bss_seed,   # was missing: gear-resolved fits were not reproducible

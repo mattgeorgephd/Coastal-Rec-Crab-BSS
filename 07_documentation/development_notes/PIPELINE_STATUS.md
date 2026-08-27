@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-08-25
+- **Last updated:** 2026-08-26
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -15,7 +15,7 @@
 | Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** + **GR-7 Phase 1** (2026-07-20) + **Phase 2 coded** | Production. Shore + boat on gear-deployments. Default `G = 1` (gear split PE-apportioned); with `gear_resolved_G = TRUE` the SHORE fits carry genuine per-gear CPUE (all-gear G = 5, pot-closure G = 4), boat stays `G = 1` (GR-7 Phase 1, validated 2026-07-20). **Phase 2** (Dirichlet gear shares, `gear_share_dirichlet`, default off; forced off at `G = 1`) is **coded 2026-07-21 (parses under stanc 2.32.5), not yet sampled**, output byte-identical to Phase 1 when off. |
 | Weather/tide covariate module (`crab_bss_pooled_weather_adjusted.stan`, `06_diagnostics/...Rmd`) | ~v6.9 parity, **stale** | Not production. Forked engine, pre-deployment-scale Stan, not re-run since the day-length extraction. Do not cite its boat number. |
 | Config surface (`run_config.R`) | base-params architecture (P5) | `run_config` is the base parameter set; each driver layers model-specific tuning via `modifyList(run_config, params_model)`. **2026-08-25:** `bss_min_interviews` was removed from both `params_model` blocks; it sat on the winning side of that merge and silently overrode `run_config`. |
-| 2026-08-25 improvement batch (both models, both Stan files, 5 new/rewritten R modules) | **CODED, UNRUN** | Eight requested improvements plus two defects found in review. Ships with every behaviour-changing feature OFF except the three that were explicitly requested as changes (weekend = Sat/Sun, `bss_min_interviews` = 15, shore I/E observation unit). See the 2026-08-25 update below. |
+| 2026-08-25 improvement batch (both models, both Stan files, 6 new/rewritten R modules) | **CODED, UNRUN; one blocking defect found and fixed 2026-08-26** | Eight requested improvements plus two defects found in review. Ships with every behaviour-changing feature OFF except the three that were explicitly requested as changes (weekend = Sat/Sun, `bss_min_interviews` = 15, shore I/E observation unit). **The first validation attempt (2026-08-25, six model-runs) failed on every fit** because five Stan data variables were declared but never passed; fixed 2026-08-26, see the update below. The ladder must be re-run. |
 
 **Authoritative run:** `05_output/20260715/pooled-CPUE-230256` (**Run 6**, pooled default + shore pot-closure biweekly AR, 2026-07-15), superseding **Run 1** (`20260713/pooled-CPUE-run1`) by resolving the pot-closure regression so all 3 fits pass (see the Run 6 update above; port total 83,035 -> 83,488). Boat on monthly AR selected by the per-population resolution map (`ar_force = NULL`); gate at fraction 0.05 / impact 0.10 SD. Run 1 (the immediate baseline, retained for provenance) folds the nine-item Tier-2 + parity batch (below) on top of the 7/12 Tier-1 baseline and **validates** it: the two passing BSS fits are essentially identical to 7/12 (shore all-gear 20,655 -> 20,607; boat all-gear 43,480 -> 43,180), so the nine items are behavior-neutral on the reported total (port total 83,825 -> 83,035, -0.9%). The one behavior change is the boat point-estimator (empty-stratum fallback; see the headline), a cross-check gain rather than a change to the reported number. The prior authoritative run was `20260712/pooled-CPUE-morning`.
 
@@ -109,13 +109,52 @@ The rungs: (i) baseline reproduction with every 2026-08-25 feature at its pre-pa
 
 **Two side effects worth knowing before the runs.** First, the weekend redefinition changes which week x day-type PE strata are populated, and the PE expands an unsampled stratum at ZERO effort. On the 2024-25 data the boat POT CLOSURE goes from 4 of 76 days zeroed to 9 of 76, all weekend or holiday days, which carry 1.7-2.3x weekday effort, so its PE is biased DOWN by more than before. The absolute size is small (that component is a few hundred crab against a ~67,000 port total) and the default stays at the historical `pe_empty_effort_stratum = "zero"` rather than changing two things at once, but every run now REPORTS the zeroed-stratum count per component and warns above 5%, and `"day_type"` is available as the fill. Revisit after run (iii). Second, `use_osp_crab_lower` ships FALSE on purpose: the moment the crab-only column appears in the workbook, a TRUE default would move the boat harvest on the same run that first reads the new data, and at `crab_fraction_strata = "none"` much of that move would come from the combo-share PLACEHOLDER rather than from OSP's data.
 
+
+**Update 2026-08-26 (BLOCKING DEFECT in the 2026-08-25 batch, found by the first validation attempt; fixed).** The 2026-08-25 ladder was run and **all six model-runs failed on their first fit**, every one of them reporting
+
+```text
+Quitting from BSS-GH-pooled-CPUE-model.Rmd:1098-1413 [bss-fits]
+*** RUNG n / <model> FAILED: dim(X) must have a positive length
+```
+
+**Cause.** `crab_fraction_stan_data()` returns 17 fields; `prep_bss_crab_pooled()` and `prep_bss_crab_gear()` copy them into the Stan data list one at a time, and five of them were never copied: `OSPF_n`, `osp_f_stratum`, `osp_f_total`, `osp_f_crab`, `osp_f_kappa_prior_mu`. All five are declared UNCONDITIONALLY in the `data` block of both `.stan` files (improvement 8 puts the per-day OSP likelihood behind `if (osp_crab_lower == 1)`, but the DECLARATIONS are not conditional and cannot be). Stan therefore threw at data initialization on every fit, in every configuration, in both models:
+
+```text
+Exception: variable does not exist; processing stage=data initialization;
+variable name=OSPF_n; base type=int
+failed to create the sampler; sampling not done
+```
+
+This was config-independent, which is why the pre-patch-equivalent baseline rung died exactly like the shipped-config rung. Reproduced locally against the 2024-25 inputs on the shore pot-closure fit; `stan()` returned mode 2.
+
+**Why it took six runs and an hour of wall clock to see a one-line error.** rstan does not raise a data-initialization failure as an R condition. It prints it to the MESSAGE stream, returns an EMPTY `stanfit` (mode 2), and lets the caller continue. The driver then degraded silently through three layers before dying somewhere else entirely:
+
+| step | on an empty stanfit | visible symptom |
+|---|---|---|
+| `summary(fit, pars = bss_pars)$summary` | rstan's method returns `invisible(NULL)` for mode 2 | `bss_summary_*.csv` written as 3 bytes (`""`) |
+| `write.csv(as.data.frame(NULL), ...)` | writes an empty frame | no error |
+| `quantile(NULL, c(.025, .5, .975))` | `NA NA NA` | no error |
+| `apply(rstan::extract(fit, "E")$E[, 1, , 1], 2, median)` | `NULL[, 1, , 1]` is `NULL`; `apply()` rejects it | **`dim(X) must have a positive length`** |
+
+The chunk is `results='hide'`, so the one line that named the actual variable was the only diagnostic produced and the only one not shown.
+
+**Fix (three parts, all on `OSP-boat-count-incorporation`).**
+
+1. **The five fields are forwarded** in both `prep_bss_crab_pooled.R` and `prep_bss_crab_gear.R`. No model, prior or likelihood changes; with `use_osp_crab_lower = FALSE` they are `OSPF_n = 0` and three zero-length integer arrays, exactly as `crab_fraction_stan_data()`'s neutral path always intended. **The 2026-08-25 batch's behaviour is unchanged by this fix; it simply becomes runnable.**
+2. **`03_R_functions/bss_stan_fit.R` (new).** Both drivers now call `bss_stan_fit()` instead of `rstan::stan()`. Same arguments, same seed, same RNG stream, so a fit that succeeds is unaffected and rung (i)'s bit-identity test on the gear track still means what it meant. It adds: `bss_assert_stan_data()`, which parses the `data` block of the `.stan` file being used and refuses to call the sampler when a declared variable is absent, non-numeric, or non-finite (this failure would now surface as `5 variable(s) declared in crab_bss_pooled.stan are missing from the data list: OSPF_n, ...` before any compile); `bss_assert_fit_usable()`, which rejects an empty `stanfit` and quotes what Stan actually said instead of letting `NULL` propagate; and a per-fit `stan_console_<label>_att<n>.log` in `output_dir`, recorded with a non-muffling `withCallingHandlers()` so sampler progress still reaches knitr, which keeps a chain failure diagnosable after a `results='hide'` knit.
+3. **The regression test that was missing** is now section 9 of `06_diagnostics/test_improvements_2026-08-25.R`: for BOTH models, every variable declared in the Stan `data` block must be built in the corresponding prep, and every crab-fraction field must be returned by EVERY return path of `crab_fraction_stan_data()` (all three: shore/off, `f` pinned, `f` estimated). Verified to FAIL on the pre-fix files and pass on the fixed ones. 80 assertions now, all passing.
+
+**The process lesson, stated plainly.** The 2026-08-25 batch was described as "static-checked": both Stan files parsed under stanc, every R module parsed, and 67 unit assertions passed. None of those checks crossed the R-to-Stan boundary, which is the one seam the batch changed on both sides at once. A parse check on each side of an interface is not a check of the interface. The section-9 contract test is cheap (milliseconds, no data files, no rstan) and is now the thing to run before committing to a multi-hour fit; `bss_assert_stan_data()` is the same check at fit time, where it cannot be skipped.
+
+**Status of the validation ladder: NOT YET RUN.** The 2026-08-25 six-run ladder produced no fitted results and its partial folders under `05_output/20260825/` should be treated as scratch, not as runs. `06_diagnostics/run_patch_validation_2026-08-25.R` is unchanged and still correct; re-run it (`DRY_RUN <- TRUE` first, then `FALSE`). Everything the batch claims about the numbers remains unconfirmed.
+
 ---
 
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and their rendered `.html`. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
 - **`02_stan_models/`**, `crab_bss_pooled.stan` (v7.6+; `R_G_boat`, `effort_scale_gear`/`E_scale`, `collapse_mu_hier` lever), `crab_bss_gear_resolved.stan` (has the non-centered `omega_0`, see D4), `crab_bss_pooled_weather_adjusted.stan` (stale).
-- **`03_R_functions/`**, 25 shared modules. Post-refactor: extracted drivers (`fetch_crab_data` (one shared reader for both tracks since the 2026-08-01 merge of the former fetch_crab_data / _v2 pair), `run_pe_pooled`/`run_pe_gear`, `prep_bss_crab_pooled`/`_gear`, `prep_days_crab`, `prep_population_summary`, `estimate_comm_charter`, `classify_day_type`, `bss_timers`) plus the diagnostic/engine modules (`bss_ar_resolution`, `bss_convergence_gate`, `bss_cpue_diagnostics`, `bss_effort_spec`, `bss_trailer_expansion`, `bss_day_length`, `diagnose_effort_overdispersion`, `divergence_diagnostic`, `model_diagnostics`, `save_run_diagnostics`).
+- **`03_R_functions/`**, 33 shared modules. Post-refactor: extracted drivers (`fetch_crab_data` (one shared reader for both tracks since the 2026-08-01 merge of the former fetch_crab_data / _v2 pair), `run_pe_pooled`/`run_pe_gear`, `prep_bss_crab_pooled`/`_gear`, `prep_days_crab`, `prep_population_summary`, `estimate_comm_charter`, `classify_day_type`, `bss_timers`) plus the diagnostic/engine modules (`bss_ar_resolution`, `bss_convergence_gate`, `bss_cpue_diagnostics`, `bss_effort_spec`, `bss_trailer_expansion`, `bss_day_length`, `diagnose_effort_overdispersion`, `divergence_diagnostic`, `model_diagnostics`, `save_run_diagnostics`, and the 2026-08-25/26 additions `bss_opener_covariates`, `crab_fraction`, `diagnose_incomplete_trips`, `bss_stan_fit`).
 - **`04_input_files/`**, `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx`, plus (2026-07-13) `MA2-fishing-dates-2023-2026.xlsx` and `razor-clam-dig-dates-2021-2025.xlsx` for the fishery-opener spillover diagnostic.
 - **`05_output/`**, dated run folders. Committing full run outputs is a known hygiene problem (T4.2/ORCH-26) and keeps growing with each run. The current authoritative run is `20260715/pooled-CPUE-230256` (Run 6).
 - **`06_diagnostics/`**, the weather/tide covariate module (stale).
