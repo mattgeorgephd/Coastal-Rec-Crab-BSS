@@ -127,6 +127,20 @@ incomplete_trip_arm_frames <- function(interview, arm, h_col, catch_col = "Dunge
 
 # pe_fun: the track's own point estimator (run_pe_pooled or run_pe_gear), so each driver
 # compares the arms against ITS production estimator rather than a re-implementation.
+# Which arm each ESTIMATOR is actually running (2026-08-27).
+#
+# `filter_incomplete_trips = TRUE` drops incomplete trips from the CPUE likelihood and from
+# the interview frame prep_bss_crab_*() derives R_G from, so the BSS runs `exclude`. The PE
+# does not follow: run_pe_*() takes the boat gear-per-group from the UNFILTERED interview
+# set, so the boat PE is already running `gear_only` while the boat BSS runs `exclude`. The
+# shore PE counts gear directly and is unaffected either way. That asymmetry is improvement
+# 5's central finding, and the 2026-08-26 ladder confirmed it numerically (the shipped boat
+# PE equals the gear_only arm of this table), so it must be labelled rather than flattened.
+incomplete_trip_production_arm <- function(is_shore, filter_incomplete_trips = TRUE) {
+  if (!isTRUE(filter_incomplete_trips)) return(c(bss = "keep", pe = "keep"))
+  c(bss = "exclude", pe = if (isTRUE(is_shore)) "exclude" else "gear_only")
+}
+
 diagnose_incomplete_trips <- function(dwg, subseasons, params, L_eff_model,
                                       catch_col = "Dungeness_Kept",
                                       pe_fun = run_pe_pooled) {
@@ -202,6 +216,7 @@ diagnose_incomplete_trips <- function(dwg, subseasons, params, L_eff_model,
           # shore PE across arms is expected and is not evidence that the arm is inert.
           gear_ratio_note  = if (is_shore) "gear per crabber (R_G; BSS only)"
                              else "gear per boat group (R_G_boat; PE + BSS)",
+          is_shore_component = is_shore,
           PE_effort        = if (is.null(pe)) NA_real_ else round(pe$effort_total),
           PE_catch         = if (is.null(pe)) NA_real_ else round(pe[[catch_col]] %||% NA_real_),
           gear_lengthbias_p = round(lb_p, 4)
@@ -224,6 +239,19 @@ diagnose_incomplete_trips <- function(dwg, subseasons, params, L_eff_model,
                                     round(100 * (PE_catch - base_catch) / base_catch, 1), NA_real_),
       gear_vs_exclude_pct  = ifelse(is.finite(base_gear) & base_gear > 0,
                                     round(100 * (gear_ratio - base_gear) / base_gear, 1), NA_real_),
-      production_arm       = ifelse(isTRUE(params$filter_incomplete_trips), "exclude", "keep")) |>
-    dplyr::select(-base_catch, -base_effort, -base_gear)
+      # 2026-08-27: production_arm is now PER ESTIMATOR, not one label for the whole table.
+      # A single "exclude" was the honest label for the BSS and the wrong one for the boat PE,
+      # and the 2026-08-26 ladder made that concrete: the shipped boat PE (3,565.75 effort /
+      # 10,940.36 catch) equals this table's `gear_only` arm, not its `exclude` arm. That is not
+      # a bug in the diagnostic, it is improvement 5's central finding -- run_pe_*() takes the
+      # boat gear-per-group from the UNFILTERED interview set, so the boat PE already behaves
+      # like gear_only while the boat BSS behaves like exclude. A table that labels both
+      # "exclude" hides exactly the asymmetry it exists to surface.
+      production_arm_bss = incomplete_trip_production_arm(
+                             TRUE, params$filter_incomplete_trips)[["bss"]],
+      production_arm_pe  = vapply(.data$is_shore_component, function(z)
+                             incomplete_trip_production_arm(z, params$filter_incomplete_trips)[["pe"]],
+                             character(1)),
+      production_arm     = production_arm_bss) |>
+    dplyr::select(-base_catch, -base_effort, -base_gear, -is_shore_component)
 }

@@ -325,9 +325,20 @@ estimate_L_effective <- function(ie_data, pot_open_date, params) {
   result <- list(
     predict_fn = predict_L,
     model = L_fit,
-    detail = ie_shore |> select(event_date, day_type, day_type_group, yday,
-                                 ie_crabber_hours, max_present, L_effective,
-                                 pred_L_mu, pred_L_sigma),
+    # 2026-08-27: carry the DEPLOYMENT-scale quantities alongside the hours-scale ones.
+    # Production has expanded shore effort on a turnover since v7.7, and since 2026-08-25 the
+    # shore I/E likelihood observes ie_trips, but this file reported only ie_crabber_hours and
+    # L_effective (hours per crabber). That made the one file a reader would open to audit the
+    # I/E unit change the one file that could not show it. turnover = arrivals / peak present
+    # is the quantity `L` actually carries under gear-deployments; hours_per_trip is their
+    # ratio, the method's free internal consistency check against the interview-reported
+    # trip length.
+    detail = ie_shore |>
+      mutate(turnover      = if_else(max_present > 0, ie_trips / max_present, NA_real_),
+             hours_per_trip = if_else(ie_trips > 0, ie_crabber_hours / ie_trips, NA_real_)) |>
+      select(event_date, day_type, day_type_group, yday,
+             ie_crabber_hours, ie_trips, max_present, L_effective, turnover, hours_per_trip,
+             pred_L_mu, pred_L_sigma),
     n_obs = n_ie,
     method = if(!is.null(L_fit)) "regression" else "grand_mean"
   )

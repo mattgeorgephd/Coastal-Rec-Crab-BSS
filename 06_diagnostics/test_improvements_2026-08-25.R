@@ -26,7 +26,8 @@ setwd(.root)
 
 for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "bss_opener_covariates.R","diagnose_incomplete_trips.R",
-            "bss_stan_fit.R")) source(file.path("03_R_functions", f))
+            "bss_stan_fit.R","save_run_diagnostics.R",
+            "model_diagnostics.R")) source(file.path("03_R_functions", f))
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -330,6 +331,147 @@ local({
   chk("bss_assert_fit_usable rejects a non-stanfit",
       grepl("EMPTY stanfit", tryCatch({bss_assert_fit_usable(NULL, "unit"); ""},
                                       error = function(e) conditionMessage(e)), fixed = TRUE))
+})
+
+
+# ---------- 10. THE 2026-08-27 POST-LADDER FIXES ----------
+# Each block below is a defect the 2026-08-26 validation ladder exposed. The ladder itself
+# is the regression test for the model; these are the regression tests for the things the
+# ladder could not see because they live in the reporting layer.
+local({
+
+  # 10a. .srd_monthly_share(): the SECOND copy of the shore day-length weighting.
+  # The rule: the monthly share is a normalized weight, so a per-day multiplier that is
+  # constant across days cancels. Weight by day length ONLY when L is an effective day length
+  # in hours. Under gear-deployments (production) and for both boat fits, L is a turnover and
+  # the share must be count-weighted. Before the fix this file multiplied every SHORE share by
+  # days_ss$day_length regardless, re-weighting the split toward long-day summer months.
+  D <- 120L
+  days <- data.frame(event_date = as.Date("2024-12-01") + 0:(D-1),
+                     day_length = seq(9, 16, length.out = D))   # strongly seasonal
+  sd_dep <- list(day_Gear = rep(1:D, each = 1), Gear_I = rep(10, D),
+                 .L_unit = "turnover (trips per gear-slot per day)",
+                 .effort_unit = "gear-deployments")
+  sd_hrs <- list(day_Gear = rep(1:D, each = 1), Gear_I = rep(10, D),
+                 .L_unit = "effective day length (hours)",
+                 .effort_unit = "crabber-hours")
+  sh_dep <- .srd_monthly_share(sd_dep, days, is_boat = FALSE)
+  sh_hrs <- .srd_monthly_share(sd_hrs, days, is_boat = FALSE)
+  # With a flat count series, a turnover-unit shore share must be proportional to DAYS PER
+  # MONTH alone; an hours-unit share must tilt toward the long-day months at the end.
+  n_per_month <- as.numeric(table(format(days$event_date, "%Y-%m")))
+  chk("monthly share, deployments: count-weighted (day length cancels)",
+      isTRUE(all.equal(sh_dep$share, n_per_month / sum(n_per_month), tolerance = 1e-10)))
+  chk("monthly share, crabber-hours: still day-length weighted",
+      !isTRUE(all.equal(sh_hrs$share, n_per_month / sum(n_per_month), tolerance = 1e-6)) &&
+      tail(sh_hrs$share, 1) > tail(sh_dep$share, 1))
+  sd_boat <- list(day_T = 1:D, T_I = rep(4, D),
+                  .L_unit = "turnover (trips per present group per day)",
+                  .effort_unit = "gear-deployments")
+  chk("monthly share, boat: unchanged and count-weighted",
+      isTRUE(all.equal(.srd_monthly_share(sd_boat, days, is_boat = TRUE)$share,
+                       n_per_month / sum(n_per_month), tolerance = 1e-10)))
+  # Fallback path: a stan_data built before .L_unit existed must not crash and must keep the
+  # historical shore behaviour rather than silently switching units.
+  sd_old <- list(day_Gear = 1:D, Gear_I = rep(10, D))
+  chk("monthly share: pre-.L_unit stan_data falls back to the historical shore weighting",
+      !isTRUE(all.equal(.srd_monthly_share(sd_old, days, is_boat = FALSE)$share,
+                        n_per_month / sum(n_per_month), tolerance = 1e-6)))
+
+  # 10b. The empty-effort-stratum report is a FILE, not a console line. The pooled driver's
+  # PE chunk is results='hide', so the cat()-only version reached nothing on that track.
+  td <- file.path(tempdir(), paste0("pe_empty_", as.integer(runif(1, 1e5, 1e6))))
+  dir.create(td, showWarnings = FALSE, recursive = TRUE)
+  pe_fake <- list(
+    shore_all_gear = list(n_empty_effort_strata = 0L, n_empty_effort_days = 0L,
+                          n_effort_strata_total = 84L, n_calendar_days = 289L,
+                          pe_empty_effort_fill = "zero"),
+    private_boat_ring_net_only = list(n_empty_effort_strata = 9L, n_empty_effort_days = 9L,
+                          n_effort_strata_total = 22L, n_calendar_days = 76L,
+                          pe_empty_effort_fill = "zero"),
+    comm_charter = list(effort_total = 283))
+  rep_df <- write_pe_empty_stratum_report(pe_fake, td)
+  chk("empty-stratum report writes a file", file.exists(file.path(td, "pe_empty_effort_strata.csv")))
+  chk("empty-stratum report excludes the census component",
+      !"comm_charter" %in% rep_df$component && nrow(rep_df) == 2)
+  chk("empty-stratum report computes the zeroed-day fraction",
+      isTRUE(all.equal(rep_df$empty_day_fraction[rep_df$component == "private_boat_ring_net_only"],
+                       9/76)))
+  chk("empty-stratum report raises the >5%-at-zero flag",
+      isTRUE(rep_df$exceeds_5pct_at_zero[rep_df$component == "private_boat_ring_net_only"]) &&
+      isFALSE(rep_df$exceeds_5pct_at_zero[rep_df$component == "shore_all_gear"]))
+  unlink(td, recursive = TRUE)
+
+  # 10c. I/E observation PROVENANCE. bss_effort_spec() must name the column the shore
+  # likelihood consumes, and the two settings must not resolve to the same column -- that is
+  # the whole content of rung 2, and no run output recorded it before this batch.
+  Pd <- list(shore_effort_unit = "gear-deployments", tau_shore_prior_mu = 1.7,
+             tau_shore_prior_sigma = 0.3, tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3)
+  d6 <- data.frame(event_date = as.Date("2024-12-01") + 0:5, day_type = "weekday")
+  a_col <- bss_effort_spec(TRUE, d6, modifyList(Pd, list(ie_shore_obs_unit = "auto")))$ie_obs_col
+  l_col <- bss_effort_spec(TRUE, d6, modifyList(Pd, list(ie_shore_obs_unit = "crabber_hours")))$ie_obs_col
+  chk("I/E provenance: auto and legacy name DIFFERENT columns",
+      identical(a_col, "ie_trips") && identical(l_col, "ie_crabber_hours"))
+  chk("I/E provenance: the boat spec names a column too",
+      nzchar(bss_effort_spec(FALSE, d6, Pd)$ie_obs_col %||% ""))
+})
+
+# ---------- 11. per-estimator production arm ----------
+# The single "exclude" label was honest for the BSS and wrong for the boat PE: run_pe_*()
+# takes the boat gear-per-group from the UNFILTERED interview set, so the boat PE already
+# behaves like gear_only. The 2026-08-26 ladder made that concrete -- the shipped boat PE
+# (3,565.75 effort / 10,940.36 catch) equals this table's gear_only arm, not its exclude arm.
+# A table that labels both "exclude" hides its own headline.
+local({
+  a_shore <- incomplete_trip_production_arm(TRUE,  TRUE)
+  a_boat  <- incomplete_trip_production_arm(FALSE, TRUE)
+  a_off   <- incomplete_trip_production_arm(FALSE, FALSE)
+  chk("production arm: BSS is 'exclude' for both populations",
+      identical(unname(a_shore[["bss"]]), "exclude") && identical(unname(a_boat[["bss"]]), "exclude"))
+  chk("production arm: the SHORE PE matches the BSS",
+      identical(unname(a_shore[["pe"]]), "exclude"))
+  chk("production arm: the BOAT PE is gear_only, not exclude",
+      identical(unname(a_boat[["pe"]]), "gear_only"))
+  chk("production arm: with the filter off, every estimator is 'keep'",
+      identical(unname(a_off[["bss"]]), "keep") && identical(unname(a_off[["pe"]]), "keep") &&
+      identical(unname(incomplete_trip_production_arm(TRUE, FALSE)[["pe"]]), "keep"))
+})
+
+# ---------- 12. decoupled-parameter flag ----------
+# structural_params_*.csv puts prior-only parameters in the same columns as estimated ones.
+# The 2026-08-26 ladder's worked example: under the production osp_scale_is_tau = TRUE the OSP
+# mean uses L, so kappa_OSP is inert and reports its lognormal(log 3, 0.3) prior EXACTLY
+# (median 3.008, 95% 1.63-5.40) -- which reads as "the model measured the turnover at 3.0".
+# It did not; it was told 3.0. Every such parameter must now arrive labelled.
+local({
+  shore <- list(IE_n = 0L, OSP_n = 0L, T_n = 0L, osp_scale_is_tau = 1L, K_open = 0L,
+                apply_crab_fraction = 0L, crab_fraction_estimate = 0L, osp_crab_lower = 0L,
+                estimate_cpue_density = 0L, w = c(1,0,1), holiday = c(0,0,0))
+  boat  <- list(IE_n = 0L, OSP_n = 148L, T_n = 60L, osp_scale_is_tau = 1L, K_open = 0L,
+                apply_crab_fraction = 1L, crab_fraction_estimate = 1L, osp_crab_lower = 0L,
+                estimate_cpue_density = 0L, w = c(1,0,1), holiday = c(1,0,0))
+  pars <- c("B1","B2","B2_C","gamma_C","sigma_IE","R_G","R_G_boat","kappa_OSP","r_OSP",
+            "f_crab[1]","f_lower[1]","r_E")
+  rs <- bss_decoupled_reasons(pars, shore); names(rs) <- pars
+  rb <- bss_decoupled_reasons(pars, boat);  names(rb) <- pars
+
+  chk("decoupled: shore sigma_IE flagged when IE_n = 0", !is.na(rs[["sigma_IE"]]))
+  chk("decoupled: shore OSP parameters flagged when OSP_n = 0",
+      !is.na(rs[["kappa_OSP"]]) && !is.na(rs[["r_OSP"]]) && !is.na(rs[["R_G_boat"]]))
+  chk("decoupled: THE kappa_OSP CASE -- flagged on the boat under osp_scale_is_tau = 1",
+      !is.na(rb[["kappa_OSP"]]) && grepl("osp_scale_is_tau", rb[["kappa_OSP"]], fixed = TRUE))
+  chk("decoupled: r_OSP NOT flagged on a boat fit that has OSP data", is.na(rb[["r_OSP"]]))
+  chk("decoupled: f_lower flagged while use_osp_crab_lower is off", !is.na(rb[["f_lower[1]"]]))
+  chk("decoupled: f_crab flagged on shore, not on an estimating boat fit",
+      !is.na(rs[["f_crab[1]"]]) && is.na(rb[["f_crab[1]"]]))
+  chk("decoupled: holiday terms flagged only when the window has no holiday",
+      !is.na(rs[["B2"]]) && !is.na(rs[["B2_C"]]) && is.na(rb[["B2"]]))
+  chk("decoupled: genuinely estimated parameters are NOT flagged",
+      is.na(rs[["B1"]]) && is.na(rs[["R_G"]]) && is.na(rs[["r_E"]]) && is.na(rb[["R_G_boat"]]))
+  chk("decoupled: Stan indices are stripped before matching",
+      identical(bss_decoupled_reasons("f_lower[3]", boat), bss_decoupled_reasons("f_lower", boat)))
+  chk("decoupled: no stan_data means no claim either way",
+      all(is.na(bss_decoupled_reasons(pars, NULL))))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

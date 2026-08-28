@@ -861,9 +861,17 @@ if(nrow(ie_data) > 0) {
                   as.character(r$event_date), r$day_type, r$ie_crabber_hours,
                   r$gear_est_crabber_hrs, r$f_temporal))
     }
+    # 2026-08-27: report the deployment-scale columns too. ie_trips is the observation the
+    # shore likelihood consumes under gear-deployments (improvement 1/A); turnover is what
+    # `L` carries there; hours_per_trip is their ratio and should sit near the
+    # interview-reported trip length (~3.2 h). Without these three, this file could not be
+    # used to audit the unit the model actually ran on.
     write.csv(ie_validation |>
-      select(event_date, day_type, ie_crabber_hours, max_present, mean_present,
-             L_effective, mean_gear, n_counts, gear_est_crabber_hrs, f_temporal, pct_error),
+      mutate(turnover       = if_else(max_present > 0, ie_trips / max_present, NA_real_),
+             hours_per_trip = if_else(ie_trips > 0, ie_crabber_hours / ie_trips, NA_real_)) |>
+      select(event_date, day_type, ie_crabber_hours, ie_trips, max_present, mean_present,
+             L_effective, turnover, hours_per_trip,
+             mean_gear, n_counts, gear_est_crabber_hrs, f_temporal, pct_error),
       file.path(output_dir, "ie_analysis.csv"), row.names = FALSE)
   }
 } else {
@@ -914,6 +922,10 @@ for(pop in c("shore","private_boat")) {
     pe_all[[label]] <- run_pe_pooled(summ_ss, days_ss, params, label)
   }
 }
+# 2026-08-27: the empty-effort-stratum audit as a FILE, not a console line. This chunk is
+# results='hide', so the per-component report run_pe_pooled() cat()s never reached a reader
+# on this track. See write_pe_empty_stratum_report() in 03_R_functions/save_run_diagnostics.R.
+pe_empty_report <- write_pe_empty_stratum_report(pe_all, output_dir, params)
 timer_stop("3_PE_estimates")
 
 

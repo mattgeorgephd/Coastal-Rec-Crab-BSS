@@ -398,6 +398,8 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # label the column correctly instead of borrowing the effort unit.
   stan_data[[".L_unit"]]      <- eff_spec$L_unit %||% NA_character_
   stan_data[[".ie_obs_unit"]] <- ie_obs_unit
+  # 2026-08-27: the machine-readable partner of .ie_obs_unit (ie_trips vs ie_crabber_hours).
+  stan_data[[".ie_obs_col"]]  <- eff_spec$ie_obs_col %||% NA_character_
   # gear_time_total is retained for the saturation diagnostic even though the boat
   # no longer uses it as the CPUE denominator (h is now number_of_gear).
   attr(stan_data, "cpue_data") <- tibble(

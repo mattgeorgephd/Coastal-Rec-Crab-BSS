@@ -35,7 +35,61 @@
 # =============================================================================
 
 # --- 1. Structural / scale parameter summary --------------------------------
-bss_structural_summary <- function(fit) {
+# Which parameters in a fit's curated table carry NO likelihood contribution (2026-08-27).
+#
+# Several parameters here are declared with a proper prior UNCONDITIONALLY, so that an unused
+# one is decoupled-but-proper rather than an improper flat direction. That is the right
+# modelling choice and a serious reporting hazard: a decoupled parameter reports its PRIOR, in
+# the same columns and next to the same headings as an estimate, with nothing to separate the
+# two. The 2026-08-26 ladder produced the worked example -- under the production
+# `osp_scale_is_tau = TRUE` the OSP likelihood uses L instead of kappa_OSP, so kappa_OSP is
+# inert and reports its lognormal(log 3, 0.3) prior exactly (median 3.008, 95% 1.63-5.40).
+# Read as an estimate, that is a claim the model has MEASURED the boat turnover at 3.0. It has
+# not; it has been told 3.0. The shore fits' r_OSP is worse: a 95% interval spanning roughly
+# 0.0002 to 700.
+#
+# Deliberately conservative: a reason is given only where the Stan program's own guard
+# demonstrably removes the term, so TRUE always means prior-only. FALSE does not by itself
+# certify that a parameter is well identified.
+#
+# `parameters` may carry Stan indices (f_crab[1]); they are stripped before matching.
+# Returns a character vector of reasons, NA where the parameter is coupled.
+bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
+  reason <- rep(NA_character_, length(parameters))
+  if (is.null(stan_data) || !length(parameters)) return(reason)
+  g <- function(nm, default = NULL) { v <- stan_data[[nm]]; if (is.null(v)) default else v }
+  base <- sub("\\[.*$", "", parameters)
+  set  <- function(mask, why) reason[mask & is.na(reason)] <<- why
+
+  ie_n    <- g("IE_n", 0L);   osp_n <- g("OSP_n", 0L);  t_n <- g("T_n", 0L)
+  tau_sw  <- g("osp_scale_is_tau", 0L);                 k_open <- g("K_open", 0L)
+  apply_f <- g("apply_crab_fraction", 0L); est_f <- g("crab_fraction_estimate", 0L)
+  osp_lo  <- g("osp_crab_lower", 0L);      dens  <- g("estimate_cpue_density", 0L)
+  w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
+  h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
+
+  if (ie_n == 0) set(base == "sigma_IE",
+    "no I/E observations in this fit (IE_n = 0); sigma_IE is its prior")
+  if (osp_n == 0) set(base %in% c("kappa_OSP", "sigma_r_OSP", "r_OSP"),
+    "no OSP observations in this fit (OSP_n = 0)")
+  else if (tau_sw == 1) set(base == "kappa_OSP",
+    "osp_scale_is_tau = 1: the OSP mean uses L, not kappa_OSP; this is the prior")
+  if (t_n == 0 && osp_n == 0) set(base %in% c("R_G_boat", "R_T"),
+    "no boat count stream in this fit; the boat gear ratio is its prior")
+  if (k_open == 0) set(base == "B_open", "K_open = 0: no opener covariate is active")
+  if (dens == 0)   set(base == "gamma_C", "estimate_cpue_density = 0: the density term is inert")
+  if (w_sum == 0)  set(base %in% c("B1", "B1_C"), "no weekend day in this fit's window")
+  if (h_sum == 0)  set(base %in% c("B2", "B2_C"), "no holiday in this fit's window")
+  if (apply_f == 0) set(base %in% c("f_crab", "f_lower"),
+    "apply_crab_fraction = 0 (shore, or the feature is off): f is pinned at 1")
+  else if (est_f == 0) set(base == "f_crab",
+    "crab_fraction_estimate = 0: f is pinned at crab_fraction_value")
+  if (osp_lo == 0) set(base == "f_lower",
+    "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
+  reason
+}
+
+bss_structural_summary <- function(fit, stan_data = NULL) {
   pars <- c("mu_mu_E", "mu_mu_C",
             "sigma_eps_E", "sigma_eps_C",
             "phi_E", "phi_C",
@@ -61,6 +115,12 @@ bss_structural_summary <- function(fit) {
                     n_eff  = round(s[, "n_eff"]),
                     Rhat   = round(s[, "Rhat"], 4),
                     row.names = NULL)
+
+  # See bss_decoupled_reasons(): a parameter with no likelihood contribution in this fit
+  # reports its PRIOR, and must not sit unlabelled beside parameters that were estimated.
+  reason <- bss_decoupled_reasons(out$parameter, stan_data)
+  out$decoupled        <- !is.na(reason)
+  out$decoupled_reason <- reason
   out
 }
 
@@ -213,7 +273,7 @@ write_bss_diagnostics <- function(fit, stan_data, label, output_dir) {
     cat(sprintf("    [diag] %s skipped: %s\n", label, conditionMessage(e))); NULL })
 
   ok({
-    sp <- bss_structural_summary(fit)
+    sp <- bss_structural_summary(fit, stan_data)
     utils::write.csv(sp, file.path(output_dir, sprintf("structural_params_%s.csv", label)),
                      row.names = FALSE)
   })

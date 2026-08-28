@@ -615,6 +615,10 @@ for(pop in c("shore","private_boat")) {
     pe_all[[label]] <- run_pe_gear(summ_ss, days_ss, params, label, population = pop)
   }
 }
+# 2026-08-27: the empty-effort-stratum audit as a FILE, so both tracks report it the same
+# way regardless of chunk options. See write_pe_empty_stratum_report() in
+# 03_R_functions/save_run_diagnostics.R.
+pe_empty_report <- write_pe_empty_stratum_report(pe_all, output_dir, params)
 
 
 # ---- 7.3 PE PLOTS ----

@@ -158,8 +158,15 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     mutate(est_total = mean_daily * n_total_days,
            se_total = sqrt((n_total_days^2)*replace_na(sd_daily^2,0)/pmax(n_sampled,1)))
 
+  # 2026-08-27: the counts alone were only ever cat()-ed, and the pooled driver's PE chunk
+  # is results='hide', so on that track they reached nothing a reader could audit. Carry the
+  # DENOMINATORS too, and write the whole thing to pe_empty_effort_strata.csv (see
+  # write_pe_empty_stratum_report()), so the zeroed-day share is a file, not a console line.
   results$n_empty_effort_strata <- n_empty_strata
   results$n_empty_effort_days   <- n_empty_days
+  results$n_effort_strata_total <- nrow(effort_strat)
+  results$n_calendar_days       <- n_cal_days
+  results$pe_empty_effort_fill  <- params$pe_empty_effort_stratum %||% "zero"
   if (n_empty_strata > 0) {
     .msg <- sprintf(paste0("  PE %s: %d of %d week x day-type strata carry calendar days but NO ",
                            "sampled day (%d of %d days, %.1f%%); filled by '%s'.\n"),

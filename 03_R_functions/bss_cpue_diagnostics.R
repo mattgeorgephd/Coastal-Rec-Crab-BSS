@@ -210,17 +210,40 @@ write_cpue_diagnostics <- function(b, label, output_dir) {
               row.names = FALSE)
   }
 
+  # 2026-08-27: record a SKIP rather than writing nothing.
+  #
+  # bss_saturation_exponent() and bss_effort_linearity() both require 30 usable interviews
+  # and return NULL below that; the writer used to drop the file silently. With the interview
+  # floor at 15 that is no longer a corner case -- the boat pot closure fits on 17 interviews,
+  # so two of its three CPUE diagnostics are legitimately unavailable, and the only evidence
+  # was two missing files among a hundred. A missing file reads as an error; a row that says
+  # "skipped, 17 interviews against a minimum of 30" reads as what it is.
+  .skip_row <- function(kind, n)
+    data.frame(fit = label, status = "skipped",
+               reason = sprintf("%d usable interviews < the %d-interview minimum for the %s regression",
+                                n, 30L, kind),
+               n_interviews = n, effort_unit = sd_$.effort_unit %||% NA_character_,
+               stringsAsFactors = FALSE)
+
   sat <- bss_saturation_exponent(cpue_data, label)
   if (!is.null(sat)) {
+    sat$status <- "estimated"
     write.csv(sat, file.path(output_dir, sprintf("cpue_saturation_%s.csv", label)),
               row.names = FALSE)
+  } else {
+    write.csv(.skip_row("saturation", nrow(cpue_data)),
+              file.path(output_dir, sprintf("cpue_saturation_%s.csv", label)), row.names = FALSE)
   }
 
   lin <- bss_effort_linearity(cpue_data, label)
   if (!is.null(lin)) {
     lin$effort_unit <- sd_$.effort_unit %||% NA_character_
+    lin$status <- "estimated"
     write.csv(lin, file.path(output_dir, sprintf("cpue_linearity_%s.csv", label)),
               row.names = FALSE)
+  } else {
+    write.csv(.skip_row("linearity", nrow(cpue_data)),
+              file.path(output_dir, sprintf("cpue_linearity_%s.csv", label)), row.names = FALSE)
   }
 
   invisible(list(triad = triad, saturation = sat, linearity = lin))

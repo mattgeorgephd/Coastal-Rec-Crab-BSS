@@ -424,8 +424,67 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
 
 # ---- run-level writers ------------------------------------------------------
 
+# Empty-effort-stratum audit (2026-08-27).
+#
+# The PE expands a week x day-type stratum that carries calendar days but no sampled day.
+# Under the default fill, `pe_empty_effort_stratum = "zero"`, those days are expanded at ZERO
+# effort, which biases that component's PE DOWN; and because the unsampled strata skew
+# weekend and holiday, and those days carry 1.7-2.3x weekday effort, the bias is worse than
+# the day count suggests. The weekend redefinition changes which strata are empty, so this is
+# a number that moves with configuration and has to be on the record per run.
+#
+# run_pe_pooled() / run_pe_gear() computed the counts and only cat()-ed them. The pooled
+# driver's PE chunk is results='hide', so on that track the report reached nothing at all --
+# the 4-of-76 to 9-of-76 figures quoted for the 2026-08-26 ladder had to be read out of the
+# GEAR track's HTML. Writing a CSV makes it auditable from either track, whatever the chunk
+# options, and gives the validation harness something to extract.
+write_pe_empty_stratum_report <- function(pe_all, output_dir, params = list()) {
+  if (!length(pe_all) || is.null(output_dir)) return(invisible(NULL))
+  keys <- names(pe_all)
+  keys <- keys[!keys %in% "comm_charter"]
+  rows <- lapply(keys, function(k) {
+    r <- pe_all[[k]]
+    if (!is.list(r) || is.null(r$n_empty_effort_strata)) return(NULL)
+    n_days  <- r$n_empty_effort_days   %||% NA_integer_
+    n_cal   <- r$n_calendar_days       %||% NA_integer_
+    frac    <- if (is.na(n_days) || is.na(n_cal) || n_cal == 0) NA_real_ else n_days / n_cal
+    data.frame(
+      component            = k,
+      fill                 = r$pe_empty_effort_fill %||% (params$pe_empty_effort_stratum %||% "zero"),
+      n_empty_strata       = r$n_empty_effort_strata %||% NA_integer_,
+      n_strata_total       = r$n_effort_strata_total %||% NA_integer_,
+      n_empty_days         = n_days,
+      n_calendar_days      = n_cal,
+      empty_day_fraction   = frac,
+      exceeds_5pct_at_zero = !is.na(frac) && frac > 0.05 &&
+                             identical(r$pe_empty_effort_fill %||% "zero", "zero"),
+      stringsAsFactors     = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (!length(rows)) return(invisible(NULL))
+  df <- do.call(rbind, rows)
+  utils::write.csv(df, file.path(output_dir, "pe_empty_effort_strata.csv"), row.names = FALSE)
+  invisible(df)
+}
+
+
 # Population-aware monthly effort share (v7.0 Fix-2 logic; see header note).
-# Boat: count-weighted (day-length-free). Shore: count * day_length.
+#
+# IMPROVEMENT 1 FIX, PART 2 (2026-08-27). This was the SECOND copy of the shore
+# day-length weighting. The 2026-08-25 batch fixed pe_monthly_effort_share() and missed
+# this one, so `monthly_pe_vs_bss.csv` kept the pre-v7.7 crabber-hours split while the
+# drivers' own monthly tables used the corrected one. The 2026-08-26 ladder confirmed it:
+# the shore PE effort column here was numerically unchanged from the pre-fix reference run.
+#
+# The rule, stated once so the two copies cannot drift again: the monthly share is a
+# normalized weight, so ANY per-day multiplier that is constant across days cancels. Weight
+# by day length ONLY when the fit's L is an effective day length in HOURS (the crabber-hours
+# and gear-hours shore units, where L varies day to day). When L is a TURNOVER -- both boat
+# fits, and shore under gear-deployments, which is production -- it is constant across days,
+# so the share is count-weighted and applying `day_length` would silently re-weight the split
+# toward long-day summer months. `.L_unit` is the tag bss_effort_spec() attaches to the
+# stan_data for exactly this kind of question; the fallbacks below cover a stan_data built
+# before that tag existed.
 .srd_monthly_share <- function(stan_data, days_ss, is_boat) {
   obs_days <- if (is_boat) stan_data$day_T else stan_data$day_Gear
   counts   <- if (is_boat) stan_data$T_I  else stan_data$Gear_I
@@ -433,8 +492,20 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
   mc <- tapply(counts, obs_days, mean)
   di <- as.integer(names(mc))
   ev <- as.Date(days_ss$event_date)[di]
-  dl <- if ("day_length" %in% names(days_ss)) as.numeric(days_ss$day_length)[di] else rep(1, length(di))
-  w <- if (is_boat) as.numeric(mc) else as.numeric(mc) * dl
+
+  l_unit <- stan_data[[".L_unit"]]
+  L_is_day_length <- if (!is.null(l_unit) && !is.na(l_unit)) {
+    grepl("day length", l_unit, ignore.case = TRUE)
+  } else {
+    # No .L_unit tag: infer from the effort unit, then from the population.
+    e_unit <- stan_data[[".effort_unit"]]
+    if (!is.null(e_unit) && !is.na(e_unit)) !identical(e_unit, "gear-deployments") && !is_boat
+    else !is_boat
+  }
+
+  dl <- if (L_is_day_length && "day_length" %in% names(days_ss))
+          as.numeric(days_ss$day_length)[di] else rep(1, length(di))
+  w   <- as.numeric(mc) * dl
   mon <- format(ev, "%Y-%m")
   agg <- tapply(w, mon, sum)
   data.frame(month = names(agg), share = as.numeric(agg) / sum(agg, na.rm = TRUE),
@@ -497,7 +568,20 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         P_n = if (!is.null(sd_)) sd_$P_n else NA, D = if (!is.null(sd_)) sd_$D else NA,
         n_effort_obs = n_eff_obs,
         n_interviews = if (!is.null(sd_)) sd_$IntC else NA,
+        # 2026-08-25 improvement 6: the POST-FILTER count the CPUE likelihood actually saw.
+        # n_interviews above is the pre-filter count and reads looser than reality.
+        n_interviews_fitted = if (!is.null(sd_)) attr(sd_, "n_interviews_fitted") %||% NA else NA,
         n_ie_obs = if (!is.null(sd_)) sd_$IE_n else NA,
+        # 2026-08-27: unit PROVENANCE. Which observation column the I/E likelihood consumed,
+        # what unit E and h are in, and what L carries. Rung 2 of the 2026-08-26 ladder changed
+        # exactly the first of these and no run output recorded it, so the change could only be
+        # audited by re-deriving ie_trips from the raw workbook. n_ie_obs is post-guard: a 0
+        # against a non-zero raw count means ie_min_obs_shore dropped the stream and sigma_IE is
+        # decoupled, which is the difference between "sigma_IE fell" and "sigma_IE is its prior".
+        ie_obs_col  = if (!is.null(sd_)) sd_[[".ie_obs_col"]]  %||% NA_character_ else NA_character_,
+        ie_obs_unit = if (!is.null(sd_)) sd_[[".ie_obs_unit"]] %||% NA_character_ else NA_character_,
+        effort_unit = if (!is.null(sd_)) sd_[[".effort_unit"]] %||% NA_character_ else NA_character_,
+        L_unit = if (!is.null(sd_)) sd_[[".L_unit"]] %||% NA_character_ else NA_character_,
         date_start = if (!is.null(ev)) as.character(min(ev)) else NA,
         date_end = if (!is.null(ev)) as.character(max(ev)) else NA,
         pct_days_with_effort = pct_days_eff, pct_days_with_interview = pct_days_int,

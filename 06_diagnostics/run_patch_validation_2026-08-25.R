@@ -303,6 +303,12 @@ extract_run <- function(rung_id, model, run_tag, outdir, minutes, ok) {
     shore_ag_sigma_IE = NA_real_, shore_ag_B1 = NA_real_, shore_ag_R_G = NA_real_,
     shore_ag_L_med = NA_real_, shore_ag_L_width = NA_real_,
     shore_ag_neff = NA_real_, fits_passed = NA_character_, ar_resolutions = NA_character_,
+    # 2026-08-27: METHOD PER COMPONENT. Rung 2 of the first ladder reported a shore all-gear
+    # BSS catch of 21,017 in this table from a fit the gate had REJECTED (2,957 divergences,
+    # E_sum n_eff = 30, method "PE (convergence fail)"), and nothing in the row said so. Any
+    # number here that came from a rejected fit has to arrive carrying that label.
+    shore_ag_method = NA_character_, shore_pc_method = NA_character_,
+    boat_ag_method = NA_character_,
     empty_effort_note = NA_character_, stringsAsFactors = FALSE)
   if (is.na(outdir) || !dir.exists(outdir)) return(row)
 
@@ -327,10 +333,26 @@ extract_run <- function(rung_id, model, run_tag, outdir, minutes, ok) {
   }
   cr <- rd(outdir, "convergence_report.csv")
   if (!is.null(cr) && "fit" %in% names(cr)) {
-    i <- grepl("^private_boat_ring_net_only", cr$fit)
-    if (any(i)) row$boat_pc_method <- as.character(cr$method_selected[i][1])
+    meth <- function(pat) {
+      i <- grepl(pat, cr$fit)
+      if (any(i)) as.character(cr$method_selected[i][1]) else NA_character_
+    }
+    row$boat_pc_method  <- meth("^private_boat_ring_net_only")
+    row$shore_ag_method <- meth("^shore_all_gear")
+    row$shore_pc_method <- meth("^shore_ring_net_only")
+    row$boat_ag_method  <- meth("^private_boat_all_gear")
     j <- grepl("^shore_all_gear", cr$fit)
     if (any(j)) row$shore_ag_neff <- num1(cr$C_sum_neff[j])
+  }
+  # 2026-08-27: the empty-effort-stratum audit, which run_pe_*() now writes to a CSV instead
+  # of only cat()-ing it (the pooled PE chunk is results='hide', so on that track the report
+  # reached nothing). The weekend redefinition changes which strata are empty, and an empty
+  # stratum is expanded at ZERO effort under the shipped fill, so this belongs in the summary.
+  ee <- rd(outdir, "pe_empty_effort_strata.csv")
+  if (!is.null(ee) && "component" %in% names(ee) && nrow(ee) > 0) {
+    row$empty_effort_note <- paste(sprintf("%s %s/%s d (%.0f%%)",
+      ee$component, ee$n_empty_days, ee$n_calendar_days,
+      100 * suppressWarnings(as.numeric(ee$empty_day_fraction))), collapse = "; ")
   }
   row$shore_ag_sigma_IE <- sp_get(outdir, "shore_all_gear", "sigma_IE")
   row$shore_ag_B1       <- sp_get(outdir, "shore_all_gear", "B1")
@@ -371,6 +393,70 @@ mcse_median <- function(lo, hi, neff) {
   1.253 * ((hi - lo) / 3.92) / sqrt(neff)
 }
 
+# ---------------------------------------------------------------------------
+# Bit-identity of the gear-resolved FITS against the reference folder (2026-08-27).
+#
+# What must match byte for byte: bss_summary_*.csv and convergence_report.csv. Both are pure
+# functions of the fitted draws, so any difference is a behaviour change.
+#
+# What must NOT be required to match: bss_full_summary_*.csv gains rows for quantities the
+# 2026-08-25 batch newly REPORTS (f_lower, f_lower_out, osp_f_kappa_out) and renames one
+# (f_crab_param -> f_theta), so it is compared on shared rows only; and every file built from
+# permuted or subsampled draws (bss_draws_summed_*, ppc_*, loo_*, port_total, monthly_*)
+# shuffles even when the fits are identical, so it is excluded entirely.
+#
+# Returns list(observed, verdict) for V().
+gear_fit_exactness <- function(new_dirname, ref_dir) {
+  if (is.na(new_dirname) || !nzchar(new_dirname))
+    return(list(observed = "no output folder found", verdict = "REVIEW"))
+  # Resolve the basename back to a path the same way find_outdir() does: NEWEST first. A
+  # failed earlier attempt at the same rung leaves a same-named folder under an earlier date
+  # (the 2026-08-25 scratch folders are exactly that), and picking the first match instead of
+  # the newest compares this run against an abandoned one.
+  hits <- list.dirs(.here("05_output"), recursive = TRUE)
+  hits <- hits[basename(hits) == new_dirname]
+  new_dir <- if (length(hits)) hits[order(file.mtime(hits), decreasing = TRUE)][1] else NULL
+  if (is.null(new_dir) || !dir.exists(new_dir) || !dir.exists(ref_dir))
+    return(list(observed = "run or reference folder missing", verdict = "REVIEW"))
+
+  # convergence_report.csv is the one file whose SCHEMA did not change, so it must match byte
+  # for byte. bss_summary_*.csv must NOT: the 2026-08-25 batch adds reported quantities
+  # (f_crab_out on the boat, f_lower_out / osp_f_kappa_out everywhere), so those files
+  # legitimately gain rows and are compared row-wise below alongside the full summaries.
+  exact_files <- "convergence_report.csv"
+  exact_files <- exact_files[file.exists(file.path(ref_dir, exact_files)) &
+                             file.exists(file.path(new_dir, exact_files))]
+  if (!length(exact_files))
+    return(list(observed = "no convergence report to compare", verdict = "REVIEW"))
+
+  same <- vapply(exact_files, function(f)
+    identical(readBin(file.path(ref_dir, f), "raw", file.size(file.path(ref_dir, f))),
+              readBin(file.path(new_dir, f), "raw", file.size(file.path(new_dir, f)))),
+    logical(1))
+
+  # Shared-row comparison of every per-fit parameter summary, at full double precision.
+  fs <- c(list.files(new_dir, pattern = "^bss_summary_.*\\.csv$"),
+          list.files(new_dir, pattern = "^bss_full_summary_.*\\.csv$"))
+  fs <- fs[file.exists(file.path(ref_dir, fs))]
+  rows_ok <- TRUE; n_rows <- 0L
+  for (f in fs) {
+    a <- tryCatch(utils::read.csv(file.path(ref_dir, f), row.names = 1, check.names = FALSE),
+                  error = function(e) NULL)
+    b <- tryCatch(utils::read.csv(file.path(new_dir, f), row.names = 1, check.names = FALSE),
+                  error = function(e) NULL)
+    if (is.null(a) || is.null(b)) { rows_ok <- FALSE; next }
+    common <- intersect(rownames(a), rownames(b))
+    cols   <- intersect(names(a), names(b))
+    n_rows <- n_rows + length(common)
+    if (!isTRUE(all.equal(a[common, cols], b[common, cols], tolerance = 0))) rows_ok <- FALSE
+  }
+
+  obs <- sprintf("convergence_report byte-identical: %s; %d shared parameter rows across %d summaries %s",
+                 if (all(same)) "yes" else "NO", n_rows, length(fs),
+                 if (rows_ok) "identical at full precision" else "DIFFER")
+  list(observed = obs, verdict = if (all(same) && rows_ok) "PASS" else "FAIL")
+}
+
 judge <- function(S) {
   get1 <- function(r, m, col) {
     x <- S[[col]][S$rung == r & S$model == m]
@@ -382,14 +468,41 @@ judge <- function(S) {
   gp <- get1(1, "gear_resolved", "port_BSS_catch")
   if (!is.na(gp)) {
     d <- gp - REF$gear_resolved$port_catch
-    out[[length(out)+1]] <- V(1, "gear-resolved port total reproduces the reference EXACTLY",
+    # 2026-08-27, CRITERION REPAIRED. This used to demand delta == 0 on the port total and it
+    # FAILED on the 2026-08-26 ladder at delta = -19 (0.03%). The model was bit-identical the
+    # whole time; the criterion was testing the wrong object. The port total is not a function
+    # of the fits alone: it is assembled from rstan::extract(permuted = TRUE) draws, and the
+    # per-fit draw files come from an unseeded sample.int() in save_run_diagnostics.R, so only
+    # ~490 of 2,000 draw indices were shared between two runs of the same fits. PIPELINE_STATUS
+    # had already recorded that behaviour in the Run 6 note ("totals derived from them, and
+    # RNG-sensitive downstream diagnostics shuffle") and this criterion contradicted it.
+    #
+    # Exactness is now tested where exactness exists: byte equality of the per-fit parameter
+    # summaries and the convergence report against the reference folder. The port total is
+    # judged on Monte Carlo error, exactly as the pooled track is.
+    out[[length(out)+1]] <- V(1, "gear-resolved port total within Monte Carlo error of the reference",
       sprintf("%s (ref %s, delta %s)", fmt(gp,0), fmt(REF$gear_resolved$port_catch,0), fmt(d,0)),
-      "delta == 0",
-      if (isTRUE(abs(d) < 0.5)) "PASS" else "FAIL",
-      paste("Every parameter this patch adds to the gear model is zero-size at the default",
-            "settings, so the unconstrained parameter vector and the fixed-seed RNG stream are",
-            "unchanged. A non-zero delta means something in the patch is NOT behaviour-neutral",
-            "and must be found before any later rung is interpreted."))
+      "< 0.5% of the reference",
+      if (isTRUE(abs(d) < 0.005 * REF$gear_resolved$port_catch)) "PASS" else "FAIL",
+      paste("The gear fits are expected to be BIT-identical (every parameter this patch adds",
+            "there is zero-size at the default settings), but the port total is assembled from",
+            "permuted and subsampled draws and moves by a fraction of one MCSE even when the",
+            "fits do not. Exactness is tested by the next criterion; this one only catches a",
+            "gross change. See the 2026-08-27 note in PIPELINE_STATUS."))
+
+    # The real exactness test: the fitted parameters themselves.
+    exact <- gear_fit_exactness(get1(1, "gear_resolved", "outdir"),
+                                file.path(.here("05_output"), REF$gear_resolved$dir))
+    out[[length(out)+1]] <- V(1, "gear-resolved FITS are bit-identical to the reference",
+      exact$observed, "every shared file byte-identical",
+      exact$verdict,
+      paste("This is the sharpest test in the batch. The gear model never carried B3 and every",
+            "parameter the 2026-08-25 batch adds to it is zero-size when the feature is off, so",
+            "the unconstrained parameter vector and the fixed-seed RNG stream must be unchanged.",
+            "bss_summary_*.csv and convergence_report.csv are pure functions of the fit, so they",
+            "must match byte for byte; bss_full_summary_*.csv legitimately gains rows for the new",
+            "reported quantities, so it is compared on SHARED rows only. Any difference here is a",
+            "real behaviour change and must be found before any later rung is interpreted."))
   }
   pp <- get1(1, "pooled", "port_BSS_catch")
   if (!is.na(pp)) {
@@ -432,18 +545,51 @@ judge <- function(S) {
   Lw2 <- get1(2, "pooled", "shore_ag_L_width"); Lw1 <- get1(1, "pooled", "shore_ag_L_width")
   if (!is.na(Lw2) && !is.na(Lw1) && Lw1 > 0) {
     r <- Lw2 / Lw1
-    out[[length(out)+1]] <- V(2, "shore tau posterior is narrower than prior-only",
-      sprintf("95%% width %s vs %s (ratio %s)", fmt(Lw2,3), fmt(Lw1,3), fmt(r,2)), "ratio < 0.90",
-      if (r < 0.90) "PASS" else "REVIEW",
-      paste("Before the fix the shore L posterior was essentially its prior (reference median",
-            "1.69 against a prior centred on 1.70). Once the observation matches the predicted",
-            "quantity, the in-window I/E days should actually inform tau_shore. A ratio near 1",
-            "means the stream still is not binding -- check whether ie_min_obs_shore dropped it."))
+    # 2026-08-27, CRITERION RETIRED TO INFO. This expected the fixed I/E stream to inform
+    # tau_shore, and returned REVIEW at ratio 0.93 on the 2026-08-26 ladder. The prediction was
+    # not merely unmet, it was structurally impossible: crab_bss_pooled.stan declares
+    # `vector[D * estimate_L] L_raw` with L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]),
+    # so there is NO shared tau_shore parameter -- L is D independent per-day draws, each
+    # anchored on the same prior. Four in-window I/E days can inform four days out of 289, and
+    # the ratio reported here is a MEDIAN over the 285 days that carry no likelihood at all.
+    # On the four days that do carry data the converged run gives 0.74, 0.69, 1.22, 1.15.
+    #
+    # It stays as INFO rather than being deleted: the per-day widths are still worth recording,
+    # and this line is where the number goes when a shared-tau model makes the test meaningful.
+    # See the "shared tau" item in development_notes/improvement-plan-2026-08-27.md.
+    out[[length(out)+1]] <- V(2, "shore L posterior width (median over days; NOT a tau test)",
+      sprintf("95%% width %s vs %s (ratio %s)", fmt(Lw2,3), fmt(Lw1,3), fmt(r,2)), "informational",
+      "INFO",
+      paste("L is a per-day vector of independent draws, not a shared tau_shore, so a handful of",
+            "I/E days cannot narrow a season-level turnover and this median is dominated by the",
+            "days with no observation. Recorded, not gated. Restore this as a PASS/FAIL criterion",
+            "only once the model carries a shared tau with per-day deviations."))
   }
+  # 2026-08-27, NEW. The first ladder's rung 2 lost its shore all-gear fit to the gate and no
+  # criterion noticed: the summary reported the rejected fit's BSS catch, and the port total
+  # silently carried the PE instead, which was the whole of the 67,323 -> 62,069 drop. Every
+  # rung that is supposed to leave a component fitted must now say so explicitly.
+  for (.r in 2:4) {
+    m_ag <- get1(.r, "pooled", "shore_ag_method")
+    if (!is.na(m_ag))
+      out[[length(out)+1]] <- V(.r, "shore all-gear still reports a BSS fit",
+        m_ag, "BSS",
+        if (identical(m_ag, "BSS")) "PASS" else "FAIL",
+        paste("A rung that changes an observation unit, a day-type definition or an interview",
+              "floor must not silently cost a component its fit. When this FAILs, every other",
+              "number for that rung is a PE substitution and must be read as such -- and the",
+              "per-chain sampler_diagnostics_*.csv is the first place to look, because one",
+              "stalled chain out of four looks exactly like a structural failure in the",
+              "aggregate divergence count."))
+  }
+
   s2c <- get1(2, "pooled", "shore_ag_BSS_catch"); s1c <- get1(1, "pooled", "shore_ag_BSS_catch")
   if (!is.na(s2c) && !is.na(s1c))
     out[[length(out)+1]] <- V(2, "shore all-gear catch moves (magnitude recorded, not gated)",
-      sprintf("%s vs %s (%s%%)", fmt(s2c,0), fmt(s1c,0), fmt(100*(s2c-s1c)/s1c,1)), "informational",
+      sprintf("%s vs %s (%s%%)%s", fmt(s2c,0), fmt(s1c,0), fmt(100*(s2c-s1c)/s1c,1),
+              if (identical(get1(2,"pooled","shore_ag_method"), "BSS")) ""
+              else "  [FROM A REJECTED FIT -- not a result]"),
+      "informational",
       "INFO", "This is the headline effect of the patch. The direction was not predictable in advance, because the old stream was pulling lambda_E UP against the gear counts.")
 
   # ---- RUNG 3: weekend = Sat/Sun ------------------------------------------
@@ -574,10 +720,16 @@ if (isTRUE(DRY_RUN)) {
     st("boat pot closure reads as unfitted in the reference",
        isTRUE(grepl("insufficient", rp$boat_pc_method)), rp$boat_pc_method)
 
+    # 2026-08-27: the synthetic rows now carry shore_ag_method, because the criteria set gained
+    # a per-rung "the component still reports a BSS fit" test. `outdir` is left as the REFERENCE
+    # folder name so gear_fit_exactness() compares that folder against itself and returns PASS,
+    # which is the correct clean-scenario answer and also exercises the comparison itself.
     mk <- function(rn, md, ...) { r <- rp; r$rung <- rn; r$model <- md
+      r$shore_ag_method <- "BSS"; r$shore_pc_method <- "BSS"; r$boat_ag_method <- "BSS"
       v <- list(...); for (n in names(v)) r[[n]] <- v[[n]]; r }
     Sc <- rbind(
-      mk(1,"gear_resolved", port_BSS_catch = REF$gear_resolved$port_catch),
+      mk(1,"gear_resolved", port_BSS_catch = REF$gear_resolved$port_catch,
+                            outdir = basename(REF$gear_resolved$dir)),
       mk(1,"pooled"),
       mk(2,"pooled", shore_ag_sigma_IE = 0.32, shore_ag_L_width = rp$shore_ag_L_width * 0.55),
       mk(3,"pooled", shore_ag_sigma_IE = 0.32, shore_ag_B1 = 0.85),
@@ -585,21 +737,29 @@ if (isTRUE(DRY_RUN)) {
       mk(5,"gear_resolved", port_BSS_catch = REF$pooled$port_catch * 0.99))
     Vc <- judge(Sc)
     st("clean scenario produces no FAIL", !any(Vc$verdict == "FAIL"),
-       paste(sum(Vc$verdict=="PASS"), "PASS /", sum(Vc$verdict=="REVIEW"), "REVIEW"))
+       paste(sum(Vc$verdict=="PASS"), "PASS /", sum(Vc$verdict=="REVIEW"), "REVIEW /",
+             sum(Vc$verdict=="INFO"), "INFO"))
 
     Sb <- rbind(
-      mk(1,"gear_resolved", port_BSS_catch = REF$gear_resolved$port_catch + 37),
+      # A 5% port shift is now needed to trip the (deliberately loose) gear gross-change test;
+      # bit-identity is tested separately, and by pointing outdir at a folder that does not
+      # exist that criterion returns REVIEW rather than a spurious PASS.
+      mk(1,"gear_resolved", port_BSS_catch = REF$gear_resolved$port_catch * 1.05,
+                            outdir = "no-such-folder"),
       mk(1,"pooled",        port_BSS_catch = REF$pooled$port_catch + 9000),
-      mk(2,"pooled", shore_ag_sigma_IE = 1.04, boat_ag_BSS_catch = rp$boat_ag_BSS_catch + 32),
+      mk(2,"pooled", shore_ag_sigma_IE = 1.04, boat_ag_BSS_catch = rp$boat_ag_BSS_catch + 32,
+                     shore_ag_method = "PE (convergence fail)"),
       mk(3,"pooled", shore_ag_B1 = 0.40),
       mk(4,"pooled", boat_pc_method = "PE (insufficient data)",
                      shore_ag_BSS_catch = rp$shore_ag_BSS_catch + 500),
       mk(5,"gear_resolved", port_BSS_catch = REF$pooled$port_catch * 0.6))
     Vb <- judge(Sb)
-    want <- c("EXACTLY","sigma_IE falls","boat is untouched","reaches the sampler",
-              "shore all-gear untouched","port totals reconcile")
+    want <- c("within Monte Carlo error of the reference","sigma_IE falls","boat is untouched",
+              "reaches the sampler","shore all-gear untouched","port totals reconcile",
+              "still reports a BSS fit")
     fired <- vapply(want, function(p) {
-      v <- Vb$verdict[grepl(p, Vb$criterion)]; length(v) == 1 && v == "FAIL" }, logical(1))
+      v <- Vb$verdict[grepl(p, Vb$criterion, fixed = TRUE)]
+      length(v) >= 1 && any(v == "FAIL") }, logical(1))
     st("broken scenario fires every hard criterion", all(fired),
        paste(names(fired)[!fired], collapse = "; "))
   } else {

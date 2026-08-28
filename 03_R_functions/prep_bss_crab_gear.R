@@ -657,7 +657,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     .h_unit           = eff_spec$unit,
     # L's OWN unit (a turnover under deployments, hours under a time unit), kept
     # separate from the effort unit so outputs can label it correctly.
-    .L_unit           = eff_spec$L_unit %||% NA_character_
+    .L_unit           = eff_spec$L_unit %||% NA_character_,
+    # 2026-08-27: I/E observation PROVENANCE, so fit_data_summary.csv can record which
+    # column the shore likelihood consumed. The 2026-08-25 unit fix changed exactly this and
+    # no run output named it, so a reader could not tell a fixed run from a legacy one.
+    .ie_obs_unit      = if (is_shore) (eff_spec$ie_obs_unit %||% NA_character_) else "boat trips -> tau",
+    .ie_obs_col       = if (is_shore) (eff_spec$ie_obs_col  %||% NA_character_) else "ie_trips"
   )
 
   # F4: minimal interview frame for the CPUE-estimator and saturation diagnostics.
