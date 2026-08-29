@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-08-27 (b)
+- **Last updated:** 2026-08-29
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -230,6 +230,81 @@ Two design choices worth knowing. **Stage A does no fitting at all**: `pe_empty_
 **The harness is now 121 assertions** (`06_diagnostics/test_improvements_2026-08-25.R`), covering the shared-turnover contract, both refusal paths of its guard, the zero-size declaration in both `.stan` files, and the `tau_bar` decoupling flag. The batch's own dry run is 10 self-tests against the rung-4 outputs.
 
 **Still open after this, and unchanged by it.** Nothing here answers whether the boat turnover is 1.2 or 3.0; it makes the question answerable, and stage E is where it gets answered. `crab_fraction_set = 0.3` remains the single largest lever on the boat and is a field question, not a code one.
+
+
+**Update 2026-08-29 (the improvement-plan batch ran: six stages, ~22 h. Every question it asked got an answer, and it exposed a bigger one).**
+
+Full review in `improvement-batch-review-2026-08-29.md`; the sequenced follow-up is in `improvement-plan-2026-08-27.md`.
+
+### The finding that reframes everything else
+
+**The private-boat all-gear estimate ranges over 25,883 to 37,392 across configurations that ALL pass the convergence gate.** Every row below is a fit the gate accepted: R-hat under 1.01, n_eff over 400, divergence fraction under 5%, impact under 0.10 SD.
+
+| Configuration | AR | boat all-gear | 95% CI | CI width | `r_OSP` | port total |
+|---|---|---:|---|---:|---:|---:|
+| **shipped (rung 4)** | monthly | **25,883** | 10,400 - 50,675 | 40,275 | 1.62 | **66,237** |
+| stage D (`shared_tau` off; the gate) | monthly | 25,883 | 10,400 - 50,675 | 40,275 | 1.62 | 66,094 |
+| stage B (rung-2 config, reseeded) | monthly | 27,560 | | 42,921 | 1.58 | 67,106 |
+| stage C (boat AR forced biweekly) | biweekly | 28,902 | | 45,569 | 1.68 | 68,853 |
+| stage E (`shared_tau` on) | monthly | 31,012 | | 47,604 | 1.54 | 75,619 |
+| stage F (`ar_escalate`, settles daily) | daily | **37,392** | 15,592 - 70,368 | 54,777 | **10.61** | **78,250** |
+
+That is a **44% spread on the boat and 18% on the port total**, from modelling choices the pipeline currently treats as configuration. For scale: the entire 2026-08-25 improvement batch moved the port total 1.6%. **The convergence gate cannot separate these, and it was never designed to: it tests whether a fit sampled, not whether the model is the right one.** Any external presentation of the boat number has to say which configuration produced it.
+
+### Stage by stage
+
+**Stage A, empty-stratum fill (plan 1.4 / 4.3), PE only, minutes.** Switching `pe_empty_effort_stratum` from `zero` to `day_type` raises every affected component's PE by 20-27%: boat all-gear +21.2%, boat pot closure +26.8%, shore all-gear +20.7%, shore pot closure unchanged (it has no empty strata). At the port level the PE would rise roughly 13%. **The `zero` fill has been biasing the PE down by about an eighth**, which matters because the PE is the project's main sanity check on the BSS, and because a component that falls back to PE inherits the bias directly. **Caveat, and a defect in the batch rather than the result:** stage A did not load the crabbing-holiday workbook the way the driver does, so it stratified 289 days into 85 week x day-type cells instead of 92 and reported 41/44/8/0 zeroed days against the driver's 44/47/9/0. Both arms used the same stratification, so the 20-27% comparison is sound; the absolute counts are not production numbers. Fixed in this patch.
+
+**Stage B, reseeded rung 2 (plan 1.2). The 2026-08-26 failure was seed-dependent, but the configuration is genuinely marginal.** The verdict line says PASS, and that undersells the finding. Shore all-gear across seeds and configurations:
+
+| run | config | divergences | fraction | worst chain | E_neff | verdict |
+|---|---|---:|---:|---:|---:|---|
+| 2026-08-26 rung 2 | I/E fix, Fri/Sat/Sun | 2,957 | 29.6% | **2,500 of 2,500** | 30 | REJECTED |
+| **stage B (new seed)** | I/E fix, Fri/Sat/Sun | **488** | **4.88%** | **350** | **924** | passed, barely |
+| shipped (rung 4) | I/E fix + Sat/Sun | 333 | 3.33% | 152 | 5,914 | comfortable |
+
+Two seeds, two struggling chains: one fatal, one survivable at a 4.88% divergence fraction against a 5% backstop, with `E_sum` n_eff of 924 against 5,914. So the honest reading is **not** "bad luck, move on". The I/E unit fix on its own does strain the shore all-gear daily fit, and **it is the weekend fix that makes the shipped configuration comfortable** - exactly what its rationale predicted, since it cuts the residual variance the AR must absorb by about 15%. The shipped config is fine; the isolated rung-2 config is marginal.
+
+The isolation the ladder lacked is now available, and it confirms the I/E result decisively. Shore all-gear `sigma_IE` across three independent fits: **0.238** (stage B, the clean isolation), 0.300 (rung 3), 0.272 (rung 4), against 1.068 before the fix. A 72-78% drop, replicated three ways.
+
+**Stage C, boat pot-closure AR (plan 3.1). The 13% cross-track gap was a configuration artefact.** Forced to the gear track's biweekly, the pooled boat pot closure gives **735** against the gear track's 743 - a 1.1% gap, where the two tracks had disagreed by 13% at monthly (849) versus biweekly (743). The two `ar_max_resolution` maps should be aligned for this component. **The run was contaminated, by a defect this review found:** `ar_force` was per-POPULATION only while `ar_max_resolution` had already gained the nested per-sub-season form, and `as.character()` on a one-element list returns its element, so `ar_force = list(private_boat = list(pot_closure = "biweekly"))` silently forced BOTH boat sub-seasons to biweekly. Boat all-gear moved 25,883 -> 28,902 as a side effect, so stage C's port total is not interpretable as the change it was meant to isolate. The pot-closure conclusion stands (that component got exactly the intended change). Fixed in this patch: `ar_force` now takes the same two shapes as `ar_max_resolution`, and an unnamed list errors rather than picking one silently.
+
+**Stage D, the gate (plan 2.1's control): PASSED.** `shared_tau = FALSE` reproduces rung 4 with **11,217 shared parameter rows identical at full double precision across 8 summaries** and a byte-identical `convergence_report.csv`. The shared-turnover edit is behaviour-neutral when off, so stage E is attributable to the feature.
+
+**Stage E, shared turnover (plan 2.1). The boat turnover DOES move, and the corroboration is unusually good.** `tau_bar` for boat all-gear comes out **2.597 [2.064, 3.249]**, against a prior centred on 1.20, and the interval excludes the prior centre at about 2.6 prior SD. Four independent lines agree:
+
+1. **The independent overlap calibration** (`osp_trailer_overlap_calibration.csv`, unchanged across every run) implies a turnover of 2.01 / 2.74 / 3.03 by three trailer metrics, n = 61, correlation 0.90-0.98. The posterior sits inside that range.
+2. **The two boat streams reconcile simultaneously and in opposite directions.** Trailer PIT mean 0.4238 -> 0.4858 (bias down 81%) while OSP PIT mean 0.5790 -> 0.5211 (bias down 73%). The trailer stream was under-predicted and OSP over-predicted by nearly equal amounts; one shared level fixes both. That is hard to do by accident.
+3. **LOO improves on the stream it should.** Boat trailer `elpd_loo` -573.8 -> -559.1, a paired gain of +14.67 at z = +2.66, with `p_loo` staying low (4.9 -> 8.0) and zero bad Pareto k. Every other stream is a wash.
+4. **Convergence improved**, not degraded: boat all-gear divergences 97 -> 39, `tau_bar` n_eff 16,750, R-hat 0.9997.
+
+Two things to say alongside it. The posterior lies almost entirely **above** the prior's 95% envelope (prior hi95 2.160 < posterior lo95 2.064), so the prior is pulling `tau_bar` down and 2.597 is a shrunk, conservative number. And this fit has `n_ie_obs = 0`: there are no direct turnover observations, so `tau_bar` is identified indirectly through the trailer and OSP count streams. Legitimate inference, but it must never be described as measured turnover.
+
+**Stage E's shore result should NOT be carried forward.** Shore all-gear moved 20,898 -> 24,629 (+17.9%), which is not boat spillover - shore and boat are separate fits sharing no parameters - but the shore's own `tau_bar` moving 1.700 -> 2.080. That number is backed by almost nothing: only **4 of 289 shore days** carry any I/E observation, the `tau_bar` interval **[1.358, 2.979] still contains the 1.7 prior centre**, it bought no measurable improvement (gear PIT 0.5005 -> 0.5012, catch elpd -0.18), and **the gear track put the same parameter at 1.681, i.e. no move at all.** A 3,731-crab increase generated by a parameter indistinguishable from its prior, improving nothing, not replicating across tracks. The toggle is global; it needs to be gated on a minimum `n_ie_obs`, or made boat-only.
+
+**The gear track's stage E boat fit FAILED** (554 divergences, R-hat 1.32, n_eff 15) so it gives no verdict on the boat. The failure is diagnosable and is not about `tau_bar`: **544 of 554 divergences are in chain 3 alone** (chains 1/2/4: 0/2/8), the divergence localization implicates `phi_E` at the AR unit-root boundary (SMD +1.26, divergent median 0.960), `tau_bar` does not appear in that table at all, and the gear track runs this fit at 1,000 iterations against the pooled track's 2,500. It needs a reseed or a longer run before anything is concluded from it. The gear track's boat POT-CLOSURE fit did pass and put `tau_bar` at 2.050 [1.415, 2.930], also excluding 1.2 - weaker but real cross-track support.
+
+**Stage F, the escalation ladder (plan 3.2). Every component passes at DAILY on the first attempt, and that is not the good news it looks like.** The ladder never escalated: `ar_escalation_log.csv` records `attempt = 1` for all four fits, all at daily, all passing. Shore pot closure at daily gives 111 divergences (1.85%) where the Run 6 note recorded 1,165 (19.4%) - **the funnel that justified the biweekly cap is gone**, presumably retired by some combination of the gear-deployment unit, the weekend fix and the I/E unit fix. So `ar_max_resolution` is now the only thing holding production at monthly and biweekly, and it is doing real work on the number.
+
+But the daily boat fit is absorbing, not identifying. Boat all-gear catch goes 25,883 -> 37,392 (+44%), and:
+
+- **`p_loo` for the boat trailer stream goes 4.9 -> 31.8** with 2 bad Pareto k, for a +33 elpd gain. Roughly 27 extra effective parameters on 195 observations.
+- **The catch stream gets WORSE**: elpd -451.4 -> -455.3. The stream the harvest estimate is actually about does not improve.
+- **`r_OSP` collapses from 1.62 to 10.61**, 95% CI [3.57, **1405.5**], and its parent `sigma_r_OSP` has n_eff = 307 and R-hat 1.014 - the worst-behaved parameter in the fit, and below the gate's own n_eff floor, though the gate only checks `C_sum` and `E_sum`. A 289-state latent process has swallowed the OSP observation error.
+- The whole increase lands in the extrapolated portion: boat all-gear extrapolated catch 19,257 -> 26,895 on the same 66 of 289 sampled days.
+
+Treedepth was checked and is not the issue (`treedepth_pct = 0`, `bss_treedepth_boat_allgear = 13` against a mean of 9.96).
+
+### What this batch changes about the recommended configuration
+
+Nothing yet, deliberately. The shipped rung-4 configuration stands as the authoritative run. Stage E is the strongest candidate to change it and should not be adopted on one pooled run with a failed gear cross-check and a shore side effect that has to be suppressed first. The next runs are set out in `improvement-plan-2026-08-27.md`.
+
+### Two defects this review found, both fixed in this patch
+
+- **`ar_force` ignored the sub-season key** (`bss_ar_resolution.R`), which contaminated stage C. It now accepts the same scalar-or-named-list shapes as `ar_max_resolution`, ignores sub-seasons it does not name, and errors on an unnamed list.
+- **Stage A did not load the crabbing-holiday workbook**, so its stratification and zeroed-day counts did not match the driver's. Now loaded the way the driver loads it.
+
+The harness is at **128 assertions**, covering both fixes.
 
 ---
 

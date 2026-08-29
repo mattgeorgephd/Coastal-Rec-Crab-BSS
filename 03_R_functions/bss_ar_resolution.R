@@ -47,8 +47,10 @@
 #       This is the pooled track's behavior. The cap entry may be a scalar or a
 #       per-gear_regime named list (see gear_regime below).
 #
-#   params$ar_force[[population_name]] overrides BOTH modes. It is an experiment
-#   toggle; NULL (production) is a no-op.
+#   params$ar_force[[population_name]] overrides BOTH modes and the cap. It is an
+#   experiment toggle; NULL (production) is a no-op. As of 2026-08-27b it takes the
+#   same two shapes as ar_max_resolution: a scalar forces every sub-season of that
+#   population, and a list NAMED by gear_regime forces only the sub-seasons it names.
 #
 #   gear_regime (optional) selects a per-sub-season cap when the population's
 #   ar_max_resolution entry is a named list (e.g. list(all_gear = "daily",
@@ -80,6 +82,33 @@
 
 # Accept the drivers' historical spellings ("week"/"month") alongside the
 # canonical adverbial names.
+# Resolve an ar_force entry for one population and sub-season (2026-08-27b).
+#
+# ar_force was per-POPULATION only, while ar_max_resolution had already gained the nested
+# per-sub-season form (list(all_gear = ..., pot_closure = ...)). Passing ar_force the same
+# nested shape did NOT do the same thing: as.character() on a one-element list yields its
+# only element, so `ar_force = list(private_boat = list(pot_closure = "biweekly"))` silently
+# forced BOTH boat sub-seasons to biweekly. Stage C of the 2026-08-27 improvement batch was
+# run that way and moved the boat ALL-GEAR estimate 25,883 -> 28,902 as an unintended side
+# effect, which made its port total uninterpretable as the change it was supposed to isolate.
+#
+# ar_force now accepts either shape, matching ar_max_resolution: a scalar applies to every
+# sub-season of that population; a NAMED list is looked up by gear_regime and returns NULL
+# (no force) for a sub-season it does not name. An unnamed multi-element list is an error
+# rather than a silent coin flip.
+.bss_resolve_ar_force <- function(params, population_name, gear_regime = NULL) {
+  f <- params$ar_force
+  if (is.null(f) || is.null(f[[population_name]])) return(NULL)
+  e <- f[[population_name]]
+  if (!is.list(e)) return(.bss_normalize_resolution(e))
+  if (is.null(names(e)) || any(!nzchar(names(e))))
+    stop("params$ar_force[['", population_name, "']] is an unnamed list. Use a scalar to force ",
+         "every sub-season, or a list named by gear_regime (e.g. list(pot_closure = \"biweekly\")).",
+         call. = FALSE)
+  if (is.null(gear_regime) || !gear_regime %in% names(e)) return(NULL)
+  .bss_normalize_resolution(e[[gear_regime]])
+}
+
 .bss_normalize_resolution <- function(x) {
   if (is.null(x) || is.na(x)) return(NA_character_)
   x <- tolower(trimws(as.character(x)))
@@ -155,12 +184,13 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
   }
 
   # --- Experiment override: bypasses both modes and the cap ------------------
-  if (!is.null(params$ar_force) && !is.null(params$ar_force[[population_name]])) {
-    ar_resolution <- .bss_normalize_resolution(params$ar_force[[population_name]])
+  .forced <- .bss_resolve_ar_force(params, population_name, gear_regime)
+  if (!is.null(.forced) && !is.na(.forced)) {
+    ar_resolution <- .forced
     sel_source    <- "forced"
     if (verbose) {
-      cat(sprintf("  AR resolution FORCED to '%s' for %s (ar_force experiment override)\n",
-                  ar_resolution, population_name))
+      cat(sprintf("  AR resolution FORCED to '%s' for %s/%s (ar_force experiment override)\n",
+                  ar_resolution, population_name, gear_regime %||% "all"))
     }
   }
 
@@ -244,8 +274,8 @@ bss_ar_ladder <- function(days, eff_d, population_name, params,
                           min_periods = 3L) {
 
   # ar_force is an experiment override and outranks everything, including the ladder.
-  if (!is.null(params$ar_force) && !is.null(params$ar_force[[population_name]]))
-    return(.bss_normalize_resolution(params$ar_force[[population_name]]))
+  .forced <- .bss_resolve_ar_force(params, population_name, gear_regime)
+  if (!is.null(.forced) && !is.na(.forced)) return(.forced)
 
   base_sel <- bss_select_ar_resolution(days, eff_d, population_name, params,
                                        fixed_resolution = fixed_resolution,

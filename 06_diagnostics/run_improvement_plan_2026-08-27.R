@@ -72,7 +72,10 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                  # TRUE: resolve and print everything, fit nothing. START HERE.
+DRY_RUN <- TRUE                   # TRUE: resolve and print everything, fit nothing. START HERE.
+#        ^^^^ reset to TRUE after the 2026-08-29 batch. RESUME skips completed stages, so
+#        sourcing this with DRY_RUN <- FALSE again would re-extract and re-judge the existing
+#        outputs and APPEND another six rows to the summary CSV rather than re-fitting.
 STAGES  <- c("A", "B", "C", "D", "E", "F")
 RESUME  <- TRUE                  # skip a stage whose output folder already looks complete
 RESEED  <- 20260827L             # stage B's replacement bss_seed (anything != the shipped one)
@@ -183,6 +186,11 @@ STAGE_DEFS <- list(
                  bss_seed = RESEED),
             "ladder rung 2 on a different seed: stalled chain, or a real instability?",
             "1.2"),
+  # 2026-08-27b: this delta was correct in intent and wrong in effect on the first run.
+  # ar_force was per-POPULATION only, so the nested list silently forced BOTH boat
+  # sub-seasons to biweekly and moved boat all-gear 25,883 -> 28,902 as a side effect. The
+  # nested form is now honoured per sub-season (bss_ar_resolution.R), so re-running stage C
+  # isolates the pot closure as intended.
   C = stage("C", "IP-C-boatpc-ar", "pooled",
             list(ar_force = list(private_boat = list(pot_closure = "biweekly"))),
             "boat pot closure at the GEAR track's biweekly AR (pooled ran monthly)",
@@ -375,6 +383,13 @@ run_stage_A <- function() {
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
   params <- modifyList(BASE, list(bss_model_file = "crab_bss_pooled.stan"))
+  # 2026-08-27b FIX. The driver loads the crabbing-holiday workbook into params at setup
+  # (BSS-GH-pooled-CPUE-model.Rmd), and this stage did not, so its day-typing had no holidays
+  # and it stratified 289 days into 85 week x day-type cells instead of the driver's 92. The
+  # zeroed-day counts it reported were consequently 41/44/8/0 against the driver's 44/47/9/0.
+  # The zero-vs-day_type COMPARISON was still fair (both arms used the same stratification),
+  # but the absolute counts were not production numbers. Load them the way the driver does.
+  params$crabbing_holiday_dates <- read_crabbing_holidays(params)
   dwg     <- fetch_crab_data(params)
   ie_data <- fetch_ie_data(params)
   # Mirrors the driver exactly (BSS-GH-pooled-CPUE-model.Rmd): the day-length model is only

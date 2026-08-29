@@ -546,5 +546,31 @@ local({
       is.na(bss_decoupled_reasons("tau_bar[1]", list(shared_tau = 1L))))
 })
 
+# ---------- 14. ar_force per sub-season (2026-08-27b) ----------
+# ar_max_resolution had gained the nested per-sub-season form; ar_force had not, and
+# as.character() on a one-element list returns its element, so a nested ar_force silently
+# forced EVERY sub-season of that population. Stage C of the 2026-08-27 batch was run that
+# way: it forced the boat pot closure to biweekly as intended AND the boat all-gear with it,
+# moving that component 25,883 -> 28,902 and making the run's port total uninterpretable.
+local({
+  nested <- list(ar_force = list(private_boat = list(pot_closure = "biweekly")))
+  chk("ar_force: nested list forces the NAMED sub-season",
+      identical(.bss_resolve_ar_force(nested, "private_boat", "pot_closure"), "biweekly"))
+  chk("ar_force: nested list leaves the UNNAMED sub-season alone (the stage C bug)",
+      is.null(.bss_resolve_ar_force(nested, "private_boat", "all_gear")))
+  chk("ar_force: another population is untouched",
+      is.null(.bss_resolve_ar_force(nested, "shore", "all_gear")))
+  scal <- list(ar_force = list(private_boat = "biweekly"))
+  chk("ar_force: a scalar still forces every sub-season (unchanged behaviour)",
+      identical(.bss_resolve_ar_force(scal, "private_boat", "all_gear"), "biweekly") &&
+      identical(.bss_resolve_ar_force(scal, "private_boat", "pot_closure"), "biweekly"))
+  chk("ar_force: absent means no force", is.null(.bss_resolve_ar_force(list(), "shore", "all_gear")))
+  chk("ar_force: an UNNAMED list errors rather than picking one silently",
+      inherits(try(.bss_resolve_ar_force(list(ar_force = list(private_boat = list("a","b"))),
+                                         "private_boat", "all_gear"), silent = TRUE), "try-error"))
+  chk("ar_force: a nested force with no gear_regime supplied does not fire",
+      is.null(.bss_resolve_ar_force(nested, "private_boat", NULL)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
