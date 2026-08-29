@@ -86,6 +86,8 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "crab_fraction_estimate = 0: f is pinned at crab_fraction_value")
   if (osp_lo == 0) set(base == "f_lower",
     "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
+  if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
+    "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
   reason
 }
 
@@ -104,7 +106,9 @@ bss_structural_summary <- function(fit, stan_data = NULL) {
             # reader had to open the full summary to see terms that move the estimate.
             "B2_C", "gamma_C", "B_open",
             "kappa_OSP", "sigma_r_OSP", "r_OSP",
-            "f_crab", "f_lower")
+            "f_crab", "f_lower",
+            # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
+            "tau_bar")
   pars <- pars[pars %in% fit@model_pars]
   s <- summary(fit, pars = pars)$summary
   out <- data.frame(parameter = rownames(s),
@@ -254,6 +258,31 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   if (stan_data$T_n > 0 && !is.null(RT))
     parts$trailer <- calib(lamE[, stan_data$day_T, drop = FALSE] * RT,
                            stan_data$T_I, rE)
+  # improvement 2.2 (2026-08-27): the OSP stream was the one observation stream with NO
+  # posterior-predictive check, which is why the scale conflict it carries had to be
+  # inferred from the TRAILER PIT rather than read off directly. The OSP mean mirrors the
+  # Stan likelihood exactly: (lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP),
+  # with its own dispersion r_OSP. A PIT mean well below 0.5 here, alongside the trailer's,
+  # is the direct read on whether lambda_E is being pulled between two streams that disagree.
+  if ((stan_data$OSP_n %||% 0) > 0 && !is.null(RT)) {
+    # NOTE the draw subsetting: lamE, RT and the dispersion vectors are all on the `use`
+    # subset, so anything pulled fresh out of the fit has to be subset the same way or the
+    # element-wise product silently recycles.
+    osp_scale <- if (identical(as.integer(stan_data$osp_scale_is_tau %||% 0L), 1L)) {
+      Lx <- try(rstan::extract(fit, pars = "L_out")$L_out, silent = TRUE)
+      if (inherits(Lx, "try-error") || is.null(Lx)) NULL
+      else Lx[use, stan_data$day_OSP, drop = FALSE]
+    } else {
+      kx <- try(rstan::extract(fit, pars = "kappa_OSP")$kappa_OSP, silent = TRUE)
+      if (inherits(kx, "try-error") || is.null(kx)) NULL
+      else matrix(as.numeric(kx)[use], nrow = nd, ncol = length(stan_data$day_OSP))
+    }
+    rO <- try(as.numeric(rstan::extract(fit, pars = "r_OSP")$r_OSP)[use], silent = TRUE)
+    if (!is.null(osp_scale) && !inherits(rO, "try-error") && !is.null(rO) &&
+        identical(dim(osp_scale), dim(lamE[, stan_data$day_OSP, drop = FALSE])))
+      parts$osp <- calib(lamE[, stan_data$day_OSP, drop = FALSE] * RT * osp_scale,
+                         stan_data$OSP_I, rO)
+  }
   if (stan_data$IntC > 0)
     parts$catch   <- calib(sweep(lamC[, stan_data$day_IntC, drop = FALSE], 2,
                                  stan_data$h, "*"),

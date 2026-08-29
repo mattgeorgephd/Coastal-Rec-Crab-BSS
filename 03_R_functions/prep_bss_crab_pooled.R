@@ -266,6 +266,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   for (msg in open_spec$dropped)
     cat(sprintf("  Opener covariate DROPPED for this fit: %s\n", msg))
 
+  .shared_tau <- bss_shared_tau_data(eff_spec, L_data_vec, L_sigma_vec, params,
+                                    population_name = population_name)
+
   stan_data <- list(
     D=D, G=G, S=S,
     P_n=P_n, period=pvec,
@@ -278,6 +281,12 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     L_data = L_data_vec,
     estimate_L = estimate_L_flag,
     L_prior_sigma = L_sigma_vec,
+    # improvement 2.1 (2026-08-27): shared turnover. Off unless params$shared_tau is TRUE,
+    # and refused with a warning when L is not a constant turnover. See bss_shared_tau_data().
+    shared_tau             = .shared_tau$shared_tau,
+    shared_tau_prior_mu    = .shared_tau$shared_tau_prior_mu,
+    shared_tau_prior_sigma = .shared_tau$shared_tau_prior_sigma,
+    shared_tau_sigma       = .shared_tau$shared_tau_sigma,
     effort_scale_gear = as.integer(eff_spec$effort_scale_gear),  # P1/POOL-3
 
     n_effort_obs = n_effort_obs,

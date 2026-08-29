@@ -77,7 +77,8 @@ if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a))
 # ---- per-fit writer ---------------------------------------------------------
 
 write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, output_dir,
-                                           n_pit_draws = 1500, n_draw_save = 2000) {
+                                           n_pit_draws = 1500, n_draw_save = 2000,
+                                           seed = 1L) {
   if (is.null(fit)) { cat(sprintf("  %s: no fit; skipped.\n", label)); return(invisible(NULL)) }
   ok <- function(tag, expr) tryCatch(expr, error = function(e) {
     cat(sprintf("    [save:%s] %s skipped: %s\n", tag, label, conditionMessage(e))); NULL })
@@ -137,6 +138,13 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   if (is.null(ex)) return(invisible(NULL))
   ndraw <- length(ex$r_E)
   use_full <- seq_len(ndraw)
+  # 2026-08-27: SEED the two subsamples below. They were unseeded, so bss_draws_summed_*,
+  # ppc_* and everything derived from them shuffled between two runs of BIT-IDENTICAL fits.
+  # That is what turned the ladder's gear-exactness criterion into a false alarm: only ~490
+  # of 2,000 draw indices were shared between two runs of the same fits. Seeding makes the
+  # diagnostic files reproducible; note that the PORT TOTAL remains RNG-sensitive regardless,
+  # because it is built from rstan::extract(permuted = TRUE), which permutes on its own.
+  set.seed(as.integer(seed))
   use_pit  <- if (ndraw > n_pit_draws) sort(sample.int(ndraw, n_pit_draws)) else use_full
 
   # ---- O8. Summed-quantity posterior draws ---------------------------------

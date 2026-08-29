@@ -215,6 +215,29 @@ run_config <- list(
   tau_shore_prior_sigma  = 0.3,
   tau_boat_prior_mu      = 1.2,       # boat deployment turnover
   tau_boat_prior_sigma   = 0.3,
+
+  # --- SHARED TURNOVER (improvement 2.1, 2026-08-27) -------------------------
+  # FALSE (default) keeps the historical parameterization: L is D INDEPENDENT per-day draws,
+  # each anchored on tau_*_prior_mu, with nothing pooling information across days. The
+  # 2026-08-26 ladder showed what that costs. Because no shared parameter exists, an
+  # observation stream covering a SUBSET of days cannot move the season-level turnover:
+  # 4 shore I/E days out of 289 leave the median L at 1.6998 against a prior centre of
+  # 1.7000, and 148 OSP days out of 289 leave the boat at 1.201 against 1.200 -- while the
+  # OSP/trailer overlap calibration puts the real turnover at 2.0-3.0 and the free kappa_OSP
+  # sat at 3.15. The ~2.5x conflict goes into the OSP overdispersion instead (r_OSP ~ 1.6),
+  # and shows up independently as a boat trailer PIT mean of 0.42 against a nominal 0.50.
+  #
+  # TRUE replaces the D anchors with ONE estimated tau_bar and a fixed day-to-day spread, so
+  # every observed day informs a common level. It is REFUSED (with a warning) whenever L is
+  # not a constant turnover, e.g. under a time-denominated shore unit.
+  #
+  # THIS MOVES THE BOAT NUMBER. osp_scale_is_tau roughly doubles the private-boat harvest,
+  # and this decides whether the size of that doubling comes from the data or from the prior.
+  # Ships FALSE for the same reason everything else behaviour-changing ships off: turn it on
+  # in its own run, against the rung-4 baseline, and read tau_bar_out and the OSP PIT.
+  shared_tau             = FALSE,
+  shared_tau_sigma       = NULL,      # fixed day-to-day log-scale spread; NULL = half the prior SD
+
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
 
   # --- Shore I/E OBSERVATION unit (improvement 1/2 fix, 2026-08-25) ---------

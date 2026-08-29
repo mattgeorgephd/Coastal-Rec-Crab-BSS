@@ -145,6 +145,44 @@ data {
   //         L_prior_sigma, replacing the old flat L = 24 h.
   vector<lower=0>[D] L_data;
   int<lower=0,upper=1> estimate_L;
+  // ---------------------------------------------------------------------------
+  // improvement 2.1 (2026-08-27): SHARED TURNOVER.
+  //
+  // shared_tau = 0 (default) keeps the historical parameterization exactly: L is D
+  // INDEPENDENT per-day draws, L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]), each
+  // anchored on its own prior centre with nothing pooling information across days.
+  //
+  // That is a real limitation, not a stylistic one, and the 2026-08-26 ladder measured it.
+  // Because no shared parameter exists, an observation stream covering a SUBSET of days
+  // cannot move the season-level turnover no matter how large it is:
+  //   * shore, 4 in-window I/E days out of 289 -> season median L 1.6998 against a prior
+  //     centre of 1.7000. The 2026-08-25 claim that the fixed I/E stream would inform
+  //     tau_shore was retracted on this evidence.
+  //   * boat, 148 OSP days out of 289 under the production osp_scale_is_tau = 1 -> median
+  //     1.201 against a prior centre of 1.200, only 26 days narrowing below 90% of prior
+  //     width, while the OSP/trailer overlap calibration puts the real turnover at 2.0-3.0
+  //     and the Phase-1 free kappa_OSP sat at 3.15. That ~2.5x conflict is absorbed by the
+  //     OSP overdispersion (r_OSP ~ 1.6) instead of moving L, and shows up independently as
+  //     a boat trailer PIT mean of 0.42 against a nominal 0.50.
+  // Since osp_scale_is_tau roughly DOUBLES the private-boat harvest, the size of that
+  // doubling is currently set by the tau prior rather than by the OSP data.
+  //
+  // shared_tau = 1 replaces the D anchors with ONE estimated level:
+  //     L[d] = tau_bar * exp(shared_tau_sigma * L_raw[d])
+  //     tau_bar ~ lognormal(log(shared_tau_prior_mu), shared_tau_prior_sigma)
+  // so every observed day informs one common turnover, and shared_tau_sigma carries the
+  // day-to-day spread. shared_tau_sigma is DATA, not a parameter: the question this is meant
+  // to answer is where the shared LEVEL goes, and estimating the spread at the same time
+  // makes the two trade off against each other on a series where most days are unobserved.
+  // Estimating it is a deliberate later step, not a default.
+  //
+  // Only meaningful when L is a TURNOVER. Under a time-denominated shore unit L_data is the
+  // per-day L_effective regression and a single shared level would discard real day-to-day
+  // structure; the R side refuses to set shared_tau = 1 in that case.
+  int<lower=0, upper=1> shared_tau;
+  real<lower=0> shared_tau_prior_mu;      // prior centre for tau_bar (= the old L_data level)
+  real<lower=0> shared_tau_prior_sigma;   // log-scale SD of that prior
+  real<lower=0> shared_tau_sigma;         // fixed day-to-day log-scale spread around tau_bar
   vector<lower=0>[D] L_prior_sigma;
 
   // P1 (POOL-3): does the effort expansion count CRABBERS (lambda_E, scale 0) or
@@ -368,6 +406,10 @@ parameters {
   matrix[G,S] eps_mu_C;
 
   vector[D * estimate_L] L_raw;
+  // improvement 2.1: the shared level. Size 0 when shared_tau = 0, so the unconstrained
+  // parameter vector, and therefore a fixed-seed run, is UNCHANGED when the feature is off.
+  // Same zero-size-when-unused pattern as osp_f_kappa / f_lower_param.
+  vector<lower=0>[shared_tau] tau_bar;
 }
 
 transformed parameters {
@@ -414,8 +456,14 @@ transformed parameters {
 
   // --- Compute L ---
   if (estimate_L == 1) {
-    for (d in 1:D)
-      L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]);
+    if (shared_tau == 1) {
+      // improvement 2.1: one estimated level, per-day deviations around it.
+      for (d in 1:D)
+        L[d] = tau_bar[1] * exp(shared_tau_sigma * L_raw[d]);
+    } else {
+      for (d in 1:D)
+        L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]);
+    }
   } else {
     L = L_data;
   }
@@ -556,6 +604,11 @@ model {
   if (estimate_L == 1) {
     L_raw ~ std_normal();
   }
+  // improvement 2.1: proper prior on the shared level, and ONLY when it exists. Unlike the
+  // decoupled-but-proper pattern used for kappa_OSP, a zero-size parameter has no direction
+  // to make proper, and a sampling statement on a zero-length container buys nothing.
+  if (shared_tau == 1)
+    tau_bar[1] ~ lognormal(log(shared_tau_prior_mu), shared_tau_prior_sigma);
 
   for (g in 1:G) {
     mu_mu_E[g] ~ normal(value_normal_mu_mu_E, value_normal_sigma_mu_E);
@@ -663,6 +716,7 @@ generated quantities {
   vector[K_open] B_open_out;   // improvement 4 (labels travel out of band, see the driver)
   real gamma_C_out;    // item 6b
   vector[D] L_out;
+  real tau_bar_out;   // improvement 2.1: the shared turnover, or 0 when shared_tau = 0
 
   // Pointwise log-likelihood for PSIS-LOO (loo package) and Pareto-k influence
   // diagnostics, one entry per observation in each data stream. Enables the
@@ -692,6 +746,8 @@ generated quantities {
   B_open_out = B_open;
   gamma_C_out = gamma_C;
   L_out = L;
+  if (shared_tau == 1) tau_bar_out = tau_bar[1];
+  else                 tau_bar_out = 0.0;
 
   // Mirror the model-block likelihood terms exactly (lines for Gear_I, T_I, c).
   for (i in 1:Gear_n) {

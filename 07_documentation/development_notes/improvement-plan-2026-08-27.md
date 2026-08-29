@@ -84,7 +84,9 @@ Three of four components sit above the 5% warning threshold at the default `zero
 
 ## Stage 2. Model corrections
 
-### 2.1 A shared `tau` with per-day deviations
+### 2.1 A shared `tau` with per-day deviations  <!-- IMPLEMENTED 2026-08-27, runs pending -->
+**Status: the model change is IMPLEMENTED and verified; the runs are stages D and E of `06_diagnostics/run_improvement_plan_2026-08-27.R`.** `shared_tau` ships FALSE. `tau_bar` is declared `vector<lower=0>[shared_tau]`, so it is zero-size when the feature is off and the unconstrained parameter vector is unchanged; a fixed-seed fit on real data reproduces the pre-change model at full double precision (verified 2026-08-27 on the shore pot-closure data: `C_sum`, `E_sum`, `B1`, `B2`, `B1_C`, `R_G`, `sigma_IE` and `L_out` all identical to the last digit, zero `tau_bar` draws, `tau_bar_out` exactly 0). With it on the model samples cleanly and the per-day `L` collapses onto one level as designed. `bss_shared_tau_data()` refuses the toggle, with a warning rather than an error, whenever `L` is not a constant turnover.
+
 **The defect.** `crab_bss_pooled.stan` declares
 
 ```stan
@@ -117,7 +119,9 @@ There is no shared `tau_shore` or `tau_boat` parameter. `L` is `D` independent p
 **Cost:** a day of Stan work, then two pooled runs plus one gear run, so roughly 12 to 16 h of compute.
 **Risk:** this changes the boat number. It should be run and reviewed before any external presentation of the boat figure, not after.
 
-### 2.2 A posterior-predictive check on the OSP stream
+### 2.2 A posterior-predictive check on the OSP stream  <!-- IMPLEMENTED 2026-08-27 -->
+**Status: IMPLEMENTED.** `ppc_calibration_*.csv` now carries an `osp` row for every boat fit, using the same mean the Stan likelihood uses, and the batch reports its PIT mean beside the trailer's.
+
 `model_diagnostics.R` builds PPC calibration for the gear, trailer and catch streams and **not** for OSP, which is why the scale conflict in 2.1 had to be inferred from the trailer PIT rather than read directly.
 **Do:** add an `osp` part to the `calib()` block, using `(lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP)` as the mean and `r_OSP` as the dispersion.
 **Done when:** `ppc_calibration_*.csv` carries an `osp` row for every boat fit, and its PIT mean is reported alongside the trailer's.
@@ -149,12 +153,16 @@ Improvement 7 shipped `FALSE` and has never been run. The fit it was designed fo
 
 ## Stage 4. Reporting and hygiene
 
-### 4.1 Seed the diagnostic subsampling
+### 4.1 Seed the diagnostic subsampling  <!-- IMPLEMENTED 2026-08-27 -->
+**Status: IMPLEMENTED.** `write_fit_extended_diagnostics()` takes a `seed` argument, wired to `params$bss_seed` from both drivers. The port total remains RNG-sensitive through `rstan::extract(permuted = TRUE)` regardless, which is now stated in the header.
+
 `save_run_diagnostics.R` draws `sample.int()` twice without a seed, for the saved draw subset and the PIT subset, so `bss_draws_summed_*`, `ppc_*` and everything built on them shuffle between two runs of identical fits. That is what turned the Stage 0 exactness criterion into a false alarm.
 **Do:** seed from `params$bss_seed` at the top of `write_fit_extended_diagnostics()`, and note in the header that the port total remains RNG-sensitive through `rstan::extract(permuted = TRUE)` regardless.
 **Cost:** minutes. Do it with the next code change, not on its own.
 
-### 4.2 Make the commercial/charter census's day-typing explicit
+### 4.2 Make the commercial/charter census's day-typing explicit  <!-- IMPLEMENTED 2026-08-27 -->
+**Status: IMPLEMENTED.** The method label is now "Census (day-type stratified)" in both drivers.
+
 It moves 11,986 to 11,821 under the weekend redefinition, because `estimate_comm_charter.R` stratifies on `params$days_wkend`. That is defensible, but a column labelled "Census" in `pe_vs_bss_comparison.csv` that responds to a day-typing toggle will mislead somebody eventually.
 **Do:** relabel it "Census (day-type stratified)" and note the dependency in the method document.
 
@@ -168,19 +176,24 @@ The notes carry 79.8 / 48.5 / 30.9%. Observed across the six runs: boat all-gear
 
 ## Sequencing
 
+Everything runnable is now wired into **`06_diagnostics/run_improvement_plan_2026-08-27.R`**, ordered cheapest and most decisive first. Start it with `DRY_RUN <- TRUE`, read what it resolves, then set it to `FALSE`.
+
 ```
-Stage 0  ........................................  applied in this patch
+Stage A  1.4 + 4.3  empty-stratum fill, PE only ......  MINUTES, no fitting
    |
-Stage 1.2  reseed rung 2 ..........................  ~3 h   <- do first, it is cheap and it
-   |                                                          decides how urgent 3.2 is
-Stage 1.4  empty-stratum fill decision ............  ~4 h
+Stage B  1.2  reseed rung 2 .........................  ~3-4 h
+   |          cheapest decisive run; its answer changes how urgent F is
+Stage C  3.1  boat pot closure at biweekly AR .......  ~4 h
    |
-Stage 2.1  shared tau  + 2.2 OSP PPC ..............  ~1 day code + 12-16 h compute
-   |                                                          <- the boat number depends on this
-Stage 3.1  boat pot-closure AR .................... }
-Stage 3.2  ar_escalate on shore all-gear .......... }  8-16 h, order after 1.2
-   |
-Stage 4    hygiene, alongside whatever run is next
+Stage D  2.1  shared_tau OFF -- THE GATE ............  ~4 h
+   |          must be bit-identical to rung 4, or E is skipped automatically
+Stage E  2.1  shared_tau ON, pooled + gear ..........  ~4.5 h
+   |          the boat number depends on this
+Stage F  3.2  ar_escalate on shore all-gear .........  ~8-16 h, longest and least decisive
 ```
+
+Roughly 25-35 h in total on 4 cores. Resumable: a stage whose folder already holds `port_total_Dungeness_Kept.csv` is skipped and re-extracted, and results append to `05_output/improvement_plan_2026-08-27_summary.csv` as each stage finishes.
+
+Every stage is an ISOLATED change against the rung-4 baseline, never cumulative, so any result is attributable to one thing. Stage D is a hard gate on stage E: if the shared-turnover edit is not behaviour-neutral with the feature off, the batch skips E rather than producing a number nobody can attribute.
 
 **One thing to hold on to while working through this.** The ladder establishes that the batch is behaviour-neutral where it claims to be, that each change moved as predicted, and that the two tracks still agree. It does not establish that the shipped port total is closer to the truth than the previous one, only that it is built on fewer known errors. The boat remains about 82% extrapolated, and the `crab_fraction_set = 0.3` placeholder is still the single largest lever on it. Stage 2.1 is the second largest. Neither is closed by anything in the 2026-08-25 batch.

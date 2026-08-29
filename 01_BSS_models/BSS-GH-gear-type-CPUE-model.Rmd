@@ -1427,7 +1427,7 @@ comm_catch <- pe_all$comm_charter$Dungeness_Kept %||% 0
 gear_results[[length(gear_results)+1]] <- tibble(
   population="comm_charter", subseason="census", gear_type="Pot",
   BSS_median=NA, BSS_lo95=NA, BSS_hi95=NA,
-  PE_catch=round(comm_catch), method="Census"
+  PE_catch=round(comm_catch), method="Census (day-type stratified)"
 )
 
 gear_df <- bind_rows(gear_results)
@@ -1640,7 +1640,10 @@ for(label in names(bss_all)) {
 
   write_bss_diagnostics(b$fit, b$bss_data, label, output_dir)
   write_effort_overdispersion_diag(b$fit, b$bss_data, label, output_dir)
-  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  # 2026-08-27: pass the run seed so the diagnostic draw subsampling is reproducible
+  # (see the note in save_run_diagnostics.R; the port total stays RNG-sensitive regardless).
+  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir,
+                                 seed = params$bss_seed %||% 1L)
   write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
   # F4: CPUE estimator triad, saturation exponent, and the E/h unit assertion.
   write_cpue_diagnostics(b, label, output_dir)
@@ -2046,7 +2049,7 @@ comparison[[length(comparison)+1]] <- tibble(
   BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept),
   BSS_catch = NA, catch_diff_pct = NA,
-  method_selected = "Census"
+  method_selected = "Census (day-type stratified)"
 )
 
 comparison_df <- bind_rows(comparison)

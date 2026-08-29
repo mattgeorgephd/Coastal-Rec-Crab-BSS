@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-08-27
+- **Last updated:** 2026-08-27 (b)
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -202,6 +202,34 @@ Re-judging the ladder outputs with the repaired criteria gives **13 PASS, 1 FAIL
 **Corrected extrapolation figures** (the documented 79.8 / 48.5 / 30.9% match no run): boat all-gear **81.8 to 82.0%**, shore pot closure **31.8 to 33.3%**, shore all-gear 48.5% at rung 1 rising to **51.0%** on the shipped pooled config and 54.2% on the gear track, and the newly-fitted boat pot closure at **76.2%**, the most extrapolated stratum in the set.
 
 **What the ladder does and does not establish.** It establishes that the batch is behaviour-neutral where it claims to be, that each change moves the number in the direction and roughly the magnitude predicted, and that the two independent tracks still agree. It does **not** establish that the shipped port total is closer to the truth than the previous one, only that it is built on fewer known errors. The boat remains ~82% extrapolated and `crab_fraction_set = 0.3` is still the single largest lever on it; `osp_scale_is_tau` is the second.
+
+
+**Update 2026-08-27b (the improvement plan is now RUNNABLE: the shared-turnover model change, the OSP predictive check, and a batch runner).** Everything in `improvement-plan-2026-08-27.md` that needs code now has it; everything that needs compute is wired into one script.
+
+**The model change, improvement 2.1: a SHARED turnover.** Both `.stan` models gain `shared_tau`, `shared_tau_prior_mu`, `shared_tau_prior_sigma` and `shared_tau_sigma` in the data block, and a `vector<lower=0>[shared_tau] tau_bar` parameter. With `shared_tau = 1`, `L[d] = tau_bar * exp(shared_tau_sigma * L_raw[d])`: one estimated level that every observed day informs, with a fixed day-to-day spread around it, replacing the `D` independent per-day anchors that made the 148-day OSP stream unable to move the boat turnover off its 1.2 prior. `shared_tau_sigma` is DATA rather than a parameter on purpose: the question is where the shared LEVEL goes, and estimating the spread at the same time lets the two trade off against each other on a series where most days are unobserved.
+
+**It ships FALSE, and its OFF path is verified bit-identical.** `tau_bar` is zero-size when the feature is off, the same pattern that kept the gear track bit-identical through the 2026-08-25 batch. Confirmed on real data, not by inspection: a fixed-seed fit of the shore pot-closure component against the pre-change model reproduces `C_sum`, `C_expected_sum`, `E_sum`, `B1`, `B2`, `B1_C`, `R_G`, `sigma_IE` and `L_out` **identically at full double precision**, with zero `tau_bar` draws and `tau_bar_out` exactly 0. With the feature ON the model samples cleanly (R-hat ~1.00) and the per-day `L` medians collapse onto the shared level as designed. `bss_shared_tau_data()` REFUSES the toggle, with a warning rather than an error so a batch cannot die on it, whenever `L` is not a constant turnover, e.g. under a time-denominated shore unit where `L_data` is the per-day `L_effective` regression.
+
+**Improvement 2.2: the OSP stream finally has a posterior-predictive check.** It was the one observation stream without one, which is why the scale conflict it carries had to be inferred from the TRAILER PIT rather than read directly. `ppc_calibration_*.csv` now carries an `osp` row for every boat fit, built on the same mean the Stan likelihood uses, `(lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP)` with its own `r_OSP`.
+
+**Two hygiene items from the plan's stage 4.** The per-fit diagnostic subsampling is SEEDED (`write_fit_extended_diagnostics(seed = params$bss_seed)`), so `bss_draws_summed_*` and `ppc_*` no longer shuffle between two runs of bit-identical fits, which is what turned the ladder's gear-exactness criterion into a false alarm; the port total stays RNG-sensitive regardless, through `rstan::extract(permuted = TRUE)`, and that is now stated where it matters. The commercial/charter method label is now "Census (day-type stratified)", because it does move with `days_wkend`.
+
+**The batch: `06_diagnostics/run_improvement_plan_2026-08-27.R`.** Six stages, ordered cheapest and most decisive first, each an ISOLATED change against the rung-4 baseline rather than cumulative, so any result is attributable to one thing. Resumable, appends results as it goes, ~25-35 h on 4 cores.
+
+| Stage | Plan item | What it settles | Cost |
+|---|---|---|---|
+| A | 1.4 + 4.3 | empty-stratum fill, `zero` vs `day_type`, **PE only, no MCMC** | minutes |
+| B | 1.2 | reseed rung 2: one stalled chain, or a real instability? | ~3-4 h |
+| C | 3.1 | boat pot closure at the gear track's biweekly AR (850 vs 743) | ~4 h |
+| D | 2.1 | **GATE**: `shared_tau` OFF must reproduce rung 4 exactly | ~4 h |
+| E | 2.1 | `shared_tau` ON: does `tau_boat` move toward the 2.0-3.0 the OSP overlap implies? | ~4.5 h |
+| F | 3.2 | `ar_escalate` on the near-saturated shore all-gear daily fit | ~8-16 h |
+
+Two design choices worth knowing. **Stage A does no fitting at all**: `pe_empty_effort_stratum` changes only the Point Estimator, so a full render would have spent ~4 h of MCMC to answer a question the PE settles in a minute. **Stage D is a hard gate on stage E**: if the shared-turnover edit does not reproduce the baseline with the feature off, the batch SKIPS E rather than producing a boat number nobody can attribute to the feature.
+
+**The harness is now 121 assertions** (`06_diagnostics/test_improvements_2026-08-25.R`), covering the shared-turnover contract, both refusal paths of its guard, the zero-size declaration in both `.stan` files, and the `tau_bar` decoupling flag. The batch's own dry run is 10 self-tests against the rung-4 outputs.
+
+**Still open after this, and unchanged by it.** Nothing here answers whether the boat turnover is 1.2 or 3.0; it makes the question answerable, and stage E is where it gets answered. `crab_fraction_set = 0.3` remains the single largest lever on the boat and is a field question, not a code one.
 
 ---
 

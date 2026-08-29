@@ -2231,7 +2231,10 @@ cat("\n", strrep("=",60), "\n EXTENDED RUN OUTPUTS (O1-O11)\n", strrep("=",60), 
 for(label in names(bss_all)) {
   b <- bss_all[[label]]
   if(is.null(b$fit)) next                  # PE-only entry: nothing to extract
-  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  # 2026-08-27: pass the run seed so the diagnostic draw subsampling is reproducible
+  # (see the note in save_run_diagnostics.R; the port total stays RNG-sensitive regardless).
+  write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir,
+                                 seed = params$bss_seed %||% 1L)
   write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
   # POOL-5: CPUE estimator triad, saturation exponent, effort-linearity, and the
   # E/h unit assertion (03_R_functions/bss_cpue_diagnostics.R). Diagnostic-only:
@@ -2505,7 +2508,7 @@ comparison[[length(comparison)+1]] <- tibble(
   component = "comm_charter (census)",
   PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, catch_diff_pct = NA,
-  method_selected = "Census"
+  method_selected = "Census (day-type stratified)"
 )
 comparison_df <- bind_rows(comparison)
 print(comparison_df)

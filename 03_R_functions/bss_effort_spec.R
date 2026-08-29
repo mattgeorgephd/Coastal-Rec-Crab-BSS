@@ -182,3 +182,49 @@ bss_effort_h_candidates <- function(is_shore) {
   if (is_shore) c("fishing_time_total", "gear_time_total", "number_of_gear")
   else          c("number_of_gear")
 }
+
+# ---------------------------------------------------------------------------
+# improvement 2.1 (2026-08-27): SHARED-TURNOVER Stan data, with the guard.
+#
+# Returns the four `shared_tau*` fields both .stan models declare. Off by default, and
+# REFUSED (with a warning, not an error, so a batch never dies on it) whenever L is not a
+# turnover: under a time-denominated shore unit L_data is the per-day L_effective
+# regression, and collapsing that to one shared level would discard real day-to-day
+# structure rather than pool information about a constant.
+#
+# The prior centre and SD are taken from the SAME L_data / L_prior_sigma the per-day
+# parameterization uses, so `shared_tau = 1` changes how information is pooled and not what
+# the model is told a priori about the level. shared_tau_sigma (the fixed day-to-day spread)
+# defaults to half the prior SD: large enough that the per-day deviation is not a token,
+# small enough that it cannot substitute for the level it sits around.
+bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list(),
+                                population_name = "", quiet = FALSE) {
+  off <- list(shared_tau = 0L,
+              shared_tau_prior_mu    = as.numeric(stats::median(L_data)),
+              shared_tau_prior_sigma = as.numeric(stats::median(L_prior_sigma)),
+              shared_tau_sigma       = as.numeric(params$shared_tau_sigma %||%
+                                                  (0.5 * stats::median(L_prior_sigma))))
+  if (!isTRUE(params$shared_tau)) return(off)
+
+  l_unit <- eff_spec$L_unit %||% NA_character_
+  if (is.na(l_unit) || grepl("day length", l_unit, ignore.case = TRUE)) {
+    warning(sprintf(paste0("shared_tau = TRUE ignored for %s: L is '%s', not a turnover. ",
+                           "A single shared level is only meaningful when L_data is constant ",
+                           "across days."), population_name, l_unit), call. = FALSE)
+    return(off)
+  }
+  # L_data must actually be constant for a shared level to be the same object.
+  if (diff(range(L_data)) > 1e-8) {
+    warning(sprintf(paste0("shared_tau = TRUE ignored for %s: L_data varies across days ",
+                           "(range %.4f-%.4f), so there is no single level to share."),
+                    population_name, min(L_data), max(L_data)), call. = FALSE)
+    return(off)
+  }
+  on <- off; on$shared_tau <- 1L
+  if (!isTRUE(quiet))
+    cat(sprintf(paste0("  SHARED TURNOVER on: one tau_bar ~ Lognormal(log(%.3f), %.2f) ",
+                       "with a fixed day-to-day spread of %.2f (was %d independent per-day draws).\n"),
+                on$shared_tau_prior_mu, on$shared_tau_prior_sigma, on$shared_tau_sigma,
+                length(L_data)))
+  on
+}

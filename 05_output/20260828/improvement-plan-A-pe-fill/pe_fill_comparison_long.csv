@@ -1,0 +1,9 @@
+"fill","component","pe_effort","pe_catch","n_empty_strata","n_strata_total","n_empty_days","n_calendar_days","empty_day_fraction"
+"zero","shore_ring_net_only",4685.625,5890.82612537869,0,22,0,76,0
+"zero","shore_all_gear",19284.7055555556,16027.3898636602,15,85,41,289,0.141868512110727
+"zero","private_boat_ring_net_only",181.228235294118,402.626117647059,4,22,8,76,0.105263157894737
+"zero","private_boat_all_gear",3778.92793103448,11059.2826284763,17,85,44,289,0.152249134948097
+"day_type","shore_ring_net_only",4685.625,5890.82612537869,0,22,0,76,0
+"day_type","shore_all_gear",23088.6726551227,19339.2494261035,15,85,41,289,0.141868512110727
+"day_type","private_boat_ring_net_only",224.936470588235,510.530823529412,4,22,8,76,0.105263157894737
+"day_type","private_boat_all_gear",4477.5297389136,13404.4813856791,17,85,44,289,0.152249134948097

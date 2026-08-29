@@ -1,0 +1,5 @@
+"component","fill_zero","pe_effort_zero","pe_catch_zero","n_empty_strata_zero","n_strata_total_zero","n_empty_days_zero","n_calendar_days_zero","empty_day_fraction_zero","fill_daytype","pe_effort_daytype","pe_catch_daytype","n_empty_strata_daytype","n_strata_total_daytype","n_empty_days_daytype","n_calendar_days_daytype","empty_day_fraction_daytype","catch_change_pct","effort_change_pct"
+"private_boat_all_gear","zero",3778.92793103448,11059.2826284763,17,85,44,289,0.152249134948097,"day_type",4477.5297389136,13404.4813856791,17,85,44,289,0.152249134948097,21.2,18.5
+"private_boat_ring_net_only","zero",181.228235294118,402.626117647059,4,22,8,76,0.105263157894737,"day_type",224.936470588235,510.530823529412,4,22,8,76,0.105263157894737,26.8,24.1
+"shore_all_gear","zero",19284.7055555556,16027.3898636602,15,85,41,289,0.141868512110727,"day_type",23088.6726551227,19339.2494261035,15,85,41,289,0.141868512110727,20.7,19.7
+"shore_ring_net_only","zero",4685.625,5890.82612537869,0,22,0,76,0,"day_type",4685.625,5890.82612537869,0,22,0,76,0,0,0

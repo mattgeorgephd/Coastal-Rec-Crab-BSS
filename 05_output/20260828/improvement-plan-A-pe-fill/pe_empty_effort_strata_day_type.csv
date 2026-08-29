@@ -1,0 +1,5 @@
+"component","fill","n_empty_strata","n_strata_total","n_empty_days","n_calendar_days","empty_day_fraction","exceeds_5pct_at_zero"
+"shore_ring_net_only","day_type",0,22,0,76,0,FALSE
+"shore_all_gear","day_type",15,85,41,289,0.141868512110727,FALSE
+"private_boat_ring_net_only","day_type",4,22,8,76,0.105263157894737,FALSE
+"private_boat_all_gear","day_type",17,85,44,289,0.152249134948097,FALSE

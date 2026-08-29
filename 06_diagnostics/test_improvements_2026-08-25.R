@@ -474,5 +474,77 @@ local({
       all(is.na(bss_decoupled_reasons(pars, NULL))))
 })
 
+# ---------- 13. shared turnover (improvement 2.1, 2026-08-27) ----------
+# L was D INDEPENDENT per-day draws with nothing pooling across days, so an observation
+# stream covering a SUBSET of days could not move the season level: 148 OSP days left the
+# boat median at 1.201 against a prior centre of 1.200, while the OSP/trailer overlap puts
+# the real turnover at 2.0-3.0. shared_tau = 1 replaces the D anchors with one estimated
+# tau_bar. The guard matters as much as the feature: a shared level is only meaningful when
+# L_data is a CONSTANT turnover, never under a time-denominated shore unit where L_data is
+# the per-day L_effective regression.
+local({
+  Pdep <- list(shore_effort_unit = "gear-deployments", tau_shore_prior_mu = 1.7,
+               tau_shore_prior_sigma = 0.3, tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3)
+  d6   <- data.frame(event_date = as.Date("2024-12-01") + 0:5, day_type = "weekday")
+  sp_dep <- bss_effort_spec(TRUE, d6, Pdep)
+  sp_hrs <- bss_effort_spec(TRUE, d6, modifyList(Pdep, list(shore_effort_unit = "crabber-hours")))
+
+  Lc <- rep(1.7, 6); Sc <- rep(0.3, 6)                    # constant turnover
+  Lv <- seq(4.5, 6.5, length.out = 6)                     # per-day day-length regression
+
+  off <- bss_shared_tau_data(sp_dep, Lc, Sc, list(), "shore", quiet = TRUE)
+  chk("shared tau: OFF by default", identical(off$shared_tau, 0L))
+  chk("shared tau: the OFF path still supplies every Stan field",
+      all(c("shared_tau","shared_tau_prior_mu","shared_tau_prior_sigma","shared_tau_sigma")
+          %in% names(off)))
+  chk("shared tau: prior centre and SD come from L_data / L_prior_sigma, not a new constant",
+      isTRUE(all.equal(off$shared_tau_prior_mu, 1.7)) &&
+      isTRUE(all.equal(off$shared_tau_prior_sigma, 0.3)))
+  chk("shared tau: default day-to-day spread is half the prior SD",
+      isTRUE(all.equal(off$shared_tau_sigma, 0.15)))
+
+  on <- bss_shared_tau_data(sp_dep, Lc, Sc, list(shared_tau = TRUE), "shore", quiet = TRUE)
+  chk("shared tau: ON under a constant turnover", identical(on$shared_tau, 1L))
+  chk("shared tau: turning it on changes NOTHING the model is told a priori",
+      isTRUE(all.equal(on[setdiff(names(on), "shared_tau")],
+                       off[setdiff(names(off), "shared_tau")])))
+
+  # The guard. Both refusals must warn and degrade to OFF, never error: a batch that dies
+  # on a misconfigured component is worse than one that runs it the historical way.
+  w1 <- NULL
+  r1 <- withCallingHandlers(
+    bss_shared_tau_data(sp_hrs, Lv, Sc, list(shared_tau = TRUE), "shore", quiet = TRUE),
+    warning = function(w) { w1 <<- conditionMessage(w); invokeRestart("muffleWarning") })
+  chk("shared tau: REFUSED under a time-denominated unit (L is a day length)",
+      identical(r1$shared_tau, 0L) && !is.null(w1) && grepl("turnover", w1))
+
+  w2 <- NULL
+  r2 <- withCallingHandlers(
+    bss_shared_tau_data(sp_dep, Lv, Sc, list(shared_tau = TRUE), "shore", quiet = TRUE),
+    warning = function(w) { w2 <<- conditionMessage(w); invokeRestart("muffleWarning") })
+  chk("shared tau: REFUSED when L_data varies across days",
+      identical(r2$shared_tau, 0L) && !is.null(w2) && grepl("varies", w2))
+
+  chk("shared tau: shared_tau_sigma is configurable",
+      isTRUE(all.equal(bss_shared_tau_data(sp_dep, Lc, Sc,
+        list(shared_tau = TRUE, shared_tau_sigma = 0.05), "shore", quiet = TRUE)$shared_tau_sigma,
+        0.05)))
+
+  # Stan side: the parameter must be zero-size when off, which is what makes an OFF run
+  # bit-identical to the pre-change model (verified against a real fit on 2026-08-27).
+  for (f in c("crab_bss_pooled.stan", "crab_bss_gear_resolved.stan")) {
+    src <- paste(readLines(file.path("02_stan_models", f), warn = FALSE), collapse = "\n")
+    chk(sprintf("%s: tau_bar is zero-size when shared_tau = 0", f),
+        grepl("vector<lower=0>[shared_tau] tau_bar;", src, fixed = TRUE))
+    chk(sprintf("%s: the shared level is only sampled when it exists", f),
+        grepl("if (shared_tau == 1)", src, fixed = TRUE))
+    chk(sprintf("%s: tau_bar is reported", f), grepl("tau_bar_out", src, fixed = TRUE))
+  }
+  chk("decoupled: tau_bar flagged when shared_tau = 0",
+      !is.na(bss_decoupled_reasons("tau_bar[1]", list(shared_tau = 0L))))
+  chk("decoupled: tau_bar NOT flagged when shared_tau = 1",
+      is.na(bss_decoupled_reasons("tau_bar[1]", list(shared_tau = 1L))))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

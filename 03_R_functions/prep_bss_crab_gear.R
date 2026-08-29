@@ -508,6 +508,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     }
   }
 
+  .shared_tau <- bss_shared_tau_data(eff_spec, eff_spec$L_data, eff_spec$L_prior_sigma,
+                                    params, population_name = population_name)
+
   stan_data <- list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
@@ -524,6 +527,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     L_data        = eff_spec$L_data,
     estimate_L    = 1L,
     L_prior_sigma = eff_spec$L_prior_sigma,
+    # improvement 2.1 (2026-08-27): shared turnover. Off unless params$shared_tau is TRUE,
+    # and refused with a warning when L is not a constant turnover. See bss_shared_tau_data().
+    shared_tau             = .shared_tau$shared_tau,
+    shared_tau_prior_mu    = .shared_tau$shared_tau_prior_mu,
+    shared_tau_prior_sigma = .shared_tau$shared_tau_prior_sigma,
+    shared_tau_sigma       = .shared_tau$shared_tau_sigma,
     effort_scale_gear = eff_spec$effort_scale_gear,
 
     # F2: I/E observation stream. shore obs = crabber-hours, boat obs = trips.
