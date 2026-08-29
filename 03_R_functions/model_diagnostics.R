@@ -91,7 +91,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   reason
 }
 
-bss_structural_summary <- function(fit, stan_data = NULL) {
+bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
   pars <- c("mu_mu_E", "mu_mu_C",
             "sigma_eps_E", "sigma_eps_C",
             "phi_E", "phi_C",
@@ -125,6 +125,29 @@ bss_structural_summary <- function(fit, stan_data = NULL) {
   reason <- bss_decoupled_reasons(out$parameter, stan_data)
   out$decoupled        <- !is.na(reason)
   out$decoupled_reason <- reason
+
+  # 2026-08-30: `estimate` is the column to quote, and it is NA for a decoupled parameter.
+  #
+  # The `decoupled` flag added on 2026-08-27 was necessary and not sufficient. A flag beside
+  # a plausible-looking median still gets read as an estimate, and some of these medians are
+  # not merely uninformative but actively misleading: the shore fits' `r_OSP` carried a
+  # posterior MEAN of 2.5 million in the 2026-08-29 batch, and `kappa_OSP` reports a tidy
+  # 3.0 in every fit of every run under the production `osp_scale_is_tau = TRUE`, which reads
+  # exactly like a measured OSP scale and is its lognormal(log 3, 0.3) prior.
+  #
+  # The raw posterior summary stays: a decoupled parameter that does NOT match its prior is a
+  # bug worth seeing. But `estimate` answers the question a reader is actually asking, and it
+  # answers NA when there is no estimate to give.
+  out$estimate <- ifelse(out$decoupled, NA_real_, out$median)
+
+  # Provenance travels with the row. A parameter table lifted out of a folder whose fit the
+  # gate REJECTED looks identical to one the gate accepted; the 2026-08-29 gear stage E run
+  # is the worked example, where a rejected boat fit left tau_bar = 2.552 (n_eff 49) and
+  # f_crab = 0.315 (n_eff 25, R-hat 1.17) sitting in a file with nothing to say so.
+  out$fit_method <- fit_method %||% NA_character_
+
+  out <- out[, c("parameter", "estimate", "median", "lo95", "hi95", "mean", "n_eff", "Rhat",
+                 "decoupled", "decoupled_reason", "fit_method")]
   out
 }
 
@@ -297,12 +320,12 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
 }
 
 # --- 4. Write all diagnostics for one fit -----------------------------------
-write_bss_diagnostics <- function(fit, stan_data, label, output_dir) {
+write_bss_diagnostics <- function(fit, stan_data, label, output_dir, fit_method = NULL) {
   ok <- function(expr) tryCatch(expr, error = function(e) {
     cat(sprintf("    [diag] %s skipped: %s\n", label, conditionMessage(e))); NULL })
 
   ok({
-    sp <- bss_structural_summary(fit, stan_data)
+    sp <- bss_structural_summary(fit, stan_data, fit_method)
     utils::write.csv(sp, file.path(output_dir, sprintf("structural_params_%s.csv", label)),
                      row.names = FALSE)
   })

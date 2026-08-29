@@ -508,8 +508,13 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     }
   }
 
+  # Days that can inform L in THIS fit: the I/E days always, plus the OSP days when
+  # osp_scale_is_tau puts L into the OSP mean. This is what the shared-turnover floor gates on.
+  .n_L_informed <- as.integer((IE_n %||% 0L) +
+                    if (isTRUE(params$osp_scale_is_tau)) (OSP_n %||% 0L) else 0L)
   .shared_tau <- bss_shared_tau_data(eff_spec, eff_spec$L_data, eff_spec$L_prior_sigma,
-                                    params, population_name = population_name)
+                                    params, population_name = population_name,
+                                    n_informed = .n_L_informed)
 
   stan_data <- list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
@@ -670,8 +675,13 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     # 2026-08-27: I/E observation PROVENANCE, so fit_data_summary.csv can record which
     # column the shore likelihood consumed. The 2026-08-25 unit fix changed exactly this and
     # no run output named it, so a reader could not tell a fixed run from a legacy one.
-    .ie_obs_unit      = if (is_shore) (eff_spec$ie_obs_unit %||% NA_character_) else "boat trips -> tau",
-    .ie_obs_col       = if (is_shore) (eff_spec$ie_obs_col  %||% NA_character_) else "ie_trips"
+    # 2026-08-30: the boat label now matches the pooled track's exactly. The two tracks read
+    # "boat trips -> tau" and "boat trips" for the same quantity, which invites a reader to
+    # think they differ.
+    .ie_obs_unit      = if (is_shore) (eff_spec$ie_obs_unit %||% NA_character_) else "boat trips",
+    .ie_obs_col       = if (is_shore) (eff_spec$ie_obs_col  %||% NA_character_) else "ie_trips",
+    # 2026-08-30: the count the shared-turnover floor gates on.
+    .n_L_informed     = .n_L_informed
   )
 
   # F4: minimal interview frame for the CPUE-estimator and saturation diagnostics.

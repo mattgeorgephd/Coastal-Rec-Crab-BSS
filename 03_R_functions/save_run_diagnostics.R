@@ -342,6 +342,17 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",
                                  mean = lnorm_mean(4, 0.5), sd = lnorm_sd(4, 0.5))
     }
+    # 2026-08-30: the SHARED TURNOVER, when the fit carries one. This table is where the
+    # contraction and prior_influential diagnostics live, and tau_bar was missing from it in
+    # the 2026-08-29 batch -- the one parameter that batch existed to evaluate had no entry
+    # in the one file that says how much the data moved it. The prior is
+    # lognormal(log(shared_tau_prior_mu), shared_tau_prior_sigma), both passed in as data.
+    if (has_par("tau_bar") && identical(as.integer(sd_p$shared_tau %||% 0L), 1L) &&
+        !is.null(sd_p$shared_tau_prior_mu) && !is.null(sd_p$shared_tau_prior_sigma)) {
+      .mu <- as.numeric(sd_p$shared_tau_prior_mu); .sg <- as.numeric(sd_p$shared_tau_prior_sigma)
+      prior_tbl$tau_bar <- list(fam = sprintf("lognormal(log(%.3f), %.3f)", .mu, .sg),
+                                mean = lnorm_mean(.mu, .sg), sd = lnorm_sd(.mu, .sg))
+    }
 
     pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]
     if (length(pars) == 0) return(NULL)
@@ -578,7 +589,11 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         n_interviews = if (!is.null(sd_)) sd_$IntC else NA,
         # 2026-08-25 improvement 6: the POST-FILTER count the CPUE likelihood actually saw.
         # n_interviews above is the pre-filter count and reads looser than reality.
-        n_interviews_fitted = if (!is.null(sd_)) attr(sd_, "n_interviews_fitted") %||% NA else NA,
+        # 2026-08-30: read EITHER carrier. The pooled prep attaches this as an attribute and
+        # the gear prep stores it as a dot-prefixed list element, so this column was NA for
+        # every gear-track fit while the pooled track populated it.
+        n_interviews_fitted = if (is.null(sd_)) NA else
+          (attr(sd_, "n_interviews_fitted") %||% sd_[[".n_interviews_fitted"]] %||% NA),
         n_ie_obs = if (!is.null(sd_)) sd_$IE_n else NA,
         # 2026-08-27: unit PROVENANCE. Which observation column the I/E likelihood consumed,
         # what unit E and h are in, and what L carries. Rung 2 of the 2026-08-26 ladder changed
@@ -590,6 +605,10 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         ie_obs_unit = if (!is.null(sd_)) sd_[[".ie_obs_unit"]] %||% NA_character_ else NA_character_,
         effort_unit = if (!is.null(sd_)) sd_[[".effort_unit"]] %||% NA_character_ else NA_character_,
         L_unit = if (!is.null(sd_)) sd_[[".L_unit"]] %||% NA_character_ else NA_character_,
+        # 2026-08-30: days that can inform L (I/E days, plus OSP days under osp_scale_is_tau),
+        # and whether this fit ended up with a shared turnover. Together they say why.
+        n_L_informed = if (!is.null(sd_)) sd_[[".n_L_informed"]] %||% NA_integer_ else NA_integer_,
+        shared_tau   = if (!is.null(sd_)) sd_$shared_tau %||% NA_integer_ else NA_integer_,
         date_start = if (!is.null(ev)) as.character(min(ev)) else NA,
         date_end = if (!is.null(ev)) as.character(max(ev)) else NA,
         pct_days_with_effort = pct_days_eff, pct_days_with_interview = pct_days_int,

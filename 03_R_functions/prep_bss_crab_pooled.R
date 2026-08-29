@@ -266,8 +266,13 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   for (msg in open_spec$dropped)
     cat(sprintf("  Opener covariate DROPPED for this fit: %s\n", msg))
 
+  # Days that can inform L in THIS fit: the I/E days always, plus the OSP days when
+  # osp_scale_is_tau puts L into the OSP mean. This is what the shared-turnover floor gates on.
+  .n_L_informed <- as.integer((IE_n %||% 0L) +
+                    if (isTRUE(params$osp_scale_is_tau)) (OSP_n %||% 0L) else 0L)
   .shared_tau <- bss_shared_tau_data(eff_spec, L_data_vec, L_sigma_vec, params,
-                                    population_name = population_name)
+                                    population_name = population_name,
+                                    n_informed = .n_L_informed)
 
   stan_data <- list(
     D=D, G=G, S=S,
@@ -409,6 +414,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   stan_data[[".ie_obs_unit"]] <- ie_obs_unit
   # 2026-08-27: the machine-readable partner of .ie_obs_unit (ie_trips vs ie_crabber_hours).
   stan_data[[".ie_obs_col"]]  <- eff_spec$ie_obs_col %||% NA_character_
+  # 2026-08-30: the count the shared-turnover floor gates on, reported so a reader can see
+  # WHY a fit did or did not get a shared level.
+  stan_data[[".n_L_informed"]] <- .n_L_informed
   # gear_time_total is retained for the saturation diagnostic even though the boat
   # no longer uses it as the CPUE denominator (h is now number_of_gear).
   attr(stan_data, "cpue_data") <- tibble(

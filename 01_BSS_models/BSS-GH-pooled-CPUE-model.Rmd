@@ -288,6 +288,11 @@ if (!exists("run_config")) source(here::here("run_config.R"))
 # (defined above) is layered on top. The two key sets are disjoint, so the merge order
 # carries intent only (run_config is the base, the model updates it with its specifics).
 params <- modifyList(run_config, params)
+# 2026-08-30: the ONE sanctioned way for run_config to reach a sampler setting, applied
+# AFTER the merge because params_model wins it (03_R_functions/bss_sampler_override.R).
+# Unset in production, so this is a no-op on a normal run; it errors loudly on a
+# non-sampler key rather than silently dropping it.
+params <- bss_apply_sampler_override(params, model_label = "pooled")
 # Select this model's AR-resolution cap from the shared per-model map in run_config.
 params$ar_max_resolution <- run_config$ar_max_resolution$pooled
 
@@ -2130,9 +2135,13 @@ for(label in names(bss_all)) {
   b <- bss_all[[label]]
   if(is.null(b$fit)) next                  # PE-only entry: nothing to diagnose
   cat(sprintf("  %s:\n", label))
+  # 2026-08-30: the gate verdict travels INTO the per-fit tables, so a parameter row lifted
+  # out of a rejected fit's file carries that fact with it.
   write_bss_diagnostics(b$fit,
                         if(!is.null(b$bss_data)) b$bss_data else NULL,
-                        label, output_dir)
+                        label, output_dir,
+                        fit_method = b$gate_info$method_selected %||%
+                          (if (isTRUE(b$use_bss)) "BSS" else "PE (convergence fail)"))
 }
 
 
@@ -2249,6 +2258,11 @@ for(label in names(bss_all)) {
 write_run_level_diagnostics(bss_all, pe_all,
                             if(exists("gear_props")) gear_props else NULL,
                             params, output_dir)
+# improvement-plan item 5.5 (2026-08-30): model ADEQUACY, reported beside the convergence
+# gate rather than folded into it. The gate asks whether the sampler worked; this asks
+# whether the model is carrying the data. It changes no selection. Runs after the per-fit
+# LOO and PPC writers because it reads their output.
+write_model_adequacy(bss_all, output_dir, params)
 
 
 ```
@@ -2437,12 +2451,22 @@ for(label in names(bss_all)) {
     # parameters now; in the population where a ratio is unused it samples its prior.
     R_G_boat_draws <- rstan::extract(b$fit, "R_G_boat")$R_G_boat
 
+    # 2026-08-30: R_G_boat is DECOUPLED in a shore fit. Both ratios are declared with proper
+    # priors unconditionally, so a shore fit's R_G_boat samples its prior and prints as a
+    # perfectly reasonable "4.02 gear/group (1.51-10.54)" beside the boat fits' genuine 3.55.
+    # structural_params_*.csv has flagged this since 2026-08-27; this file did not, which is
+    # how the 2026-08-29 review found the value being read as an estimate. The flag and a
+    # suffix on the string, so it cannot be quoted by accident from either.
+    .rgb_decoupled <- is.null(b$bss_data) ||
+      ((b$bss_data$T_n %||% 0) == 0 && (b$bss_data$OSP_n %||% 0) == 0)
     expansion_results[[label]] <- tibble(
       fit = label,
       R_G_interpretation = sprintf("%.2f gear/crabber (%.2f-%.2f)",
         median(R_G_draws), quantile(R_G_draws, 0.025), quantile(R_G_draws, 0.975)),
-      R_G_boat_interpretation = sprintf("%.2f gear/group (%.2f-%.2f)",
-        median(R_G_boat_draws), quantile(R_G_boat_draws, 0.025), quantile(R_G_boat_draws, 0.975))
+      R_G_boat_interpretation = sprintf("%.2f gear/group (%.2f-%.2f)%s",
+        median(R_G_boat_draws), quantile(R_G_boat_draws, 0.025), quantile(R_G_boat_draws, 0.975),
+        if (.rgb_decoupled) "  [PRIOR ONLY: no boat count stream in this fit]" else ""),
+      R_G_boat_decoupled = .rgb_decoupled
     )
   }
 }
@@ -2511,6 +2535,13 @@ comparison[[length(comparison)+1]] <- tibble(
   method_selected = "Census (day-type stratified)"
 )
 comparison_df <- bind_rows(comparison)
+# 2026-08-30: say explicitly whether the BSS column was USED.
+# `method_selected` already recorded the gate verdict, but a rejected fit still leaves its
+# BSS_catch sitting in the adjacent column with nothing marking it as unused. The
+# 2026-08-29 gear run is the worked example: BSS_catch = 32,689 for private_boat (All gear)
+# beside method_selected = "PE", while the port total correctly substituted the PE. A reader
+# scanning the BSS column has no way to know. bss_reported answers it in one field.
+comparison_df$bss_reported <- comparison_df$method_selected == "BSS"
 print(comparison_df)
 write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.names = FALSE)
 

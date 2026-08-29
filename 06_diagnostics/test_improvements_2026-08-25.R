@@ -27,7 +27,9 @@ setwd(.root)
 for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "bss_opener_covariates.R","diagnose_incomplete_trips.R",
             "bss_stan_fit.R","save_run_diagnostics.R",
-            "model_diagnostics.R")) source(file.path("03_R_functions", f))
+            "model_diagnostics.R","bss_model_adequacy.R",
+            "annotate_decoupled_run.R",
+            "bss_sampler_override.R")) source(file.path("03_R_functions", f))
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -570,6 +572,261 @@ local({
                                          "private_boat", "all_gear"), silent = TRUE), "try-error"))
   chk("ar_force: a nested force with no gear_regime supplied does not fire",
       is.null(.bss_resolve_ar_force(nested, "private_boat", NULL)))
+})
+
+# ---------- 15. the shared-turnover informed-day floor (5.2, 2026-08-30) ----------
+# In the 2026-08-29 batch the toggle was global, and the SHORE all-gear fit has 4 in-window
+# I/E days out of 289. Turning shared_tau on moved that component +17.9% on those four
+# observations, with an interval that still contained the prior centre, no measurable
+# improvement, and no replication in the gear track. The boat, with 130 OSP days, is the case
+# the feature exists for. The floor separates them.
+local({
+  P <- list(shore_effort_unit = "gear-deployments", tau_shore_prior_mu = 1.7,
+            tau_shore_prior_sigma = 0.3, tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3)
+  d6 <- data.frame(event_date = as.Date("2024-12-01") + 0:5, day_type = "weekday")
+  sp <- bss_effort_spec(TRUE, d6, P)
+  Lc <- rep(1.7, 6); Sc <- rep(0.3, 6)
+  on <- function(n, extra = list())
+    bss_shared_tau_data(sp, Lc, Sc, modifyList(list(shared_tau = TRUE), extra),
+                        "x", n_informed = n, quiet = TRUE)$shared_tau
+
+  chk("shared tau floor: 4 informed days (the shore case) is REFUSED", identical(on(4L), 0L))
+  chk("shared tau floor: 130 informed days (the boat case) is allowed", identical(on(130L), 1L))
+  chk("shared tau floor: 18 (boat pot closure) is allowed at the default of 15",
+      identical(on(18L), 1L))
+  chk("shared tau floor: 0 informed days is refused", identical(on(0L), 0L))
+  chk("shared tau floor: the threshold is configurable",
+      identical(on(18L, list(shared_tau_min_obs = 20L)), 0L))
+  chk("shared tau floor: an UNKNOWN count does not block the feature",
+      identical(on(NA_integer_), 1L))
+  chk("shared tau floor: it cannot switch the feature ON when the unit guard says no",
+      identical(bss_shared_tau_data(
+        bss_effort_spec(TRUE, d6, modifyList(P, list(shore_effort_unit = "crabber-hours"))),
+        seq(4.5, 6.5, length.out = 6), Sc, list(shared_tau = TRUE), "x",
+        n_informed = 999L, quiet = TRUE)$shared_tau, 0L))
+  chk("shared tau floor: off by default regardless of the count",
+      identical(bss_shared_tau_data(sp, Lc, Sc, list(), "x", n_informed = 999L,
+                                    quiet = TRUE)$shared_tau, 0L))
+})
+
+# ---------- 16. model adequacy, reported beside the gate (5.5, 2026-08-30) ----------
+# Six configurations passed every gate criterion while spanning 44% on the boat. The gate
+# asks whether the sampler worked; these ask whether the model is carrying the data. The
+# thresholds are exercised against the real numbers the 2026-08-29 batch produced.
+local({
+  chk("adequacy: module exposes both entry points",
+      exists("bss_model_adequacy", mode = "function") &&
+      exists("write_model_adequacy", mode = "function"))
+
+  # The stage F signature, from that run's own files: p_loo/n doubles, a second bad k
+  # appears, and the PIT bias widens. Read straight off disk so the test is about the
+  # quantities, not about a mock.
+  d_off <- "05_output/20260828/pooled-CPUE-IP-D-tau-off"
+  d_esc <- "05_output/20260829/pooled-CPUE-IP-F-escalate"
+  f <- "loo_summary_private_boat_all_gear_Dungeness_Kept.csv"
+  if (file.exists(file.path(d_off, f)) && file.exists(file.path(d_esc, f))) {
+    a <- read.csv(file.path(d_off, f)); b <- read.csv(file.path(d_esc, f))
+    fa <- max(a$p_loo / a$n_obs); fb <- max(b$p_loo / b$n_obs)
+    chk("adequacy: p_loo fraction separates the monthly and daily boat fits",
+        fb > 1.9 * fa, sprintf("%.3f -> %.3f", fa, fb))
+    chk("adequacy: the daily fit carries more unreliable LOO points",
+        sum(b[["n_pareto_k_gt_0.7"]]) > sum(a[["n_pareto_k_gt_0.7"]]))
+  } else {
+    chk("adequacy: reference runs present for the threshold check", TRUE, "skipped, runs absent")
+  }
+
+  # A decoupled dispersion parameter must NOT drag the minimum down: an unused r_OSP in a
+  # shore fit would otherwise fire the flag on every run.
+  shore <- list(IE_n = 0L, OSP_n = 0L, T_n = 0L, osp_scale_is_tau = 1L, K_open = 0L,
+                apply_crab_fraction = 0L, crab_fraction_estimate = 0L, osp_crab_lower = 0L,
+                estimate_cpue_density = 0L, w = c(1,0,1), holiday = c(1,0,0), shared_tau = 0L)
+  r <- bss_decoupled_reasons(c("r_E","r_C","r_OSP","sigma_r_OSP"), shore)
+  chk("adequacy: shore r_OSP is excluded from the dispersion floor as decoupled",
+      is.na(r[1]) && is.na(r[2]) && !is.na(r[3]) && !is.na(r[4]))
+})
+
+# ---------- 17. reporting integrity (2026-08-30) ----------
+# One principle in four places: a number that is not an estimate must not sit in a column
+# that reads like one. Every case below was found in a real run output.
+local({
+  # 17a. structural_params gains `estimate`, NA when decoupled, and carries the gate verdict.
+  src <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("reporting: structural_params has an `estimate` column that is NA when decoupled",
+      grepl("out$estimate <- ifelse(out$decoupled, NA_real_, out$median)", src, fixed = TRUE))
+  chk("reporting: structural_params carries the fit's gate verdict",
+      grepl("out$fit_method <- fit_method", src, fixed = TRUE))
+
+  # 17b. pe_vs_bss_comparison says whether the BSS column was USED. The 2026-08-29 gear run
+  # left BSS_catch = 32,689 beside method_selected = "PE" with nothing marking it unused.
+  for (rmd in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+                "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    t <- paste(readLines(rmd, warn = FALSE), collapse = "\n")
+    chk(sprintf("reporting: %s marks whether the BSS column was reported", basename(rmd)),
+        grepl('comparison_df$bss_reported <- comparison_df$method_selected == "BSS"',
+              t, fixed = TRUE))
+  }
+
+  # 17c. the pooled expansion table flags a decoupled R_G_boat (the gear track already did).
+  t <- paste(readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
+  chk("reporting: pooled expansion_ratios flags a prior-only R_G_boat",
+      grepl("R_G_boat_decoupled", t, fixed = TRUE) && grepl("PRIOR ONLY", t, fixed = TRUE))
+
+  # 17d. historical folders can be annotated after the fact. The run outputs are committed on
+  # purpose and must not be rewritten, so the audit is a NEW file beside them.
+  chk("reporting: the retro-annotator is available",
+      exists("annotate_decoupled_run", mode = "function"))
+  ref <- "05_output/20260826/pooled-CPUE-PV4-minint/decoupled_audit.csv"
+  if (file.exists(ref)) {
+    a <- read.csv(ref, stringsAsFactors = FALSE)
+    gk <- function(fit, par, col) a[[col]][a$fit == fit & a$parameter == par][1]
+    chk("retro-audit: shore r_OSP (posterior mean in the hundreds of thousands) reads prior only",
+        identical(gk("shore_all_gear_Dungeness_Kept", "r_OSP", "status"), "prior only"))
+    chk("retro-audit: shore R_G_boat reads prior only",
+        identical(gk("shore_all_gear_Dungeness_Kept", "R_G_boat", "status"), "prior only"))
+    chk("retro-audit: boat kappa_OSP reads prior only under osp_scale_is_tau",
+        identical(gk("private_boat_all_gear_Dungeness_Kept", "kappa_OSP", "status"), "prior only"))
+    chk("retro-audit: the two GENUINE estimates are not mislabelled",
+        identical(gk("private_boat_all_gear_Dungeness_Kept", "R_G_boat", "status"), "estimate") &&
+        identical(gk("shore_all_gear_Dungeness_Kept", "sigma_IE", "status"), "estimate"))
+    chk("retro-audit: every row is marked reconstructed", all(a$source == "reconstructed"))
+    chk("retro-audit: window-dependent rules are reported unknown, not guessed",
+        any(grepl("^unknown", a$status)))
+  } else {
+    chk("retro-audit: annotated baseline present", TRUE, "skipped, not yet annotated")
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 18. The sampler-override escape hatch (2026-08-30). params_model wins the driver merge,
+#     so a run_config delta cannot reach a sampler setting; without this hatch, Stage 5's S3
+#     would run the gear track at its 1,000-draw default and report that more draws did not
+#     help. The failure mode being guarded against is SILENCE, so the whitelist must ERROR
+#     on a non-sampler key rather than dropping it.
+# ---------------------------------------------------------------------------
+local({
+  chk("sampler override: absent / NULL is a no-op",
+      identical(bss_apply_sampler_override(list(a = 1), NULL, quiet = TRUE), list(a = 1)))
+  p <- bss_apply_sampler_override(list(bss_iter_default = 2000, bss_warmup_default = 1000),
+                                  list(bss_iter_default = 5000, bss_warmup_default = 2500,
+                                       bss_adapt_delta_default = 0.99,
+                                       bss_max_treedepth_default = 13), quiet = TRUE)
+  chk("sampler override: raises iterations, warmup, adapt_delta and treedepth together",
+      identical(p$bss_iter_default, 5000) && identical(p$bss_warmup_default, 2500) &&
+      identical(p$bss_adapt_delta_default, 0.99) && identical(p$bss_max_treedepth_default, 13))
+  chk("sampler override: a STRUCTURAL key is refused, not silently dropped",
+      inherits(try(bss_apply_sampler_override(list(), list(shared_tau = TRUE), quiet = TRUE),
+                   silent = TRUE), "try-error"))
+  chk("sampler override: an unnamed list is refused",
+      inherits(try(bss_apply_sampler_override(list(), list(5000), quiet = TRUE),
+                   silent = TRUE), "try-error"))
+  chk("sampler override: it also reads params$bss_sampler_override, not just the argument",
+      identical(bss_apply_sampler_override(
+        list(bss_chains = 4, bss_sampler_override = list(bss_chains = 2)),
+        quiet = TRUE)$bss_chains, 2))
+  for (rmd in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+                "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    t <- readLines(rmd, warn = FALSE)
+    # fixed = TRUE: the parentheses in the merge line are regex metacharacters.
+    i_merge <- grep("params <- modifyList(run_config, params)", t, fixed = TRUE)
+    i_hook  <- grep("bss_apply_sampler_override(params", t, fixed = TRUE)
+    chk(sprintf("sampler override: %s applies it AFTER the merge", basename(rmd)),
+        length(i_merge) == 1 && length(i_hook) == 1 && i_hook > i_merge)
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e)
+  chk("sampler override: registered in run_config and NULL in production",
+      "bss_sampler_override" %in% names(e$run_config) && is.null(e$run_config$bss_sampler_override))
+
+  # 18b. One event, one wording. The gate is the single authority on method selection; a
+  # second writer inventing its own string means the same fit reads differently in two
+  # files in the same folder.
+  for (rmd in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+                "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    t <- paste(readLines(rmd, warn = FALSE), collapse = "\n")
+    chk(sprintf("method string: %s quotes the gate's verdict, not its own", basename(rmd)),
+        grepl("fit_method = b$gate_info$method_selected", t, fixed = TRUE))
+  }
+  # Comment lines are excluded: a comment explaining why the string is wrong is not a
+  # writer emitting it.
+  emits <- function(p) {
+    l <- readLines(p, warn = FALSE)
+    l <- l[!grepl("^\\s*#", l)]
+    any(grepl('"PE (gate fail)"', l, fixed = TRUE))
+  }
+  chk("method string: no writer invents 'PE (gate fail)'",
+      !any(vapply(c(list.files("03_R_functions", full.names = TRUE),
+                    list.files("01_BSS_models", pattern = "[.]Rmd$", full.names = TRUE)),
+                  emits, logical(1))))
+})
+
+# ---------------------------------------------------------------------------
+# 19. Retro model adequacy (plan 5.5). Plan 5.3 asks for p_loo, r_OSP and the two PIT means
+#     "for each cell" of a 2x2 whose archived cells predate the diagnostic. A table with
+#     adequacy for the new cells and blanks for the old ones is the shape of an argument
+#     that quietly favours whichever cells are new. The reconstruction must therefore agree
+#     with the live path exactly, which is why both go through .bma_core.
+# ---------------------------------------------------------------------------
+local({
+  chk("adequacy: the retro path is available",
+      exists("annotate_model_adequacy_run", mode = "function") &&
+      exists(".bma_core", mode = "function"))
+  d <- "05_output/20260829/pooled-CPUE-IP-F-escalate"
+  if (dir.exists(d)) {
+    a <- annotate_model_adequacy_run(d, overwrite = TRUE, quiet = TRUE)
+    r <- a[a$fit == "private_boat_all_gear_Dungeness_Kept", ]
+    # The values the live path produced on this folder when it was validated (2026-08-30).
+    chk("adequacy retro: stage F boat p_loo fraction reproduces the live value",
+        isTRUE(abs(r$p_loo_frac - 0.163) < 0.002), sprintf("(%.4f, %s)", r$p_loo_frac, r$p_loo_worst_stream))
+    chk("adequacy retro: stage F Pareto k > 0.7 count reproduces", isTRUE(r$n_pareto_bad == 2))
+    chk("adequacy retro: stage F dispersion n_eff finds sigma_r_OSP below the gate's floor",
+        isTRUE(r$disp_neff_min < 400) && identical(r$disp_neff_min_par, "sigma_r_OSP"),
+        sprintf("(%s at n_eff %s)", r$disp_neff_min_par, r$disp_neff_min))
+    chk("adequacy retro: every row is marked as reconstructed", all(grepl("^reconstructed", a$source)))
+    chk("adequacy retro: method_selected is recovered from the convergence report",
+        all(!is.na(a$method_selected)))
+    s <- a[a$fit == "shore_all_gear_Dungeness_Kept", ]
+    chk("adequacy retro: a decoupled r_OSP in a shore fit is excluded from the floor",
+        !identical(s$disp_neff_min_par, "r_OSP"), sprintf("(shore minimum is %s)", s$disp_neff_min_par))
+    e <- "05_output/20260829/pooled-CPUE-IP-E-tau-on-pooled"
+    if (dir.exists(e)) {
+      b <- annotate_model_adequacy_run(e, overwrite = TRUE, quiet = TRUE)
+      rb <- b[b$fit == "private_boat_all_gear_Dungeness_Kept", ]
+      chk("adequacy: the shared turnover improved PIT bias at UNCHANGED complexity",
+          isTRUE(abs(rb$p_loo_frac - r$p_loo_frac) > 0.05) && isTRUE(rb$pit_worst_bias < 0.05),
+          sprintf("(E p_loo %.3f bias %.3f vs F p_loo %.3f bias %.3f)",
+                  rb$p_loo_frac, rb$pit_worst_bias, r$p_loo_frac, r$pit_worst_bias))
+    }
+  } else chk("adequacy retro: stage F folder present", TRUE, "skipped, folder absent")
+})
+
+# ---------------------------------------------------------------------------
+# 20. The Stage 5 batch runner. Its REF block hard-codes baselines so a criterion cannot be
+#     edited after the answer is known; this checks the hard-coded values still match the
+#     folders they name, which is the one way that arrangement can rot silently.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_stage5_2026-08-30.R"
+  if (!file.exists(f)) { chk("stage5 runner: present", FALSE); return(invisible(NULL)) }
+  chk("stage5 runner: parses", !inherits(try(parse(f), silent = TRUE), "try-error"))
+  t <- paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("stage5 runner: ships with DRY_RUN TRUE", grepl("^DRY_RUN <- TRUE", t) ||
+      grepl("\nDRY_RUN <- TRUE", t))
+  chk("stage5 runner: the 2x2 forces ONE sub-season, per-sub-season",
+      grepl('AR_BOAT_AG_DAILY <- list(private_boat = list(all_gear    = "daily"))', t, fixed = TRUE))
+  chk("stage5 runner: S4a exists, so the (off, daily) cell is matched rather than stage F's",
+      grepl('S4a = stage("S4a"', t, fixed = TRUE) && grepl('shared_tau = FALSE, ar_force', t, fixed = TRUE))
+  # REF drift. Read the committed folders the runner names and confirm the numbers agree.
+  ref <- list(
+    list("05_output/20260828/pooled-CPUE-IP-D-tau-off", "private_boat \\(All gear\\)", 25868),
+    list("05_output/20260829/pooled-CPUE-IP-E-tau-on-pooled", "private_boat \\(All gear\\)", 31008),
+    list("05_output/20260829/pooled-CPUE-IP-F-escalate", "private_boat \\(All gear\\)", 37359))
+  for (r in ref) {
+    p <- file.path(r[[1]], "pe_vs_bss_comparison.csv")
+    if (!file.exists(p)) { chk(paste("stage5 REF:", basename(r[[1]])), TRUE, "skipped, folder absent"); next }
+    d <- read.csv(p, stringsAsFactors = FALSE)
+    v <- d$BSS_catch[grepl(r[[2]], d$component)][1]
+    chk(sprintf("stage5 REF: %s boat all-gear is still %d", basename(r[[1]]), r[[3]]),
+        isTRUE(round(v) == r[[3]]), sprintf("(read %s)", round(v)))
+  }
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

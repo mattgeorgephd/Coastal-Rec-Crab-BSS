@@ -194,6 +194,7 @@ The batch answered its questions. In answering them it turned a suspicion into a
 **The private-boat all-gear estimate ranges over 25,883 to 37,392 - a 44% spread, 18% at the port total - across six configurations that ALL pass the convergence gate.** The 2026-08-25 batch, by comparison, moved the port total 1.6%. The gate tests whether a fit sampled, not whether the model is the right one, and it was never meant to do the latter. Everything below exists to narrow that spread on evidence rather than on default settings.
 
 ### 5.1 Adopt a fill for the empty effort strata  <!-- decision, then one run -->
+**Status 2026-08-30: RUNNABLE, stage S1 of `06_diagnostics/run_stage5_2026-08-30.R`.** The holiday-loading fix is in, so the re-run now carries an exact criterion the original stage A could not state: its `zero` arm must reproduce the driver's own PE, component by component (15,755 / 5,959 / 11,176 / 400) and the driver's zeroed-day counts (44/0/47/9). If it does not, the fix is incomplete and every fill number below stays provisional.
 **Where it stands.** `day_type` raises the PE 20-27% per affected component, about 13% at the port. Three of four components sit above the 5% warning threshold at the shipped `zero` fill. The unsampled strata skew weekend and holiday, and those days carry 1.7-2.3x weekday effort, so `zero` is biased down by construction and the only question is by how much.
 
 **Do:** re-run stage A on the fixed script (it now loads the holiday workbook, so the counts will be the driver's). Then decide. This is a PE-only change, so it costs minutes, not a fit.
@@ -202,6 +203,13 @@ The batch answered its questions. In answering them it turned a suspicion into a
 **Cost:** minutes to re-run, plus the decision.
 
 ### 5.2 Make `shared_tau` boat-only, then re-run it  <!-- code, then 2 runs -->
+**Status 2026-08-30: item 1 DONE (code); items 2-3 are stages S2 and S3 of the Stage 5 batch.** Two corrections to what is written below.
+
+*The floor defaults to 15, not 20.* The observed informed-day counts are 4 (shore all-gear), 0 (shore pot closure), 130 (boat all-gear), **18 (boat pot closure)**. A floor of 20 would also discard the boat pot closure, which returned `tau_bar` 1.873 [1.219, 2.780] pooled and 2.050 [1.415, 2.930] gear-resolved: two fits, both excluding the 1.2 prior centre, agreeing across tracks. Any threshold in 5..18 separates the shore from the boat, so the choice inside that range is not what decides the outcome; discarding a corroborated cross-track result to buy threshold margin would be the wrong trade. `shared_tau_min_obs = 20` remains available as a one-line sensitivity check.
+
+*Item 2's success criterion is now exact rather than approximate.* "Confirm the shore returns to 20,898 while the boat holds near 31,012" is a tolerance, and a tolerance passes a run whose shore moved for an unrelated reason and happened to land nearby. Since the `off` branch of `bss_shared_tau_data()` returns an identical list whether it is reached by the global toggle or by the floor, the run is testable exactly: the **shore fits must be bit-identical to stage D** (feature globally off) and the **boat fits bit-identical to stage E** (feature globally on), on the same run. That is what stage S2 gates on.
+
+*Item 3's prescription is very unlikely to work as written; the batch departs from it.* The gear boat all-gear fit recorded `tau_bar` n_eff **49** on 4,000 post-warmup draws, an efficiency of 1.2%; reaching the gate's floor of 400 by draws alone would need ~32,000, not the 2,500-per-chain proposed, and R-hat 1.08-1.17 does not fall with more draws when a chain is elsewhere. The likelier cause is adaptation: the pooled track runs the *same component* at `adapt_delta` 0.99 / `max_treedepth` 13 and got **39** divergences, while the gear track runs it at 0.90 / 10 and got **554**, because the gear driver has per-fit overrides for shore-all-gear and both pot-closure fits and **none** for boat all-gear. Stage S3 therefore raises draws *and* adaptation to the pooled track's values for that fit. Three things move at once; that is accepted deliberately, because the objective is a converged cross-track fit to compare, not attribution between sampler settings.
 **Why.** The boat result is well supported by four independent lines. The shore result is not supported by anything: 4 of 289 informed days, an interval containing the prior centre, no measurable improvement, and no replication in the gear track. One global toggle produced both.
 
 **Do:**
@@ -214,6 +222,11 @@ The batch answered its questions. In answering them it turned a suspicion into a
 **Do not adopt `shared_tau` in production before this.** It currently moves the shore on four observations.
 
 ### 5.3 Separate AR resolution from turnover  <!-- 2 runs, the important one -->
+**Status 2026-08-30: stages S4a and S4b. This is TWO new runs, not one — the correction matters.**
+
+The text below says two of the four cells already exist and calls it "one new run". They do not. Stage F reached daily through `ar_escalate`, which moved **all four fits** to daily (shore pot closure biweekly→daily, boat pot closure monthly→daily, boat all-gear monthly→daily) through a different code path with a different number of fits per component; its shore pot closure came back 6,352 against stage D's 6,331. Two of its four components therefore differ from the reference for reasons that have nothing to do with the boat's AR, so pairing it with an (on, daily) cell would confound the very thing the 2x2 exists to separate. **S4a** supplies a matched (off, daily) cell by forcing one sub-season with the now-per-sub-season `ar_force` and leaving the other three at their selected resolutions. Cost: one extra run, ~4-6 h. It is the cheapest thing in this plan that protects its most important result.
+
+The adequacy evidence assembled 2026-08-30 already discriminates the two archived cells, and is the template for reading the new ones: stage E carries `p_loo` 8.0% of `n_obs` with PIT bias 0.079 → 0.021 at unchanged complexity; stage F carries 16.3%, two Pareto k > 0.7, PIT bias 0.096, and `sigma_r_OSP` at n_eff 307.
 **Why.** Stage E (shared tau at monthly) and stage F (per-day tau at daily) both raise the boat, by +20% and +44%, and they have never been varied jointly. They may be measuring the same thing two ways, or they may compound. Right now nobody can say which, and the difference between them is roughly 6,000 crab.
 
 The evidence already separates them in quality. Stage E improves the stream it should (trailer elpd +14.67, `p_loo` 4.9 -> 8.0, both PIT means converging on nominal). Stage F buys a larger elpd gain by spending ~27 effective parameters, makes the CATCH stream worse, and collapses `r_OSP` to 10.61 with a 95% upper bound of 1,405 - a latent process eating the observation error. **The working hypothesis is that stage E is identification and stage F is absorption.** It is a hypothesis, and it is testable.
@@ -224,6 +237,7 @@ The evidence already separates them in quality. Stage E improves the stream it s
 **Cost:** ~4 h for the one missing cell.
 
 ### 5.4 Decide what `ar_max_resolution` is for  <!-- decision -->
+**Status 2026-08-30: blocked on S4a/S4b, by design. It is a decision, not a run.**
 **Why.** The caps were introduced because specific fits funneled at finer resolutions. Stage F shows those funnels are gone: shore pot closure at daily gives 111 divergences where Run 6 recorded 1,165. The caps are now the only thing holding production at monthly and biweekly, and they are worth 44% on the boat.
 
 A cap justified by a pathology that no longer exists is not a cap, it is a preference. Either re-derive it from current diagnostics, or state plainly that it encodes a judgement about how much daily structure the boat series can support and defend that judgement on its own terms. **The `p_loo` evidence in 5.3 is the right basis** - a resolution that triples effective parameters and makes the catch stream worse is not the one to pick, whatever the gate says.
@@ -231,6 +245,7 @@ A cap justified by a pathology that no longer exists is not a cap, it is a prefe
 **Cost:** none beyond 5.3's output.
 
 ### 5.5 Give the gate something to say about model choice  <!-- design, then code -->
+**Status 2026-08-30: DONE.** `03_R_functions/bss_model_adequacy.R` writes `model_adequacy.csv` per run with `p_loo_frac`, `n_pareto_bad`, `pit_worst_bias` and `disp_neff_min`, plus a retro path that rebuilds the same table for archived folders from their committed CSVs. It reports, it does not gate; `pass_convergence` is unchanged. One departure from the text below: the numbers land in their own file rather than in `convergence_report.csv`, so the gate's own report keeps one meaning per column and the two questions stay visibly separate.
 **Why.** Six configurations, all passing, spanning 44% on the boat. The gate answers "did this fit sample?" and the project has been reading it as "is this fit good?". Nothing currently stops a future run from adopting the daily boat AR on the strength of four green ticks.
 
 **Do:** add the model-adequacy diagnostics the project already computes to the per-fit gate report, without necessarily gating on them at first: `p_loo` as a fraction of `n_obs`, the count of Pareto k > 0.7, the PIT mean per stream, and a flag when an observation-model dispersion parameter has n_eff below the gate's own floor (`sigma_r_OSP` at 307 in stage F would have tripped this). Report them beside `pass_convergence` so the two questions are visibly different.
@@ -238,6 +253,7 @@ A cap justified by a pathology that no longer exists is not a cap, it is a prefe
 **Cost:** half a day, no new runs; the quantities are already in `loo_summary_*` and `ppc_calibration_*`.
 
 ### 5.6 Smaller items the review turned up
+**Status 2026-08-30: all DONE except the stage C re-run, which is stage S5 of the batch.**
 - **Align the boat pot-closure AR maps** across the two tracks (plan 3.1 is answered: biweekly reconciles them to 1.1%).
 - **`tau_bar` is missing from `prior_vs_posterior_*.csv`**, so the one parameter this batch existed to evaluate has no contraction or `prior_influential` diagnostic. Add it.
 - **`expansion_ratios.csv` prints decoupled shore `R_G_boat` values without the flag** that `structural_params_*.csv` now carries. Propagate `decoupled` to that file.
@@ -260,6 +276,23 @@ Stages A-F have run. What remains, cheapest and most decisive first:
 5.5  gate reports model adequacy ...........  half a day, no runs
 5.6  smaller items ..........................  alongside whatever runs next
 ```
+
+**As executed (2026-08-30), `06_diagnostics/run_stage5_2026-08-30.R`.** All the code is applied; what remains is compute. Cheapest and most decisive first:
+
+```
+S1  5.1  PE fill re-run, PE only ............  minutes    + the fill decision
+ |
+S2  5.2  shared_tau ON, pooled, with floor ..  ~4 h       GATE: shore == stage D,
+ |                                                              boat  == stage E, exactly
+S3  5.2  shared_tau ON, gear, pooled sampler   ~1.5-2.5 h cross-track verdict
+ |
+S4a 5.3  tau OFF x boat daily ...............  ~4-6 h     the MATCHED control stage F is not
+S4b 5.3  tau ON  x boat daily ...............  ~4-6 h     gated on S2; S4a is not
+ |
+S5  5.6  boat pot closure biweekly, clean ...  ~4 h       uncontaminated stage C
+```
+
+Roughly 18-24 h. **S2 gates S4b only.** S4a runs with `shared_tau` off and so does not depend on the floor; if the gate fails, S4a still delivers the matched (off, daily) cell and only the (on, daily) corner is deferred.
 
 Roughly 9 h of compute and a day of code. Note that 5.2 gates 5.3: running the 2x2 with a
 `shared_tau` that also moves the shore on four observations would confound it again.

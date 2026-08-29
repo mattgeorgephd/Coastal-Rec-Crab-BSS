@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-08-29
+- **Last updated:** 2026-08-30
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -305,6 +305,34 @@ Nothing yet, deliberately. The shipped rung-4 configuration stands as the author
 - **Stage A did not load the crabbing-holiday workbook**, so its stratification and zeroed-day counts did not match the driver's. Now loaded the way the driver loads it.
 
 The harness is at **128 assertions**, covering both fixes.
+
+---
+
+## 1b. Stage 5 prerequisites (2026-08-30): what landed before the next batch
+
+Everything below is code and reporting, applied and covered by the harness (**178 assertions**, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
+
+**1. The shared-turnover informed-day floor (plan 5.2).** `bss_shared_tau_data()` now refuses `shared_tau` for a fit with fewer than `shared_tau_min_obs` (default **15**) days that can inform `L`, and falls back to the per-day parameterization with a printed reason. Informed days = I/E days, plus OSP days when `osp_scale_is_tau = 1` puts `L` into the OSP mean. The observed counts are 4 (shore all-gear), 0 (shore pot closure), 130 (boat all-gear), 18 (boat pot closure), so any threshold in 5..18 separates the shore from the boat; 15 sits just below 18 deliberately, to keep the cross-track-corroborated boat pot closure. `shared_tau` remains **off in production** and stays off until the Stage 5 gate confirms the floor does exactly what it claims.
+
+**2. Model adequacy beside the gate (plan 5.5).** `03_R_functions/bss_model_adequacy.R` writes `model_adequacy.csv` per run: `p_loo` as a fraction of `n_obs` (worst stream), the count of Pareto k > 0.7, the worst PIT bias, and the smallest `n_eff` among the observation-model dispersion parameters the gate never looks at. **It does not gate.** `pass_convergence` keeps its exact meaning; these columns sit beside it so "did this fit sample?" and "is this model adequate?" are visibly different questions. On the 2026-08-29 cells the separation is stark: stage E carries `p_loo` at 8.0% of `n_obs` with PIT bias 0.021, stage F carries 16.3% with bias 0.096, two bad Pareto k, and `sigma_r_OSP` at n_eff 307 — below the gate's own floor of 400, with the gate passing.
+
+**3. Retro annotation, so archived runs are comparable rather than blank.** `annotate_model_adequacy_run()` and `annotate_decoupled_run()` rebuild both tables for a committed run folder from its own CSVs, writing `model_adequacy_reconstructed.csv` and `decoupled_audit.csv` **beside** the originals; committed outputs are never rewritten. Both mark every row `source = "reconstructed"`. This exists because plan 5.3 asks for adequacy "for each cell" of a 2x2 whose archived cells predate the diagnostic, and a table with numbers for the new cells and blanks for the old ones is the shape of an argument that quietly favours whichever cells are new.
+
+**4. Four reporting defects, all fixed.**
+
+| Defect | Fix |
+|---|---|
+| `pe_vs_bss_comparison.csv` printed `BSS_catch = 32,689` for a component whose `method_selected` was `PE`; the rejected fit's `tau_bar` (n_eff 49) and `f_crab` (n_eff 25, R-hat 1.17) sat unmarked in `structural_params_*` | both drivers now write `bss_reported`; `structural_params_*` carries `fit_method` and an `estimate` column that is `median` with the decoupled rows blanked |
+| `kappa_OSP` is decoupled in every fit under `osp_scale_is_tau = 1` (its ~3.0 median is its prior) and shore `r_OSP` has a posterior mean of 2.5 million | `bss_decoupled_reasons()` flags both with a stated reason; the new `estimate` column is `NA` for them so a prior cannot be read as a result |
+| `expansion_ratios.csv` printed a decoupled shore `R_G_boat` (~4.0) with no flag | pooled table gained `R_G_boat_decoupled` and a `[PRIOR ONLY: no boat count stream in this fit]` suffix; the gear track already said `not applicable (shore fit)` |
+| `structural_params_*` and `model_adequacy.csv` invented `"PE (gate fail)"` where `convergence_report.csv` says `"PE (convergence fail)"`, so one fit read two ways in one folder | all three writers now quote `gate_info$method_selected`, the gate being the single authority on method selection |
+| the 2026-08-26 baselines have no `decoupled` column at all | `annotate_decoupled_run()` reconstructs it from the fit label, `fit_data_summary.csv` and `run_parameters.txt`, marking window-dependent rules `unknown` rather than guessing |
+
+**5. `bss_sampler_override`, an explicit escape hatch (new).** Each driver merges `params_model` **on top of** `run_config`, so `params_model` wins every sampler key. Setting `bss_iter_default` in a `run_config` delta therefore does nothing and the run looks like it complied — the same class of trap that left `bss_min_interviews` pinned at 20 until the 2026-08-25 audit, and one that would have silently voided plan 5.2's request to re-run the gear track at more draws. `bss_sampler_override` is a named list applied **after** the merge, restricted to sampler keys, printing every change and **erroring** on anything else rather than dropping it. Production value is `NULL`.
+
+**6. `fit_data_summary.csv` now records the turnover decision** (`n_L_informed`, `shared_tau`) per fit, so the floor's decision is auditable from the output folder rather than from the console.
+
+**One thing measured rather than assumed (2026-08-30).** Extra elements in the list passed to `rstan::stan(data = )` are inert: a two-chain fit run with, and without, three added elements including the new `.n_L_informed` returned bit-identical draw matrices. The dotted metadata `prep_bss_crab_*` attaches to `stan_data` therefore cannot perturb any bit-identity gate.
 
 ---
 

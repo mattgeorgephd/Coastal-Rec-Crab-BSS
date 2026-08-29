@@ -253,6 +253,11 @@ if (!exists("run_config")) source(here::here("run_config.R"))
 # (defined above) is layered on top. The two key sets are disjoint, so the merge order
 # carries intent only (run_config is the base, the model updates it with its specifics).
 params <- modifyList(run_config, params)
+# 2026-08-30: the ONE sanctioned way for run_config to reach a sampler setting, applied
+# AFTER the merge because params_model wins it (03_R_functions/bss_sampler_override.R).
+# Unset in production, so this is a no-op on a normal run; it errors loudly on a
+# non-sampler key rather than silently dropping it.
+params <- bss_apply_sampler_override(params, model_label = "gear_resolved")
 # Select this model's AR-resolution cap from the shared per-model map in run_config.
 params$ar_max_resolution <- run_config$ar_max_resolution$gear_resolved
 
@@ -1638,7 +1643,10 @@ for(label in names(bss_all)) {
   message(sprintf("\n--- diagnostics: %s (%s) ---\n", label,
               if(isTRUE(b$use_bss)) "gate PASS" else "gate FAIL -> reporting PE"))
 
-  write_bss_diagnostics(b$fit, b$bss_data, label, output_dir)
+  # 2026-08-30: the gate verdict travels INTO the per-fit tables (see the pooled driver).
+  write_bss_diagnostics(b$fit, b$bss_data, label, output_dir,
+                        fit_method = b$gate_info$method_selected %||%
+                          (if (isTRUE(b$use_bss)) "BSS" else "PE (convergence fail)"))
   write_effort_overdispersion_diag(b$fit, b$bss_data, label, output_dir)
   # 2026-08-27: pass the run seed so the diagnostic draw subsampling is reproducible
   # (see the note in save_run_diagnostics.R; the port total stays RNG-sensitive regardless).
@@ -1654,6 +1662,11 @@ for(label in names(bss_all)) {
 # is skipped for this track.
 write_run_level_diagnostics(bss_all, pe_all, gear_props = NULL,
                             params = params, output_dir = output_dir)
+# improvement-plan item 5.5 (2026-08-30): model ADEQUACY, reported beside the convergence
+# gate rather than folded into it. The gate asks whether the sampler worked; this asks
+# whether the model is carrying the data. It changes no selection. Runs after the per-fit
+# LOO and PPC writers because it reads their output.
+write_model_adequacy(bss_all, output_dir, params)
 
 
 
@@ -2055,6 +2068,13 @@ comparison[[length(comparison)+1]] <- tibble(
 comparison_df <- bind_rows(comparison)
 message("\n")
 report_table(comparison_df, caption = "PE vs BSS by component")
+# 2026-08-30: say explicitly whether the BSS column was USED.
+# `method_selected` already recorded the gate verdict, but a rejected fit still leaves its
+# BSS_catch sitting in the adjacent column with nothing marking it as unused. The
+# 2026-08-29 gear run is the worked example: BSS_catch = 32,689 for private_boat (All gear)
+# beside method_selected = "PE", while the port total correctly substituted the PE. A reader
+# scanning the BSS column has no way to know. bss_reported answers it in one field.
+comparison_df$bss_reported <- comparison_df$method_selected == "BSS"
 write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.names = FALSE)
 
 

@@ -197,8 +197,11 @@ bss_effort_h_candidates <- function(is_shore) {
 # the model is told a priori about the level. shared_tau_sigma (the fixed day-to-day spread)
 # defaults to half the prior SD: large enough that the per-day deviation is not a token,
 # small enough that it cannot substitute for the level it sits around.
+# `n_informed` is the count of days that can actually inform L in THIS fit. See the floor
+# discussion in the body.
 bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list(),
-                                population_name = "", quiet = FALSE) {
+                                population_name = "", n_informed = NA_integer_,
+                                quiet = FALSE) {
   off <- list(shared_tau = 0L,
               shared_tau_prior_mu    = as.numeric(stats::median(L_data)),
               shared_tau_prior_sigma = as.numeric(stats::median(L_prior_sigma)),
@@ -220,11 +223,55 @@ bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list()
                     population_name, min(L_data), max(L_data)), call. = FALSE)
     return(off)
   }
+  # ---------------------------------------------------------------------------
+  # THE INFORMED-DAY FLOOR (2026-08-30), from the 2026-08-29 batch.
+  #
+  # A shared level propagates the evidence on the observed days across ALL days, which is the
+  # point of it and also its hazard. In the 2026-08-29 batch the toggle was global, and the
+  # SHORE all-gear fit has exactly 4 in-window I/E days out of 289. Turning shared_tau on
+  # moved that component +17.9% (20,898 -> 24,629 crab) on the strength of those four
+  # observations, with a tau_bar interval of [1.358, 2.979] that still CONTAINS the 1.700
+  # prior centre, no measurable improvement in fit (gear PIT 0.5005 -> 0.5012, catch elpd
+  # -0.18), and no replication in the gear track, which put the same parameter at 1.681.
+  #
+  # The boat is the opposite case and is why the feature exists: 130 OSP days inform its
+  # level, tau_bar lands at 2.597 [2.064, 3.249] excluding the 1.200 prior centre, it agrees
+  # with the independent OSP/trailer overlap calibration (2.01-3.03), and it pulls the trailer
+  # and OSP PIT means toward nominal simultaneously and in opposite directions.
+  #
+  # WHAT COUNTS AS INFORMED. Any day carrying an observation whose likelihood contains L.
+  # That is the I/E days always, plus the OSP days when osp_scale_is_tau = 1 puts L into the
+  # OSP mean. The caller passes the count; NA means "unknown", and an unknown count does NOT
+  # block the feature (the guard would otherwise fire on every caller that has not been
+  # updated), but it is reported so it cannot pass unnoticed.
+  #
+  # ON THE DEFAULT OF 15, stated plainly because a threshold chosen after seeing the results
+  # is worth distrusting. The observed counts are 4 (shore all-gear), 0 (shore pot closure),
+  # 130 (boat all-gear) and 18 (boat pot closure). Any threshold in 5..18 separates the shore
+  # from the boat, so the choice within that range is not what decides the outcome; what
+  # decides it is the gap between 4 and 130. 15 is set just below the boat pot closure's 18
+  # deliberately, because that fit gave tau_bar 1.873 [1.219, 2.780] on the pooled track and
+  # 2.050 [1.415, 2.930] on the gear track - two passing fits, both excluding 1.2 - and
+  # discarding a corroborated cross-track result to buy margin on a threshold would be the
+  # wrong trade. A run that wants the conservative answer sets shared_tau_min_obs = 20 and
+  # loses the boat pot closure; that sensitivity is worth checking once.
+  floor_n <- params$shared_tau_min_obs %||% 15L
+  if (!is.na(n_informed) && n_informed < floor_n) {
+    if (!isTRUE(quiet))
+      cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below ",
+                         "shared_tau_min_obs = %d. Falling back to per-day draws.\n"),
+                  population_name, n_informed, floor_n))
+    return(off)
+  }
+
   on <- off; on$shared_tau <- 1L
   if (!isTRUE(quiet))
     cat(sprintf(paste0("  SHARED TURNOVER on: one tau_bar ~ Lognormal(log(%.3f), %.2f) ",
                        "with a fixed day-to-day spread of %.2f (was %d independent per-day draws).\n"),
                 on$shared_tau_prior_mu, on$shared_tau_prior_sigma, on$shared_tau_sigma,
                 length(L_data)))
+  if (!isTRUE(quiet))
+    cat(sprintf("    informed days: %s (floor %d)\n",
+                if (is.na(n_informed)) "unknown" else as.character(n_informed), floor_n))
   on
 }

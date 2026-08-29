@@ -454,6 +454,17 @@ run_config <- list(
   # review), set list(private_boat = "monthly").
   ar_force          = NULL,
 
+  # --- Sampler override escape hatch (EXPERIMENTS ONLY; production is NULL) -----
+  # Each driver merges its own params_model ON TOP of run_config, so params_model
+  # WINS every key it sets, including all the per-fit sampler settings. Setting
+  # bss_iter_default here therefore does NOTHING on a normal merge: the driver
+  # overwrites it and the run looks like it complied. This named list is applied
+  # AFTER the merge (03_R_functions/bss_sampler_override.R), accepts sampler keys
+  # only, prints every change, and errors on anything else rather than dropping it.
+  #   e.g. list(bss_iter_default = 5000, bss_warmup_default = 2500)
+  # to give the gear track 2,500 post-warmup draws instead of its default 1,000.
+  bss_sampler_override = NULL,
+
   # --- AR resolution caps (per-model map; each driver selects its own slice) ----
   # Cap on the finest AR resolution the data-driven selector may choose, per
   # population. The two models legitimately differ, so both maps live here and each
