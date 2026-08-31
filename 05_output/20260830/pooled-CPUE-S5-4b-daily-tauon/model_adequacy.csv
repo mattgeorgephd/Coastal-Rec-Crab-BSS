@@ -1,0 +1,5 @@
+"fit","p_loo_frac","p_loo_worst_stream","n_pareto_bad","pit_worst_bias","pit_worst_stream","disp_neff_min","disp_neff_min_par","flag_overparameterised","flag_loo_unreliable","flag_pit_bias","flag_dispersion_neff","source","method_selected"
+"shore_ring_net_only_Dungeness_Kept",0.1143,"gear",1,0.0192,"gear",6931,"sigma_r_E",FALSE,TRUE,FALSE,FALSE,"live","BSS"
+"shore_all_gear_Dungeness_Kept",0.3519,"gear",41,0.002,"catch",5021,"r_E",TRUE,TRUE,FALSE,FALSE,"live","BSS"
+"private_boat_ring_net_only_Dungeness_Kept",0.212,"catch",1,0.0803,"osp",5042,"r_E",FALSE,TRUE,TRUE,FALSE,"live","BSS"
+"private_boat_all_gear_Dungeness_Kept",0.2691,"trailer",16,0.0167,"catch",657,"sigma_r_OSP",TRUE,TRUE,FALSE,FALSE,"live","BSS"

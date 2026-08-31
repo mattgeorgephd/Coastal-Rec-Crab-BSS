@@ -103,7 +103,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE                  # TRUE: resolve, print, self-test, fit nothing. START HERE.
+DRY_RUN <- FALSE                  # TRUE: resolve, print, self-test, fit nothing. START HERE.
 STAGES  <- c("S1", "S2", "S3", "S4a", "S4b", "S5")
 RESUME  <- TRUE                  # skip a stage whose output folder already looks complete
 
