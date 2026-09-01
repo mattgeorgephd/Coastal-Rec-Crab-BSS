@@ -260,10 +260,34 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
       yp <- stats::rnbinom(sum(keep), mu = mu_i[keep], size = size_vec[keep])
       yp <- yp[is.finite(yp)]
       if (length(yp) < 20) next
-      qq <- stats::quantile(yp, c(.025, .25, .75, .975), names = FALSE, na.rm = TRUE)
-      cov50[i] <- y[i] >= qq[2] && y[i] <= qq[3]
-      cov95[i] <- y[i] >= qq[1] && y[i] <= qq[4]
       pit[i]   <- mean(yp < y[i]) + 0.5 * mean(yp == y[i])
+      # 2026-09-01 FIX. Coverage is now read off the RANDOMIZED PIT, not off a quantile
+      # interval of the simulated draws.
+      #
+      # WHAT WAS WRONG. `y[i] >= quantile(yp, .25) && y[i] <= quantile(yp, .75)` asks whether
+      # the observation falls inside the central simulated interval. For CONTINUOUS data that
+      # is a 50% interval. For small COUNTS it is not and cannot be: the quantiles snap to
+      # integers, so the interval carries much more than half the probability mass and the
+      # statistic over-covers by construction, with the inflation growing as the counts get
+      # smaller. It is a property of the arithmetic, not of the model.
+      #
+      # WHAT IT COST. On the private-boat trailer stream (fitted means around 1-2 boats) the
+      # two computations disagree by up to 0.154, and the 2026-08-31 Stage 5 review recorded
+      # "the trailer stream is over-covered in EVERY configuration, 0.667-0.692 against a
+      # nominal 0.500, 4.6-5.3 sampling SDs" as a new open modelling item. Under the
+      # randomized statistic the same runs give 0.523 and 0.538, which is 0.6 and 1.1
+      # sampling SDs: calibrated. The open item was an artefact of this line. The CATCH
+      # stream, whose counts are larger, barely moves (0.595 either way), which is exactly
+      # the signature of a discreteness effect rather than a model one.
+      #
+      # WHAT SURVIVES. The daily-AR cells still fail badly under the corrected statistic
+      # (0.713 and 0.744 against 0.500, 5.9 and 6.8 sampling SDs), so the Stage 5 conclusion
+      # is unchanged and now rests on a statistic that is not biased by count size.
+      #
+      # This matches ppc_byobs_*.csv, which has always used the randomized PIT, so the two
+      # files now agree instead of disagreeing by up to 0.15 on the same quantity.
+      cov50[i] <- pit[i] >= 0.25  && pit[i] <= 0.75
+      cov95[i] <- pit[i] >= 0.025 && pit[i] <= 0.975
     }
     usable <- is.finite(pit)
     list(summary = data.frame(coverage_50 = mean(cov50, na.rm = TRUE),

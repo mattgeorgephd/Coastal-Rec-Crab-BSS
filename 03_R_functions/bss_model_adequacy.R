@@ -81,7 +81,7 @@
 #
 # `disp_tbl` is a data.frame of the NON-decoupled dispersion parameters with columns
 # `parameter` and `n_eff`; each caller builds it from whatever it has.
-.bma_core <- function(label, loo, ppc, disp_tbl,
+.bma_core <- function(label, loo, ppc, disp_tbl, byobs = NULL,
                       neff_floor = 400, p_loo_frac_warn = 0.25, pit_bias_warn = 0.05,
                       cov50_dev_warn = 0.15, source_tag = "live") {
   p_loo_frac <- NA_real_; n_bad_k <- NA_integer_; worst_stream <- NA_character_
@@ -127,21 +127,48 @@
   # coverage_50 is the flagged statistic because it is the one a reader can interpret
   # without knowing what a PIT is: "half the points should fall inside this band".
   #
-  # ON THE 0.15 DEFAULT THRESHOLD. With n = 195 trailer observations the sampling SD of an
-  # empirical coverage whose true value is 0.50 is sqrt(0.25/195) = 0.036, so 0.15 is about
-  # four SDs: comfortably outside noise for the stream sizes this pipeline fits. It fires on
-  # every configuration in the 2026-08-30 batch, and that is the correct answer rather than a
-  # calibration problem with the flag: the trailer stream's coverage_50 is 0.667-0.692 even
-  # at monthly (4.6-5.3 SDs high) and 0.810-0.836 at daily. Read the DEVIATION, not just the
-  # boolean; the ordering is what separates the configurations.
+  # ON THE 0.15 DEFAULT THRESHOLD. It is an absolute coverage error, not an SD multiple: a
+  # nominal 50% interval that covers 65% or 35% is materially wrong whatever n is. For scale,
+  # the sampling SD of an empirical coverage at a true 0.50 is sqrt(0.25/n), which is 0.036
+  # at the trailer stream's n = 195 and 0.044 at the catch stream's n = 131, so 0.15 is
+  # roughly 3.4 to 4.2 SDs.
+  #
+  # CORRECTED 2026-09-01. When this flag was written it fired on all five configurations of
+  # the 2026-08-30 batch and that was rationalised as a real finding about the trailer
+  # stream. It was not: it was reading the NON-RANDOMIZED coverage_50 that
+  # model_diagnostics.R wrote before the same-day fix, which over-covers small counts by
+  # construction. On the randomized statistic the flag fires on the two DAILY cells (0.213
+  # and 0.244) and stays quiet on the two monthly ones (0.095 each), which is what the rest
+  # of the evidence says. A flag that fires on everything carries no information; that should
+  # have been the tell rather than something to explain away.
   # ---------------------------------------------------------------------------
+  # WHICH coverage_50. Runs committed before 2026-09-01 carry a NON-RANDOMIZED coverage in
+  # ppc_calibration_*.csv: the observation tested against a quantile interval of the
+  # simulated draws, which over-covers small counts by construction and inflated the
+  # private-boat trailer stream by up to 0.154. `byobs` (ppc_byobs_*.csv) has always used the
+  # randomized PIT and is therefore the statistic to prefer wherever it exists, including on
+  # archived runs. model_diagnostics.R now computes the randomized version too, so for runs
+  # from 2026-09-01 onward the two sources agree and this preference is a no-op.
   cov_worst <- NA_real_; cov_stream <- NA_character_; pit_sd_worst <- NA_real_
-  if (!is.null(ppc) && "coverage_50" %in% names(ppc)) {
-    d50 <- abs(suppressWarnings(as.numeric(ppc$coverage_50)) - 0.5)
+  cov_src <- NA_character_
+  cov_tbl <- NULL
+  if (!is.null(byobs) && all(c("data_type", "in_50") %in% names(byobs))) {
+    m <- tapply(as.logical(byobs$in_50), byobs$data_type, mean, na.rm = TRUE)
+    if (length(m)) { cov_tbl <- data.frame(data_type = names(m), coverage_50 = as.numeric(m),
+                                           stringsAsFactors = FALSE); cov_src <- "byobs (randomized PIT)" }
+  }
+  if (is.null(cov_tbl) && !is.null(ppc) && "coverage_50" %in% names(ppc)) {
+    cov_tbl <- data.frame(data_type = as.character(ppc$data_type),
+                          coverage_50 = suppressWarnings(as.numeric(ppc$coverage_50)),
+                          stringsAsFactors = FALSE)
+    cov_src <- "ppc_calibration (may be non-randomized if the run predates 2026-09-01)"
+  }
+  if (!is.null(cov_tbl)) {
+    d50 <- abs(cov_tbl$coverage_50 - 0.5)
     if (any(is.finite(d50))) {
       i <- which.max(replace(d50, !is.finite(d50), -Inf))
       cov_worst <- round(d50[i], 4)
-      cov_stream <- as.character(ppc$data_type[i])
+      cov_stream <- as.character(cov_tbl$data_type[i])
     }
   }
   if (!is.null(ppc) && "pit_sd" %in% names(ppc)) {
@@ -192,6 +219,7 @@
     pit_worst_stream = pit_stream,
     cov50_worst_dev = cov_worst,
     cov50_worst_stream = cov_stream,
+    cov50_source = cov_src,
     pit_sd_worst_dev = pit_sd_worst,
     disp_neff_min = disp_neff,
     disp_neff_min_par = disp_par,
@@ -234,6 +262,7 @@ bss_model_adequacy <- function(fit, stan_data, label, output_dir,
   .bma_core(label,
             loo = .bma_read(output_dir, "loo_summary_%s.csv", label),
             ppc = .bma_read(output_dir, "ppc_calibration_%s.csv", label),
+            byobs = .bma_read(output_dir, "ppc_byobs_%s.csv", label),
             disp_tbl = disp_tbl,
             neff_floor = neff_floor, p_loo_frac_warn = p_loo_frac_warn,
             pit_bias_warn = pit_bias_warn, cov50_dev_warn = cov50_dev_warn,
@@ -292,6 +321,7 @@ annotate_model_adequacy_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
     r <- tryCatch(.bma_core(lab,
                             loo = .bma_read(dir, "loo_summary_%s.csv", lab),
                             ppc = .bma_read(dir, "ppc_calibration_%s.csv", lab),
+                            byobs = .bma_read(dir, "ppc_byobs_%s.csv", lab),
                             disp_tbl = disp_tbl, source_tag = tag),
                   error = function(e) NULL)
     if (!is.null(r)) rows[[length(rows) + 1]] <- r

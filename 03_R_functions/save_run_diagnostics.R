@@ -259,8 +259,16 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   # PIT_i = E_draws[ P(Y < y) + 0.5 P(Y = y) ] = mean over draws of
   #   pnbinom(y-1, size=r, mu) + 0.5 * dnbinom(y, size=r, mu). This is the exact
   #   expectation of the simulated PIT used by the aggregate PPC, with no
-  #   simulation noise. in_50 / in_95 are the central-interval coverage flags
-  #   (equivalent to PIT in [0.25,0.75] / [0.025,0.975] for the randomized PIT).
+  #   simulation noise. in_50 / in_95 are the central-interval coverage flags.
+  #
+  #   HISTORICAL NOTE (2026-09-01). This block used the randomized PIT from the start and
+  #   the aggregate PPC in model_diagnostics.R did not: it tested the observation against a
+  #   QUANTILE INTERVAL of the simulated draws, which over-covers small counts by
+  #   construction. The comment here used to claim the two were "equivalent". They were not,
+  #   and on the trailer stream they disagreed by up to 0.154, which is what produced the
+  #   phantom "trailer over-coverage" item in the 2026-08-31 Stage 5 review. The aggregate
+  #   PPC now uses the randomized PIT too, so the claim of equivalence is true as of that
+  #   date; it was not true for any run committed before it.
   ok("O5", {
     lamE <- .srd_get_DG(ex$lambda_E_S, use_pit)
     lamC <- .srd_get_DG(ex$lambda_C_S, use_pit)
@@ -268,7 +276,7 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     RG <- as.numeric(ex$R_G[use_pit])
     RT <- bss_trailer_multiplier(ex, trailer_par, use_pit)   # R_T or 1/R_G_boat
     pit_block <- function(days, y, mu_mat, size) {
-      no <- length(y); pit <- fit_mean <- rep(NA_real_, no)
+      no <- length(y); pit <- fit_mean <- p_zero <- rep(NA_real_, no)
       for (i in seq_len(no)) {
         mu <- pmax(mu_mat[, i], 1e-8); keep <- is.finite(mu) & is.finite(size)
         if (sum(keep) < 20) next
@@ -276,10 +284,20 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
         pit[i] <- mean(stats::pnbinom(y[i] - 1, size = sz, mu = mu) +
                        0.5 * stats::dnbinom(y[i], size = sz, mu = mu))
         fit_mean[i] <- mean(mu)
+        # 2026-09-01: the model's own zero probability for THIS day, averaged over draws.
+        # Tier 3 makes the zero-inflation decision conditional on reading the PPC zero bin,
+        # and the only way to do that correctly is to compare the observed zero COUNT against
+        # sum(p_zero) over ALL days. Reading it from the PIT at the observed zeros instead
+        # answers a different question: those days are selected for being zero, so they are
+        # the low-mean days and their P(Y=0) is high by construction. The first attempt at
+        # this diagnostic made exactly that error and read a well-calibrated trailer stream
+        # as 20% observed against 45% implied.
+        p_zero[i] <- mean(stats::dnbinom(0, size = sz, mu = mu))
       }
       data.frame(day_index = days,
                  event_date = if (!is.null(ev)) as.character(ev[days]) else NA,
                  observed = y, fitted_mean = round(fit_mean, 3), pit = round(pit, 4),
+                 p_zero = round(p_zero, 5),
                  in_50 = pit >= 0.25 & pit <= 0.75,
                  in_95 = pit >= 0.025 & pit <= 0.975)
     }
@@ -292,6 +310,29 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       parts$trailer <- cbind(data_type = "trailer",
                              pit_block(stan_data$day_T, stan_data$T_I,
                                        lamE[, stan_data$day_T, drop = FALSE] * RT, rE))
+    # 2026-09-01: the OSP stream. It has had an aggregate PPC since 2026-08-27 but no
+    # per-observation rows, so it was the one stream whose calibration could NOT be
+    # cross-checked against the randomized statistic. That mattered: the Stage 5 daily-AR
+    # pathology is most extreme on OSP (coverage_50 0.977 against a nominal 0.500 under the
+    # old non-randomized statistic), and until now that number had no independent check.
+    # The mean mirrors the Stan likelihood exactly, as the aggregate PPC does:
+    #   (lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP),  dispersion r_OSP.
+    if ((stan_data$OSP_n %||% 0) > 0 && !is.null(RT)) {
+      osp_scale <- if (identical(as.integer(stan_data$osp_scale_is_tau %||% 0L), 1L)) {
+        Lx <- try(rstan::extract(fit, pars = "L_out")$L_out, silent = TRUE)
+        if (inherits(Lx, "try-error") || is.null(Lx)) NULL else Lx[use_pit, stan_data$day_OSP, drop = FALSE]
+      } else {
+        kx <- try(rstan::extract(fit, pars = "kappa_OSP")$kappa_OSP, silent = TRUE)
+        if (inherits(kx, "try-error") || is.null(kx)) NULL
+        else matrix(as.numeric(kx)[use_pit], nrow = length(use_pit), ncol = length(stan_data$day_OSP))
+      }
+      rO <- try(as.numeric(rstan::extract(fit, pars = "r_OSP")$r_OSP)[use_pit], silent = TRUE)
+      if (!is.null(osp_scale) && !inherits(rO, "try-error") && !is.null(rO) &&
+          identical(dim(osp_scale), dim(lamE[, stan_data$day_OSP, drop = FALSE])))
+        parts$osp <- cbind(data_type = "osp",
+                           pit_block(stan_data$day_OSP, stan_data$OSP_I,
+                                     lamE[, stan_data$day_OSP, drop = FALSE] * RT * osp_scale, rO))
+    }
     if (!is.null(stan_data$IntC) && stan_data$IntC > 0) {
       muC <- lamC[, stan_data$day_IntC, drop = FALSE] * rep(stan_data$h, each = nrow(lamC))
       parts$catch <- cbind(data_type = "catch",

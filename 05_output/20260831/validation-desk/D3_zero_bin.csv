@@ -1,0 +1,5 @@
+"run","fit","stream","n","obs_zeros","obs_zero_frac","exp_zeros","exp_zero_frac","mean_fitted_at_zero"
+"S2 tau ON /monthly","private_boat_all_gear","trailer",195,39,0.2,NA,NA,1.80048717948718
+"S2 tau ON /monthly","private_boat_all_gear","catch",131,12,0.0916030534351145,NA,NA,8.85883333333333
+"S2 tau ON /monthly","shore_all_gear","gear",311,1,0.00321543408360129,NA,NA,5.194
+"S2 tau ON /monthly","shore_all_gear","catch",1649,676,0.409945421467556,NA,NA,1.67418195266272

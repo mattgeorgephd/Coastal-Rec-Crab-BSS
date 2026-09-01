@@ -916,10 +916,14 @@ local({
         abs(inter) < 0.15 * (on_m - off_m),
         sprintf("(interaction %d against main effects +%d and +%d)", inter, on_m - off_m, off_d - off_m))
   }
-  cov50 <- function(d, stream = "osp") {
-    p <- file.path(d, "ppc_calibration_private_boat_all_gear_Dungeness_Kept.csv")
+  # Read the RANDOMIZED coverage from ppc_byobs, not ppc_calibration: runs committed before
+  # 2026-09-01 carry a non-randomized coverage_50 in the aggregate file that over-covers
+  # small counts by construction (up to 0.154 on the trailer stream).
+  cov50 <- function(d, stream = "trailer") {
+    p <- file.path(d, "ppc_byobs_private_boat_all_gear_Dungeness_Kept.csv")
     if (!file.exists(p)) return(NA_real_)
-    x <- read.csv(p, stringsAsFactors = FALSE); x$coverage_50[x$data_type == stream][1]
+    x <- read.csv(p, stringsAsFactors = FALSE)
+    mean(as.logical(x$in_50[x$data_type == stream]), na.rm = TRUE)
   }
   cm <- cov50("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")
   cd <- cov50("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon")
@@ -938,6 +942,73 @@ local({
       isTRUE(abs(tg - tp) / tp < 0.01), sprintf("(pooled %.4f vs gear %.4f)", tp, tg))
   chk("stage5: tau_bar at monthly still sits inside the external overlap calibration 2.01-3.03",
       isTRUE(tp > 2.01 && tp < 3.03), sprintf("(%.3f)", tp))
+})
+
+# ---------------------------------------------------------------------------
+# 23. Randomized PPC coverage (2026-09-01). ppc_calibration_*.csv and ppc_byobs_*.csv
+#     computed the SAME quantity two ways and disagreed by up to 0.154 on the private-boat
+#     trailer stream, because the aggregate file tested the observation against a quantile
+#     interval of simulated draws. That over-covers small counts by construction and is what
+#     produced the phantom "trailer over-coverage" open item in the 2026-08-31 review.
+# ---------------------------------------------------------------------------
+local({
+  t <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("ppc: aggregate coverage is read off the randomized PIT",
+      grepl("cov50[i] <- pit[i] >= 0.25", t, fixed = TRUE) &&
+      grepl("cov95[i] <- pit[i] >= 0.025", t, fixed = TRUE))
+  chk("ppc: the quantile-interval coverage is gone",
+      !grepl("cov50[i] <- y[i] >= qq[2]", t, fixed = TRUE))
+  t2 <- paste(readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("ppc: the OSP stream now gets per-observation rows",
+      grepl('parts$osp <- cbind(data_type = "osp"', t2, fixed = TRUE))
+  chk("ppc: p_zero is written, so the zero bin can be scored against ALL days",
+      grepl("p_zero[i] <- mean(stats::dnbinom(0, size = sz, mu = mu))", t2, fixed = TRUE))
+  chk("adequacy: coverage prefers the randomized source and records which it used",
+      exists(".bma_core", mode = "function") &&
+      "byobs" %in% names(formals(.bma_core)))
+  # The correction must not rescue the daily-AR cell: if it did, the Stage 5 recommendation
+  # was resting on the artefact.
+  cv <- function(d, stream = "trailer") {
+    p <- file.path(d, "ppc_byobs_private_boat_all_gear_Dungeness_Kept.csv")
+    if (!file.exists(p)) return(NA_real_)
+    x <- read.csv(p, stringsAsFactors = FALSE)
+    mean(as.logical(x$in_50[x$data_type == stream]), na.rm = TRUE)
+  }
+  s2 <- cv("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")
+  s4 <- cv("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon")
+  sdc <- sqrt(0.25 / 195)
+  chk("ppc: production is CALIBRATED on the corrected statistic (the retracted open item)",
+      isTRUE(abs(s2 - 0.5) / sdc < 2), sprintf("(%.3f, %.1f sampling SDs)", s2, abs(s2 - 0.5) / sdc))
+  chk("ppc: the daily-AR cell is still broken on the corrected statistic",
+      isTRUE(abs(s4 - 0.5) / sdc > 3), sprintf("(%.3f, %.1f sampling SDs)", s4, abs(s4 - 0.5) / sdc))
+  chk("adequacy: flag_miscalibrated now DISCRIMINATES instead of firing on everything",
+      { f <- function(d) { a <- annotate_model_adequacy_run(d, overwrite = TRUE, quiet = TRUE)
+          a$flag_miscalibrated[grepl("private_boat_all_gear", a$fit)][1] }
+        isFALSE(f("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")) &&
+        isTRUE(f("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon")) })
+})
+
+# ---------------------------------------------------------------------------
+# 24. The 2026-09-01 adoption, and the validation batch that tests it.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("adoption: run_config ships shared_tau = TRUE", isTRUE(rc$shared_tau))
+  chk("adoption: the floor is STATED in run_config, not left to the helper default",
+      identical(rc$shared_tau_min_obs, 15))
+  chk("adoption: the boat-only claim still rests on the floor, not a population switch",
+      { s <- paste(readLines("03_R_functions/bss_effort_spec.R", warn = FALSE), collapse = "\n")
+        grepl("shared_tau_min_obs", s, fixed = TRUE) && grepl("n_informed", s, fixed = TRUE) })
+  f <- "06_diagnostics/run_validation_2026-09-01.R"
+  if (file.exists(f)) {
+    chk("validation runner: parses", !inherits(try(parse(f), silent = TRUE), "try-error"))
+    t <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    chk("validation runner: ships with DRY_RUN TRUE", grepl("\nDRY_RUN <- TRUE", t))
+    chk("validation runner: V1 carries NO delta, so it tests production as shipped",
+        grepl('V1 = stage("V1", "VAL-1-adopted", "pooled", list(),', t, fixed = TRUE))
+    chk("validation runner: it refuses to run V1 if the adoption is not in run_config",
+        grepl("does not ship shared_tau = TRUE", t, fixed = TRUE))
+  } else chk("validation runner: present", FALSE)
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

@@ -233,10 +233,40 @@ run_config <- list(
   #
   # THIS MOVES THE BOAT NUMBER. osp_scale_is_tau roughly doubles the private-boat harvest,
   # and this decides whether the size of that doubling comes from the data or from the prior.
-  # Ships FALSE for the same reason everything else behaviour-changing ships off: turn it on
-  # in its own run, against the rung-4 baseline, and read tau_bar_out and the OSP PIT.
-  shared_tau             = FALSE,
+  #
+  # ADOPTED 2026-09-01 (was FALSE) on the evidence of the 2026-08-30 Stage 5 batch; the full
+  # argument is in development_notes/stage5-batch-review-2026-08-31.md. Five independent
+  # lines agree and none dissent:
+  #   1. It improves the stream it should and leaves the other alone: trailer elpd -573.8 ->
+  #      -559.1 (+14.7 nats) for 3.1 effective parameters, catch elpd -451.4 -> -451.5.
+  #   2. It adds no unreliable LOO points (Pareto k > 0.7 stays at 0) and does not raise
+  #      p_loo as a fraction of n_obs (8.0% either way).
+  #   3. Every calibration statistic moves toward nominal: OSP PIT mean 0.579 -> 0.520
+  #      (nominal 0.500), PIT sd 0.277 -> 0.285 (nominal 0.289), coverage_50 unchanged at
+  #      0.508 (nominal 0.500); trailer PIT mean 0.424 -> 0.484.
+  #   4. It replicates across the two independently parameterized CPUE tracks to 0.03% on
+  #      tau_bar itself (pooled 2.5969, gear-resolved 2.5962) and 0.80% on the component.
+  #   5. The posterior 2.597 [2.064, 3.249] straddles the INDEPENDENT OSP/trailer overlap
+  #      calibration of 2.01-3.03, which is computed from different data (n = 61).
+  # The contrary case that was tested and REJECTED is a daily boat AR, which reaches a
+  # similar-looking gain by absorption: 27-48 effective parameters on 195 observations, the
+  # catch stream 3.8 nats WORSE, 2 then 16 Pareto k above 0.7, sigma_r_OSP collapsing 0.806
+  # -> 0.086, and OSP coverage_50 at 0.977 against a nominal 0.500. Do not adopt it.
+  #
+  # THE FEATURE IS BOAT-ONLY IN EFFECT, BY THE FLOOR BELOW, NOT BY A POPULATION SWITCH.
+  # A global toggle moved the SHORE all-gear component +17.9% on 4 informed days out of 289,
+  # with an interval containing its own prior centre and no replication in the gear track.
+  shared_tau             = TRUE,
   shared_tau_sigma       = NULL,      # fixed day-to-day log-scale spread; NULL = half the prior SD
+  # Minimum days that can INFORM L (I/E days, plus OSP days when osp_scale_is_tau = 1) before
+  # a fit is allowed a shared level; below it the fit degrades to per-day draws with a printed
+  # reason. Stated explicitly here rather than left to the helper default, because it is the
+  # thing that makes the line above boat-only. Observed counts: shore all-gear 4, shore pot
+  # closure 0, boat all-gear 130, boat pot closure 18. Any threshold in 5..18 separates the
+  # shore from the boat; 15 sits just below 18 deliberately, to keep the boat pot closure,
+  # whose tau_bar (1.873 pooled, 2.050 gear-resolved) is corroborated across tracks. Setting
+  # 20 drops that component out of the feature and is worth running once as a sensitivity.
+  shared_tau_min_obs     = 15,
 
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
 
