@@ -944,10 +944,10 @@ An incomplete trip is one where the crabber had not finished when we spoke to th
 
 Four arms are run against the fast design-based PE. **This section changes no reported number**; the production estimator remains `exclude`.
 
-- **exclude** — production today: drop them from both the catch rate and the gear ratios.
-- **gear_only** — drop their catch, keep their gear counts in the gear ratios. An interrupted trip's gear count is fully observed; only its catch is truncated. *The pipeline does not do this today*: `prep_bss_crab_*()` builds the `R_G` / `R_G_boat` interview set from the already-filtered frame, so an incomplete trip's gear count is currently discarded. Note also that the PE and the BSS disagree on this point — `run_pe_*()` computes the boat gear-per-group from the **unfiltered** set, so the boat PE already behaves like `gear_only` while the boat BSS behaves like `exclude`.
-- **impute_mean_cpue** — keep them with catch replaced by (complete-trip catch rate × their gear count). Expect close to no movement, and that is arithmetic rather than luck: a ratio-of-sums over complete-plus-imputed returns the complete-trip rate identically. Any movement is thin-stratum shrinkage toward the pooled rate.
-- **keep** — no filter (pre-v7.5 behaviour).
+- **exclude**, production today: drop them from both the catch rate and the gear ratios.
+- **gear_only**, drop their catch, keep their gear counts in the gear ratios. An interrupted trip's gear count is fully observed; only its catch is truncated. *The pipeline does not do this today*: `prep_bss_crab_*()` builds the `R_G` / `R_G_boat` interview set from the already-filtered frame, so an incomplete trip's gear count is currently discarded. Note also that the PE and the BSS disagree on this point; `run_pe_*()` computes the boat gear-per-group from the **unfiltered** set, so the boat PE already behaves like `gear_only` while the boat BSS behaves like `exclude`.
+- **impute_mean_cpue**, keep them with catch replaced by (complete-trip catch rate × their gear count). Expect close to no movement, and that is arithmetic rather than luck: a ratio-of-sums over complete-plus-imputed returns the complete-trip rate identically. Any movement is thin-stratum shrinkage toward the pooled rate.
+- **keep**, no filter (pre-v7.5 behaviour).
 
 Read `gear_ratio` and `gear_lengthbias_p` before acting on `gear_only`: intercepted trips over-represent long trips by construction, and if long trips also deploy more gear then folding them into `R_G` would bias the effort expansion up.
 

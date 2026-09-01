@@ -83,7 +83,7 @@
 # `parameter` and `n_eff`; each caller builds it from whatever it has.
 .bma_core <- function(label, loo, ppc, disp_tbl,
                       neff_floor = 400, p_loo_frac_warn = 0.25, pit_bias_warn = 0.05,
-                      source_tag = "live") {
+                      cov50_dev_warn = 0.15, source_tag = "live") {
   p_loo_frac <- NA_real_; n_bad_k <- NA_integer_; worst_stream <- NA_character_
   if (!is.null(loo) && all(c("p_loo", "n_obs") %in% names(loo))) {
     fr <- suppressWarnings(as.numeric(loo$p_loo) / pmax(as.numeric(loo$n_obs), 1))
@@ -106,12 +106,80 @@
     }
   }
 
+  # ---------------------------------------------------------------------------
+  # SHARPNESS, added 2026-08-30 because the Stage 5 batch showed pit_mean alone is not just
+  # incomplete, it is ACTIVELY MISLEADING, and would have recommended the wrong model.
+  #
+  # A calibrated model has PIT ~ Uniform(0,1): mean 0.500, sd 1/sqrt(12) = 0.289, and a
+  # nominal 50% predictive interval covering 50% of observations. pit_mean tests only the
+  # FIRST of those, the central location. A latent process with one state per observation
+  # interpolates the data, which piles every PIT value at 0.5: the mean looks perfect while
+  # the distribution collapses.
+  #
+  # In the 2026-08-30 2x2 the OSP stream of the private-boat all-gear fit read:
+  #     shared tau x monthly AR   pit_mean 0.520   pit_sd 0.285   coverage_50 0.508
+  #     shared tau x DAILY   AR   pit_mean 0.495   pit_sd 0.138   coverage_50 0.977
+  # On pit_mean the daily cell is the better-calibrated of the two. On the two statistics
+  # below it is the worst fit in the batch: 98% of observations inside a nominal 50%
+  # interval. Both quantities were already in ppc_calibration_*.csv and neither reached the
+  # adequacy table, so the table as first written would have ranked them the wrong way round.
+  #
+  # coverage_50 is the flagged statistic because it is the one a reader can interpret
+  # without knowing what a PIT is: "half the points should fall inside this band".
+  #
+  # ON THE 0.15 DEFAULT THRESHOLD. With n = 195 trailer observations the sampling SD of an
+  # empirical coverage whose true value is 0.50 is sqrt(0.25/195) = 0.036, so 0.15 is about
+  # four SDs: comfortably outside noise for the stream sizes this pipeline fits. It fires on
+  # every configuration in the 2026-08-30 batch, and that is the correct answer rather than a
+  # calibration problem with the flag: the trailer stream's coverage_50 is 0.667-0.692 even
+  # at monthly (4.6-5.3 SDs high) and 0.810-0.836 at daily. Read the DEVIATION, not just the
+  # boolean; the ordering is what separates the configurations.
+  # ---------------------------------------------------------------------------
+  cov_worst <- NA_real_; cov_stream <- NA_character_; pit_sd_worst <- NA_real_
+  if (!is.null(ppc) && "coverage_50" %in% names(ppc)) {
+    d50 <- abs(suppressWarnings(as.numeric(ppc$coverage_50)) - 0.5)
+    if (any(is.finite(d50))) {
+      i <- which.max(replace(d50, !is.finite(d50), -Inf))
+      cov_worst <- round(d50[i], 4)
+      cov_stream <- as.character(ppc$data_type[i])
+    }
+  }
+  if (!is.null(ppc) && "pit_sd" %in% names(ppc)) {
+    dsd <- abs(suppressWarnings(as.numeric(ppc$pit_sd)) - 1 / sqrt(12))
+    if (any(is.finite(dsd))) pit_sd_worst <- round(max(dsd[is.finite(dsd)]), 4)
+  }
+
   disp_neff <- NA_real_; disp_par <- NA_character_
   if (!is.null(disp_tbl) && nrow(disp_tbl)) {
     ne <- suppressWarnings(as.numeric(disp_tbl$n_eff))
     if (any(is.finite(ne))) {
       i <- which.min(replace(ne, !is.finite(ne), Inf))
       disp_neff <- round(ne[i]); disp_par <- as.character(disp_tbl$parameter[i])
+    }
+  }
+
+  # THE SMALLEST DISPERSION SCALE, REPORTED AND DELIBERATELY NOT FLAGGED (2026-08-30).
+  #
+  # disp_neff_min asks whether a dispersion parameter was SAMPLED well. The 2x2 showed that
+  # is a different question from whether it COLLAPSED. Across the four cells sigma_r_OSP ran
+  # 0.786 / 0.806 / 0.307 / 0.086 while its n_eff stayed at 12,463 / 16,658 / 307 / 657 -- so
+  # the (tau ON, daily) cell squeezed the OSP observation error to a ninth of its monthly
+  # value with an n_eff of 657, comfortably ABOVE the gate's floor. The n_eff flag cannot see
+  # that, and the collapse is the thing that matters: it is the latent process absorbing the
+  # observation noise.
+  #
+  # It is reported as a bare number and NOT flagged, because flagging needs a defensible
+  # reference for "too small" and this project does not have one yet. The half-Cauchy priors
+  # on these scales have no finite SD, so the contraction diagnostic is undefined for them,
+  # and a fixed cut-off would be a number chosen to separate the runs already seen. Compare
+  # the column ACROSS configurations, which is what it is for.
+  disp_scale <- NA_real_; disp_scale_par <- NA_character_
+  if (!is.null(disp_tbl) && nrow(disp_tbl) && "median" %in% names(disp_tbl)) {
+    sc <- disp_tbl[grepl("^sigma_r_", disp_tbl$parameter), , drop = FALSE]
+    v <- suppressWarnings(as.numeric(sc$median))
+    if (nrow(sc) && any(is.finite(v))) {
+      i <- which.min(replace(v, !is.finite(v), Inf))
+      disp_scale <- round(v[i], 4); disp_scale_par <- as.character(sc$parameter[i])
     }
   }
 
@@ -122,11 +190,17 @@
     n_pareto_bad = n_bad_k,
     pit_worst_bias = pit_worst,
     pit_worst_stream = pit_stream,
+    cov50_worst_dev = cov_worst,
+    cov50_worst_stream = cov_stream,
+    pit_sd_worst_dev = pit_sd_worst,
     disp_neff_min = disp_neff,
     disp_neff_min_par = disp_par,
+    disp_scale_min = disp_scale,
+    disp_scale_min_par = disp_scale_par,
     flag_overparameterised = isTRUE(p_loo_frac > p_loo_frac_warn),
     flag_loo_unreliable    = isTRUE(n_bad_k > 0),
     flag_pit_bias          = isTRUE(pit_worst > pit_bias_warn),
+    flag_miscalibrated     = isTRUE(cov_worst > cov50_dev_warn),
     flag_dispersion_neff   = isTRUE(disp_neff < neff_floor),
     source = source_tag,
     stringsAsFactors = FALSE)
@@ -140,7 +214,8 @@
 bss_model_adequacy <- function(fit, stan_data, label, output_dir,
                                neff_floor = 400,
                                p_loo_frac_warn = 0.25,
-                               pit_bias_warn = 0.05) {
+                               pit_bias_warn = 0.05,
+                               cov50_dev_warn = 0.15) {
   # Decoupled dispersion parameters are excluded: an unused r_OSP in a shore fit has no
   # n_eff worth reporting and would fire the flag on every run.
   have <- .BMA_DISP_PARS[.BMA_DISP_PARS %in% fit@model_pars]
@@ -153,6 +228,7 @@ bss_model_adequacy <- function(fit, stan_data, label, output_dir,
     sm <- tryCatch(rstan::summary(fit, pars = have)$summary, error = function(e) NULL)
     if (!is.null(sm) && "n_eff" %in% colnames(sm))
       disp_tbl <- data.frame(parameter = rownames(sm), n_eff = sm[, "n_eff"],
+                             median = if ("50%" %in% colnames(sm)) sm[, "50%"] else NA_real_,
                              stringsAsFactors = FALSE)
   }
   .bma_core(label,
@@ -160,7 +236,8 @@ bss_model_adequacy <- function(fit, stan_data, label, output_dir,
             ppc = .bma_read(output_dir, "ppc_calibration_%s.csv", label),
             disp_tbl = disp_tbl,
             neff_floor = neff_floor, p_loo_frac_warn = p_loo_frac_warn,
-            pit_bias_warn = pit_bias_warn, source_tag = "live")
+            pit_bias_warn = pit_bias_warn, cov50_dev_warn = cov50_dev_warn,
+            source_tag = "live")
 }
 
 # ---------------------------------------------------------------------------
@@ -208,6 +285,8 @@ annotate_model_adequacy_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
       if (any(keep))
         disp_tbl <- data.frame(parameter = as.character(sp$parameter[keep]),
                                n_eff = suppressWarnings(as.numeric(sp$n_eff[keep])),
+                               median = if ("median" %in% names(sp))
+                                 suppressWarnings(as.numeric(sp$median[keep])) else NA_real_,
                                stringsAsFactors = FALSE)
     }
     r <- tryCatch(.bma_core(lab,
@@ -256,7 +335,7 @@ write_model_adequacy <- function(bss_all, output_dir, params = list()) {
   utils::write.csv(df, file.path(output_dir, "model_adequacy.csv"), row.names = FALSE)
 
   flagged <- df[df$flag_overparameterised | df$flag_loo_unreliable |
-                df$flag_pit_bias | df$flag_dispersion_neff, , drop = FALSE]
+                df$flag_pit_bias | df$flag_miscalibrated | df$flag_dispersion_neff, , drop = FALSE]
   if (nrow(flagged)) {
     cat("\n  MODEL ADEQUACY (separate from the convergence gate; nothing here changes",
         "PE-vs-BSS selection):\n")
@@ -269,6 +348,9 @@ write_model_adequacy <- function(bss_all, output_dir, params = list()) {
           sprintf("%d Pareto k > 0.7, so the LOO estimate is unreliable", r$n_pareto_bad),
         if (isTRUE(r$flag_pit_bias))
           sprintf("PIT mean is %.3f off nominal on the %s stream", r$pit_worst_bias, r$pit_worst_stream),
+        if (isTRUE(r$flag_miscalibrated))
+          sprintf("a nominal 50%% interval covers %.0f%% of the %s stream (PIT sd %.3f off the uniform 0.289)",
+                  100 * (0.5 + r$cov50_worst_dev), r$cov50_worst_stream, r$pit_sd_worst_dev),
         if (isTRUE(r$flag_dispersion_neff))
           sprintf("%s has n_eff %.0f, below the gate's own floor", r$disp_neff_min_par, r$disp_neff_min))
       cat(sprintf("    %s [%s]: %s\n", r$fit, r$method_selected, paste(msgs, collapse = "; ")))

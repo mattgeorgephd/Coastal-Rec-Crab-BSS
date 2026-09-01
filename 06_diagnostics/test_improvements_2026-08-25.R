@@ -786,6 +786,34 @@ local({
     s <- a[a$fit == "shore_all_gear_Dungeness_Kept", ]
     chk("adequacy retro: a decoupled r_OSP in a shore fit is excluded from the floor",
         !identical(s$disp_neff_min_par, "r_OSP"), sprintf("(shore minimum is %s)", s$disp_neff_min_par))
+    # 19b. SHARPNESS (2026-08-30). The Stage 5 2x2 proved pit_mean alone is not merely
+    #      incomplete but actively misleading: the (tau ON, daily) cell has the BEST pit_mean
+    #      of the four and the worst calibration in the batch, because a latent process with
+    #      one state per observation piles every PIT value at 0.5. coverage_50 and pit_sd
+    #      were already being written and were not reaching the adequacy table.
+    s4b <- annotate_model_adequacy_run("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon",
+                                       overwrite = TRUE, quiet = TRUE)
+    s2  <- annotate_model_adequacy_run("05_output/20260829/pooled-CPUE-S5-2-tau-pooled",
+                                       overwrite = TRUE, quiet = TRUE)
+    if (!is.null(s4b) && !is.null(s2)) {
+      b <- s4b[grepl("private_boat_all_gear", s4b$fit), ]
+      g <- s2 [grepl("private_boat_all_gear", s2$fit),  ]
+      chk("adequacy: pit_mean alone RANKS THE CELLS WRONG (the reason for the new columns)",
+          isTRUE(b$pit_worst_bias < g$pit_worst_bias),
+          sprintf("(daily %.3f 'better' than monthly %.3f)", b$pit_worst_bias, g$pit_worst_bias))
+      chk("adequacy: coverage_50 deviation puts them back in the right order",
+          isTRUE(b$cov50_worst_dev > g$cov50_worst_dev),
+          sprintf("(daily %.3f vs monthly %.3f; nominal deviation 0)", b$cov50_worst_dev, g$cov50_worst_dev))
+      chk("adequacy: PIT sd deviation agrees with coverage",
+          isTRUE(b$pit_sd_worst_dev > g$pit_sd_worst_dev),
+          sprintf("(daily %.3f vs monthly %.3f)", b$pit_sd_worst_dev, g$pit_sd_worst_dev))
+      chk("adequacy: the daily cell is flagged miscalibrated", isTRUE(b$flag_miscalibrated))
+      chk("adequacy: dispersion COLLAPSE is reported where n_eff cannot see it",
+          isTRUE(b$disp_scale_min < 0.2) && isTRUE(g$disp_scale_min > 0.5) &&
+          isTRUE(b$disp_neff_min > 400),
+          sprintf("(daily sigma %.3f at n_eff %.0f, above the floor; monthly %.3f)",
+                  b$disp_scale_min, b$disp_neff_min, g$disp_scale_min))
+    }
     e <- "05_output/20260829/pooled-CPUE-IP-E-tau-on-pooled"
     if (dir.exists(e)) {
       b <- annotate_model_adequacy_run(e, overwrite = TRUE, quiet = TRUE)
@@ -796,6 +824,34 @@ local({
                   rb$p_loo_frac, rb$pit_worst_bias, r$p_loo_frac, r$pit_worst_bias))
     }
   } else chk("adequacy retro: stage F folder present", TRUE, "skipped, folder absent")
+})
+
+# ---------------------------------------------------------------------------
+# 21. prior_vs_posterior row resolution (regression, 2026-08-30 Stage 5 batch).
+#     tau_bar is declared vector<lower=0>[shared_tau], so rstan names its summary row
+#     "tau_bar[1]". The prior table entry was called "tau_bar"; has_par() strips the index
+#     and selected it, then post[pn, ] threw, and the enclosing tryCatch swallowed the error
+#     -- silently dropping the ENTIRE boat prior_vs_posterior file in S2, S3 and S4b. The
+#     lesson generalises: a tryCatch around a whole writer converts a one-row bug into a
+#     missing file, so the row lookup is now tolerant in both directions and a parameter
+#     that cannot be resolved is skipped rather than taking the file with it.
+# ---------------------------------------------------------------------------
+local({
+  chk("pvp: the row resolver exists", exists(".pvp_row_key", mode = "function"))
+  rn <- c("R_G", "mu_mu_E[1]", "tau_bar[1]")
+  chk("pvp: an indexed name matches its indexed row",
+      identical(.pvp_row_key("tau_bar[1]", rn), "tau_bar[1]"))
+  chk("pvp: a BARE name still finds the indexed row (the bug)",
+      identical(.pvp_row_key("tau_bar", rn), "tau_bar[1]"))
+  chk("pvp: an indexed name still finds a scalar row",
+      identical(.pvp_row_key("mu_mu_E[1]", c("mu_mu_E")), "mu_mu_E"))
+  chk("pvp: an absent parameter resolves to NA, so the caller can skip it",
+      is.na(.pvp_row_key("not_a_par", rn)))
+  t <- paste(readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("pvp: the shared-turnover entry is registered under its indexed name",
+      grepl("prior_tbl$`tau_bar[1]`", t, fixed = TRUE))
+  chk("pvp: an unresolvable parameter is dropped, not fatal to the file",
+      grepl("rows <- Filter(Negate(is.null), rows)", t, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------
@@ -818,7 +874,15 @@ local({
   ref <- list(
     list("05_output/20260828/pooled-CPUE-IP-D-tau-off", "private_boat \\(All gear\\)", 25868),
     list("05_output/20260829/pooled-CPUE-IP-E-tau-on-pooled", "private_boat \\(All gear\\)", 31008),
-    list("05_output/20260829/pooled-CPUE-IP-F-escalate", "private_boat \\(All gear\\)", 37359))
+    list("05_output/20260829/pooled-CPUE-IP-F-escalate", "private_boat \\(All gear\\)", 37359),
+    # The 2026-08-30 batch's own cells. The review in stage5-batch-review-2026-08-31.md
+    # quotes these four numbers and the interaction computed from them; if a folder is ever
+    # re-run in place, the review's arithmetic silently stops matching its sources.
+    list("05_output/20260829/pooled-CPUE-S5-2-tau-pooled", "private_boat \\(All gear\\)", 31008),
+    list("05_output/20260829/pooled-CPUE-S5-4a-daily-tauoff", "private_boat \\(All gear\\)", 37359),
+    list("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon", "private_boat \\(All gear\\)", 42344),
+    list("05_output/20260830/pooled-CPUE-S5-5-boatpc-ar", "private_boat \\(All gear\\)", 25868),
+    list("05_output/20260829/gear-type-CPUE-model-S5-3-tau-gear", "private_boat \\(All gear\\)", 30760))
   for (r in ref) {
     p <- file.path(r[[1]], "pe_vs_bss_comparison.csv")
     if (!file.exists(p)) { chk(paste("stage5 REF:", basename(r[[1]])), TRUE, "skipped, folder absent"); next }
@@ -827,6 +891,53 @@ local({
     chk(sprintf("stage5 REF: %s boat all-gear is still %d", basename(r[[1]]), r[[3]]),
         isTRUE(round(v) == r[[3]]), sprintf("(read %s)", round(v)))
   }
+})
+
+# ---------------------------------------------------------------------------
+# 22. The Stage 5 conclusion, guarded arithmetically (2026-08-31). The recommendation to
+#     adopt the shared turnover and NOT the daily AR rests on an interaction near zero and
+#     on the two levers ranking oppositely on calibration. Both are recomputed here from the
+#     committed outputs, so the conclusion cannot drift away from its evidence unnoticed.
+# ---------------------------------------------------------------------------
+local({
+  bag <- function(d) {
+    p <- file.path(d, "pe_vs_bss_comparison.csv")
+    if (!file.exists(p)) return(NA_real_)
+    x <- read.csv(p, stringsAsFactors = FALSE)
+    round(x$BSS_catch[grepl("private_boat \\(All gear\\)", x$component)][1])
+  }
+  off_m <- bag("05_output/20260828/pooled-CPUE-IP-D-tau-off")
+  on_m  <- bag("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")
+  off_d <- bag("05_output/20260829/pooled-CPUE-S5-4a-daily-tauoff")
+  on_d  <- bag("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon")
+  if (all(is.finite(c(off_m, on_m, off_d, on_d)))) {
+    inter <- (on_d - off_d) - (on_m - off_m)
+    chk("stage5: the tau x AR interaction is still near zero (the ADDITIVE finding)",
+        abs(inter) < 0.15 * (on_m - off_m),
+        sprintf("(interaction %d against main effects +%d and +%d)", inter, on_m - off_m, off_d - off_m))
+  }
+  cov50 <- function(d, stream = "osp") {
+    p <- file.path(d, "ppc_calibration_private_boat_all_gear_Dungeness_Kept.csv")
+    if (!file.exists(p)) return(NA_real_)
+    x <- read.csv(p, stringsAsFactors = FALSE); x$coverage_50[x$data_type == stream][1]
+  }
+  cm <- cov50("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")
+  cd <- cov50("05_output/20260830/pooled-CPUE-S5-4b-daily-tauon")
+  chk("stage5: the daily cell is still the miscalibrated one (nominal coverage_50 = 0.50)",
+      isTRUE(abs(cd - 0.5) > 3 * abs(cm - 0.5)),
+      sprintf("(monthly %.3f vs daily %.3f)", cm, cd))
+  # tau_bar agrees across two independently parameterized tracks.
+  tb <- function(d) {
+    p <- file.path(d, "structural_params_private_boat_all_gear_Dungeness_Kept.csv")
+    if (!file.exists(p)) return(NA_real_)
+    x <- read.csv(p, stringsAsFactors = FALSE); x$median[x$parameter == "tau_bar[1]"][1]
+  }
+  tp <- tb("05_output/20260829/pooled-CPUE-S5-2-tau-pooled")
+  tg <- tb("05_output/20260829/gear-type-CPUE-model-S5-3-tau-gear")
+  chk("stage5: the two tracks still agree on tau_bar to better than 1%",
+      isTRUE(abs(tg - tp) / tp < 0.01), sprintf("(pooled %.4f vs gear %.4f)", tp, tg))
+  chk("stage5: tau_bar at monthly still sits inside the external overlap calibration 2.01-3.03",
+      isTRUE(tp > 2.01 && tp < 3.03), sprintf("(%.3f)", tp))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

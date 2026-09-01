@@ -103,7 +103,10 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                  # TRUE: resolve, print, self-test, fit nothing. START HERE.
+DRY_RUN <- TRUE                  # TRUE: resolve, print, self-test, fit nothing. START HERE.
+#        ^^^^ reset to TRUE after the 2026-08-30 batch. RESUME skips completed stages, so
+#        sourcing this with DRY_RUN <- FALSE again would re-extract and re-judge the existing
+#        outputs and APPEND another five rows to the summary CSV rather than re-fitting.
 STAGES  <- c("S1", "S2", "S3", "S4a", "S4b", "S5")
 RESUME  <- TRUE                  # skip a stage whose output folder already looks complete
 
@@ -1053,19 +1056,25 @@ if (!is.null(S) && any(S$stage == "S3")) {
           "the pooled 2.597, but a rejected fit is not evidence. If a converged gear fit",
           "lands in the same place, the shared turnover is a property of the data rather",
           "than of the pooled parameterization, which is what would justify adopting it."))
+  # 2026-08-30 CORRECTION. The first version of this criterion compared S3's shore fits
+  # against the 2026-08-29 gear run and FAILED. The failure was the criterion's, not the
+  # code's: that run had shared_tau GLOBAL, so its shore fits carried a tau_bar the floor now
+  # (correctly) refuses, and the reference therefore differed in TWO ways at once. That is
+  # exactly the mistake this script calls out in stage F, committed here. The control for
+  # "the sampler override touched only the boat fit" is a gear run with shared_tau OFF for
+  # the shore: the 2026-08-26 shipped gear run. Against THAT reference the shore fits are
+  # bit-identical across 6,463 shared parameter rows, so the override was correctly targeted.
+  .s3ex <- fit_exactness(basename(find_outdir("gear_resolved", STAGE_DEFS$S3$tag) %||% NA_character_),
+                         .here("05_output", REF$gear5$dir), "shore",
+                         "gear shore fits vs the 2026-08-26 SHIPPED gear run (shared_tau off in both)")
   V[[length(V)+1]] <- V1("S3", "the other three gear fits are untouched by the sampler change",
-    (fit_exactness(basename(find_outdir("gear_resolved", STAGE_DEFS$S3$tag) %||% NA_character_),
-                   .here("05_output", REF$Egear$dir), "shore",
-                   "gear shore fits vs the 2026-08-29 gear run"))$observed,
-    "shore fits bit-identical",
-    (fit_exactness(basename(find_outdir("gear_resolved", STAGE_DEFS$S3$tag) %||% NA_character_),
-                   .here("05_output", REF$Egear$dir), "shore"))$verdict,
+    .s3ex$observed, "shore fits bit-identical", .s3ex$verdict,
     paste("The gear driver's per-fit branch is: shore & all_gear -> the *_shore_allgear",
           "settings; pot_closure -> the *_ringnet settings; everything else -> the track",
           "defaults. Only private_boat all-gear falls through to the defaults, so raising",
           "them should touch exactly one fit. This checks that claim instead of trusting it.",
-          "A FAIL means the override reached further than intended and S3's comparison with",
-          "the 2026-08-29 gear run is not clean."))
+          "THE REFERENCE MUST DIFFER IN ONE THING: the 2026-08-26 shipped gear run, not the",
+          "2026-08-29 one, whose shore fits carried a shared tau the floor now refuses."))
 }
 
 # ---- S4a / S4b, the 2x2

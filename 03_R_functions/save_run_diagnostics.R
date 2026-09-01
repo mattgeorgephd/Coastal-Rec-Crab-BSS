@@ -76,6 +76,19 @@ if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a))
 
 # ---- per-fit writer ---------------------------------------------------------
 
+# Resolve a prior-table name against the rownames rstan::summary() actually produced.
+# A length-1 Stan VECTOR is summarised as "x[1]" while a real scalar is "x", and the prior
+# table is hand-written, so the two can disagree. Returns NA when there is no match, which
+# the caller treats as "skip this parameter" rather than as "lose the file".
+.pvp_row_key <- function(pn, rn) {
+  if (pn %in% rn) return(pn)
+  b <- sub("\\[.*$", "", pn)
+  if (b %in% rn) return(b)
+  i <- paste0(b, "[1]")
+  if (i %in% rn) return(i)
+  NA_character_
+}
+
 write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, output_dir,
                                            n_pit_draws = 1500, n_draw_save = 2000,
                                            seed = 1L) {
@@ -350,8 +363,14 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     if (has_par("tau_bar") && identical(as.integer(sd_p$shared_tau %||% 0L), 1L) &&
         !is.null(sd_p$shared_tau_prior_mu) && !is.null(sd_p$shared_tau_prior_sigma)) {
       .mu <- as.numeric(sd_p$shared_tau_prior_mu); .sg <- as.numeric(sd_p$shared_tau_prior_sigma)
-      prior_tbl$tau_bar <- list(fam = sprintf("lognormal(log(%.3f), %.3f)", .mu, .sg),
-                                mean = lnorm_mean(.mu, .sg), sd = lnorm_sd(.mu, .sg))
+      # NAME IT WITH THE INDEX, exactly as mu_mu_E[1] / mu_mu_C[1] above. tau_bar is declared
+      # vector<lower=0>[shared_tau], so rstan::summary() names its row "tau_bar[1]"; an entry
+      # called "tau_bar" is selected by has_par() (which strips the index) and then fails the
+      # post[pn, ] lookup, which this tryCatch swallows -- taking the WHOLE FILE for that fit
+      # with it, not just the tau_bar row. That is what happened to the boat fits in the
+      # 2026-08-30 Stage 5 batch: S2, S3 and S4b wrote no boat prior_vs_posterior at all.
+      prior_tbl$`tau_bar[1]` <- list(fam = sprintf("lognormal(log(%.3f), %.3f)", .mu, .sg),
+                                     mean = lnorm_mean(.mu, .sg), sd = lnorm_sd(.mu, .sg))
     }
 
     pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]
@@ -359,7 +378,13 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     post <- rstan::summary(fit, pars = pars)$summary
 
     rows <- lapply(pars, function(pn) {
-      pr <- prior_tbl[[pn]]; po <- post[pn, ]
+      pr <- prior_tbl[[pn]]
+      # Belt and braces on the same failure: resolve the summary row by name, tolerating a
+      # scalar/vector naming mismatch in EITHER direction, and drop the parameter rather than
+      # losing the file if it genuinely is not there.
+      key <- .pvp_row_key(pn, rownames(post))
+      if (is.na(key)) return(NULL)
+      po <- post[key, ]
       contraction <- if (is.finite(pr$sd) && pr$sd > 0) 1 - po["sd"] / pr$sd else NA_real_
       data.frame(parameter = pn, prior = pr$fam,
                  prior_mean = pr$mean, prior_sd = pr$sd,
@@ -369,6 +394,8 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
                  prior_influential = is.finite(contraction) & contraction < 0.5,
                  row.names = NULL)
     })
+    rows <- Filter(Negate(is.null), rows)
+    if (!length(rows)) return(NULL)
     df <- do.call(rbind, rows)
     utils::write.csv(df, file.path(output_dir, sprintf("prior_vs_posterior_%s.csv", label)),
                      row.names = FALSE)

@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-08-30
+- **Last updated:** 2026-08-31
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -17,7 +17,7 @@
 | Config surface (`run_config.R`) | base-params architecture (P5) | `run_config` is the base parameter set; each driver layers model-specific tuning via `modifyList(run_config, params_model)`. **2026-08-25:** `bss_min_interviews` was removed from both `params_model` blocks; it sat on the winning side of that merge and silently overrode `run_config`. |
 | 2026-08-25 improvement batch (both models, both Stan files, 6 new/rewritten R modules) | **VALIDATED AND ADOPTED (2026-08-26 ladder, 6 runs, ~15 h)** | Eight requested improvements plus two defects found in review. The five-rung ladder ran clean: the baseline reproduces on both tracks (the gear fits are BIT-identical, 9,895 shared parameter rows at full precision), each change moved for its predicted reason, and the two tracks reconcile to 0.73%. **Rung 4 is the shipped configuration and the new authoritative run: port total 66,237 (95% CI 50,037 - 91,210), 4 of 4 components fitted.** One rung lost a fit to a stalled chain and needs a reseed; see the 2026-08-27 update. |
 
-**Authoritative run (2026-08-27):** `05_output/20260826/pooled-CPUE-PV4-minint` (**rung 4** of the 2026-08-26 validation ladder, the shipped configuration; port total **66,237**, 95% CI 50,037 - 91,210, 4 of 4 components fitted), cross-checked by `05_output/20260826/gear-type-CPUE-model-PV5-gear-ship` (65,756, 0.73% apart). It supersedes the 2026-08-04 / 2026-08-05 OSP validation pair, which in turn superseded Run 6 for everything except the pre-OSP baseline. Read it with the two caveats in the 2026-08-27 update: rung 2 needs a reseed, and `osp_scale_is_tau` is unresolved.
+**Authoritative run (2026-08-27), pending the Stage 5 sign-off in Section 1c:** `05_output/20260826/pooled-CPUE-PV4-minint` (**rung 4** of the 2026-08-26 validation ladder, the shipped configuration; port total **66,237**, 95% CI 50,037 - 91,210, 4 of 4 components fitted), cross-checked by `05_output/20260826/gear-type-CPUE-model-PV5-gear-ship` (65,756, 0.73% apart). It supersedes the 2026-08-04 / 2026-08-05 OSP validation pair, which in turn superseded Run 6 for everything except the pre-OSP baseline. Read it with the two caveats in the 2026-08-27 update: rung 2 needs a reseed, and `osp_scale_is_tau` is unresolved.
 
 **Prior authoritative run (pre-OSP trunk):** `05_output/20260715/pooled-CPUE-230256` (**Run 6**, pooled default + shore pot-closure biweekly AR, 2026-07-15), superseding **Run 1** (`20260713/pooled-CPUE-run1`) by resolving the pot-closure regression so all 3 fits pass (see the Run 6 update above; port total 83,035 -> 83,488). Boat on monthly AR selected by the per-population resolution map (`ar_force = NULL`); gate at fraction 0.05 / impact 0.10 SD. Run 1 (the immediate baseline, retained for provenance) folds the nine-item Tier-2 + parity batch (below) on top of the 7/12 Tier-1 baseline and **validates** it: the two passing BSS fits are essentially identical to 7/12 (shore all-gear 20,655 -> 20,607; boat all-gear 43,480 -> 43,180), so the nine items are behavior-neutral on the reported total (port total 83,825 -> 83,035, -0.9%). The one behavior change is the boat point-estimator (empty-stratum fallback; see the headline), a cross-check gain rather than a change to the reported number. The prior authoritative run was `20260712/pooled-CPUE-morning`.
 
@@ -310,11 +310,11 @@ The harness is at **128 assertions**, covering both fixes.
 
 ## 1b. Stage 5 prerequisites (2026-08-30): what landed before the next batch
 
-Everything below is code and reporting, applied and covered by the harness (**178 assertions**, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
+Everything below is code and reporting, applied and covered by the harness (**199 assertions** as of 2026-08-31, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
 
 **1. The shared-turnover informed-day floor (plan 5.2).** `bss_shared_tau_data()` now refuses `shared_tau` for a fit with fewer than `shared_tau_min_obs` (default **15**) days that can inform `L`, and falls back to the per-day parameterization with a printed reason. Informed days = I/E days, plus OSP days when `osp_scale_is_tau = 1` puts `L` into the OSP mean. The observed counts are 4 (shore all-gear), 0 (shore pot closure), 130 (boat all-gear), 18 (boat pot closure), so any threshold in 5..18 separates the shore from the boat; 15 sits just below 18 deliberately, to keep the cross-track-corroborated boat pot closure. `shared_tau` remains **off in production** and stays off until the Stage 5 gate confirms the floor does exactly what it claims.
 
-**2. Model adequacy beside the gate (plan 5.5).** `03_R_functions/bss_model_adequacy.R` writes `model_adequacy.csv` per run: `p_loo` as a fraction of `n_obs` (worst stream), the count of Pareto k > 0.7, the worst PIT bias, and the smallest `n_eff` among the observation-model dispersion parameters the gate never looks at. **It does not gate.** `pass_convergence` keeps its exact meaning; these columns sit beside it so "did this fit sample?" and "is this model adequate?" are visibly different questions. On the 2026-08-29 cells the separation is stark: stage E carries `p_loo` at 8.0% of `n_obs` with PIT bias 0.021, stage F carries 16.3% with bias 0.096, two bad Pareto k, and `sigma_r_OSP` at n_eff 307 — below the gate's own floor of 400, with the gate passing.
+**2. Model adequacy beside the gate (plan 5.5).** `03_R_functions/bss_model_adequacy.R` writes `model_adequacy.csv` per run: `p_loo` as a fraction of `n_obs` (worst stream), the count of Pareto k > 0.7, the worst PIT bias, and the smallest `n_eff` among the observation-model dispersion parameters the gate never looks at. **It does not gate.** `pass_convergence` keeps its exact meaning; these columns sit beside it so "did this fit sample?" and "is this model adequate?" are visibly different questions. On the 2026-08-29 cells the separation is stark: stage E carries `p_loo` at 8.0% of `n_obs` with PIT bias 0.021, stage F carries 16.3% with bias 0.096, two bad Pareto k, and `sigma_r_OSP` at n_eff 307, below the gate's own floor of 400, with the gate passing.
 
 **3. Retro annotation, so archived runs are comparable rather than blank.** `annotate_model_adequacy_run()` and `annotate_decoupled_run()` rebuild both tables for a committed run folder from its own CSVs, writing `model_adequacy_reconstructed.csv` and `decoupled_audit.csv` **beside** the originals; committed outputs are never rewritten. Both mark every row `source = "reconstructed"`. This exists because plan 5.3 asks for adequacy "for each cell" of a 2x2 whose archived cells predate the diagnostic, and a table with numbers for the new cells and blanks for the old ones is the shape of an argument that quietly favours whichever cells are new.
 
@@ -328,11 +328,59 @@ Everything below is code and reporting, applied and covered by the harness (**17
 | `structural_params_*` and `model_adequacy.csv` invented `"PE (gate fail)"` where `convergence_report.csv` says `"PE (convergence fail)"`, so one fit read two ways in one folder | all three writers now quote `gate_info$method_selected`, the gate being the single authority on method selection |
 | the 2026-08-26 baselines have no `decoupled` column at all | `annotate_decoupled_run()` reconstructs it from the fit label, `fit_data_summary.csv` and `run_parameters.txt`, marking window-dependent rules `unknown` rather than guessing |
 
-**5. `bss_sampler_override`, an explicit escape hatch (new).** Each driver merges `params_model` **on top of** `run_config`, so `params_model` wins every sampler key. Setting `bss_iter_default` in a `run_config` delta therefore does nothing and the run looks like it complied — the same class of trap that left `bss_min_interviews` pinned at 20 until the 2026-08-25 audit, and one that would have silently voided plan 5.2's request to re-run the gear track at more draws. `bss_sampler_override` is a named list applied **after** the merge, restricted to sampler keys, printing every change and **erroring** on anything else rather than dropping it. Production value is `NULL`.
+**5. `bss_sampler_override`, an explicit escape hatch (new).** Each driver merges `params_model` **on top of** `run_config`, so `params_model` wins every sampler key. Setting `bss_iter_default` in a `run_config` delta therefore does nothing and the run looks like it complied; the same class of trap that left `bss_min_interviews` pinned at 20 until the 2026-08-25 audit, and one that would have silently voided plan 5.2's request to re-run the gear track at more draws. `bss_sampler_override` is a named list applied **after** the merge, restricted to sampler keys, printing every change and **erroring** on anything else rather than dropping it. Production value is `NULL`.
 
 **6. `fit_data_summary.csv` now records the turnover decision** (`n_L_informed`, `shared_tau`) per fit, so the floor's decision is auditable from the output folder rather than from the console.
 
 **One thing measured rather than assumed (2026-08-30).** Extra elements in the list passed to `rstan::stan(data = )` are inert: a two-chain fit run with, and without, three added elements including the new `.n_L_informed` returned bit-identical draw matrices. The dotted metadata `prep_bss_crab_*` attaches to `stan_data` therefore cannot perturb any bit-identity gate.
+
+---
+
+## 1c. The Stage 5 batch (2026-08-31): the 2x2 is settled
+
+Full review: `development_notes/stage5-batch-review-2026-08-31.md`. Six stages, 24 h of fitting, 11 of 12 criteria passing; the one FAIL was a criterion comparing against a reference that differed in two ways, not a code defect. Harness now **199 assertions**, including guards that recompute the interaction, the calibration ordering and the cross-track `tau_bar` agreement from the committed outputs, so the review's conclusion cannot drift from its evidence unnoticed.
+
+### The finding
+
+| private-boat all-gear | boat AR monthly | boat AR daily |
+|---|---|---|
+| **shared turnover OFF** | 25,868 | 37,359 |
+| **shared turnover ON** | **31,008** | 42,344 |
+
+The two levers are **additive** (interaction -155 against main effects of +5,140 and +11,491). They are not two measurements of one thing, and additivity adjudicates nothing. Calibration and complexity do, and they are unanimous:
+
+| cell | trailer elpd | catch elpd | p_loo | k>0.7 | OSP coverage_50 | smallest sigma_r_* |
+|---|---:|---:|---:|---:|---:|---:|
+| OFF x monthly | -573.8 | -451.4 | 4.9 | 0 | 0.508 | 0.768 |
+| **ON x monthly** | **-559.1** | **-451.5** | **8.0** | **0** | **0.508** | **0.767** |
+| OFF x daily | -540.4 | -455.3 | 31.8 | 2 | 0.931 | 0.307 |
+| ON x daily | -473.4 | -455.1 | 52.5 | 16 | 0.977 | 0.086 |
+
+*Nominal coverage_50 = 0.500.* The shared turnover buys 14.7 nats of trailer elpd for 3.1 effective parameters, costs the catch stream 0.1, and moves every calibration statistic toward nominal. The daily AR buys elpd by spending 27-48 effective parameters on 195 observations, makes the catch stream 3.8 nats worse in both tau conditions, and destroys calibration. **Identification versus absorption, no longer a hypothesis.**
+
+### Cross-track corroboration, the strongest the project has produced
+
+With the gear track's boat all-gear fit finally converged (S3: n_eff 49 to 19,292, R-hat 1.081 to 0.9997, 554 divergences to 2, after raising adaptation as well as draws), the two tracks agree on `tau_bar` to **0.03%** (2.5969 vs 2.5962), on the boat component to 0.80%, and on the port total to 0.89%. The independent OSP/trailer overlap calibration puts the turnover at 2.01-3.03; the monthly posterior is 2.597 [2.06, 3.25], straddling it. The daily cell's 3.232 [2.87, 3.63] sits at or above its top.
+
+### Recommended change to the authoritative run
+
+**Adopt the shared turnover, boat-only** (`shared_tau = TRUE` with `shared_tau_min_obs = 15`). New authoritative run **S2, `05_output/20260829/pooled-CPUE-S5-2-tau-pooled`, port total 71,521 [52,350, 100,759]**, cross-checked by S3 at 70,886. **Do not adopt the daily boat AR.** Awaiting sign-off; `run_config.R` still ships `shared_tau = FALSE`.
+
+### Two open items this batch created
+
+1. **The trailer stream is over-covered in every configuration.** `coverage_50` 0.667-0.692 at monthly against a nominal 0.500, which is 4.6-5.3 sampling SDs (n = 195). The shared turnover improves it slightly; nothing fixes it. New information, and a real modelling question.
+2. **`prior_influential` measures variance reduction only.** `tau_bar` contracts 0.216 (flagged prior-influential) while its posterior mean sits **3.5 prior SDs** from the prior mean. The definition needs revisiting before that flag is quoted.
+
+### Diagnostic defects the batch exposed, all fixed
+
+- **`pit_worst_bias` alone ranked the cells backwards.** The (ON, daily) cell has the best PIT mean in the batch (0.495) and 98% of OSP observations inside a nominal 50% interval: a latent process with one state per observation interpolates the data and piles every PIT value at 0.5. `cov50_worst_dev`, `pit_sd_worst_dev` and `flag_miscalibrated` added; both statistics were already in `ppc_calibration_*.csv` and neither reached the table.
+- **`disp_neff_min` cannot see a dispersion collapse.** `sigma_r_OSP` fell 0.806 to 0.086 while its n_eff stayed at 657, above the gate's floor. `disp_scale_min` added, reported **unflagged**: the half-Cauchy priors have no finite SD so contraction is undefined, and any cut-off would be chosen after seeing these runs.
+- **REGRESSION, fixed.** `tau_bar` was registered in the prior-vs-posterior table under its bare name while rstan names the row `tau_bar[1]`; the lookup threw, the writer's `tryCatch` swallowed it, and the entire boat `prior_vs_posterior_*.csv` vanished from S2, S3 and S4b. Entry renamed, lookup made tolerant in both directions, unresolvable parameters now dropped rather than taking the file with them.
+
+### Also settled
+
+- **Plan 5.1 (the fill).** The re-run reproduces the driver exactly on zeroed days (44/0/47/9) and PE catch. `day_type` raises the PE 22.9-28.5% per component, **+14.0% at the port**. Decision still open; it moves a reported number only where a component falls back to PE, and all four reported BSS in every Stage 5 run.
+- **Plan 5.6 (stage C re-run).** Boat pot closure 735 at biweekly (gear track 743, 1.1% apart) with the all-gear component back at rung 4's 25,868. The 2026-08-28 `ar_force` leak was worth **3,025 crab** on that component and 2,865 at the port.
 
 ---
 
