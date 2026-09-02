@@ -1246,5 +1246,85 @@ local({
   }
 })
 
+# ---------------------------------------------------------------------------
+# 30. EVERY batch runner ships DRY_RUN <- TRUE (2026-09-03).
+#     The harness asserted this for the three most recent runners only, which is exactly why
+#     run_patch_validation_2026-08-25.R sat at FALSE through 264 passing assertions: sourcing
+#     it started real fits and appended duplicate summary rows, while both its own inline
+#     comment and 06_diagnostics/README.md said it would fit nothing. An assertion that
+#     covers a hand-picked subset is an assertion that will drift.
+# ---------------------------------------------------------------------------
+local({
+  runners <- list.files("06_diagnostics", pattern = "^run_.*\\.R$", full.names = TRUE)
+  # run_rg_sweep / run_tau_sweep / run_osp_validation have no dry-run mode at all; they are
+  # checked separately below rather than silently exempted.
+  has_dry <- vapply(runners, function(p) any(grepl("^DRY_RUN <-", readLines(p, warn = FALSE))), logical(1))
+  for (p in runners[has_dry]) {
+    l <- readLines(p, warn = FALSE); v <- sub("^DRY_RUN <- *([A-Z]+).*$", "\\1", grep("^DRY_RUN <-", l, value = TRUE)[1])
+    chk(sprintf("dry-run default: %s ships TRUE", basename(p)), identical(v, "TRUE"), sprintf("(%s)", v))
+  }
+  chk("dry-run default: every runner with a DRY_RUN was checked, not a hand-picked subset",
+      sum(has_dry) >= 5, sprintf("(%d of %d runners have a DRY_RUN switch)", sum(has_dry), length(runners)))
+  # The runners with no dry-run mode start fitting on source. That is a real hazard and it is
+  # recorded here rather than fixed, because each is a small single-purpose sweep whose header
+  # says so; the assertion exists so the list cannot grow unnoticed.
+  no_dry <- basename(runners[!has_dry])
+  chk("dry-run default: the set of runners with NO dry-run mode has not grown",
+      setequal(no_dry, c("run_osp_validation.R", "run_rg_sweep.R", "run_tau_sweep.R")),
+      sprintf("(%s)", paste(no_dry, collapse = ", ")))
+})
+
+# ---------------------------------------------------------------------------
+# 31. Result-file persistence (2026-09-03). Two ways of getting this wrong have already
+#     destroyed results: append-on-resume duplicated summary rows, and an ungated overwrite
+#     truncated 05_output/validation_2026-09-01_verdicts.csv to its desk rows, losing all
+#     seven fitted-stage criteria while the fits themselves survived.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_shore_ar_zi_2026-09-03.R"
+  if (!file.exists(f)) { chk("persistence: runner present", FALSE); return(invisible(NULL)) }
+  t <- paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("persistence: rows are MERGED BY KEY, not appended",
+      grepl("merge_csv_by <- function(new, path, key)", t, fixed = TRUE) &&
+      grepl('append_row <- function(r) merge_csv_by(r, sum_path, "stage")', t, fixed = TRUE))
+  chk("persistence: verdicts merge on (stage, criterion), so a dry run cannot erase fitted rows",
+      grepl('merge_csv_by(VD, ver_path, c("stage", "criterion"))', t, fixed = TRUE))
+  chk("persistence: the ladder MERGES its fallback rung instead of substituting it",
+      grepl('merge_csv_by(LAD, lad_path, "rung")', t, fixed = TRUE) &&
+      !grepl("utils::write.csv(LAD, lad_path", t, fixed = TRUE))
+  # Behavioural check on the merge itself, not just its presence.
+  # Extract merge_csv_by from the runner by brace-matching from its definition line, rather
+  # than by regex: the point is to test the REAL function, not a copy of it that could drift.
+  .rl <- readLines(f, warn = FALSE)
+  .st <- grep("^merge_csv_by <- function", .rl)[1]
+  .en <- .st + which(.rl[.st:length(.rl)] == "}")[1] - 1L
+  e <- new.env(); eval(parse(text = paste(.rl[.st:.en], collapse = "\n")), envir = e)
+  tmp <- tempfile(fileext = ".csv")
+  utils::write.csv(data.frame(stage = c("A1", "A2"), v = c(1, 2)), tmp, row.names = FALSE)
+  e$merge_csv_by(data.frame(stage = "A1", v = 99), tmp, "stage")
+  got <- read.csv(tmp, stringsAsFactors = FALSE)
+  chk("persistence: re-running one stage REPLACES its row and keeps the others",
+      nrow(got) == 2 && isTRUE(got$v[got$stage == "A1"] == 99) && isTRUE(got$v[got$stage == "A2"] == 2),
+      sprintf("(%d rows: %s)", nrow(got), paste(got$stage, got$v, sep = "=", collapse = ", ")))
+  unlink(tmp)
+})
+
+# ---------------------------------------------------------------------------
+# 32. The shore AR ladder's controls (2026-09-03).
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_shore_ar_zi_2026-09-03.R"
+  t <- paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("ladder: an ar_force LEAK control runs on every rung",
+      grepl('ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only"', t, fixed = TRUE) &&
+      grepl('ex_bt <- fit_exactness(nd, z0, "private_boat"', t, fixed = TRUE))
+  chk("ladder: a rung whose gate failed is flagged rather than ranked on catch",
+      grepl("every rung actually reported its BSS", t, fixed = TRUE))
+  chk("ladder: the coverage n is read from the run, not hard-coded",
+      grepl('sum(x$data_type == "gear")', t, fixed = TRUE) && !grepl("n_gear <- 311", t, fixed = TRUE))
+  chk("ladder: the ZINB elpd threshold is in SE units, not bare nats",
+      grepl("shore_ag_se_elpd_catch", t, fixed = TRUE) && grepl("2 * .se", t, fixed = TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

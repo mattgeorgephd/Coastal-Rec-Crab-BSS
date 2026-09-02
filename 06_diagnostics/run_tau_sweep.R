@@ -44,6 +44,13 @@
 #     source("06_diagnostics/run_tau_sweep.R")
 #
 # When it finishes, compare the boat all-gear catch and the port total across the
+# STALE BASELINE WARNING (2026-09-03). The numbers on this line are from 2026-07 and are
+# now badly wrong: production boat all-gear is 31,008 (not 43,314, -40%) and the port total
+# is 71,513 (not 82,957, -14%). MORE IMPORTANT: this sweep is superseded. diagnose_tau_boat
+# _sensitivity (run_config.R diagnose_tau_sensitivity = TRUE, a 5-point grid) reproduces its
+# refits to ~0.2% on every run, and production adopted shared_tau = TRUE on 2026-09-01, which
+# replaces the per-day tau_boat draws this sweep perturbs with a single estimated tau_bar of
+# 2.597 [2.064, 3.249] -- an interval that excludes this script's entire 0.9/1.2/1.5 grid.
 # folders against the production run (boat ~43,314; port ~82,957): read each
 # gear-type-CPUE-model-tau-*/port_total_Dungeness_Kept.csv and
 # pe_vs_bss_comparison.csv. If the boat scales ~linearly with tau_boat, the boat

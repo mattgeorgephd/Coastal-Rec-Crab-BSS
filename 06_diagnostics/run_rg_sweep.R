@@ -37,6 +37,12 @@
 #     source("run_rg_sweep.R")
 #
 # When it finishes, compare the port total across the three folders against the
+# STALE BASELINE WARNING (2026-09-03). The 83,035 below is pooled Run 1 (20260713), which
+# was superseded by Run 6 (83,488) on 2026-07-15 and by four authoritative runs since; the
+# current production total is 71,513 (20260831/pooled-CPUE-VAL-1-adopted). Compare a new
+# sweep against production, not against this number. Note also that rg_grid below has only
+# TWO rungs while this file's header describes three: the 1.00 rung was dropped mid-batch on
+# 2026-07-14 and never restored, so as committed this script cannot reproduce the Run 5 sweep.
 # Run-1 baseline (83,035): read each pooled-CPUE-run5-RG-*/port_total_Dungeness_Kept.csv.
 # This is a robustness study, not a correctness fix; if the port total is stable
 # across the three priors, the boat does not rest heavily on the R_G prior.

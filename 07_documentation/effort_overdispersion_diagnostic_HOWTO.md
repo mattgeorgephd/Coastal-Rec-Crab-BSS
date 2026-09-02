@@ -1,5 +1,31 @@
 # Effort over-dispersion diagnostic: how to run and read it
 
+> ## WARNING (2026-09-01): the `coverage_50` this document tells you to read was BIASED
+>
+> Until 2026-09-01 `ppc_calibration_*.csv` computed `coverage_50` by testing the observation
+> against a QUANTILE INTERVAL of simulated draws. For small counts that interval cannot carry
+> 50% of the probability mass, so the statistic over-covers by construction, and the smaller
+> the counts the worse it gets. On the private-boat trailer stream (fitted means of 1-2
+> boats) it read 0.667-0.692 where the correct randomized-PIT statistic reads 0.523-0.538.
+> That produced a phantom "the trailer stream is over-covered in every configuration" finding
+> which was recorded as an open modelling item on 2026-08-31 and retracted on 2026-09-01.
+>
+> **The figures quoted below (`coverage_50` 0.63 to 0.75 against the nominal 0.50) come from
+> the biased statistic and should not be used as evidence of over-dispersion on their own.**
+>
+> `model_diagnostics.R` was fixed the same day, so a run made after 2026-09-01 carries the
+> randomized statistic in both files and they agree. For an OLDER run, read `in_50` from
+> `ppc_byobs_<label>.csv` instead, which has always used the randomized PIT:
+>
+> ```r
+> x <- read.csv("ppc_byobs_<label>.csv"); mean(as.logical(x$in_50[x$data_type == "trailer"]))
+> ```
+>
+> The rest of this HOW-TO (the r_E / sigma_r_E reads, the effort-stream reasoning) is
+> unaffected.
+
+
+
 - **Companion to:** `03_R_functions/diagnose_effort_overdispersion.R`
 - **Purpose:** T1.5 step 2 (see `development_notes/PIPELINE_STATUS.md`, Section 3). Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
 - **Date:** 2026-06-22

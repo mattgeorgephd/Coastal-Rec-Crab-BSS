@@ -1,5 +1,27 @@
 # Grays Harbor Recreational Dungeness Crab Harvest Estimation
 
+> ## SUPERSEDED NUMBERS: READ THIS FIRST
+>
+> **Every harvest estimate in this document is historical.** It records Method v1.0, the
+> frozen method-of-record, and the runs that supported it at the time of writing. The
+> pipeline has moved several times since, most recently by adopting a shared boat turnover
+> on 2026-09-01, which roughly doubled the private-boat component relative to the pre-OSP
+> baseline and changed the port total.
+>
+> **The current authoritative run and its totals live in ONE place:**
+> `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top of that
+> file. As of 2026-09-03 that is `05_output/20260831/pooled-CPUE-VAL-1-adopted`,
+> **port total 71,513**.
+>
+> Do not quote a number from this document as current. The METHOD description (estimators,
+> likelihood, gate criteria, expansion structure) is still accurate and is what this document
+> is for; two operating instructions are not, and are corrected inline below where they
+> appear: `crabbing_holiday_dates` is no longer a config key (the calendar moved to
+> `04_input_files/crabbing_holidays.xlsx`), and the "coarser shore AR" described as an open
+> fix shipped in Run 6 on 2026-07-15.
+
+
+
 ## Method Version 1.0: Gear-Resolved CPUE Model
 
 **Author:** Matthew George, Ph.D.

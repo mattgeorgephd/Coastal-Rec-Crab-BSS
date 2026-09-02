@@ -1,2 +1,2 @@
-"rung","ar","shore_all_gear","port","p_loo_frac","pareto_bad","p_loo_gear","elpd_gear","elpd_catch","cov50_gear","cov50_catch","cov50_gear_sd","phi_E","sigma_eps_E","disp_scale","divergences"
-"daily (pre-edit production)","daily",20898,71513,0.3519,41,109.425545384796,-1251.31270495551,-3162.5206835814,0.70096463022508,0.456640388114008,7.08809971404678,0.648335030303973,0.45091627409174,0.2339,333
+"rung","ar","shore_all_gear","reported","port","n_gear","p_loo_frac","pareto_bad","p_loo_gear","elpd_gear","elpd_catch","cov50_gear","cov50_catch","cov50_gear_sd","se_elpd_gear","se_elpd_catch","phi_E","sigma_eps_E","disp_scale","divergences"
+"daily (pre-edit production)","daily",20898,TRUE,71513,311,0.3519,41,109.425545384796,-1251.31270495551,-3162.5206835814,0.70096463022508,0.456640388114008,7.08809971404678,16.4659588400368,46.7238086007342,0.648335030303973,0.45091627409174,0.2339,333

@@ -342,7 +342,9 @@ extract_run <- function(sid, model, run_tag, outdir, minutes, ok) {
     # the shore-ladder axes
     shore_ag_p_loo_frac = NA_real_, shore_ag_bad_k = NA_real_,
     shore_ag_cov50_gear = NA_real_, shore_ag_cov50_catch = NA_real_,
+    shore_ag_reported = NA,
     shore_ag_elpd_gear = NA_real_, shore_ag_elpd_catch = NA_real_,
+    shore_ag_se_elpd_gear = NA_real_, shore_ag_se_elpd_catch = NA_real_,
     shore_ag_ploo_gear = NA_real_, shore_ag_ploo_catch = NA_real_,
     shore_ag_phi_E = NA_real_, shore_ag_sigma_eps_E = NA_real_, shore_ag_disp_scale = NA_real_,
     # the ZINB axes
@@ -360,6 +362,7 @@ extract_run <- function(sid, model, run_tag, outdir, minutes, ok) {
   if (!is.null(pv) && "component" %in% names(pv)) {
     g <- function(pat, col) if (col %in% names(pv)) { v <- pv[[col]][grepl(pat, pv$component)]; if (length(v)) v[1] else NA } else NA
     row$shore_ag_BSS <- num1(g("^shore \\(All gear\\)", "BSS_catch"))
+    row$shore_ag_reported <- as.logical(g("^shore \\(All gear\\)", "bss_reported"))
     row$shore_pc_BSS <- num1(g("^shore \\(Pot closure\\)", "BSS_catch"))
     row$boat_ag_BSS  <- num1(g("^private_boat \\(All gear\\)", "BSS_catch"))
     row$boat_pc_BSS  <- num1(g("^private_boat \\(Pot closure\\)", "BSS_catch"))
@@ -388,6 +391,10 @@ extract_run <- function(sid, model, run_tag, outdir, minutes, ok) {
   row$shore_ag_cov50_catch <- cov50_byobs(outdir, sag, "catch")
   row$shore_ag_elpd_gear   <- loo_get(outdir, sag, "gear", "elpd_loo")
   row$shore_ag_elpd_catch  <- loo_get(outdir, sag, "catch", "elpd_loo")
+  # loo_summary_*.csv carries se_elpd_loo. A bare "more than N nats" threshold is a rule of
+  # thumb; an elpd difference is only evidence when it is large relative to its own SE.
+  row$shore_ag_se_elpd_gear  <- loo_get(outdir, sag, "gear", "se_elpd_loo")
+  row$shore_ag_se_elpd_catch <- loo_get(outdir, sag, "catch", "se_elpd_loo")
   row$shore_ag_ploo_gear   <- loo_get(outdir, sag, "gear", "p_loo")
   row$shore_ag_ploo_catch  <- loo_get(outdir, sag, "catch", "p_loo")
   row$shore_ag_phi_E       <- sp_get(outdir, sag, "phi_E")
@@ -493,9 +500,52 @@ run_P1 <- function() {
 sum_path <- .here("05_output", "shore_ar_zi_2026-09-03_summary.csv")
 ver_path <- .here("05_output", "shore_ar_zi_2026-09-03_verdicts.csv")
 lad_path <- .here("05_output", "shore_ar_zi_2026-09-03_ar_ladder.csv")
-append_row <- function(r) utils::write.table(
-  r, sum_path, sep = ",", row.names = FALSE, qmethod = "double",
-  col.names = !file.exists(sum_path), append = file.exists(sum_path))
+
+# ---------------------------------------------------------------------------
+# RESULT-FILE PERSISTENCE. Read this before changing it; two ways of getting it wrong have
+# already destroyed real results in this project.
+#
+# 1. APPEND-ON-RESUME DUPLICATED ROWS. Every batch runner before this one appended to the
+#    summary whenever the file existed, and the RESUME skip path appends too. RESUME is the
+#    documented recovery for an interrupted multi-hour batch, so a resume wrote a SECOND row
+#    for every completed stage. 05_output/osp_validation_summary.csv carries 28 rows for a
+#    14-job matrix and patch_validation_2026-08-25_summary.csv carries 12 for 6 jobs, both
+#    from exactly this.
+#
+# 2. UNGATED OVERWRITE LOST THE FITTED STAGES' VERDICTS. The verdicts file was rewritten
+#    unconditionally from whatever the CURRENT invocation produced. A batch with desk stages
+#    that run during a DRY RUN therefore truncates the file to desk rows the moment anyone
+#    re-sources it, and the 2026-09-01 batch's own closing message told the reader to do
+#    precisely that. 05_output/validation_2026-09-01_verdicts.csv now holds 11 desk rows and
+#    none of the 7 fitted-stage criteria, while the summary still lists all five fits: the
+#    runs happened, only their scored criteria were erased.
+#
+# The fix for both is the same: MERGE BY KEY, never append and never blind-overwrite. A
+# re-run of one stage replaces that stage's rows and leaves every other row alone.
+# ---------------------------------------------------------------------------
+merge_csv_by <- function(new, path, key) {
+  if (is.null(new) || !nrow(new)) return(invisible(NULL))
+  old <- if (file.exists(path))
+    tryCatch(utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE),
+             error = function(e) NULL) else NULL
+  if (!is.null(old) && nrow(old) && all(key %in% names(old)) && all(key %in% names(new))) {
+    k_old <- do.call(paste, c(old[key], sep = "\r"))
+    k_new <- do.call(paste, c(new[key], sep = "\r"))
+    old <- old[!(k_old %in% k_new), , drop = FALSE]
+    cols <- intersect(names(old), names(new))
+    # A schema change between runs is possible (a new column added mid-project). Keep the
+    # NEW schema and carry the old rows across on the shared columns rather than dropping
+    # them, so an old row survives with blanks instead of vanishing.
+    if (nrow(old)) {
+      pad <- old[, cols, drop = FALSE]
+      for (cn in setdiff(names(new), cols)) pad[[cn]] <- NA
+      new <- rbind(pad[, names(new), drop = FALSE], new)
+    }
+  }
+  utils::write.csv(new, path, row.names = FALSE)
+  invisible(new)
+}
+append_row <- function(r) merge_csv_by(r, sum_path, "stage")
 
 # PRE-FLIGHT 1: the R-to-Stan data contract. This batch adds THREE Stan data variables to the
 # pooled model, so it earns its place: an unforwarded field makes rstan return an EMPTY
@@ -627,14 +677,24 @@ lad_row <- function(name, res, sid = NULL, from_dir = NULL) {
     if (dir.exists(d)) extract_run("Z0", "pooled", "archived", d, NA_real_, TRUE) else NULL
   } else if (!is.null(sid) && !is.null(S) && any(S$stage == sid)) S[S$stage == sid, ][1, ] else NULL
   if (is.null(r)) return(NULL)
-  n_gear <- 311  # shore all-gear effort observations, constant across rungs
+  # n for the coverage z. Read from the run rather than hard-coded: it is a property of the
+  # DATA and so constant across rungs, but a hard-coded 311 would silently mis-scale every z
+  # if the season window or the effort file ever changed.
+  n_gear <- {
+    d <- if (!is.null(from_dir)) .here("05_output", from_dir) else find_outdir("pooled", STAGE_DEFS[[sid]]$tag)
+    x <- if (!is.na(d %||% NA) && dir.exists(d %||% ""))
+      rd(d, "ppc_byobs_shore_all_gear_Dungeness_Kept.csv") else NULL
+    if (!is.null(x) && "data_type" %in% names(x)) sum(x$data_type == "gear") else NA_integer_
+  }
   data.frame(rung = name, ar = res,
-             shore_all_gear = r$shore_ag_BSS, port = r$port_BSS_catch,
+             shore_all_gear = r$shore_ag_BSS, reported = r$shore_ag_reported,
+             port = r$port_BSS_catch, n_gear = n_gear,
              p_loo_frac = r$shore_ag_p_loo_frac, pareto_bad = r$shore_ag_bad_k,
              p_loo_gear = r$shore_ag_ploo_gear, elpd_gear = r$shore_ag_elpd_gear,
              elpd_catch = r$shore_ag_elpd_catch,
              cov50_gear = r$shore_ag_cov50_gear, cov50_catch = r$shore_ag_cov50_catch,
-             cov50_gear_sd = (r$shore_ag_cov50_gear - 0.5) / sqrt(0.25 / n_gear),
+             cov50_gear_sd = (r$shore_ag_cov50_gear - 0.5) / sqrt(0.25 / max(n_gear, 1)),
+             se_elpd_gear = r$shore_ag_se_elpd_gear, se_elpd_catch = r$shore_ag_se_elpd_catch,
              phi_E = r$shore_ag_phi_E, sigma_eps_E = r$shore_ag_sigma_eps_E,
              disp_scale = r$shore_ag_disp_scale, divergences = r$shore_ag_div,
              stringsAsFactors = FALSE)
@@ -644,9 +704,12 @@ LAD <- do.call(rbind, Filter(Negate(is.null), list(
   lad_row("weekly",             "weekly",   sid = "A1"),
   lad_row("biweekly",           "biweekly", sid = "A2"),
   lad_row("monthly",            "monthly",  sid = "A3"))))
+# The pre-edit production run is a FALLBACK rung, used only when Z0 has not run yet. It is
+# merged, never substituted: substituting it truncated this file to a single row on every
+# dry run, and the ladder is the main result of the batch.
 if (is.null(LAD) || !nrow(LAD))
   LAD <- lad_row("daily (pre-edit production)", "daily", from_dir = REF$PROD$dir)
-if (!is.null(LAD)) utils::write.csv(LAD, lad_path, row.names = FALSE)
+if (!is.null(LAD)) LAD <- merge_csv_by(LAD, lad_path, "rung")
 
 # ---- VERDICTS --------------------------------------------------------------
 if (!is.null(S) && any(S$stage == "G1")) {
@@ -698,7 +761,45 @@ if (!is.null(S) && any(S$stage == "Z0")) {
           "against the pre-edit production run as well as costing Z1 its interpretation."))
 }
 
+# ar_force LEAK CONTROL. On 2026-08-28 an ar_force keyed per POPULATION silently forced the
+# boat's ALL-GEAR sub-season as well as its pot closure, moving that component 25,883 ->
+# 28,893 and costing 3,025 crab in a result reported as a pot-closure finding. The nested
+# form is fixed and V4 re-confirmed it, but this ladder forces a sub-season on the SHORE for
+# the first time, so the same check is worth its zero cost here. Every fit is an independent
+# Stan run with the same seed, so the three untouched fits must be BIT-IDENTICAL to Z0 in
+# every rung, not merely close.
+for (sid in c("A1", "A2", "A3")) {
+  if (is.null(S) || !any(S$stage == sid)) next
+  nd <- find_outdir("pooled", STAGE_DEFS[[sid]]$tag); z0 <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
+  if (is.na(nd %||% NA) || is.na(z0 %||% NA)) next
+  ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only", "shore POT CLOSURE fits vs Z0",
+                         expect_delta = "ar_force")
+  ex_bt <- fit_exactness(nd, z0, "private_boat", "BOAT fits vs Z0", expect_delta = "ar_force")
+  V1row(sid, "forcing the shore all-gear AR touches that fit and nothing else",
+    sprintf("%s | %s", ex_pc$observed, ex_bt$observed),
+    "the other three fits bit-identical to Z0",
+    if (identical(ex_pc$verdict, "PASS") && identical(ex_bt$verdict, "PASS")) "PASS" else "FAIL",
+    paste("A free control, and one this project has learned to run: an ar_force that reaches",
+          "a sub-season it was not aimed at produces a number that looks like a finding. The",
+          "boat half also protects the headline, because the boat is about 43% of the port",
+          "total and nothing in this ladder should move it. A FAIL here invalidates the",
+          "affected rung's shore comparison AND means the port totals in this ladder are not",
+          "comparable to production."))
+}
+
 if (!is.null(LAD) && nrow(LAD) > 1) {
+  # A rung whose gate failed reports PE, and its BSS_catch column is then a number nobody
+  # reported. Say so rather than ranking it alongside the others.
+  .rej <- LAD$rung[!is.na(LAD$reported) & !LAD$reported]
+  if (length(.rej))
+    V1row("A1-A3", "every rung actually reported its BSS",
+      sprintf("rung(s) whose shore all-gear fit was REJECTED and fell back to PE: %s",
+              paste(.rej, collapse = ", ")),
+      "all rungs report BSS", "REVIEW",
+      paste("A rejected rung's BSS_catch is a value the run did not report, so it cannot be",
+            "ranked against the others on catch. Its ADEQUACY columns are still readable and",
+            "still informative: a rung that samples badly enough to fail the gate is telling",
+            "you something about the resolution, which is the point of the ladder."))
   best_cov <- LAD$rung[which.min(abs(LAD$cov50_gear - 0.5))]
   best_elpd <- LAD$rung[which.max(LAD$elpd_gear)]
   V1row("A1-A3", "where does the shore all-gear effort process actually belong?",
@@ -732,17 +833,22 @@ if (!is.null(S) && any(S$stage == "Z1")) {
     sprintf("theta_C = %s [%s, %s]; shore pot closure theta_C = %s; catch elpd %s -> %s (%+.1f nats for 1 parameter)",
             fmt(th, 4), fmt(g1("Z1","shore_ag_theta_lo95"), 4), fmt(g1("Z1","shore_ag_theta_hi95"), 4),
             fmt(g1("Z1","shore_pc_theta_C"), 4), fmt(e0, 1), fmt(e1, 1), e1 - e0),
-    "a positive elpd gain well beyond 1 nat, and an interval excluding zero",
-    if (is.na(th) || is.na(e1) || is.na(e0)) "REVIEW"
-    else if ((e1 - e0) > 4 && g1("Z1","shore_ag_theta_lo95") > 0.005) "ADOPTABLE"
-    else if ((e1 - e0) > 1) "MARGINAL" else "NOT WORTH IT",
+    "an elpd gain of at least 2 SE, and a theta_C interval excluding zero",
+    { .se <- max(g1("Z1","shore_ag_se_elpd_catch") %||% NA, g1("Z0","shore_ag_se_elpd_catch") %||% NA, na.rm = TRUE)
+      if (is.na(th) || is.na(e1) || is.na(e0)) "REVIEW"
+      else if (!is.finite(.se) || .se <= 0) "REVIEW (no elpd SE)"
+      else if ((e1 - e0) > 2 * .se && isTRUE(g1("Z1","shore_ag_theta_lo95") > 0.005)) "ADOPTABLE"
+      else if ((e1 - e0) > .se) "MARGINAL" else "NOT WORTH IT" },
     paste("The 2026-09-01 zero bin put the shore all-gear catch stream at 676 observed zeros",
           "against 605.4 expected, z = +3.8 on n = 1,649, with the shore pot closure agreeing",
           "at z = +2.9 and every boat stream inside |z| = 2.3. So the target was chosen from",
           "data rather than from taste, and the available gain is bounded by roughly 70",
-          "observations out of 1,649. One parameter buying more than about 4 nats is a",
-          "clearly good trade; 1 to 4 is the range where it is a judgement call; below 1 it",
-          "is fitting noise. The shore POT CLOSURE fit is the internal replicate: an",
+          "observations out of 1,649. THE THRESHOLD IS IN SE UNITS, not nats: loo_summary",
+          "carries se_elpd_loo and an elpd difference is only evidence when it is large",
+          "relative to its own standard error, which for a stream of this size is typically",
+          "tens of nats. A gain above 2 SE is a clearly good trade for one parameter; between",
+          "1 and 2 SE is a judgement call; below 1 SE is fitting noise. The shore POT CLOSURE",
+          "fit is the internal replicate: an",
           "independent fit on different data that should land near the same theta_C if the",
           "effect is real."))
   V1row("Z1", "the zero bin closes on the treated stream",
@@ -782,7 +888,9 @@ if (!is.null(S) && any(S$stage == "Z1")) {
 }
 
 VD <- if (length(V)) do.call(rbind, V) else NULL
-if (!is.null(VD)) utils::write.csv(VD, ver_path, row.names = FALSE)
+# Merge by (stage, criterion): a dry run that scores only P1 must not erase the fitted
+# stages' criteria. See the note at merge_csv_by().
+if (!is.null(VD)) VD <- merge_csv_by(VD, ver_path, c("stage", "criterion"))
 
 banner("BATCH SUMMARY")
 if (!is.null(S)) {

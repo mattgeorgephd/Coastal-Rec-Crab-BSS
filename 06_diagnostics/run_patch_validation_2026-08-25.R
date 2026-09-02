@@ -110,7 +110,13 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE          # TRUE: resolve and print everything, fit nothing. START HERE.
+DRY_RUN <- TRUE           # TRUE: resolve and print everything, fit nothing. START HERE.
+#        ^^^^ reset to TRUE 2026-09-03. It had been left FALSE after the 2026-08-25 batch, so
+#        sourcing this file started real multi-hour fits for any incomplete rung and appended
+#        another copy of every completed rung's summary row. The comment beside it still said
+#        "fit nothing" and 06_diagnostics/README.md told the reader to set it TRUE first, so
+#        the file and its own documentation both disagreed with the shipped value. The harness
+#        now asserts TRUE for EVERY batch runner, not the three most recent.
 MODE    <- "cumulative"   # "cumulative" (rung N = rung N-1 + one change) | "isolated"
 RUNGS   <- 1:5            # subset to re-run part of the ladder, e.g. 2:4
 RESUME  <- TRUE           # skip a rung whose output folder already looks complete

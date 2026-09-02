@@ -42,8 +42,13 @@ The method documents summarize the history in one screen and point here for deta
 
 | File | Status |
 |---|---|
+| `validation-batch-review-2026-09-02.md` | Review of the 2026-09-01 validation batch: the adoption confirmed, the gear-track boat fit that had never worked, and the shore all-gear AR promoted to Tier 1. |
+| `stage5-batch-review-2026-08-31.md` | Review of the 2026-08-30 Stage 5 batch: the tau x AR 2x2, and the retracted trailer over-coverage item. |
+| `improvement-batch-review-2026-08-29.md` | Review of the 2026-08-27 improvement batch. |
+| `improvement-plan-2026-08-27.md` | The sequenced follow-up plan (Stages 0-5), with status marks carried forward. |
+| `ladder-validation-review-2026-08-27.md` | Review of the 2026-08-26 five-rung validation ladder. |
 | `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
 | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
 | `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
 
-**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md` (being added separately), and `osp_trailer_overlap.png`.
+**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
