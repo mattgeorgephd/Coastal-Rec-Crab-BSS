@@ -1011,5 +1011,113 @@ local({
   } else chk("validation runner: present", FALSE)
 })
 
+# ---------------------------------------------------------------------------
+# 25. The 2026-09-01 validation batch: the gear-track production fix, and the guard against
+#     the reference-differs-in-two-ways mistake that produced two spurious FAILs.
+# ---------------------------------------------------------------------------
+local({
+  rmd <- "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"
+  t <- readLines(rmd, warn = FALSE); tt <- paste(t, collapse = "\n")
+  chk("gear driver: boat all-gear now has per-fit sampler settings (it had NONE)",
+      all(vapply(c("bss_iter_boat_allgear", "bss_warmup_boat_allgear",
+                   "bss_treedepth_boat_allgear", "bss_delta_boat_allgear"),
+                 function(k) grepl(k, tt, fixed = TRUE), logical(1))))
+  chk("gear driver: they match the pooled track's settings for the same component",
+      grepl("bss_iter_boat_allgear       = 5000", tt, fixed = TRUE) &&
+      grepl("bss_delta_boat_allgear      = 0.99", tt, fixed = TRUE) &&
+      grepl("bss_treedepth_boat_allgear  = 13", tt, fixed = TRUE))
+  chk("gear driver: a dedicated branch selects them, so a future fit does not inherit them",
+      grepl("} else if (!is_shore && is_allgear) {", tt, fixed = TRUE))
+  # The branch must come BEFORE the catch-all else, or it is unreachable.
+  i_boat <- grep("} else if (!is_shore && is_allgear) {", t, fixed = TRUE)
+  i_dflt <- grep("fit_treedep <- params$bss_max_treedepth_default", t, fixed = TRUE)
+  chk("gear driver: the boat branch precedes the catch-all default branch",
+      length(i_boat) == 1 && length(i_dflt) >= 1 && i_boat < max(i_dflt))
+  e <- new.env(); sys.source("run_config.R", envir = e)
+  chk("gear fix is in the DRIVER, not the experiment hatch (production override stays NULL)",
+      is.null(e$run_config$bss_sampler_override))
+
+  f <- "06_diagnostics/run_validation_2026-09-01.R"
+  if (file.exists(f)) {
+    v <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    chk("validation runner: config_delta guards against a reference differing in two ways",
+        grepl("config_delta <- function(dir_a, dir_b)", v, fixed = TRUE) &&
+        grepl("expect_delta", v, fixed = TRUE))
+    chk("validation runner: the V2 boat criterion uses the same-sampler reference",
+        grepl("REF$Egear$dir), \"private_boat\"", v, fixed = TRUE))
+    chk("validation runner: D3 picks up the newest production run for the zero bin",
+        grepl("V1 PRODUCTION", v, fixed = TRUE) && grepl("VAL-1-adopted", v, fixed = TRUE))
+    chk("validation runner: the zero bin is scored as a z, not a raw fraction",
+        grepl("exp_zeros_sd", v, fixed = TRUE))
+    chk("validation runner: reset to DRY_RUN TRUE after the batch", grepl("\nDRY_RUN <- TRUE", v))
+  } else chk("validation runner present", FALSE)
+
+  t2 <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("ppc: the aggregate PIT is the EXACT expectation, so the two files agree exactly",
+      grepl("pit[i]   <- mean(stats::pnbinom(y[i] - 1, size = sz_k, mu = mu_k)", t2, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 26. Results the 2026-09-01 batch established, guarded arithmetically so the write-up
+#     cannot drift from its evidence.
+# ---------------------------------------------------------------------------
+local({
+  bag <- function(d, pat = "private_boat \\(All gear\\)", col = "BSS_catch") {
+    p <- file.path(d, "pe_vs_bss_comparison.csv")
+    if (!file.exists(p)) return(NA_real_)
+    x <- read.csv(p, stringsAsFactors = FALSE); round(x[[col]][grepl(pat, x$component)][1])
+  }
+  v1 <- "05_output/20260831/pooled-CPUE-VAL-1-adopted"
+  if (dir.exists(v1)) {
+    chk("V1: the adopted configuration reproduces S2's components",
+        isTRUE(bag(v1) == 31008) &&
+        isTRUE(bag(v1, "shore \\(All gear\\)") == 20898))
+    chk("V1: the boat prior_vs_posterior file exists again (the 2026-08-31 regression)",
+        file.exists(file.path(v1, "prior_vs_posterior_private_boat_all_gear_Dungeness_Kept.csv")))
+    chk("V1: ppc_byobs now carries p_zero and the OSP stream",
+        { x <- read.csv(file.path(v1, "ppc_byobs_private_boat_all_gear_Dungeness_Kept.csv"),
+                        stringsAsFactors = FALSE)
+          "p_zero" %in% names(x) && "osp" %in% x$data_type })
+    chk("V1: production's SHORE all-gear fit is the one flagged, not the boat",
+        { a <- read.csv(file.path(v1, "model_adequacy.csv"), stringsAsFactors = FALSE)
+          isTRUE(a$flag_miscalibrated[a$fit == "shore_all_gear_Dungeness_Kept"]) &&
+          isFALSE(a$flag_miscalibrated[a$fit == "private_boat_all_gear_Dungeness_Kept"]) },
+        "(shore daily AR: p_loo 35% of n_obs, 41 Pareto k > 0.7, coverage_50 0.701)")
+  }
+  # The boat pot-closure 2x2 is now complete and additive.
+  cells <- c("05_output/20260828/pooled-CPUE-IP-D-tau-off",
+             "05_output/20260831/pooled-CPUE-VAL-1-adopted",
+             "05_output/20260830/pooled-CPUE-S5-5-boatpc-ar",
+             "05_output/20260901/pooled-CPUE-VAL-4-tau-boatpc-biwk")
+  if (all(dir.exists(cells))) {
+    v <- vapply(cells, bag, numeric(1), pat = "private_boat \\(Pot closure\\)")
+    inter <- (v[4] - v[3]) - (v[2] - v[1])
+    chk("the boat pot-closure 2x2 is additive too (interaction near zero)",
+        abs(inter) < 0.3 * (v[2] - v[1]),
+        sprintf("(%d/%d/%d/%d, interaction %+d)", v[1], v[2], v[3], v[4], inter))
+  }
+  v5 <- "05_output/20260901/pooled-CPUE-VAL-5-floor20"
+  if (dir.exists(v5) && dir.exists(v1))
+    chk("V5: the shared_tau_min_obs threshold is worth ~169 crab, 0.24% of the port",
+        isTRUE(abs((bag(v1, "private_boat \\(Pot closure\\)") -
+                    bag(v5, "private_boat \\(Pot closure\\)")) - 169) <= 2),
+        sprintf("(floor 15: %d, floor 20: %d)", bag(v1, "private_boat \\(Pot closure\\)"),
+                bag(v5, "private_boat \\(Pot closure\\)")))
+  # GR-7 Phase 2, sampled for the first time: widen intervals, do not move medians.
+  a <- "05_output/20260901/gear-type-CPUE-model-VAL-2-gearG-phase1"
+  b <- "05_output/20260901/gear-type-CPUE-model-VAL-3-gearG-dirichlet"
+  if (dir.exists(a) && dir.exists(b)) {
+    g <- function(d) { x <- read.csv(file.path(d, "catch_by_gear_type_detail.csv"), stringsAsFactors = FALSE)
+      x <- x[x$population == "shore" & x$subseason == "all_gear", ]
+      x$w <- x$BSS_hi95 - x$BSS_lo95; x[order(x$gear_type), ] }
+    A <- g(a); B <- g(b)
+    chk("GR-7 Phase 2: Dirichlet shares widen every per-gear interval",
+        all(B$w / A$w > 1.05), sprintf("(ratios %s)", paste(sprintf("%.2f", B$w / A$w), collapse = ", ")))
+    chk("GR-7 Phase 2: and move no median by more than 1%",
+        max(abs(100 * (B$BSS_median - A$BSS_median) / A$BSS_median)) < 1,
+        sprintf("(largest %.1f%%)", max(abs(100 * (B$BSS_median - A$BSS_median) / A$BSS_median))))
+  }
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

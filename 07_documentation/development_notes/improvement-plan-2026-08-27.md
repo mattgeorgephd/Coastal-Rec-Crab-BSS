@@ -239,6 +239,12 @@ The evidence already separates them in quality. Stage E improves the stream it s
 **Cost:** ~4 h for the one missing cell.
 
 ### 5.4 Decide what `ar_max_resolution` is for  <!-- decision -->
+**Status 2026-09-02: DECIDED FOR THE BOAT, REOPENED FOR THE SHORE.**
+
+*Boat: the cap stands, restated as a modelling judgement with numbers rather than as the historical funnel it was introduced for.* At daily the boat all-gear fit spends 31.8 (turnover off) or 52.5 (on) effective parameters on 195 trailer observations against 4.9-8.0 at monthly, makes the catch stream 3.8 nats worse in both conditions, produces 2 then 16 Pareto k above 0.7, and puts `coverage_50` at 0.713-0.744 against a nominal 0.500. Monthly is the right cap for this component, and the map entry should cite those figures.
+
+*Shore: this is now the live question, and it points the other way, because the shore all-gear component is capped AT daily rather than by it.* On the 2026-09-01 production run it carries p_loo 35.2% of n_obs, 41 Pareto k above 0.7, and `coverage_50` 0.701 against nominal, +7.1 sampling SDs. That is the signature the boat's daily AR was rejected for, on a component worth 29% of the port total. The gear track fits the same component at monthly and gets `coverage_50` 0.035, -16.4 SDs, so neither end is right and weekly and biweekly have never been run. **Promoted to a Tier-1 backlog item needing its own 2-3 run ladder.**
+
 **Status 2026-08-30: blocked on S4a/S4b, by design. It is a decision, not a run.**
 **Why.** The caps were introduced because specific fits funneled at finer resolutions. Stage F shows those funnels are gone: shore pot closure at daily gives 111 divergences where Run 6 recorded 1,165. The caps are now the only thing holding production at monthly and biweekly, and they are worth 44% on the boat.
 
@@ -247,6 +253,8 @@ A cap justified by a pathology that no longer exists is not a cap, it is a prefe
 **Cost:** none beyond 5.3's output.
 
 ### 5.5 Give the gate something to say about model choice  <!-- design, then code -->
+**Status 2026-09-02: DONE, and the table has now earned its place twice.** On the 2026-09-01 production run it is the diagnostic that flags the SHORE all-gear fit (p_loo 35.2% of n_obs, 41 Pareto k > 0.7, `coverage_50` 0.701) while every gate criterion passes, which is exactly the distinction this item existed to make visible. Two corrections since: `pit_mean` alone ranked configurations backwards and was joined by `cov50_worst_dev` / `pit_sd_worst_dev` (2026-08-31), and the underlying `coverage_50` was itself non-randomized and over-covered small counts by construction (2026-09-01).
+
 **Status 2026-08-30: DONE.** `03_R_functions/bss_model_adequacy.R` writes `model_adequacy.csv` per run with `p_loo_frac`, `n_pareto_bad`, `pit_worst_bias` and `disp_neff_min`, plus a retro path that rebuilds the same table for archived folders from their committed CSVs. It reports, it does not gate; `pass_convergence` is unchanged. One departure from the text below: the numbers land in their own file rather than in `convergence_report.csv`, so the gate's own report keeps one meaning per column and the two questions stay visibly separate.
 **Why.** Six configurations, all passing, spanning 44% on the boat. The gate answers "did this fit sample?" and the project has been reading it as "is this fit good?". Nothing currently stops a future run from adopting the daily boat AR on the strength of four green ticks.
 
@@ -255,6 +263,8 @@ A cap justified by a pathology that no longer exists is not a cap, it is a prefe
 **Cost:** half a day, no new runs; the quantities are already in `loo_summary_*` and `ppc_calibration_*`.
 
 ### 5.6 Smaller items the review turned up
+**Status 2026-09-02: ALL DONE, and the untested corner is now measured.** The boat pot-closure 2x2 completes at 849 (monthly, turnover off) / 1,018 (monthly, on) / 735 (biweekly, off) / **939 (biweekly, on)**, interaction +35 crab, additive like the all-gear one. V4 also re-confirms the `ar_force` leak is closed: the all-gear component returned 31,008, the production value exactly.
+
 **Status 2026-08-30: all DONE except the stage C re-run, which is stage S5 of the batch.**
 - **Align the boat pot-closure AR maps** across the two tracks (plan 3.1 is answered: biweekly reconciles them to 1.1%).
 - **`tau_bar` is missing from `prior_vs_posterior_*.csv`**, so the one parameter this batch existed to evaluate has no contraction or `prior_influential` diagnostic. Add it.

@@ -186,7 +186,7 @@ params <- list(
   # periods with 1,600+ interviews (the most complex posterior geometry): more
   # iterations, higher adapt_delta, and a deeper treedepth to avoid trajectory
   # truncation (93.9% saturation at max_treedepth=10). Pot-closure fits are data-sparse
-  # and benefit from tighter adaptation.
+  # and benefit from tighter adaptation. Boat all-gear was added 2026-09-02; see below.
   bss_iter_shore_allgear    = 4000,
   bss_warmup_shore_allgear  = 2000,
   bss_treedepth_shore_allgear = 14,
@@ -196,6 +196,30 @@ params <- list(
   bss_warmup_ringnet        = 2000,
   bss_treedepth_ringnet     = 12,
   bss_delta_ringnet         = 0.95,
+
+  # --- Boat all-gear (2026-09-02). THIS FIT HAD NO PER-FIT OVERRIDE AND COULD NOT SAMPLE. ---
+  # Until now shore-all-gear and both pot-closure fits had explicit settings and private_boat
+  # all-gear fell through to the track defaults (2,000/1,000, adapt_delta 0.90, treedepth 10).
+  # On the same data and the same component the POOLED track runs 5,000/2,500 at adapt_delta
+  # 0.99 / treedepth 13 and gets 39 divergences; this track got 554, tau_bar n_eff 49, R-hat
+  # 1.0813, and the convergence gate REJECTED the fit, so the component fell back to PE and
+  # the gear-resolved port total read 51,385 instead of about 70,900 - a 27% understatement
+  # of the cross-check that validates the pooled headline.
+  #
+  # The 2026-08-30 Stage 5 batch demonstrated the fix (stage S3): with these settings the same
+  # fit returns 2 divergences, tau_bar n_eff 19,292, R-hat 0.9997, and passes the gate, and the
+  # two tracks then agree on tau_bar to 0.03%. That demonstration lived in an EXPERIMENT-ONLY
+  # override (bss_sampler_override), so production never got it, and the 2026-09-01 validation
+  # batch reproduced the failure exactly (554 divergences, n_eff 49, bit-identical to the
+  # 2026-08-29 run). Moving the settings here is the permanent fix.
+  #
+  # Draw count alone would NOT have worked: n_eff 49 on 4,000 post-warmup draws is 1.2%
+  # efficiency, so reaching the gate's floor of 400 by draws would need about 32,000. Raising
+  # draws 2.5x raised n_eff 394x, which is the signature of adaptation, not of sample size.
+  bss_iter_boat_allgear       = 5000,
+  bss_warmup_boat_allgear     = 2500,
+  bss_treedepth_boat_allgear  = 13,
+  bss_delta_boat_allgear      = 0.99,
 
   # bss_min_interviews MOVED to run_config.R (improvement 6, 2026-08-25). It lived here,
   # in params_model, which is merged ON TOP of run_config -- so a value set in run_config
@@ -819,6 +843,13 @@ for(cg in bss_catch_groups) {
           fit_warmup  <- params$bss_warmup_ringnet %||% params$bss_warmup_default
           fit_treedep <- params$bss_treedepth_ringnet %||% params$bss_max_treedepth_default
           fit_delta   <- params$bss_delta_ringnet %||% params$bss_adapt_delta_default
+        } else if (!is_shore && is_allgear) {
+          # private_boat all-gear. Previously the only fit with no per-fit settings, which is
+          # why it was the only fit that could not sample (see the params block above).
+          fit_iter    <- params$bss_iter_boat_allgear      %||% params$bss_iter_default
+          fit_warmup  <- params$bss_warmup_boat_allgear    %||% params$bss_warmup_default
+          fit_treedep <- params$bss_treedepth_boat_allgear %||% params$bss_max_treedepth_default
+          fit_delta   <- params$bss_delta_boat_allgear     %||% params$bss_adapt_delta_default
         } else {
           fit_iter    <- params$bss_iter_default
           fit_warmup  <- params$bss_warmup_default

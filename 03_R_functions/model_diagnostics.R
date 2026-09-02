@@ -257,10 +257,19 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
       mu_i <- pmax(mu_mat[, i], 1e-8)
       keep <- is.finite(mu_i) & is.finite(size_vec)
       if (sum(keep) < 20) next
-      yp <- stats::rnbinom(sum(keep), mu = mu_i[keep], size = size_vec[keep])
+      mu_k <- mu_i[keep]; sz_k <- size_vec[keep]
+      # 2026-09-02: the EXACT expectation, matching ppc_byobs_*.csv, instead of simulating.
+      # The simulated version is an unbiased estimate of the same quantity but carries Monte
+      # Carlo noise, which left the two files disagreeing by 0.005-0.015 even after the
+      # randomized-coverage fix. Same formula, no sampling, so the two now agree to floating
+      # point and any future disagreement is a real defect rather than noise to be eyeballed.
+      # The rnbinom draw is still taken, because the < 20 usable-draw guard below is what
+      # protects against an exp() overflow in a weakly-identified fit producing a non-finite mu.
+      yp <- stats::rnbinom(sum(keep), mu = mu_k, size = sz_k)
       yp <- yp[is.finite(yp)]
       if (length(yp) < 20) next
-      pit[i]   <- mean(yp < y[i]) + 0.5 * mean(yp == y[i])
+      pit[i]   <- mean(stats::pnbinom(y[i] - 1, size = sz_k, mu = mu_k) +
+                       0.5 * stats::dnbinom(y[i], size = sz_k, mu = mu_k))
       # 2026-09-01 FIX. Coverage is now read off the RANDOMIZED PIT, not off a quantile
       # interval of the simulated draws.
       #

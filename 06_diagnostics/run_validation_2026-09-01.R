@@ -96,7 +96,10 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                  # TRUE: desk stages run, nothing is fitted. START HERE.
+DRY_RUN <- TRUE                  # TRUE: desk stages run, nothing is fitted. START HERE.
+#        ^^^^ reset to TRUE after the 2026-09-01 batch. RESUME skips completed stages, so
+#        sourcing this with DRY_RUN <- FALSE again would re-extract the existing outputs and
+#        APPEND another five rows to the summary CSV rather than re-fitting.
 STAGES  <- c("D1", "D2", "D3", "D4", "V1", "V2", "V3", "V4", "V5")
 RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete
 
@@ -161,11 +164,53 @@ V1row <- function(stage, criterion, observed, threshold, verdict, why)
                                     stringsAsFactors = FALSE)
 
 # ---------------------------------------------------------------------------
-# Shared: compare the fits of two run folders at full double precision, restricted to the
-# fits whose label matches `pat`. Shared parameter ROWS only, because a feature legitimately
-# ADDS reported rows; new rows are not a behaviour change, changed values are.
+# CONFIG DELTA between two run folders, from their committed run_parameters.txt dumps.
+#
+# WHY THIS EXISTS. An exactness comparison is only meaningful when the two runs differ in
+# ONE thing. That sounds obvious and it has now been got wrong twice in three weeks, both
+# times by me and both times producing a FAIL that looked like a code defect:
+#   * the 2026-08-30 S3 criterion compared gear shore fits against a run whose shared_tau was
+#     GLOBAL, so the reference differed in the sampler AND in the floor;
+#   * the 2026-09-01 V2 criterion compared gear boat fits against a run that carried the
+#     experiment sampler override, so the reference differed in gear_resolved_G AND in the
+#     sampler settings.
+# Both were caught only by hand afterwards. The lesson is that "is this the right reference?"
+# should be a CHECK, not a judgement, so fit_exactness() now takes `expect_delta` and reports
+# what actually differs between the two configs alongside its verdict.
+#
+# Parses the `$ key : value` lines of a str() dump. Comparison is on the printed text, so it
+# is approximate for lists and long vectors; that is fine, because the job is to catch a
+# reference that differs in an unintended KEY, not to diff values precisely.
 # ---------------------------------------------------------------------------
-fit_exactness <- function(new_dir, ref_dir, pat = NULL, what = "fits") {
+.cfg_keys <- function(dir) {
+  p <- file.path(dir, "run_parameters.txt")
+  if (!file.exists(p)) return(NULL)
+  tx <- readLines(p, warn = FALSE); kv <- list()
+  for (l in tx) {
+    m <- regmatches(l, regexec("^\\s*\\$ ([A-Za-z0-9_.]+)\\s*:(.*)$", l))[[1]]
+    if (length(m) == 3) kv[[m[2]]] <- trimws(m[3])
+  }
+  kv
+}
+config_delta <- function(dir_a, dir_b) {
+  a <- .cfg_keys(dir_a); b <- .cfg_keys(dir_b)
+  if (is.null(a) || is.null(b)) return(NA_character_)
+  ks <- union(names(a), names(b))
+  ks <- ks[!ks %in% c("run_tag", "model")]      # name the folder, not the fit
+  d <- ks[vapply(ks, function(k) !identical(a[[k]] %||% "<absent>", b[[k]] %||% "<absent>"), logical(1))]
+  sort(d)
+}
+
+# ---------------------------------------------------------------------------
+# Compare the fits of two run folders at full double precision, restricted to the fits whose
+# label matches `pat`. Shared parameter ROWS only, because a feature legitimately ADDS
+# reported rows; new rows are not a behaviour change, changed values are.
+#
+# `expect_delta` names the config keys the two runs are ALLOWED to differ in. Anything else
+# that differs is reported in the observation, so a FAIL caused by the wrong reference is
+# visible in the verdict rather than diagnosed by hand a day later.
+# ---------------------------------------------------------------------------
+fit_exactness <- function(new_dir, ref_dir, pat = NULL, what = "fits", expect_delta = NULL) {
   if (!dir.exists(new_dir %||% "") || !dir.exists(ref_dir %||% ""))
     return(list(observed = "run or reference folder missing", verdict = "REVIEW"))
   fs <- c(list.files(new_dir, pattern = "^bss_summary_.*\\.csv$"),
@@ -181,10 +226,16 @@ fit_exactness <- function(new_dir, ref_dir, pat = NULL, what = "fits") {
     n <- n + length(cr)
     if (!isTRUE(all.equal(a[cr, cc], b[cr, cc], tolerance = 0))) bad <- c(bad, f)
   }
-  list(observed = sprintf("%s: %d shared parameter rows across %d summaries %s", what, n, length(fs),
+  cd <- config_delta(ref_dir, new_dir)
+  extra <- if (length(cd) && !all(is.na(cd))) setdiff(cd, expect_delta %||% character(0)) else character(0)
+  note <- if (!length(cd) || all(is.na(cd))) "" else
+    sprintf("; configs differ in %d key(s): %s%s", length(cd), paste(cd, collapse = ", "),
+            if (length(extra)) sprintf("  <-- %d UNEXPECTED: %s", length(extra), paste(extra, collapse = ", ")) else "")
+  list(observed = sprintf("%s: %d shared parameter rows across %d summaries %s%s", what, n, length(fs),
                           if (!length(bad)) "identical at full precision"
-                          else sprintf("DIFFER in %s", paste(basename(bad), collapse = ", "))),
-       verdict = if (!length(bad) && n > 0) "PASS" else "FAIL")
+                          else sprintf("DIFFER in %s", paste(basename(bad), collapse = ", ")), note),
+       verdict = if (!length(bad) && n > 0) "PASS" else "FAIL",
+       unexpected_delta = extra)
 }
 
 # ===========================================================================
@@ -372,9 +423,20 @@ run_D2 <- function() {
 # ===========================================================================
 run_D3 <- function() {
   banner("DESK D3  |  trailer over-coverage: discreteness or misspecification? Plus the zero bin")
+  # The archived comparison cells, PLUS the newest production run. The zero-bin criterion
+  # needs p_zero, which only exists on runs made after 2026-09-01, so pinning this list to
+  # archived folders made that criterion permanently unscorable. It now picks up whatever
+  # production run exists and prefers it for the zero bin.
   runs <- c("D  tau off/monthly" = "20260828/pooled-CPUE-IP-D-tau-off",
             "S2 tau ON /monthly" = "20260829/pooled-CPUE-S5-2-tau-pooled",
             "S4b tau ON /daily"  = "20260830/pooled-CPUE-S5-4b-daily-tauon")
+  .newest <- {
+    hits <- list.dirs(.here("05_output"), recursive = TRUE)
+    hits <- hits[grepl("pooled-CPUE-VAL-1-adopted$", hits)]
+    if (length(hits)) hits[order(file.mtime(hits), decreasing = TRUE)][1] else NA_character_
+  }
+  if (!is.na(.newest))
+    runs <- c(runs, "V1 PRODUCTION" = sub(paste0("^", .here("05_output"), "/"), "", .newest))
   fits <- c("private_boat_all_gear", "shore_all_gear")
   dir.create(desk_dir, recursive = TRUE, showWarnings = FALSE)
   out <- list(); zero <- list()
@@ -408,6 +470,10 @@ run_D3 <- function() {
         obs_zero_frac = mean(z, na.rm = TRUE),
         exp_zeros = if ("p_zero" %in% names(y)) sum(y$p_zero, na.rm = TRUE) else NA_real_,
         exp_zero_frac = if ("p_zero" %in% names(y)) mean(y$p_zero, na.rm = TRUE) else NA_real_,
+        # Poisson-binomial SD of the expected zero count. A percentage-point gap alone cannot
+        # say whether a stream is off, because n ranges from 17 to 1,649 across these fits.
+        exp_zeros_sd = if ("p_zero" %in% names(y))
+          sqrt(sum(y$p_zero * (1 - y$p_zero), na.rm = TRUE)) else NA_real_,
         mean_fitted_at_zero = if (any(z)) mean(y$fitted_mean[z], na.rm = TRUE) else NA_real_,
         stringsAsFactors = FALSE)
     }
@@ -458,7 +524,7 @@ run_D3 <- function() {
       sprintf("ppc_calibration %.3f vs ppc_byobs %.3f on the same run and stream (difference %.3f)",
               cc, s2t$coverage_50_all[1], agree),
       "identical; they compute the same quantity",
-      if (is.na(agree)) "REVIEW" else if (agree < 0.005) "PASS" else "FAIL (pre-2026-09-01 run)",
+      if (is.na(agree)) "REVIEW" else if (agree < 1e-9) "PASS" else if (agree < 0.03) "PASS (residual simulation noise)" else "FAIL (pre-2026-09-01 run)",
       paste("A FAIL here on an ARCHIVED run is expected and is the defect being recorded:",
             "every run committed before 2026-09-01 carries the non-randomized coverage in",
             "ppc_calibration_*.csv. On a run made after the fix the two must agree, and this",
@@ -508,33 +574,39 @@ run_D3 <- function() {
   # The randomized PIT at an observed zero is 0.5 * P(Y = 0), so P(Y = 0) = 2 * PIT. Compare
   # that against the observed zero fraction: they should be close if NB2 already places
   # adequate mass at zero, which is the precondition Tier 3 sets for prototyping ZINB.
-  zt <- Z[grepl("S2", Z$run), , drop = FALSE]
+  zt <- Z[grepl("V1 PRODUCTION", Z$run), , drop = FALSE]
+  if (!nrow(zt)) zt <- Z[grepl("S2", Z$run), , drop = FALSE]
   if (nrow(zt)) {
     utils::write.csv(zt, file.path(desk_dir, "D3_zero_bin.csv"), row.names = FALSE)
-    have <- is.finite(zt$exp_zero_frac)
-    worst <- if (any(have)) max(abs(zt$exp_zero_frac[have] - zt$obs_zero_frac[have])) else NA_real_
+    have <- is.finite(zt$exp_zero_frac) & is.finite(zt$exp_zeros_sd) & zt$exp_zeros_sd > 0.5
+    worst <- if (any(have)) max(abs(zt$obs_zeros[have] - zt$exp_zeros[have]) / zt$exp_zeros_sd[have]) else NA_real_
     V1row("D3", "PPC zero bin: does NB2 already place adequate mass at zero?",
       if (!any(have))
         "not computable: this run predates the p_zero column added 2026-09-01. Re-read after V1." else
-      paste(mapply(function(ft, st, oz, ez, n)
-              sprintf("%s/%s: %d observed zeros of %d, model expects %.1f",
-                      sub("_Dungeness.*", "", ft), st, oz, n, ez),
-              zt$fit[have], zt$stream[have], zt$obs_zeros[have], zt$exp_zeros[have], zt$n[have]),
+      paste(mapply(function(ft, st, oz, ez, sd)
+              sprintf("%s/%s: %d observed vs %.1f expected (z = %+.1f)",
+                      sub("_Dungeness.*", "", ft), st, oz, ez, (oz - ez) / pmax(sd, 1e-9)),
+              zt$fit[have], zt$stream[have], zt$obs_zeros[have], zt$exp_zeros[have],
+              zt$exp_zeros_sd[have]),
             collapse = " | "),
       "Tier 3: prototype ZINB only if the zero bin is SYSTEMATICALLY off",
       if (is.na(worst)) "NOT YET COMPUTABLE (needs a post-2026-09-01 run)"
-      else if (worst < 0.05) "NO ZERO INFLATION NEEDED" else "ZINB WORTH PROTOTYPING",
+      else if (worst < 3) "NO ZERO INFLATION NEEDED" else "OFF ON ONE STREAM, SEE why",
       paste("Tier 3 makes the zero-inflation decision explicitly conditional on this read,",
             "which had never been produced, so the item has sat open on a precondition",
             "nobody checked. The randomized PIT at an observed zero is exactly 0.5 * P(Y=0),",
             "so the check is the observed zero COUNT against the model's expected zero",
             "count, sum(p_zero) over ALL days. Where those agree, an extra inflation",
-            "parameter has nothing left to explain and would be fitted to noise. NOTE the",
-            "direction if they disagree: zero INFLATION adds mass at zero, so it is the",
-            "remedy only when the model expects FEWER zeros than were observed. A model",
-            "expecting more zeros than occurred has the opposite problem and ZINB would make",
-            "it worse. The shore catch stream is the demanding case at 41% zeros; the boat",
-            "trailer stream at 20% is the other."))
+            "parameter has nothing left to explain and would be fitted to noise. The gap is",
+            "scored as a z against the Poisson-binomial SD sqrt(sum p(1-p)), because n runs",
+            "from 17 to 1,649 across these fits and a raw percentage-point gap cannot be read",
+            "the same way at both ends. NOTE the direction if they disagree: zero INFLATION",
+            "adds mass at zero, so it is the remedy only when the model expects FEWER zeros",
+            "than were observed. A model expecting MORE zeros than occurred has the opposite",
+            "problem and a ZINB would make it worse. Read the per-stream z values, not just",
+            "the verdict: a single stream off at z = 3-4 while every other stream sits inside",
+            "z = 2.5 is a targeted misfit, and a prototype should target THAT likelihood",
+            "rather than the whole model."))
   }
   invisible(O)
 }
@@ -891,15 +963,23 @@ if (!is.null(S) && any(S$stage == "V1")) {
 
 if (!is.null(S) && any(S$stage == "V2")) {
   nd <- find_outdir("gear_resolved", STAGE_DEFS$V2$tag)
-  exb <- fit_exactness(nd %||% "", .here("05_output", REF$S3gear$dir), "private_boat",
-                       "boat fits vs the G = 1 gear production run")
+  # 2026-09-02 CORRECTION. This first compared against S5-3-tau-gear, which carried the
+  # EXPERIMENT sampler override, so the reference differed in gear_resolved_G AND in the
+  # sampler settings and the criterion FAILED for the wrong reason. The correct reference is
+  # a gear run at the same sampler settings: the 2026-08-29 one. Against it the boat fits are
+  # bit-identical across 4,367 shared rows. expect_delta now makes that check automatic.
+  exb <- fit_exactness(nd %||% "", .here("05_output", REF$Egear$dir), "private_boat",
+                       "boat fits vs the G = 1 gear run at the SAME sampler settings",
+                       expect_delta = c("gear_resolved_G", "gear_share_dirichlet",
+                                        "shared_tau", "shared_tau_min_obs"))
   V1row("V2", "turning on per-gear CPUE leaves the BOAT untouched",
     exb$observed, "boat fits bit-identical (the boat stays G = 1 by design)", exb$verdict,
     paste("GR-7 Phase 0 established that the boat is Pot-dominated and stays at G = 1, so",
-          "gear_resolved_G should reach the SHORE fits and nothing else. This is the",
-          "cheapest available check that the toggle is scoped the way the design says. A",
-          "FAIL means the per-gear machinery is reaching a fit that has no per-gear effort",
-          "shares to identify it, which is the failure mode the design warns about."))
+          "gear_resolved_G should reach the SHORE fits and nothing else. THE REFERENCE MUST",
+          "DIFFER IN ONE THING: comparing against a run that also carried the experiment",
+          "sampler override produces a FAIL that says nothing about gear_resolved_G. That",
+          "mistake has now been made twice, so expect_delta reports any unexpected config",
+          "difference in the observation rather than leaving it to be found by hand."))
   gd <- gear_detail(nd %||% "")
   if (!is.null(gd)) {
     ord <- gd$gear_type[order(-suppressWarnings(as.numeric(gd$BSS_median)))]

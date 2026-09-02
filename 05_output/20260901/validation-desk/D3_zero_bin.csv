@@ -1,5 +1,6 @@
-"run","fit","stream","n","obs_zeros","obs_zero_frac","exp_zeros","exp_zero_frac","mean_fitted_at_zero"
-"S2 tau ON /monthly","private_boat_all_gear","trailer",195,39,0.2,NA,NA,1.80048717948718
-"S2 tau ON /monthly","private_boat_all_gear","catch",131,12,0.0916030534351145,NA,NA,8.85883333333333
-"S2 tau ON /monthly","shore_all_gear","gear",311,1,0.00321543408360129,NA,NA,5.194
-"S2 tau ON /monthly","shore_all_gear","catch",1649,676,0.409945421467556,NA,NA,1.67418195266272
+"run","fit","stream","n","obs_zeros","obs_zero_frac","exp_zeros","exp_zero_frac","exp_zeros_sd","mean_fitted_at_zero"
+"V1 PRODUCTION","private_boat_all_gear","trailer",195,39,0.2,43.65407,0.223867025641026,5.07441757208648,1.79284615384615
+"V1 PRODUCTION","private_boat_all_gear","osp",130,7,0.0538461538461538,4.08017,0.0313859230769231,1.88848974551095,6.39214285714286
+"V1 PRODUCTION","private_boat_all_gear","catch",131,12,0.0916030534351145,6.43694,0.0491369465648855,2.42899789349435,8.87691666666667
+"V1 PRODUCTION","shore_all_gear","gear",311,1,0.00321543408360129,0.14479,0.00046556270096463,0.378131946679992,5.219
+"V1 PRODUCTION","shore_all_gear","catch",1649,676,0.409945421467556,605.36863,0.367112571255306,18.7087798252719,1.67213905325444

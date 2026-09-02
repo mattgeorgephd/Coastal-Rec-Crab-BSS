@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-01
+- **Last updated:** 2026-09-02
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
@@ -310,7 +310,7 @@ The harness is at **128 assertions**, covering both fixes.
 
 ## 1b. Stage 5 prerequisites (2026-08-30): what landed before the next batch
 
-Everything below is code and reporting, applied and covered by the harness (**199 assertions** as of 2026-08-31, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
+Everything below is code and reporting, applied and covered by the harness (**233 assertions** as of 2026-09-02, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
 
 **1. The shared-turnover informed-day floor (plan 5.2).** `bss_shared_tau_data()` now refuses `shared_tau` for a fit with fewer than `shared_tau_min_obs` (default **15**) days that can inform `L`, and falls back to the per-day parameterization with a printed reason. Informed days = I/E days, plus OSP days when `osp_scale_is_tau = 1` puts `L` into the OSP mean. The observed counts are 4 (shore all-gear), 0 (shore pot closure), 130 (boat all-gear), 18 (boat pot closure), so any threshold in 5..18 separates the shore from the boat; 15 sits just below 18 deliberately, to keep the cross-track-corroborated boat pot closure. `shared_tau` remains **off in production** and stays off until the Stage 5 gate confirms the floor does exactly what it claims.
 
@@ -413,6 +413,49 @@ Two consequences: the trailer over-coverage item is retracted, and the Stage 5 r
 
 ---
 
+## 1e. The validation batch (2026-09-02): adoption confirmed, and a production fit that never worked
+
+Full review: `development_notes/validation-batch-review-2026-09-02.md`. Nineteen criteria, 14.1 h of fitting. Harness **233 assertions**.
+
+### Adoption CONFIRMED
+
+V1 reproduces S2 across **11,223 shared parameter rows, identical at full double precision**, all four components matching. The shipped configuration is the one the Stage 5 batch measured. **Authoritative run: `05_output/20260831/pooled-CPUE-VAL-1-adopted`, port total 71,513 [52,346, 100,742].** The boat `prior_vs_posterior` files exist again, closing the 2026-08-31 regression.
+
+### THE PRODUCTION DEFECT: the gear track has never been able to fit its boat component
+
+The gear driver had per-fit sampler settings for shore all-gear and both pot-closure fits and **none at all** for boat all-gear, which fell through to the track defaults (2,000/1,000 draws, `adapt_delta` 0.90, `max_treedepth` 10) while the pooled track fits the same component on the same data at 5,000/2,500, 0.99, 13.
+
+| | divergences | `tau_bar` n_eff | R-hat | gate | port |
+|---|---:|---:|---:|---|---:|
+| gear, production defaults (V2, V3, and 2026-08-29) | 554 | 49 | 1.0813 | REJECTED, falls back to PE | **51,385** |
+| gear, with the settings (S3) | 2 | 19,292 | 0.9997 | BSS | **70,886** |
+
+**A 27% understatement of the cross-check that validates the pooled headline.** The Stage 5 batch found the fix and left it in an experiment-only escape hatch, so production never received it; the validation batch reproduced the failure bit-identically. **Fixed 2026-09-02**: the four settings now live in the gear driver's `params_model` with their own branch. `bss_sampler_override` stays NULL in production.
+
+### The finding the batch was not looking for: production's SHORE all-gear fit is the flagged one
+
+| V1 fit | p_loo / n_obs | Pareto k > 0.7 | coverage_50 dev | miscalibrated |
+|---|---:|---:|---:|---|
+| **shore all-gear (DAILY AR)** | **35.2%** | **41** | **0.201** | **YES** |
+| boat all-gear | 8.0% | 1 | 0.095 | no |
+
+Shore all-gear carries 109.4 effective parameters on 311 gear observations and `coverage_50` 0.701 against a nominal 0.500, **+7.1 sampling SDs**: the same signature the daily boat AR was rejected for, on a component that is 29% of the port total and has been at daily in production all along. The gear track's monthly fit of the same component is not better but differently wrong (coverage 0.035, -16.4 SD), so neither end is right and nobody has run weekly or biweekly. That cross-track table differs in three things at once and is suggestive only; the pooled daily number alone is sound.
+
+### Other results
+
+- **GR-7 Phase 2 SAMPLED for the first time and works**: every per-gear interval widens 1.12x-1.23x, no median moves as much as 1%, per-gear medians still sum to the component total. Validated; whether `gear_resolved_G` becomes the gear default is now a decision.
+- **The boat pot-closure 2x2 completes and is additive**: 849 / 1,018 / 735 / **939**, interaction +35 crab. `ar_force` leak stays closed (all-gear back at 31,008 exactly).
+- **The `shared_tau_min_obs` threshold is worth 169 crab, 0.24% of the port** (V5). Defensible and nearly inconsequential.
+- **Tier 1 "TOP OF THE LIST" shore I/E fix CLOSED** on all four pre-set criteria, and the Tier-2 GR-9 tension with it. Details in Section 1d.
+- **Tier 3 zero inflation: precondition met, and it targets ONE stream.** Every boat stream is fine (|z| <= 2.3); the two shore CATCH streams under-predict zeros at z = +3.8 and +2.9, about 71 and 27 extra zero-catch interviews. A prototype should target the shore catch likelihood, not the whole model.
+- **`gear_only` arm**: worth at most 0.7% anywhere. The live defect is that the PE and BSS use different arms on both boat components.
+
+### A process failure worth recording
+
+Two of the last three batches contained a criterion that compared against a reference differing in **two** things, both times producing a FAIL that looked like a code defect and needed manual diagnosis (the S3 shore criterion on 2026-08-30, the V2 boat criterion on 2026-09-01). `fit_exactness()` now takes `expect_delta`, parses both runs' `run_parameters.txt`, and reports any unexpected config difference inside the verdict. Judgement was not reliable here; it is now a check.
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and their rendered `.html`. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
@@ -498,6 +541,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
 - **[NEW, 2026-08-25] Censored likelihood for incomplete trips.** The statistically correct way to recover the ~36% of interviews the filter discards. An incomplete trip's observed catch is a LOWER BOUND on its trip total, so its likelihood contribution becomes `neg_binomial_2_lccdf(c - 1 | lambda_C * h, r_C)` instead of the pmf; under the deployment unit its `h` (gear count) is already complete, so only the catch needs censoring. This recovers 1,334 interviews without the -20% bias, which is the largest single gain available on CPUE precision. It cannot be evaluated by the design-based arms in the four-arm diagnostic, so it needs its own Stan toggle, a compile, and an `elpd_loo` comparison against the current filter. **Effort: medium (Stan + one validation run).**
 - **[DECIDABLE 2026-09-01, see Section 1d; the live defect is the PE/BSS disagreement, not the arm] Decide the `gear_only` incomplete-trip arm on the diagnostic's evidence.** An interrupted trip's gear count is fully observed; only its catch is truncated. Today it is discarded along with the catch, and the PE and the BSS silently disagree about that (the boat PE's gear-per-group uses the unfiltered set; the boat BSS's `R_G_boat` does not). The four-arm diagnostic now reports the gear ratio under each arm and a length-bias test. Decide after the first run that carries it: adopt `gear_only` if the incomplete-trip gear counts are not significantly higher than complete ones, and either way make the PE and the BSS agree. **Effort: low once the diagnostic has run.**
 - **[NEW, 2026-08-25] Split Sunday from Saturday, or accept the residual.** Moving Friday to the weekday stratum was free from existing data; splitting Sunday is not. The boat's Sunday mean (3.4) is BELOW its weekday mean (6.9) on 5 sampled Sundays out of 50, and shore Sunday rests on 6 of 50. A third day-type indicator is designed (`log lambda = mu + omega[p] + B1*weekend + B2*holiday + B3*sunday`): at 0 sampled Sundays SE(B3) = 1.00 (the prior) with shore/boat season CV 15.1% / 19.7%; at 8 sampled Sundays SE 0.21 and 7.0% / 11.2%, within 0.5 CV points of sampling all 52. Sundays carry 13.7% of shore and 16.6% of boat season catch. This is a field-plan item first (Section 6) and a code item second. **Effort: field (a shift change), then low.**
+- **[NEW, 2026-09-02, TIER 1] Coarsen the pooled SHORE all-gear AR, or defend daily on current diagnostics.** Production runs this component at daily and its adequacy is the worst in the run: p_loo 35.2% of n_obs, 41 Pareto k > 0.7, `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs). It is 29% of the port total. The gear track's monthly fit of the same component is differently wrong (coverage 0.035, -16.4 SD), so the answer is between them and weekly and biweekly have never been run. This is the direct analogue of the boat 2x2 that Stage 5 settled, on a larger component, and plan 5.4 explicitly set it aside as untested. **Effort: 2-3 pooled runs.**
 - **[NEW, 2026-08-25] Hierarchical (partially pooled) `f` across strata.** Per-stratum `f` currently falls back to the set value when a stratum is below `crab_fraction_min_obs` / `crab_fraction_osp_min_obs`. With OSP crab-only counts the summer strata will clear those thresholds easily (hundreds of boats a month), but the OSP-dark winter months will not, and defaulting them to a summer-flavoured 0.3 is known to be wrong in the other direction: the deck's own framing is "close to 100% crabbers when finfish are closed, perhaps 30% in summer". Two options: a hierarchical Beta across strata (`f[k] ~ Beta(mu_f * kappa_f, ...)`, principled, new parameters, needs validation), or per-stratum set values in config (cheap, transparent, still an assumption). Neither is built. **Effort: low (config) to medium (hierarchy).**
 
 - **[DONE, Run 1] Make monthly the boat AR production default.** Run 1 ran with `ar_force = NULL` and boat monthly selected by the per-population resolution map, so monthly is now the production default by policy, not an override. Confirmed in the Run 1 convergence report (boat `ar_resolution = monthly`).
@@ -517,7 +561,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
 - **GR-7: genuine per-gear CPUE. PHASE 1 DONE + VALIDATED (2026-07-20).** Built as Option A1 behind `gear_resolved_G` (default off): the Stan effort process is one shared level split by the `pi_gear` share offset `O` (on `lambda_E` only), with per-gear CPUE identified by single-gear interviews and multi-gear trips folded to a "Mixed" gear (Matt's decisions). The `gear_resolved_G = TRUE` run resolves the SHORE harvest into real per-gear BSS posteriors (all-gear G = 5: Pot 3,757 / Ring Net 1,965 / Snare 1,746 / Trap 7,534 / Mixed 5,239; pot-closure G = 4), converged cleanly (27 / 4 divergences, R-hat ~1.000, min gear n_eff ~8,000), with `sum_g C_sum_gear = C_sum` exact and per-gear CPUE ordering matching the interview ratios (Trap highest). The shore total moved +0.82% (per-gear vs pooled CPUE, not a decomposition error); the boat stays `G = 1` (Phase 0: Pot-dominated). So the gear model now gives a usable gear breakdown for shore, no longer only the pooled Dirichlet split. **Open:** Phase 2 (Dirichlet `pi_gear` so the per-gear intervals include share uncertainty; they are currently slightly too narrow), a per-gear PPC/LOO read, and whether `gear_resolved_G = TRUE` becomes the gear-model default. Full design + validation evidence in `GR-7-per-gear-CPUE-design.md` (Sections 5-10). **Effort remaining: medium (Phase 2).**
 - **GR-12: `tau_boat` identification. [RESOLVED via OSP, branch 2026-07-31].** Boat catch is proportional to `tau_boat` (was 1.2, resting on 2 WBL I/E days). The OSP boat-count stream now identifies boat turnover directly: with `osp_scale_is_tau = TRUE` (production) the dense 148-day OSP series sets the boat turnover in place of the thin I/E prior. Since the crab-creel trailer count is an instantaneous snapshot, the OSP-implied turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so the production boat roughly doubles (Section 1, 2026-07-31 update). The egress-classification pilot's role shifts from tau to the crabbing fraction f (Tier 1). One caveat: the exact multiplier assumes the trailer snapshot is timed representatively, not at a fixed daily peak (Section 6). **Effort: done (tau identification); the pilot now feeds f, not tau.**
   - **QUANTIFIED 2026-07-20** (`run_tau_sweep.R`, outputs `05_output/20260720/gear-type-CPUE-model-tau-{0.90,1.20,1.50}`). The boat is exactly prior-dominated: boat all-gear BSS catch is proportional to `tau_boat` with **elasticity 1.00** (32,424 / 43,314 / 54,258 crab at tau = 0.90 / 1.20 / 1.50; boat/tau constant to 0.4%), all three fits converging cleanly. The port total moves **71,796 / 83,020 / 94,146** (±13.5% across 0.9-1.5; port elasticity ~0.53, the boat's share of the port). The BSS-vs-PE boat gap is tau-invariant (~19%), so tau shifts the boat *level*, not its relation to the design anchor. The reported boat 95% CI already carries the tau `sigma = 0.3` spread; the sweep shows that a biased prior *center* rescales the boat (and ~53% of the port) proportionally and is NOT captured in that CI, so the egress-classification pilot is the single highest-leverage boat-credibility measurement. The single-run projection (`diagnose_tau_sensitivity`, now default TRUE in `run_config.R`) reproduced these refits to ~0.2%, so the multi-hour sweep need not be repeated; the toggle carries the sensitivity table on every gear run.
-- **Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
+- **[PRECONDITION MET 2026-09-02, and it targets ONE stream] Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The zero bin is now scored as observed zero count against the model's expected count over all days, with a Poisson-binomial z. Every BOAT stream is fine (|z| <= 2.3). The two SHORE CATCH streams under-predict zeros in the same direction at z = +3.8 (676 vs 605.4 on n = 1,649) and z = +2.9 (146 vs 118.5 on n = 627). A prototype should target the shore catch likelihood only, and its available gain is bounded by about 70 observations out of 1,649. Original entry follows. The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
 - **T3.2 / critique 11: shore soak-time basis.** Largely mooted now that shore is on gear-deployments rather than crabber-hours, but a one-line confirmation in the docs is worth it. **Effort: trivial.**
 
 ### Tier 4: reproducibility and repository hygiene (correctness-neutral, publication-blocking)
