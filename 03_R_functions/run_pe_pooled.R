@@ -62,11 +62,23 @@ run_pe_pooled <- function(summ, days, params, population_name) {
     # interview frame for the gear ratio than for the CPUE; the incomplete-trip diagnostic
     # (improvement 5) uses it to keep an interrupted trip's fully-observed gear count while
     # still dropping its truncated catch. Absent -> summ$interview, i.e. unchanged.
-    # NOTE this frame is NOT incomplete-trip filtered in production, so the boat PE's
-    # gear-per-group already behaves like the diagnostic's "gear_only" arm while the boat
-    # BSS's R_G_boat behaves like "exclude". That inconsistency is real and is surfaced by
-    # sensitivity_incomplete_trips.csv.
-    ratio_data <- (summ$interview_gear %||% summ$interview) |>
+    # ARM ALIGNMENT (2026-09-02). This frame used NOT to be incomplete-trip filtered, so the
+    # boat PE's gear-per-group behaved like the diagnostic's "gear_only" arm while the boat
+    # BSS's R_G_boat behaved like "exclude": prep_bss_crab_pooled.R applies
+    # filter_incomplete_trips to int_d and intA descends from it. Two arms of one fused
+    # estimator disagreeing about which interviews count is a documented inconsistency a
+    # reviewer will ask about, and the 2026-09-01 desk read finally sized it: 3.552 against
+    # 3.550 gear per boat group, 0.1%, and at most 0.7% on any component. Small enough that
+    # this is a CONSISTENCY fix rather than an accuracy one, and small enough that there is
+    # no reason to keep living with it.
+    #
+    # pe_gear_ratio_arm: "match_bss" (default, aligned) or "gear_only" (the previous
+    # behaviour, kept so the diagnostic arm and any historical reproduction stay available).
+    # When a caller supplies summ$interview_gear it is deliberately choosing its own frame,
+    # which is exactly what the four-arm diagnostic does, so the filter is not applied on
+    # top of it.
+    ratio_data <- pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
+                                      label = population_name) |>
       filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
     gear_per_group <- if(nrow(ratio_data) > 0) mean(ratio_data$number_of_gear)
                       else (params$gear_per_group_default %||% 4.0)

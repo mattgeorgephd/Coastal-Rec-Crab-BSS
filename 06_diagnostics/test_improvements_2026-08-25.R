@@ -29,7 +29,8 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "bss_stan_fit.R","save_run_diagnostics.R",
             "model_diagnostics.R","bss_model_adequacy.R",
             "annotate_decoupled_run.R",
-            "bss_sampler_override.R")) source(file.path("03_R_functions", f))
+            "bss_sampler_override.R",
+            "pe_gear_ratio_frame.R")) source(file.path("03_R_functions", f))
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -1116,6 +1117,132 @@ local({
     chk("GR-7 Phase 2: and move no median by more than 1%",
         max(abs(100 * (B$BSS_median - A$BSS_median) / A$BSS_median)) < 1,
         sprintf("(largest %.1f%%)", max(abs(100 * (B$BSS_median - A$BSS_median) / A$BSS_median))))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 27. PE / BSS incomplete-trip arm alignment (2026-09-02). The BSS learns R_G_boat from a
+#     frame that HAS been incomplete-trip filtered; both Point Estimators used the unfiltered
+#     one. sensitivity_incomplete_trips.csv has reported that disagreement since 2026-08-25.
+#     One shared helper, because the gear PE's comment already claimed it matched the BSS
+#     while it did not, which is what two copies of one rule produces.
+# ---------------------------------------------------------------------------
+local({
+  chk("pe arm: the shared frame helper exists",
+      exists("pe_gear_ratio_frame", mode = "function"))
+  iv <- data.frame(number_of_gear = c(3, 4, 5, 6), angler_count = c(1, 1, 1, 1),
+                   trip_status = c("Complete", "Incomplete", NA, "Complete"),
+                   stringsAsFactors = FALSE)
+  p_on  <- list(pe_gear_ratio_arm = "match_bss", filter_incomplete_trips = TRUE)
+  p_off <- list(pe_gear_ratio_arm = "gear_only", filter_incomplete_trips = TRUE)
+  chk("pe arm: match_bss drops incomplete trips",
+      nrow(pe_gear_ratio_frame(iv, NULL, p_on, quiet = TRUE)) == 3)
+  chk("pe arm: and KEEPS a missing status, exactly as prep_bss_crab_pooled.R does",
+      NA %in% pe_gear_ratio_frame(iv, NULL, p_on, quiet = TRUE)$trip_status)
+  chk("pe arm: gear_only is the untouched pre-2026-09-02 behaviour",
+      nrow(pe_gear_ratio_frame(iv, NULL, p_off, quiet = TRUE)) == 4)
+  chk("pe arm: with filter_incomplete_trips OFF there is nothing to align",
+      nrow(pe_gear_ratio_frame(iv, NULL, list(pe_gear_ratio_arm = "match_bss",
+                                              filter_incomplete_trips = FALSE), quiet = TRUE)) == 4)
+  chk("pe arm: a caller-supplied frame is left alone (the four-arm diagnostic relies on this)",
+      nrow(pe_gear_ratio_frame(iv[1:2, ], iv, p_on, quiet = TRUE)) == 4)
+  chk("pe arm: an unrecognised arm ERRORS rather than silently defaulting",
+      inherits(try(pe_gear_ratio_frame(iv, NULL, list(pe_gear_ratio_arm = "nope"), quiet = TRUE),
+                   silent = TRUE), "try-error"))
+  for (fn in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R")) {
+    t <- paste(readLines(fn, warn = FALSE), collapse = "\n")
+    chk(sprintf("pe arm: %s routes through the shared helper", basename(fn)),
+        grepl("pe_gear_ratio_frame(", t, fixed = TRUE))
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e)
+  chk("pe arm: run_config ships the aligned arm",
+      identical(e$run_config$pe_gear_ratio_arm, "match_bss"))
+})
+
+# ---------------------------------------------------------------------------
+# 28. Zero-inflated catch likelihood (2026-09-02, prototype, ships OFF). Targeted from the
+#     2026-09-01 zero bin: shore all-gear 676 observed zeros vs 605.4 expected (z = +3.8),
+#     shore pot closure z = +2.9, every boat stream inside |z| = 2.3.
+# ---------------------------------------------------------------------------
+local({
+  t <- paste(readLines("02_stan_models/crab_bss_pooled.stan", warn = FALSE), collapse = "\n")
+  chk("zinb: the guard flag and its Beta prior are Stan data",
+      grepl("int<lower=0, upper=1> zi_catch;", t, fixed = TRUE) &&
+      grepl("real<lower=0> zi_catch_prior_a;", t, fixed = TRUE))
+  chk("zinb: theta_C is ZERO-SIZE when off, so the OFF path is bit-identical",
+      grepl("vector<lower=0, upper=1>[zi_catch] theta_C;", t, fixed = TRUE))
+  chk("zinb: the model block uses a log_mix at the observed zeros",
+      grepl("target += log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C));", t, fixed = TRUE))
+  # If log_lik does not mirror the fitted likelihood, every elpd_loo comparison is void, and
+  # an elpd comparison is the entire basis on which this feature will be judged.
+  chk("zinb: generated-quantities log_lik MIRRORS the fitted likelihood",
+      grepl("log_lik_catch[a] = log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c_gq, r_C));",
+            t, fixed = TRUE))
+  # The correctness point that would otherwise silently inflate the headline.
+  chk("zinb: the season total is scaled by (1 - theta_C)",
+      grepl("* f_crab[f_stratum[d]] * zi_scale;", t, fixed = TRUE) &&
+      grepl("zi_scale = 1 - theta_C[1];", t, fixed = TRUE) &&
+      grepl("zi_scale = 1.0;", t, fixed = TRUE))
+  chk("zinb: theta_C_out is reported unconditionally so the parameter set keeps its shape",
+      grepl("real theta_C_out;", t, fixed = TRUE))
+  d <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("zinb: a hard 0 is flagged decoupled, so it cannot be read as 'tested and absent'",
+      grepl('set(base %in% c("theta_C", "theta_C_out")', d, fixed = TRUE))
+  chk("zinb: theta_C reaches the curated structural table",
+      grepl('"theta_C")', d, fixed = TRUE))
+  p <- paste(readLines("03_R_functions/prep_bss_crab_pooled.R", warn = FALSE), collapse = "\n")
+  chk("zinb: it is scoped PER FIT, which is what makes the boat a free negative control",
+      grepl("population_name %in% (params$catch_zi_populations %||% \"shore\")", p, fixed = TRUE))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("zinb: ships OFF, scoped to the shore, with a Beta(1, 9) prior",
+      isFALSE(rc$estimate_catch_zi) && identical(rc$catch_zi_populations, "shore") &&
+      identical(rc$zi_catch_prior_a, 1) && identical(rc$zi_catch_prior_b, 9))
+})
+
+# ---------------------------------------------------------------------------
+# 29. The 2026-09-03 batch runner.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_shore_ar_zi_2026-09-03.R"
+  if (!file.exists(f)) { chk("shore/zi runner: present", FALSE); return(invisible(NULL)) }
+  chk("shore/zi runner: parses", !inherits(try(parse(f), silent = TRUE), "try-error"))
+  t <- paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("shore/zi runner: ships with DRY_RUN TRUE", grepl("\nDRY_RUN <- TRUE", t))
+  chk("shore/zi runner: the AR ladder forces ONE sub-season of ONE population",
+      grepl("AR_SHORE_AG <- function(res) list(shore = list(all_gear = res))", t, fixed = TRUE))
+  chk("shore/zi runner: all three coarser rungs are present",
+      grepl('AR_SHORE_AG("weekly")', t, fixed = TRUE) &&
+      grepl('AR_SHORE_AG("biweekly")', t, fixed = TRUE) &&
+      grepl('AR_SHORE_AG("monthly")', t, fixed = TRUE))
+  chk("shore/zi runner: Z0 is both the OFF gate and the ladder's daily rung",
+      grepl('lad_row("daily (production)", "daily",    sid = "Z0")', t, fixed = TRUE))
+  chk("shore/zi runner: coverage is read from the randomized PIT, not ppc_calibration",
+      grepl("cov50_byobs <- function", t, fixed = TRUE))
+  chk("shore/zi runner: it refuses to run if the two code changes are absent",
+      grepl("has nothing to test", t, fixed = TRUE) &&
+      grepl("would reproduce the ", t, fixed = TRUE))
+  chk("shore/zi runner: expect_delta carried over from the 2026-09-01 batch",
+      grepl("expect_delta", t, fixed = TRUE) && grepl("config_delta <- function", t, fixed = TRUE))
+  # Drift guard on the production numbers the ladder is judged against.
+  v1 <- "05_output/20260831/pooled-CPUE-VAL-1-adopted"
+  if (dir.exists(v1)) {
+    a <- read.csv(file.path(v1, "model_adequacy.csv"), stringsAsFactors = FALSE)
+    r <- a[a$fit == "shore_all_gear_Dungeness_Kept", ]
+    chk("shore/zi REF: production shore all-gear is still the flagged fit",
+        isTRUE(round(r$p_loo_frac, 2) == 0.35) && isTRUE(r$n_pareto_bad == 41),
+        sprintf("(p_loo %.3f, k>0.7 %d)", r$p_loo_frac, r$n_pareto_bad))
+    x <- read.csv(file.path(v1, "ppc_byobs_shore_all_gear_Dungeness_Kept.csv"), stringsAsFactors = FALSE)
+    y <- x[x$data_type == "gear", ]
+    cov <- mean(as.logical(y$in_50)); z <- (cov - 0.5) / sqrt(0.25 / nrow(y))
+    chk("shore/zi REF: and its gear-stream coverage is still ~0.70 at +7 sampling SDs",
+        isTRUE(abs(cov - 0.701) < 0.01) && isTRUE(z > 6),
+        sprintf("(%.3f, %+.1f SD on n = %d)", cov, z, nrow(y)))
+    zz <- x[x$data_type == "catch", ]
+    p <- zz$p_zero[is.finite(zz$p_zero)]
+    zsc <- (sum(zz$observed == 0) - sum(p)) / sqrt(sum(p * (1 - p)))
+    chk("shore/zi REF: the shore catch zero bin the ZINB targets is still off at z ~ +3.8",
+        isTRUE(zsc > 3), sprintf("(%d observed vs %.1f expected, z = %+.1f)",
+                                 sum(zz$observed == 0), sum(p), zsc))
   }
 })
 

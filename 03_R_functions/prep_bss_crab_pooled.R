@@ -320,6 +320,21 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     # P1/POOL-3: CPUE denominator matched to the effort unit (see bss_effort_spec()).
     h = as.numeric(eff_spec$h_fun(int_d)),
 
+    # --- Zero-inflated catch likelihood (2026-09-02) --------------------------
+    # PER FIT, not per run. The 2026-09-01 zero-bin read found the misfit on the SHORE catch
+    # stream only (z = +3.8 all-gear, +2.9 pot closure) while every boat stream sat inside
+    # |z| = 2.3, so scoping it to the populations named in catch_zi_populations turns the
+    # boat fits of the SAME run into an untouched negative control: they carry zi_catch = 0
+    # and must come back bit-identical to a control run. That is a free control, and it is
+    # why this is not a single global toggle.
+    zi_catch = as.integer(isTRUE(params$estimate_catch_zi) &&
+                          population_name %in% (params$catch_zi_populations %||% "shore")),
+    # Beta(1, 9): mean 0.10, most mass below 0.25. Weakly informative and centred well above
+    # the excess actually observed (about 71 zeros in 1,649, i.e. theta near 0.04), so it
+    # neither pins theta_C at zero nor asserts a large inflation the data has not shown.
+    zi_catch_prior_a = as.numeric(params$zi_catch_prior_a %||% 1),
+    zi_catch_prior_b = as.numeric(params$zi_catch_prior_b %||% 9),
+
     IntA_gear = if(is_shore) nrow(intA) else 0L,
     Gear_A = if(is_shore) as.integer(intA$number_of_gear) else integer(0),
     A_A_gear = if(is_shore) as.integer(intA$angler_count) else integer(0),

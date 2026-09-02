@@ -484,6 +484,33 @@ run_config <- list(
   # review), set list(private_boat = "monthly").
   ar_force          = NULL,
 
+  # --- PE / BSS incomplete-trip arm alignment (2026-09-02) ---------------------
+  # Which interviews the Point Estimator uses for the boat gear-per-group ratio.
+  # "match_bss" (default) applies filter_incomplete_trips, matching the frame the BSS
+  # learns R_G_boat from; "gear_only" is the pre-2026-09-02 behaviour, which kept an
+  # interrupted trip's fully observed gear count. The two disagreed by 0.1% on the boat
+  # (3.552 vs 3.550) and at most 0.7% on any component, so this is a consistency fix rather
+  # than an accuracy one. See 03_R_functions/pe_gear_ratio_frame.R.
+  pe_gear_ratio_arm = "match_bss",
+
+  # --- Zero-inflated catch likelihood (2026-09-02; PROTOTYPE, ships OFF) -------
+  # The 2026-09-01 zero-bin read found the NB2 places too little mass at zero on the SHORE
+  # catch stream and only there: shore all-gear 676 observed zeros vs 605.4 expected
+  # (z = +3.8, n = 1,649), shore pot closure 146 vs 118.5 (z = +2.9), every boat stream
+  # inside |z| = 2.3. estimate_catch_zi = TRUE adds a structural-zero component theta_C to
+  # the catch likelihood of the populations named below, so a single run carries the shore
+  # fits as treatment and the boat fits as an untouched negative control.
+  #
+  # THE SEASON TOTAL IS SCALED BY (1 - theta_C) in generated quantities. lambda_C is fitted
+  # to the non-inflated component and rises to absorb the zeros theta_C removes, so an
+  # unscaled total would be inflated by 1/(1 - theta_C) purely by turning the feature on.
+  # Judge it on elpd_loo for the catch stream and on the zero bin, not on the total.
+  # Changing this forces a Stan recompile.
+  estimate_catch_zi     = FALSE,
+  catch_zi_populations  = c("shore"),
+  zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
+  zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
+
   # --- Sampler override escape hatch (EXPERIMENTS ONLY; production is NULL) -----
   # Each driver merges its own params_model ON TOP of run_config, so params_model
   # WINS every key it sets, including all the per-fit sampler settings. Setting

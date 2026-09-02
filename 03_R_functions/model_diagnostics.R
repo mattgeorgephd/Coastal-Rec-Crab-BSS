@@ -88,6 +88,13 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
+  # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
+  # change shape between runs, which means it reports a hard 0.0 when the feature is off.
+  # Without this rule a reader would see "theta_C_out = 0" and take it as an estimate that
+  # zero inflation was tested and found absent, which is the opposite of what a zero means
+  # there. This is the same reporting hazard kappa_OSP and f_lower carry.
+  if (identical(as.integer(g("zi_catch", 0L)), 0L)) set(base %in% c("theta_C", "theta_C_out"),
+    "zi_catch = 0: the catch likelihood is plain NB2 and theta_C is not in the model")
   reason
 }
 
@@ -108,7 +115,9 @@ bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
             "kappa_OSP", "sigma_r_OSP", "r_OSP",
             "f_crab", "f_lower",
             # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
-            "tau_bar")
+            "tau_bar",
+            # 2026-09-02: the zero-inflation probability, when the catch likelihood carries one.
+            "theta_C")
   pars <- pars[pars %in% fit@model_pars]
   s <- summary(fit, pars = pars)$summary
   out <- data.frame(parameter = rownames(s),

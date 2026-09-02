@@ -1,0 +1,1706 @@
+From ce3b84c7464008cff0299246c06b4e01b686934d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 01:20:24 +0000
+Subject: [PATCH] Shore AR ladder batch: PE/BSS arm alignment and a targeted
+ ZINB prototype
+
+Harness 233 -> 264 assertions, 0 failing. Two code changes, both applied and
+both testable, plus the batch that tests them:
+06_diagnostics/run_shore_ar_zi_2026-09-03.R (~23-26 h, ships DRY_RUN = TRUE).
+
+1. PE / BSS INCOMPLETE-TRIP ARM ALIGNMENT (Tier 2, closed).
+The BSS learns R_G_boat from a frame that HAS been incomplete-trip filtered
+(intA descends from int_d, after filter_incomplete_trips); both Point
+Estimators built the same ratio from the UNFILTERED set.
+sensitivity_incomplete_trips.csv has reported that as production_arm_bss
+"exclude" vs production_arm_pe "gear_only" since 2026-08-25.
+
+New shared helper 03_R_functions/pe_gear_ratio_frame.R, called by both PEs.
+pe_gear_ratio_arm = "match_bss" ships; "gear_only" is retained for the
+four-arm diagnostic and historical reproduction. MEASURED in stage P1 (PE
+only, seconds): the boat PE moves 11,176 -> 11,170, -0.059%, and the shore
+is unchanged, which is the control. A consistency fix, not an accuracy one.
+One helper rather than two edits because the gear PE's comment already
+claimed it matched the BSS while it did not.
+
+2. ZERO-INFLATED CATCH LIKELIHOOD (Tier 3, prototype, ships OFF).
+crab_bss_pooled.stan gains zi_catch, a Beta(1,9) prior and
+vector<lower=0,upper=1>[zi_catch] theta_C, the zero-size guard pattern
+shared_tau and f_lower use. Targeted from the 2026-09-01 zero bin: shore
+all-gear 676 observed zeros vs 605.4 expected (z = +3.8, n = 1,649), shore
+pot closure z = +2.9, every boat stream inside |z| = 2.3.
+
+  * generated-quantities log_lik MIRRORS the fitted mixture. A log_lik under
+    a different likelihood from the one fitted voids every elpd_loo
+    comparison, and elpd is the entire basis for judging this.
+  * THE SEASON TOTAL IS SCALED BY (1 - theta_C). lambda_C is fitted to the
+    non-inflated component and rises to absorb the zeros theta_C removed, so
+    an unscaled total would be inflated by 1/(1 - theta_C) purely by turning
+    the feature on.
+  * zi_catch is set PER FIT from catch_zi_populations (default "shore"), so
+    one run carries the shore fits as treatment and the boat fits as an
+    untouched negative control at no extra cost.
+  Model compiles to C++ in 3.1 min.
+
+THE BATCH
+  P1  PE arm alignment ............  seconds, PE only, runs in the dry run
+  G1  gear track with the driver fix  ~35 min, restores the cross-check
+  Z0  ZINB present, OFF ...........  GATE and the ladder's DAILY rung
+  A1  shore all-gear AR weekly ....  }  the main question: 29% of the port
+  A2  shore all-gear AR biweekly ..  }  total, four rungs, one thing moving
+  A3  shore all-gear AR monthly ...  }
+  Z1  ZINB ON, shore only .........  boat fits are a free negative control
+
+Z0 does two jobs deliberately: without its second, the ladder would compare
+three post-edit rungs against a pre-edit production run. The ladder is read
+in the order that settled the boat 2x2: randomized-PIT coverage, then p_loo
+as a fraction of n_obs with the Pareto k count, then the CATCH stream's
+elpd. Production sits at daily with p_loo 35.2%, 41 Pareto k > 0.7 and
+coverage 0.701 (+7.1 SD); the gear track's monthly gives 0.035 (-16.4 SD).
+Both ends are bad and the middle has never been run.
+
+Verified: harness 264/264; new batch dry run (pre-flight 96 Stan data vars
+all built, P1 PASS); stage5 self-test 22/22; validation batch 11 desk
+criteria; all three Stan models pass stanc and the pooled one compiles to
+C++; both drivers purl and parse; 37 helpers parse.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019JpDrKZxssAV8FmRX4E5Wj
+---
+ 02_stan_models/crab_bss_pooled.stan           |  77 +-
+ 03_R_functions/model_diagnostics.R            |  11 +-
+ 03_R_functions/pe_gear_ratio_frame.R          |  76 ++
+ 03_R_functions/prep_bss_crab_pooled.R         |  15 +
+ 03_R_functions/run_pe_gear.R                  |   9 +-
+ 03_R_functions/run_pe_pooled.R                |  22 +-
+ .../shore-ar-zi-desk/P1_pe_arm_alignment.csv  |   5 +
+ .../validation-desk/D2_gear_only_decision.csv |   5 +
+ .../D2_incomplete_trip_arms.csv               |  17 +
+ .../D3_coverage_by_fitted_tercile.csv         |  18 +
+ .../20260902/validation-desk/D3_zero_bin.csv  |   6 +
+ .../20260902/validation-desk/D4_hygiene.csv   |   7 +
+ .../shore_ar_zi_2026-09-03_ar_ladder.csv      |   2 +
+ 05_output/shore_ar_zi_2026-09-03_verdicts.csv |   2 +
+ 06_diagnostics/README.md                      |   3 +-
+ 06_diagnostics/run_shore_ar_zi_2026-09-03.R   | 821 ++++++++++++++++++
+ 06_diagnostics/test_improvements_2026-08-25.R | 129 ++-
+ ...ear-type-CPUE-model-development-history.md |  14 +
+ ...H-pooled-CPUE-model-development-history.md |  14 +
+ .../development_notes/PIPELINE_STATUS.md      |  46 +-
+ README-R-functions.md                         |   1 +
+ run_config.R                                  |  27 +
+ 22 files changed, 1304 insertions(+), 23 deletions(-)
+ create mode 100644 03_R_functions/pe_gear_ratio_frame.R
+ create mode 100644 05_output/20260902/shore-ar-zi-desk/P1_pe_arm_alignment.csv
+ create mode 100644 05_output/20260902/validation-desk/D2_gear_only_decision.csv
+ create mode 100644 05_output/20260902/validation-desk/D2_incomplete_trip_arms.csv
+ create mode 100644 05_output/20260902/validation-desk/D3_coverage_by_fitted_tercile.csv
+ create mode 100644 05_output/20260902/validation-desk/D3_zero_bin.csv
+ create mode 100644 05_output/20260902/validation-desk/D4_hygiene.csv
+ create mode 100644 05_output/shore_ar_zi_2026-09-03_ar_ladder.csv
+ create mode 100644 05_output/shore_ar_zi_2026-09-03_verdicts.csv
+ create mode 100644 06_diagnostics/run_shore_ar_zi_2026-09-03.R
+
+diff --git a/02_stan_models/crab_bss_pooled.stan b/02_stan_models/crab_bss_pooled.stan
+index 6d9a09d..9133403 100644
+--- a/02_stan_models/crab_bss_pooled.stan
++++ b/02_stan_models/crab_bss_pooled.stan
+@@ -229,6 +229,30 @@ data {
+   int<lower=0> c[IntC];
+   vector<lower=0>[IntC] h;
+ 
++  // --- Zero-inflated catch likelihood (2026-09-02, OFF by default) -----------
++  // WHY IT EXISTS. The 2026-09-01 validation batch scored the PPC zero bin as the observed
++  // zero COUNT against the model's own expected count over ALL interviews, with a
++  // Poisson-binomial SD. Every BOAT stream sat inside |z| = 2.3. The two SHORE CATCH
++  // streams did not: shore all-gear 676 observed zeros against 605.4 expected (z = +3.8,
++  // n = 1,649) and shore pot closure 146 against 118.5 (z = +2.9, n = 627). Same direction,
++  // two independent fits, so the NB2 places too little mass at zero on the shore catch
++  // stream specifically. Tier 3 of the backlog makes prototyping ZINB conditional on exactly
++  // this read, and the 2026-09-01 batch is the first time the read existed.
++  //
++  // zi_catch = 1 replaces the catch pmf with a two-component mixture: with probability
++  // theta_C the interview is a structural zero, otherwise it is NB2 as before. theta_C is
++  // declared vector<lower=0,upper=1>[zi_catch], so at zi_catch = 0 it is ZERO-SIZE and the
++  // unconstrained parameter vector is unchanged from the pre-2026-09-02 model. That is the
++  // same guard pattern shared_tau and f_lower use, and it is what makes an OFF run
++  // bit-identical rather than merely similar.
++  //
++  // IT IS SET PER FIT, NOT PER RUN. prep_bss_crab_pooled.R turns it on only for populations
++  // named in params$catch_zi_populations (default "shore"), so a single run carries the
++  // shore fits as treatment and the boat fits as an untouched negative control.
++  int<lower=0, upper=1> zi_catch;
++  real<lower=0> zi_catch_prior_a;         // Beta(a, b) prior on theta_C
++  real<lower=0> zi_catch_prior_b;
++
+   // --- Gear-per-crabber interviews ---
+   int<lower=0> IntA_gear;
+   int<lower=0> Gear_A[IntA_gear];
+@@ -348,6 +372,9 @@ transformed data {
+ }
+ 
+ parameters {
++  // Structural-zero probability for the interview catch likelihood. Zero-size unless
++  // zi_catch = 1, so the OFF path is bit-identical (see the data block).
++  vector<lower=0, upper=1>[zi_catch] theta_C;
+   real B1;
+   real B2;
+   real B1_C;
+@@ -655,10 +682,19 @@ model {
+     );
+   }
+ 
++  if (zi_catch == 1) theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b);
++
+   for (a in 1:IntC) {
+-    c[a] ~ neg_binomial_2(
+-      lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
+-    );
++    real mu_c = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
++    if (zi_catch == 1) {
++      // log_mix(t, x, y) = log(t*exp(x) + (1-t)*exp(y)); exp(0) = 1 is the structural zero.
++      if (c[a] == 0)
++        target += log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C));
++      else
++        target += log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c, r_C);
++    } else {
++      c[a] ~ neg_binomial_2(mu_c, r_C);
++    }
+   }
+ 
+   for (a in 1:IntA_gear) {
+@@ -694,6 +730,13 @@ generated quantities {
+   matrix[G*S, G*S] Omega_C;
+   matrix[G*S, G*S] Omega_E;
+ 
++  // Zero-inflation reporting. theta_C_out is 0.0 when the feature is off, so the column
++  // always exists and structural_params_*.csv does not gain and lose a row between runs;
++  // model_diagnostics.R flags it decoupled in that case so a 0 is never read as an estimate.
++  // zi_scale = 1 - theta_C is the multiplier the season total needs; see lambda_Ctot_S below.
++  real theta_C_out;
++  real<lower=0, upper=1> zi_scale;
++
+   matrix<lower=0>[D,G] lambda_Ctot_S[S];
+   matrix<lower=0>[D,G] C_expected[S];
+   real<lower=0> C_expected_sum;
+@@ -767,11 +810,23 @@ generated quantities {
+     );
+   }
+   for (a in 1:IntC) {
+-    log_lik_catch[a] = neg_binomial_2_lpmf(
+-      c[a] | lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
+-    );
++    real mu_c_gq = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
++    // MUST mirror the model block exactly. A log_lik computed under a different likelihood
++    // from the one that was fitted makes every elpd_loo comparison meaningless, and an elpd
++    // comparison is the whole basis on which this feature will be judged.
++    if (zi_catch == 1) {
++      if (c[a] == 0)
++        log_lik_catch[a] = log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c_gq, r_C));
++      else
++        log_lik_catch[a] = log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
++    } else {
++      log_lik_catch[a] = neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
++    }
+   }
+ 
++  if (zi_catch == 1) { theta_C_out = theta_C[1]; zi_scale = 1 - theta_C[1]; }
++  else               { theta_C_out = 0.0;         zi_scale = 1.0; }
++
+   C_sum = 0;
+   C_expected_sum = 0;
+   E_sum = 0;
+@@ -780,7 +835,15 @@ generated quantities {
+     for (d in 1:D) {
+       for (s in 1:S) {
+         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
+-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]];
++        // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently
++        // inflate the headline. Under the mixture the expected catch of an interview is
++        // (1 - theta_C) * mu, not mu: theta_C is the probability the trip caught nothing for
++        // a reason outside the CPUE process. lambda_C is fitted to the NON-inflated
++        // component, so it rises to absorb the zeros theta_C removed. Reporting
++        // lambda_C * effort unscaled would hand back a season total inflated by
++        // 1 / (1 - theta_C) purely as an artefact of turning the feature on. zi_scale is
++        // exactly 1.0 when the feature is off, so this is a no-op there.
++        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]] * zi_scale;
+         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
+         C_expected_sum = C_expected_sum + C_expected[s][d,g];
+ 
+diff --git a/03_R_functions/model_diagnostics.R b/03_R_functions/model_diagnostics.R
+index 410572c..a13b006 100644
+--- a/03_R_functions/model_diagnostics.R
++++ b/03_R_functions/model_diagnostics.R
+@@ -88,6 +88,13 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
+     "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
+   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
+     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
++  # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
++  # change shape between runs, which means it reports a hard 0.0 when the feature is off.
++  # Without this rule a reader would see "theta_C_out = 0" and take it as an estimate that
++  # zero inflation was tested and found absent, which is the opposite of what a zero means
++  # there. This is the same reporting hazard kappa_OSP and f_lower carry.
++  if (identical(as.integer(g("zi_catch", 0L)), 0L)) set(base %in% c("theta_C", "theta_C_out"),
++    "zi_catch = 0: the catch likelihood is plain NB2 and theta_C is not in the model")
+   reason
+ }
+ 
+@@ -108,7 +115,9 @@ bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
+             "kappa_OSP", "sigma_r_OSP", "r_OSP",
+             "f_crab", "f_lower",
+             # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
+-            "tau_bar")
++            "tau_bar",
++            # 2026-09-02: the zero-inflation probability, when the catch likelihood carries one.
++            "theta_C")
+   pars <- pars[pars %in% fit@model_pars]
+   s <- summary(fit, pars = pars)$summary
+   out <- data.frame(parameter = rownames(s),
+diff --git a/03_R_functions/pe_gear_ratio_frame.R b/03_R_functions/pe_gear_ratio_frame.R
+new file mode 100644
+index 0000000..dc2d51d
+--- /dev/null
++++ b/03_R_functions/pe_gear_ratio_frame.R
+@@ -0,0 +1,76 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# ---------------------------------------------------------------------------
++# pe_gear_ratio_frame.R
++#
++# ONE definition of which interviews the Point Estimator uses for the boat gear-per-group
++# ratio, shared by run_pe_pooled() and run_pe_gear().
++#
++# THE INCONSISTENCY THIS CLOSES. The BSS learns R_G_boat from Gear_A_boat ~ Poisson(R_G_boat),
++# whose frame (`intA`) descends from `int_d` AFTER filter_incomplete_trips is applied, so the
++# BSS behaves like the four-arm diagnostic's "exclude" arm. Both Point Estimators built the
++# same ratio from the UNFILTERED interview set, i.e. the "gear_only" arm. Two arms of one
++# fused estimator disagreeing about which interviews count is a documented inconsistency
++# (sensitivity_incomplete_trips.csv has reported it since 2026-08-25 as
++# production_arm_bss = "exclude" against production_arm_pe = "gear_only") and it is the kind
++# of thing a reviewer asks about first.
++#
++# THE SIZE, measured 2026-09-01 before deciding: the gear ratio moves 3.552 to 3.550 on the
++# boat, 0.1%, and at most 0.7% on any component (shore all-gear, where n = 2,741 makes even
++# that detectable at p = 0.0006 and where the shift is DOWNWARD, incomplete trips carrying
++# FEWER gear, which is what a trip interrupted while still setting up looks like). So this is
++# a CONSISTENCY fix, not an accuracy one. It is worth making precisely because it is small:
++# there is no estimate to defend, only an inconsistency to remove.
++#
++# WHY A SHARED FUNCTION RATHER THAN THE SAME EDIT TWICE. The gear-resolved PE's comment
++# already claimed it matched the BSS's R_G_boat while it did not. Two copies of a rule that
++# is supposed to agree is how that happens; 07_documentation/CLAUDE.md makes shared helpers
++# the convention for exactly this reason.
++#
++# ARMS
++#   "match_bss"  (default) apply filter_incomplete_trips, matching the BSS frame.
++#   "gear_only"  the pre-2026-09-02 behaviour: keep an interrupted trip's fully observed
++#                gear count. Kept because it is a defensible position (the gear count IS
++#                complete; only the catch is truncated) and because historical runs need to
++#                stay reproducible.
++#
++# A caller that supplies its own frame is deliberately choosing one, which is what the
++# four-arm diagnostic does, so nothing is applied on top of it.
++# ---------------------------------------------------------------------------
++pe_gear_ratio_frame <- function(interview, interview_gear = NULL, params = list(),
++                                label = "", quiet = FALSE) {
++  frame <- interview_gear %||% interview
++  if (is.null(frame) || !nrow(frame)) return(frame)
++  arm <- params$pe_gear_ratio_arm %||% "match_bss"
++  if (!arm %in% c("match_bss", "gear_only"))
++    stop("params$pe_gear_ratio_arm must be \"match_bss\" or \"gear_only\"; got \"", arm, "\".",
++         call. = FALSE)
++  if (!identical(arm, "match_bss") || !is.null(interview_gear) ||
++      !isTRUE(params$filter_incomplete_trips) || !"trip_status" %in% names(frame))
++    return(frame)
++  n0 <- nrow(frame)
++  # Missing status is KEPT, matching prep_bss_crab_pooled.R exactly: a blank completed_trip
++  # may well be a complete trip, and dropping it would lose data the BSS keeps.
++  out <- frame[frame$trip_status == "Complete" | is.na(frame$trip_status), , drop = FALSE]
++  if (!isTRUE(quiet))
++    cat(sprintf("  PE gear ratio arm 'match_bss'%s: %d -> %d interviews (matches the BSS R_G_boat frame)\n",
++                if (nzchar(label)) paste0(" [", label, "]") else "", n0, nrow(out)))
++  out
++}
+diff --git a/03_R_functions/prep_bss_crab_pooled.R b/03_R_functions/prep_bss_crab_pooled.R
+index 606015c..f828679 100644
+--- a/03_R_functions/prep_bss_crab_pooled.R
++++ b/03_R_functions/prep_bss_crab_pooled.R
+@@ -320,6 +320,21 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
+     # P1/POOL-3: CPUE denominator matched to the effort unit (see bss_effort_spec()).
+     h = as.numeric(eff_spec$h_fun(int_d)),
+ 
++    # --- Zero-inflated catch likelihood (2026-09-02) --------------------------
++    # PER FIT, not per run. The 2026-09-01 zero-bin read found the misfit on the SHORE catch
++    # stream only (z = +3.8 all-gear, +2.9 pot closure) while every boat stream sat inside
++    # |z| = 2.3, so scoping it to the populations named in catch_zi_populations turns the
++    # boat fits of the SAME run into an untouched negative control: they carry zi_catch = 0
++    # and must come back bit-identical to a control run. That is a free control, and it is
++    # why this is not a single global toggle.
++    zi_catch = as.integer(isTRUE(params$estimate_catch_zi) &&
++                          population_name %in% (params$catch_zi_populations %||% "shore")),
++    # Beta(1, 9): mean 0.10, most mass below 0.25. Weakly informative and centred well above
++    # the excess actually observed (about 71 zeros in 1,649, i.e. theta near 0.04), so it
++    # neither pins theta_C at zero nor asserts a large inflation the data has not shown.
++    zi_catch_prior_a = as.numeric(params$zi_catch_prior_a %||% 1),
++    zi_catch_prior_b = as.numeric(params$zi_catch_prior_b %||% 9),
++
+     IntA_gear = if(is_shore) nrow(intA) else 0L,
+     Gear_A = if(is_shore) as.integer(intA$number_of_gear) else integer(0),
+     A_A_gear = if(is_shore) as.integer(intA$angler_count) else integer(0),
+diff --git a/03_R_functions/run_pe_gear.R b/03_R_functions/run_pe_gear.R
+index def3028..b55542f 100644
+--- a/03_R_functions/run_pe_gear.R
++++ b/03_R_functions/run_pe_gear.R
+@@ -90,9 +90,12 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL)
+     # Gear per boat group, from interviews where recorded (matches the BSS's
+     # R_G_boat, which is learned from Gear_A_boat ~ Poisson(R_G_boat)).
+     gpg_pe <- params$gear_per_group_default %||% 4.0
+-    # summ$interview_gear (optional) supplies a separate gear-ratio frame; see the note in
+-    # run_pe_pooled.R. Absent -> summ$interview, i.e. unchanged.
+-    ng_pe  <- suppressWarnings(as.numeric((summ$interview_gear %||% summ$interview)$number_of_gear))
++    # 2026-09-02: the frame now comes from the shared pe_gear_ratio_frame(), so this track
++    # and the pooled one cannot drift. The comment above USED to claim this matched the BSS's
++    # R_G_boat and it did not: the BSS frame is incomplete-trip filtered and this one was not.
++    ng_pe  <- suppressWarnings(as.numeric(
++      pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
++                          label = "gear-resolved boat")$number_of_gear))
+     ng_pe  <- ng_pe[!is.na(ng_pe) & ng_pe > 0]
+     if(length(ng_pe) > 0) gpg_pe <- mean(ng_pe)
+     tau_pe <- params$tau_boat_prior_mu %||% 1.2
+diff --git a/03_R_functions/run_pe_pooled.R b/03_R_functions/run_pe_pooled.R
+index 0199335..190d862 100644
+--- a/03_R_functions/run_pe_pooled.R
++++ b/03_R_functions/run_pe_pooled.R
+@@ -62,11 +62,23 @@ run_pe_pooled <- function(summ, days, params, population_name) {
+     # interview frame for the gear ratio than for the CPUE; the incomplete-trip diagnostic
+     # (improvement 5) uses it to keep an interrupted trip's fully-observed gear count while
+     # still dropping its truncated catch. Absent -> summ$interview, i.e. unchanged.
+-    # NOTE this frame is NOT incomplete-trip filtered in production, so the boat PE's
+-    # gear-per-group already behaves like the diagnostic's "gear_only" arm while the boat
+-    # BSS's R_G_boat behaves like "exclude". That inconsistency is real and is surfaced by
+-    # sensitivity_incomplete_trips.csv.
+-    ratio_data <- (summ$interview_gear %||% summ$interview) |>
++    # ARM ALIGNMENT (2026-09-02). This frame used NOT to be incomplete-trip filtered, so the
++    # boat PE's gear-per-group behaved like the diagnostic's "gear_only" arm while the boat
++    # BSS's R_G_boat behaved like "exclude": prep_bss_crab_pooled.R applies
++    # filter_incomplete_trips to int_d and intA descends from it. Two arms of one fused
++    # estimator disagreeing about which interviews count is a documented inconsistency a
++    # reviewer will ask about, and the 2026-09-01 desk read finally sized it: 3.552 against
++    # 3.550 gear per boat group, 0.1%, and at most 0.7% on any component. Small enough that
++    # this is a CONSISTENCY fix rather than an accuracy one, and small enough that there is
++    # no reason to keep living with it.
++    #
++    # pe_gear_ratio_arm: "match_bss" (default, aligned) or "gear_only" (the previous
++    # behaviour, kept so the diagnostic arm and any historical reproduction stay available).
++    # When a caller supplies summ$interview_gear it is deliberately choosing its own frame,
++    # which is exactly what the four-arm diagnostic does, so the filter is not applied on
++    # top of it.
++    ratio_data <- pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
++                                      label = population_name) |>
+       filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
+     gear_per_group <- if(nrow(ratio_data) > 0) mean(ratio_data$number_of_gear)
+                       else (params$gear_per_group_default %||% 4.0)
+diff --git a/05_output/20260902/shore-ar-zi-desk/P1_pe_arm_alignment.csv b/05_output/20260902/shore-ar-zi-desk/P1_pe_arm_alignment.csv
+new file mode 100644
+index 0000000..66eb9b8
+--- /dev/null
++++ b/05_output/20260902/shore-ar-zi-desk/P1_pe_arm_alignment.csv
+@@ -0,0 +1,5 @@
++"component","arm_gear_only","pe_effort_gear_only","pe_catch_gear_only","arm_match_bss","pe_effort_match_bss","pe_catch_match_bss","catch_change_pct","effort_change_pct"
++"private_boat_all_gear","gear_only",3710.94793103448,11176.25610017,"match_bss",3708.74770992366,11169.6296976797,-0.059,-0.059
++"private_boat_ring_net_only","gear_only",180.211764705882,400.296705882353,"match_bss",180.211764705882,400.296705882353,0,0
++"shore_all_gear","gear_only",18862.7277777778,15755.1370022609,"match_bss",18862.7277777778,15755.1370022609,0,0
++"shore_ring_net_only","gear_only",4661.25833333333,5959.13684024399,"match_bss",4661.25833333333,5959.13684024399,0,0
+diff --git a/05_output/20260902/validation-desk/D2_gear_only_decision.csv b/05_output/20260902/validation-desk/D2_gear_only_decision.csv
+new file mode 100644
+index 0000000..a333e1d
+--- /dev/null
++++ b/05_output/20260902/validation-desk/D2_gear_only_decision.csv
+@@ -0,0 +1,5 @@
++"component","gear_ratio_exclude","gear_ratio_gear_only","pct_change","lengthbias_p","pct_incomplete","arm_bss","arm_pe"
++"shore_ring_net_only",1.324,1.318,-0.453172205438067,0.3141,26.8,"exclude","exclude"
++"shore_all_gear",1.282,1.273,-0.702028081123254,6e-04,39.8,"exclude","exclude"
++"private_boat_ring_net_only",2.824,2.824,0,NA,0,"exclude","gear_only"
++"private_boat_all_gear",3.55,3.552,0.0563380281690204,0.9677,9.7,"exclude","gear_only"
+diff --git a/05_output/20260902/validation-desk/D2_incomplete_trip_arms.csv b/05_output/20260902/validation-desk/D2_incomplete_trip_arms.csv
+new file mode 100644
+index 0000000..8f74838
+--- /dev/null
++++ b/05_output/20260902/validation-desk/D2_incomplete_trip_arms.csv
+@@ -0,0 +1,17 @@
++"component","arm","n_interviews","n_incomplete","pct_incomplete","gear_ratio","gear_lengthbias_p","production_arm_bss","production_arm_pe"
++"shore_ring_net_only","exclude",856,229,26.8,1.324,0.3141,"exclude","exclude"
++"shore_ring_net_only","gear_only",856,229,26.8,1.318,0.3141,"exclude","exclude"
++"shore_ring_net_only","impute_mean_cpue",856,229,26.8,1.318,0.3141,"exclude","exclude"
++"shore_ring_net_only","keep",856,229,26.8,1.318,0.3141,"exclude","exclude"
++"shore_all_gear","exclude",2741,1091,39.8,1.282,6e-04,"exclude","exclude"
++"shore_all_gear","gear_only",2741,1091,39.8,1.273,6e-04,"exclude","exclude"
++"shore_all_gear","impute_mean_cpue",2741,1091,39.8,1.273,6e-04,"exclude","exclude"
++"shore_all_gear","keep",2741,1091,39.8,1.273,6e-04,"exclude","exclude"
++"private_boat_ring_net_only","exclude",17,0,0,2.824,NA,"exclude","gear_only"
++"private_boat_ring_net_only","gear_only",17,0,0,2.824,NA,"exclude","gear_only"
++"private_boat_ring_net_only","impute_mean_cpue",17,0,0,2.824,NA,"exclude","gear_only"
++"private_boat_ring_net_only","keep",17,0,0,2.824,NA,"exclude","gear_only"
++"private_boat_all_gear","exclude",145,14,9.7,3.55,0.9677,"exclude","gear_only"
++"private_boat_all_gear","gear_only",145,14,9.7,3.552,0.9677,"exclude","gear_only"
++"private_boat_all_gear","impute_mean_cpue",145,14,9.7,3.552,0.9677,"exclude","gear_only"
++"private_boat_all_gear","keep",145,14,9.7,3.552,0.9677,"exclude","gear_only"
+diff --git a/05_output/20260902/validation-desk/D3_coverage_by_fitted_tercile.csv b/05_output/20260902/validation-desk/D3_coverage_by_fitted_tercile.csv
+new file mode 100644
+index 0000000..0bb7991
+--- /dev/null
++++ b/05_output/20260902/validation-desk/D3_coverage_by_fitted_tercile.csv
+@@ -0,0 +1,18 @@
++"run","fit","stream","n","coverage_50_all","cov50_low","cov50_mid","cov50_high","mean_fit_low","mean_fit_high"
++"D  tau off/monthly","private_boat_all_gear","trailer",195,0.538461538461538,0.515151515151515,0.461538461538462,0.640625,1.23672727272727,62.566015625
++"D  tau off/monthly","private_boat_all_gear","catch",131,0.595419847328244,0.468085106382979,0.531914893617021,0.837837837837838,6.35623404255319,22.1762162162162
++"D  tau off/monthly","shore_all_gear","gear",311,0.70096463022508,0.60952380952381,0.75,0.745098039215686,17.9863714285714,80.8873235294118
++"D  tau off/monthly","shore_all_gear","catch",1649,0.456640388114008,0.566607460035524,0.318435754189944,0.479052823315118,0.99350621669627,4.46168488160291
++"S2 tau ON /monthly","private_boat_all_gear","trailer",195,0.523076923076923,0.470588235294118,0.492063492063492,0.609375,1.15675,36.201296875
++"S2 tau ON /monthly","private_boat_all_gear","catch",131,0.595419847328244,0.458333333333333,0.538461538461538,0.795454545454545,6.3956875,21.3468409090909
++"S2 tau ON /monthly","shore_all_gear","gear",311,0.710610932475884,0.638095238095238,0.75,0.745098039215686,17.9574,81.0744117647059
++"S2 tau ON /monthly","shore_all_gear","catch",1649,0.457246816252274,0.56283185840708,0.320224719101124,0.481818181818182,0.996718584070796,4.45667454545455
++"S4b tau ON /daily","private_boat_all_gear","trailer",195,0.743589743589744,0.8,0.784615384615385,0.646153846153846,0.827169230769231,33.3596615384615
++"S4b tau ON /daily","private_boat_all_gear","catch",131,0.557251908396947,0.545454545454545,0.348837209302326,0.772727272727273,6.75475,19.4505681818182
++"S4b tau ON /daily","shore_all_gear","gear",311,0.697749196141479,0.60952380952381,0.75,0.735294117647059,17.9706666666667,80.9767745098039
++"S4b tau ON /daily","shore_all_gear","catch",1649,0.457246816252274,0.565602836879433,0.317164179104478,0.482695810564663,0.995941489361702,4.46295446265938
++"V1 PRODUCTION","private_boat_all_gear","trailer",195,0.523076923076923,0.470588235294118,0.492063492063492,0.609375,1.15610294117647,36.13084375
++"V1 PRODUCTION","private_boat_all_gear","osp",130,0.492307692307692,0.477272727272727,0.558139534883721,0.441860465116279,10.3985,126.940348837209
++"V1 PRODUCTION","private_boat_all_gear","catch",131,0.595419847328244,0.468085106382979,0.531914893617021,0.837837837837838,6.37648936170213,22.2984324324324
++"V1 PRODUCTION","shore_all_gear","gear",311,0.70096463022508,0.622641509433962,0.737864077669903,0.745098039215686,18.0450094339623,80.9515
++"V1 PRODUCTION","shore_all_gear","catch",1649,0.456640388114008,0.562610229276896,0.315789473684211,0.483636363636364,0.996255731922399,4.45543636363636
+diff --git a/05_output/20260902/validation-desk/D3_zero_bin.csv b/05_output/20260902/validation-desk/D3_zero_bin.csv
+new file mode 100644
+index 0000000..5b994c4
+--- /dev/null
++++ b/05_output/20260902/validation-desk/D3_zero_bin.csv
+@@ -0,0 +1,6 @@
++"run","fit","stream","n","obs_zeros","obs_zero_frac","exp_zeros","exp_zero_frac","exp_zeros_sd","mean_fitted_at_zero"
++"V1 PRODUCTION","private_boat_all_gear","trailer",195,39,0.2,43.65407,0.223867025641026,5.07441757208648,1.79284615384615
++"V1 PRODUCTION","private_boat_all_gear","osp",130,7,0.0538461538461538,4.08017,0.0313859230769231,1.88848974551095,6.39214285714286
++"V1 PRODUCTION","private_boat_all_gear","catch",131,12,0.0916030534351145,6.43694,0.0491369465648855,2.42899789349435,8.87691666666667
++"V1 PRODUCTION","shore_all_gear","gear",311,1,0.00321543408360129,0.14479,0.00046556270096463,0.378131946679992,5.219
++"V1 PRODUCTION","shore_all_gear","catch",1649,676,0.409945421467556,605.36863,0.367112571255306,18.7087798252719,1.67213905325444
+diff --git a/05_output/20260902/validation-desk/D4_hygiene.csv b/05_output/20260902/validation-desk/D4_hygiene.csv
+new file mode 100644
+index 0000000..de18432
+--- /dev/null
++++ b/05_output/20260902/validation-desk/D4_hygiene.csv
+@@ -0,0 +1,7 @@
++"check","value"
++"tracked .Rproj.user files","5"
++"tracked 05_output files","7578"
++"tracked 05_output size (MB)","623.9"
++"LICENSE bytes","35149"
++"LICENSE still has a placeholder","FALSE"
++"stale 20260711 morning/afternoon files","222"
+diff --git a/05_output/shore_ar_zi_2026-09-03_ar_ladder.csv b/05_output/shore_ar_zi_2026-09-03_ar_ladder.csv
+new file mode 100644
+index 0000000..10b571b
+--- /dev/null
++++ b/05_output/shore_ar_zi_2026-09-03_ar_ladder.csv
+@@ -0,0 +1,2 @@
++"rung","ar","shore_all_gear","port","p_loo_frac","pareto_bad","p_loo_gear","elpd_gear","elpd_catch","cov50_gear","cov50_catch","cov50_gear_sd","phi_E","sigma_eps_E","disp_scale","divergences"
++"daily (pre-edit production)","daily",20898,71513,0.3519,41,109.425545384796,-1251.31270495551,-3162.5206835814,0.70096463022508,0.456640388114008,7.08809971404678,0.648335030303973,0.45091627409174,0.2339,333
+diff --git a/05_output/shore_ar_zi_2026-09-03_verdicts.csv b/05_output/shore_ar_zi_2026-09-03_verdicts.csv
+new file mode 100644
+index 0000000..8b61cba
+--- /dev/null
++++ b/05_output/shore_ar_zi_2026-09-03_verdicts.csv
+@@ -0,0 +1,2 @@
++"stage","criterion","observed","threshold","verdict","why"
++"P1","aligning the PE onto the BSS arm moves only the boat, and moves it little","largest change -0.059% (private_boat_all_gear); shore components unchanged, as they must be","boat only, and under 1%","PASS","Two arms of one fused estimator disagreeing about which interviews count is a documented inconsistency a reviewer asks about first, and the desk read on 2026-09-01 sized it at 3.552 against 3.550 gear per boat group. The shore is the control here: the alignment touches the boat gear-per-group ratio only, and the shore PE has no such ratio, so any shore movement means the shared helper is reaching further than intended. A change under 1% on the boat is the expected result and is why this is a CONSISTENCY fix rather than an accuracy one; the reason to make it is that there is no estimate to defend, only an inconsistency to remove."
+diff --git a/06_diagnostics/README.md b/06_diagnostics/README.md
+index 393499a..ad7a3a5 100644
+--- a/06_diagnostics/README.md
++++ b/06_diagnostics/README.md
+@@ -12,9 +12,10 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
+ | `run_rg_sweep.R` | The T1.3 `R_G` prior-sensitivity sweep runner (three pooled runs at `R_G_prior_mu` = 1.0/1.28/1.5). |
+ | `run_osp_validation.R` | Batches the OSP validation ladder across both production models and appends to `05_output/osp_validation_summary.csv`. A validation/diagnostic runner, not a production estimator. |
+ | `run_patch_validation_2026-08-25.R` | The validation ladder for the 2026-08-25 improvement batch: one change per rung, with the pass criteria written down in code BEFORE the runs. Set `DRY_RUN <- TRUE` first; that prints every rung's resolved config and self-tests the extractor and the criteria against the two reference runs without fitting anything. Six model-runs, roughly 16-32 h; resumable. |
+-| `test_improvements_2026-08-25.R` | Dependency-light regression harness (no rstan, seconds to run) for the functions the 2026-08-25 batch added or changed, plus a guard on the shipped defaults in `run_config.R`, on the sampler-override whitelist, on the retro audit tables, and on the Stage 5 runner's hard-coded baselines. **233 assertions.** Run it before committing to any long fit. |
++| `test_improvements_2026-08-25.R` | Dependency-light regression harness (no rstan, seconds to run) for the functions the 2026-08-25 batch added or changed, plus a guard on the shipped defaults in `run_config.R`, on the sampler-override whitelist, on the retro audit tables, and on the Stage 5 runner's hard-coded baselines. **264 assertions.** Run it before committing to any long fit. |
+ | `run_stage5_2026-08-30.R` | Unattended batch for Stage 5 of `improvement-plan-2026-08-27.md`: S1 PE-fill re-run (minutes, no MCMC), S2 the `shared_tau` informed-day floor as an exact per-population bit-identity GATE, S3 the gear-track cross-check with the pooled track's sampler settings, S4a/S4b the tau x AR 2x2 (two runs, not one; stage F is not a matched control), S5 the uncontaminated boat pot-closure AR re-run. Ships with `DRY_RUN <- TRUE`, which resolves every config, runs the R-to-Stan data-contract pre-flight and a 22-assertion extractor self-test against the archived runs, and fits nothing. Roughly 18-24 h with `DRY_RUN <- FALSE`; resumable. **Ran 2026-08-30** (24 h; 11 of 12 criteria passing, the one FAIL being a criterion compared against a reference that differed in two ways); results reviewed in `07_documentation/development_notes/stage5-batch-review-2026-08-31.md`. |
+ | `run_validation_2026-09-01.R` | The outstanding validation and diagnosis work after the 2026-09-01 adoption. FOUR DESK STAGES (D1-D4) that run during the dry run, need no Stan toolchain, and score backlog items against data already on disk: the Tier-1 shore I/E unit fix against its four pre-set criteria, the `gear_only` arm decision and the PE-vs-BSS arm disagreement, the PPC coverage and zero-bin reads, and a repository-hygiene audit. Then FIVE FITTED STAGES: V1 the adoption gate (production as shipped must reproduce S2 exactly), V2/V3 the never-sampled GR-7 Phase 2 Dirichlet gear shares with its control, V4 the untested shared-turnover x biweekly-pot-closure corner, V5 a `shared_tau_min_obs = 20` sensitivity. Ships `DRY_RUN <- TRUE`; roughly 15-17 h with it FALSE; resumable. **Ran 2026-09-01** (14.1 h; 17 of 19 criteria resolving, one FAIL a real production defect and one a criterion using the wrong reference); reviewed in `07_documentation/development_notes/validation-batch-review-2026-09-02.md`. |
++| `run_shore_ar_zi_2026-09-03.R` | The four next steps from the 2026-09-02 review. P1 aligns the PE and BSS incomplete-trip arms and measures it (PE only, seconds, runs during the dry run). G1 re-runs the gear track with the 2026-09-02 boat all-gear sampler fix to restore the cross-check. Z0 is the ZINB behaviour-neutrality gate AND the AR ladder's daily rung. A1-A3 force the shore all-gear AR to weekly, biweekly and monthly, the largest open modelling question at 29% of the port total. Z1 turns the ZINB on for the shore, with the boat fits as a free negative control. Ships `DRY_RUN <- TRUE`; roughly 23-26 h with it FALSE; resumable; one Stan recompile. |
+ | `README.md` | This file. |
+ 
+ The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and **collapses exactly to `crab_bss_pooled.stan` when `K_E = K_C = 0`**, so one file serves both the baseline and augmented fits.
+diff --git a/06_diagnostics/run_shore_ar_zi_2026-09-03.R b/06_diagnostics/run_shore_ar_zi_2026-09-03.R
+new file mode 100644
+index 0000000..3ded05b
+--- /dev/null
++++ b/06_diagnostics/run_shore_ar_zi_2026-09-03.R
+@@ -0,0 +1,821 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++###############################################################################
++# run_shore_ar_zi_2026-09-03.R
++#
++# The four next steps from the 2026-09-02 validation review. Start it, walk away, come back
++# to
++#   05_output/shore_ar_zi_2026-09-03_summary.csv
++#   05_output/shore_ar_zi_2026-09-03_verdicts.csv
++#   05_output/shore_ar_zi_2026-09-03_ar_ladder.csv    <- the shore AR ladder, the main result
++#
++# THE ORDERING IS THE ARGUMENT.
++#
++#   P1  PE incomplete-trip arm alignment, PE ONLY, minutes, no MCMC. A code change that
++#       makes the Point Estimator use the same interview frame for the boat gear ratio that
++#       the BSS uses for R_G_boat. It moves a number, so it gets measured rather than
++#       asserted, and it costs a minute rather than a fit because it touches only the PE.
++#
++#   G1  Gear track re-run, about 30-40 minutes. The 2026-09-02 driver fix gave the gear
++#       boat all-gear fit the per-fit sampler settings it had never had. Until this runs,
++#       the cross-check that validates the pooled headline still reads 51,385 instead of
++#       about 70,900. Cheapest decisive stage in the batch by a wide margin, so it goes
++#       first among the fits.
++#
++#   Z0  ZINB code present, FEATURE OFF. Two jobs at once, which is why it is not merely a
++#       control: (a) it must be bit-identical to the 2026-08-31 production run, proving the
++#       Stan edit is behaviour-neutral when off, and (b) it IS the daily rung of the AR
++#       ladder, fitted under the same Stan file as the other rungs. Without (b) the ladder
++#       would compare three post-edit rungs against a pre-edit production run.
++#
++#   A1  shore all-gear AR forced to weekly     }  The main question. Production runs this
++#   A2  shore all-gear AR forced to biweekly   }  component at DAILY, and on the production
++#   A3  shore all-gear AR forced to monthly    }  run it is the worst-behaved fit in the run.
++#
++#   Z1  ZINB ON for the shore. Last because it is the only stage whose value depends on
++#       another stage passing (Z0's gate), and because its own negative control is free:
++#       zi_catch is set per FIT, so the boat fits in this very run carry the feature off and
++#       must come back bit-identical to Z0.
++#
++# WHY THE SHORE AR LADDER IS THE MAIN EVENT. On 05_output/20260831/pooled-CPUE-VAL-1-adopted
++# the shore all-gear fit carries p_loo = 35.2% of n_obs (109.4 effective parameters on 311
++# gear observations), 41 Pareto k above 0.7, and coverage_50 = 0.701 against a nominal 0.500,
++# which is +7.1 sampling SDs. The boat all-gear fit on the same run carries 8.0%, one bad k
++# and 0.095. That is the signature the daily BOAT AR was rejected for in the Stage 5 batch,
++# sitting unexamined on a component worth 29% of the port total. The gear-resolved track fits
++# the same component at MONTHLY and is not better but differently wrong (coverage_50 0.035,
++# -16.4 SDs), so both ends are bad and nobody has run what is between them. That cross-track
++# comparison also differs in three things at once; this ladder differs in ONE.
++#
++# WHAT IS NOT HERE:
++#   * Repository hygiene (untrack .Rproj.user, the 05_output policy) is a git operation and a
++#     policy decision, not a run.
++#   * The crabbing-fraction pilot, the OSP crab-only column, an external benchmark and the
++#     Sunday split are data and field items.
++#   * The weather module still forks a stale pre-deployment-scale engine and must be re-based
++#     before any LOO from it means anything.
++#
++# HOW TO RUN
++#     Rscript 06_diagnostics/run_shore_ar_zi_2026-09-03.R      # from the repo root
++#     source("06_diagnostics/run_shore_ar_zi_2026-09-03.R")    # RStudio: Source
++#
++# START WITH DRY_RUN <- TRUE. It runs P1 for real (PE only, no Stan toolchain needed),
++# resolves and prints every fitted stage, runs the R-to-Stan data-contract pre-flight and the
++# extractor self-test, and fits nothing.
++#
++# RESUMABLE. A stage whose output folder already holds port_total_Dungeness_Kept.csv is
++# skipped and re-extracted.
++#
++# RUNTIME. Roughly 23-26 h on 4 cores: G1 ~0.6 h, Z0 ~4.5 h, A1-A3 ~4-5 h each (a coarser AR
++# is usually FASTER, so the ladder may come in under this), Z1 ~5 h. P1 is minutes.
++#
++# ONE STAN RECOMPILE. The pooled model gains three data variables and one guarded parameter,
++# so the first pooled stage pays a compile (a few minutes). rstan_options(auto_write = TRUE)
++# caches it for the rest.
++###############################################################################
++
++# ============================ CONTROL BLOCK ================================ #
++#            ^^^^ the only lines you normally edit ^^^^
++
++DRY_RUN <- TRUE                  # TRUE: P1 runs, nothing is fitted. START HERE.
++STAGES  <- c("P1", "G1", "Z0", "A1", "A2", "A3", "Z1")
++RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete
++
++# Z0 is the gate for Z1: if the ZINB edit is not behaviour-neutral with the feature off,
++# nothing in Z1 can be attributed to the feature. It does NOT gate the AR ladder, which
++# shares the same Stan file across all four of its rungs and so stays internally valid
++# either way; only the ladder's comparison against the pre-edit production run would be lost.
++GATE_ON_Z0 <- TRUE
++
++# =========================================================================== #
++
++.root <- getwd()
++if (!dir.exists(file.path(.root, "03_R_functions")) &&
++    dir.exists(file.path(.root, "..", "03_R_functions")))
++  .root <- normalizePath(file.path(.root, ".."))
++if (!dir.exists(file.path(.root, "03_R_functions")))
++  stop("Run this from the repository root (or from 06_diagnostics/): 03_R_functions not found.")
++.here <- function(...) file.path(.root, ...)
++setwd(.root)
++
++`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
++banner <- function(msg) cat("\n", strrep("=", 78), "\n ", msg, "\n", strrep("=", 78), "\n", sep = "")
++rule   <- function() cat(strrep("-", 78), "\n")
++fmt    <- function(x, d = 1) if (length(x) == 0 || is.na(x)) "NA" else
++  formatC(as.numeric(x), format = "f", digits = d, big.mark = ",")
++
++if (!isTRUE(DRY_RUN)) {
++  suppressPackageStartupMessages({ library(here); library(rmarkdown) })
++  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
++  install.lib <- load.lib[!load.lib %in% installed.packages()]
++  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
++  invisible(sapply(load.lib, require, character.only = TRUE))
++  rstan_options(auto_write = TRUE)
++  invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE), source))
++  .P1_ready <- TRUE
++} else {
++  # P1 is a Point-Estimator stage, so unlike the pure-CSV desk stages of the 2026-09-01 batch
++  # it needs the whole helper library and the tidyverse, though NOT rstan and NOT a Stan
++  # toolchain. Attach what is there and degrade gracefully: a dry run on a machine without
++  # the data-reading packages should still print every stage's resolved config and run the
++  # pre-flights, which is most of what a dry run is for.
++  .P1_ready <- FALSE
++  if ("P1" %in% STAGES) {
++    .P1_ready <- tryCatch({
++      suppressPackageStartupMessages({
++        library(dplyr); library(tidyr); library(readr); library(lubridate)
++        library(readxl); library(here); library(purrr); library(stringr); library(tibble)
++      })
++      invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE), source))
++      TRUE
++    }, error = function(e) { message("  (P1 needs dplyr/lubridate/readxl and the helper ",
++                                     "library: ", conditionMessage(e), ")"); FALSE })
++  }
++  if (!.P1_ready)
++    for (f in c("model_diagnostics.R", "bss_model_adequacy.R", "annotate_decoupled_run.R",
++                "bss_sampler_override.R", "bss_ar_resolution.R", "pe_gear_ratio_frame.R"))
++      try(sys.source(.here("03_R_functions", f), envir = globalenv()), silent = TRUE)
++}
++
++source(.here("run_config.R"))
++BASE <- run_config
++
++model_rmd <- list(
++  pooled        = .here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd"),
++  gear_resolved = .here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd"))
++prefix <- list(pooled = "pooled-CPUE-", gear_resolved = "gear-type-CPUE-model-")
++stopifnot(all(file.exists(unlist(model_rmd))))
++desk_dir <- .here("05_output", format(Sys.Date(), "%Y%m%d"), "shore-ar-zi-desk")
++
++rd <- function(dir, f) {
++  p <- file.path(dir, f); if (!file.exists(p)) return(NULL)
++  tryCatch(utils::read.csv(p, stringsAsFactors = FALSE, check.names = FALSE), error = function(e) NULL)
++}
++num1 <- function(x) { x <- suppressWarnings(as.numeric(x)); if (length(x)) x[1] else NA_real_ }
++chr1 <- function(x) if (length(x)) as.character(x)[1] else NA_character_
++
++V <- list()
++V1row <- function(stage, criterion, observed, threshold, verdict, why)
++  V[[length(V) + 1]] <<- data.frame(stage = stage, criterion = criterion, observed = observed,
++                                    threshold = threshold, verdict = verdict, why = why,
++                                    stringsAsFactors = FALSE)
++
++# ---------------------------------------------------------------------------
++# BASELINES. Hard-coded from committed folders, named beside each value. Port totals are
++# never used in an exactness gate: rstan::extract(permuted = TRUE) permutes draws, so a port
++# total assembled by resampling component draws is RNG-sensitive even when the fits are
++# bit-identical. Exactness is always tested on per-fit summaries.
++# ---------------------------------------------------------------------------
++REF <- list(
++  # 2026-08-31 production, the adopted configuration. The daily-AR rung comes from here.
++  PROD = list(dir = "20260831/pooled-CPUE-VAL-1-adopted",
++              port = 71513, shore_ag = 20898, shore_pc = 6331, boat_ag = 31008, boat_pc = 1018,
++              shore_ag_ar = "daily",
++              # the adequacy that makes the shore ladder worth running
++              shore_ag_p_loo_frac = 0.352, shore_ag_bad_k = 41, shore_ag_cov50 = 0.701,
++              boat_ag_p_loo_frac = 0.080, boat_ag_bad_k = 1,
++              # the zero bin the ZINB prototype targets
++              shore_ag_obs_zeros = 676, shore_ag_exp_zeros = 605.4, shore_ag_zero_z = 3.8),
++  # 2026-09-01 gear run at the OLD (broken) sampler settings, and the 2026-08-30 stage that
++  # showed what the fix is worth. G1 must land on the S3 side of this.
++  GEARBAD = list(dir = "20260901/gear-type-CPUE-model-VAL-2-gearG-phase1",
++                 port = 51385, boat_ag_reported = 11176, divergences = 554,
++                 tau_neff = 49, tau_Rhat = 1.0813),
++  GEARFIX = list(dir = "20260829/gear-type-CPUE-model-S5-3-tau-gear",
++                 port = 70886, boat_ag = 30760, boat_pc = 956, tau_bar = 2.5962,
++                 divergences = 2, tau_neff = 19292),
++  # The gear track fits shore all-gear at MONTHLY; the other end of the bracket.
++  GEARMON = list(shore_ag_p_loo_frac = 0.036, shore_ag_bad_k = 0, shore_ag_cov50 = 0.035))
++
++stage <- function(id, tag, model, delta, headline, item, kind = "run")
++  list(id = id, tag = tag, model = model, delta = delta, headline = headline, item = item, kind = kind)
++
++# The nested ar_force form, honoured per sub-season since 2026-08-29 and errors on an unnamed
++# list. It bypasses both the data-driven selector and ar_max_resolution, which is what makes
++# a forced ladder possible at all: shore all-gear is CAPPED at daily, so the cap alone cannot
++# express weekly or coarser.
++AR_SHORE_AG <- function(res) list(shore = list(all_gear = res))
++
++STAGE_DEFS <- list(
++  P1 = stage("P1", NA, "pooled", NULL,
++             "PE / BSS incomplete-trip arm alignment, PE only, no fitting", "arm", "pe_only"),
++  G1 = stage("G1", "SZ-G1-gearfix", "gear_resolved", list(),
++             "gear track with the 2026-09-02 boat all-gear sampler fix: restore the cross-check",
++             "gear fix"),
++  Z0 = stage("Z0", "SZ-Z0-zi-off", "pooled", list(estimate_catch_zi = FALSE),
++             "GATE and the ladder's DAILY rung: the ZINB edit must be bit-identical when off",
++             "zinb"),
++  A1 = stage("A1", "SZ-A1-shore-weekly", "pooled", list(ar_force = AR_SHORE_AG("weekly")),
++             "shore all-gear AR forced to weekly", "shore AR"),
++  A2 = stage("A2", "SZ-A2-shore-biweekly", "pooled", list(ar_force = AR_SHORE_AG("biweekly")),
++             "shore all-gear AR forced to biweekly", "shore AR"),
++  A3 = stage("A3", "SZ-A3-shore-monthly", "pooled", list(ar_force = AR_SHORE_AG("monthly")),
++             "shore all-gear AR forced to monthly (the gear track's resolution, same track)",
++             "shore AR"),
++  Z1 = stage("Z1", "SZ-Z1-zi-shore", "pooled",
++             list(estimate_catch_zi = TRUE, catch_zi_populations = c("shore")),
++             "ZINB on the SHORE catch likelihood; the boat fits are a free negative control",
++             "zinb"))
++
++resolve_cfg <- function(sid) modifyList(BASE, STAGE_DEFS[[sid]]$delta %||% list(), keep.null = TRUE)
++
++find_outdir <- function(model, run_tag) {
++  hits <- list.dirs(.here("05_output"), recursive = TRUE)
++  hits <- hits[basename(hits) == paste0(prefix[[model]], run_tag)]
++  if (length(hits)) hits[order(file.mtime(hits), decreasing = TRUE)][1] else NA_character_
++}
++
++# ---------------------------------------------------------------------------
++# CONFIG DELTA, carried over from the 2026-09-01 batch. An exactness comparison is only
++# meaningful when the two runs differ in ONE thing, and that was got wrong twice in three
++# weeks by hand, both times producing a FAIL that looked like a code defect. `expect_delta`
++# turns it into a check: any config key that differs but was not expected is reported inside
++# the verdict.
++# ---------------------------------------------------------------------------
++.cfg_keys <- function(dir) {
++  p <- file.path(dir, "run_parameters.txt")
++  if (!file.exists(p)) return(NULL)
++  kv <- list()
++  for (l in readLines(p, warn = FALSE)) {
++    m <- regmatches(l, regexec("^\\s*\\$ ([A-Za-z0-9_.]+)\\s*:(.*)$", l))[[1]]
++    if (length(m) == 3) kv[[m[2]]] <- trimws(m[3])
++  }
++  kv
++}
++config_delta <- function(dir_a, dir_b) {
++  a <- .cfg_keys(dir_a); b <- .cfg_keys(dir_b)
++  if (is.null(a) || is.null(b)) return(NA_character_)
++  ks <- setdiff(union(names(a), names(b)), c("run_tag", "model"))
++  sort(ks[vapply(ks, function(k) !identical(a[[k]] %||% "<absent>", b[[k]] %||% "<absent>"), logical(1))])
++}
++
++fit_exactness <- function(new_dir, ref_dir, pat = NULL, what = "fits", expect_delta = NULL) {
++  if (!dir.exists(new_dir %||% "") || !dir.exists(ref_dir %||% ""))
++    return(list(observed = "run or reference folder missing", verdict = "REVIEW"))
++  fs <- c(list.files(new_dir, pattern = "^bss_summary_.*\\.csv$"),
++          list.files(new_dir, pattern = "^bss_full_summary_.*\\.csv$"))
++  if (!is.null(pat)) fs <- fs[grepl(pat, fs)]
++  fs <- fs[file.exists(file.path(ref_dir, fs))]
++  n <- 0L; bad <- character(0)
++  for (f in fs) {
++    a <- tryCatch(utils::read.csv(file.path(ref_dir, f), row.names = 1, check.names = FALSE), error = function(e) NULL)
++    b <- tryCatch(utils::read.csv(file.path(new_dir, f), row.names = 1, check.names = FALSE), error = function(e) NULL)
++    if (is.null(a) || is.null(b)) { bad <- c(bad, f); next }
++    cr <- intersect(rownames(a), rownames(b)); cc <- intersect(names(a), names(b))
++    n <- n + length(cr)
++    if (!isTRUE(all.equal(a[cr, cc], b[cr, cc], tolerance = 0))) bad <- c(bad, f)
++  }
++  cd <- config_delta(ref_dir, new_dir)
++  extra <- if (length(cd) && !all(is.na(cd))) setdiff(cd, expect_delta %||% character(0)) else character(0)
++  note <- if (!length(cd) || all(is.na(cd))) "" else
++    sprintf("; configs differ in %d key(s): %s%s", length(cd), paste(cd, collapse = ", "),
++            if (length(extra)) sprintf("  <-- %d UNEXPECTED: %s", length(extra), paste(extra, collapse = ", ")) else "")
++  list(observed = sprintf("%s: %d shared parameter rows across %d summaries %s%s", what, n, length(fs),
++                          if (!length(bad)) "identical at full precision"
++                          else sprintf("DIFFER in %s", paste(basename(bad), collapse = ", ")), note),
++       verdict = if (!length(bad) && n > 0) "PASS" else "FAIL", unexpected_delta = extra)
++}
++
++# ---------------------------------------------------------------------------
++# Extraction.
++# ---------------------------------------------------------------------------
++sp_get <- function(dir, fitlab, par, col = "median") {
++  d <- rd(dir, sprintf("structural_params_%s_Dungeness_Kept.csv", fitlab))
++  if (is.null(d) || !"parameter" %in% names(d) || !col %in% names(d)) return(NA_real_)
++  num1(d[[col]][d$parameter == par])
++}
++sp_idx <- function(dir, fitlab, par, col) {
++  v <- sp_get(dir, fitlab, paste0(par, "[1]"), col); if (is.na(v)) v <- sp_get(dir, fitlab, par, col); v
++}
++adq_get <- function(dir, fitlab, col) {
++  d <- rd(dir, "model_adequacy.csv") %||% rd(dir, "model_adequacy_reconstructed.csv")
++  if (is.null(d) || !"fit" %in% names(d) || !col %in% names(d)) return(NA)
++  v <- d[[col]][d$fit == paste0(fitlab, "_Dungeness_Kept")]; if (!length(v)) NA else v[1]
++}
++loo_get <- function(dir, fitlab, stream, col) {
++  d <- rd(dir, sprintf("loo_summary_%s_Dungeness_Kept.csv", fitlab))
++  if (is.null(d) || !"stream" %in% names(d) || !col %in% names(d)) return(NA_real_)
++  num1(d[[col]][d$stream == stream])
++}
++# Coverage from the RANDOMIZED PIT. ppc_byobs has always used it; ppc_calibration only since
++# 2026-09-01, and before that it over-covered small counts by construction.
++cov50_byobs <- function(dir, fitlab, stream) {
++  d <- rd(dir, sprintf("ppc_byobs_%s_Dungeness_Kept.csv", fitlab))
++  if (is.null(d) || !all(c("data_type", "in_50") %in% names(d))) return(NA_real_)
++  y <- d$in_50[d$data_type == stream]; if (!length(y)) return(NA_real_)
++  mean(as.logical(y), na.rm = TRUE)
++}
++zero_bin <- function(dir, fitlab, stream) {
++  d <- rd(dir, sprintf("ppc_byobs_%s_Dungeness_Kept.csv", fitlab))
++  if (is.null(d) || !all(c("data_type", "p_zero", "observed") %in% names(d))) return(c(NA, NA, NA))
++  y <- d[d$data_type == stream, , drop = FALSE]; if (!nrow(y)) return(c(NA, NA, NA))
++  p <- suppressWarnings(as.numeric(y$p_zero)); p <- p[is.finite(p)]
++  c(sum(y$observed == 0, na.rm = TRUE), sum(p), sqrt(sum(p * (1 - p))))
++}
++
++extract_run <- function(sid, model, run_tag, outdir, minutes, ok) {
++  row <- data.frame(stage = sid, item = STAGE_DEFS[[sid]]$item %||% NA_character_,
++    model = model, run_tag = run_tag, ok = ok, minutes = minutes,
++    outdir = if (is.na(outdir)) "" else basename(outdir),
++    port_BSS_catch = NA_real_, shore_ag_BSS = NA_real_, shore_pc_BSS = NA_real_,
++    boat_ag_BSS = NA_real_, boat_pc_BSS = NA_real_,
++    boat_ag_reported = NA, boat_ag_method = NA_character_,
++    shore_ag_ar = NA_character_, boat_ag_ar = NA_character_,
++    shore_ag_div = NA_real_,
++    # the shore-ladder axes
++    shore_ag_p_loo_frac = NA_real_, shore_ag_bad_k = NA_real_,
++    shore_ag_cov50_gear = NA_real_, shore_ag_cov50_catch = NA_real_,
++    shore_ag_elpd_gear = NA_real_, shore_ag_elpd_catch = NA_real_,
++    shore_ag_ploo_gear = NA_real_, shore_ag_ploo_catch = NA_real_,
++    shore_ag_phi_E = NA_real_, shore_ag_sigma_eps_E = NA_real_, shore_ag_disp_scale = NA_real_,
++    # the ZINB axes
++    shore_ag_theta_C = NA_real_, shore_ag_theta_lo95 = NA_real_, shore_ag_theta_hi95 = NA_real_,
++    shore_ag_zero_obs = NA_real_, shore_ag_zero_exp = NA_real_, shore_ag_zero_z = NA_real_,
++    shore_pc_theta_C = NA_real_,
++    boat_tau_bar = NA_real_, boat_ag_div = NA_real_, boat_tau_neff = NA_real_,
++    fits_passed = NA_character_, stringsAsFactors = FALSE)
++  if (is.na(outdir) || !dir.exists(outdir)) return(row)
++
++  pt <- rd(outdir, "port_total_Dungeness_Kept.csv")
++  if (!is.null(pt) && "Estimate" %in% names(pt)) {
++    i <- pt$Estimate %in% c("Expected_Catch", "Catch"); row$port_BSS_catch <- num1(pt$BSS_median[i]) }
++  pv <- rd(outdir, "pe_vs_bss_comparison.csv")
++  if (!is.null(pv) && "component" %in% names(pv)) {
++    g <- function(pat, col) if (col %in% names(pv)) { v <- pv[[col]][grepl(pat, pv$component)]; if (length(v)) v[1] else NA } else NA
++    row$shore_ag_BSS <- num1(g("^shore \\(All gear\\)", "BSS_catch"))
++    row$shore_pc_BSS <- num1(g("^shore \\(Pot closure\\)", "BSS_catch"))
++    row$boat_ag_BSS  <- num1(g("^private_boat \\(All gear\\)", "BSS_catch"))
++    row$boat_pc_BSS  <- num1(g("^private_boat \\(Pot closure\\)", "BSS_catch"))
++    row$boat_ag_reported <- as.logical(g("^private_boat \\(All gear\\)", "bss_reported"))
++  }
++  cr <- rd(outdir, "convergence_report.csv")
++  if (!is.null(cr) && "fit" %in% names(cr)) {
++    g <- function(pat, col) { if (!col %in% names(cr)) return(NA); i <- grepl(pat, cr$fit); if (any(i)) cr[[col]][i][1] else NA }
++    row$shore_ag_ar     <- chr1(g("^shore_all_gear", "ar_resolution"))
++    row$boat_ag_ar      <- chr1(g("^private_boat_all_gear", "ar_resolution"))
++    row$shore_ag_div    <- num1(g("^shore_all_gear", "divergences"))
++    row$boat_ag_div     <- num1(g("^private_boat_all_gear", "divergences"))
++    row$boat_ag_method  <- chr1(g("^private_boat_all_gear", "method_selected"))
++  }
++  fds <- rd(outdir, "fit_data_summary.csv")
++  if (!is.null(fds) && "fit" %in% names(fds) && "ar_resolution" %in% names(fds)) {
++    if (is.na(row$shore_ag_ar)) row$shore_ag_ar <- chr1(fds$ar_resolution[fds$fit == "shore_all_gear_Dungeness_Kept"])
++    if (is.na(row$boat_ag_ar))  row$boat_ag_ar  <- chr1(fds$ar_resolution[fds$fit == "private_boat_all_gear_Dungeness_Kept"])
++  }
++
++  sag <- "shore_all_gear"; bag <- "private_boat_all_gear"
++  row$shore_ag_p_loo_frac  <- num1(adq_get(outdir, sag, "p_loo_frac"))
++  row$shore_ag_bad_k       <- num1(adq_get(outdir, sag, "n_pareto_bad"))
++  row$shore_ag_disp_scale  <- num1(adq_get(outdir, sag, "disp_scale_min"))
++  row$shore_ag_cov50_gear  <- cov50_byobs(outdir, sag, "gear")
++  row$shore_ag_cov50_catch <- cov50_byobs(outdir, sag, "catch")
++  row$shore_ag_elpd_gear   <- loo_get(outdir, sag, "gear", "elpd_loo")
++  row$shore_ag_elpd_catch  <- loo_get(outdir, sag, "catch", "elpd_loo")
++  row$shore_ag_ploo_gear   <- loo_get(outdir, sag, "gear", "p_loo")
++  row$shore_ag_ploo_catch  <- loo_get(outdir, sag, "catch", "p_loo")
++  row$shore_ag_phi_E       <- sp_get(outdir, sag, "phi_E")
++  row$shore_ag_sigma_eps_E <- sp_get(outdir, sag, "sigma_eps_E")
++  row$shore_ag_theta_C     <- sp_idx(outdir, sag, "theta_C", "median")
++  row$shore_ag_theta_lo95  <- sp_idx(outdir, sag, "theta_C", "lo95")
++  row$shore_ag_theta_hi95  <- sp_idx(outdir, sag, "theta_C", "hi95")
++  row$shore_pc_theta_C     <- sp_idx(outdir, "shore_ring_net_only", "theta_C", "median")
++  z <- zero_bin(outdir, sag, "catch")
++  row$shore_ag_zero_obs <- z[1]; row$shore_ag_zero_exp <- z[2]
++  row$shore_ag_zero_z   <- if (is.finite(z[3]) && z[3] > 0) (z[1] - z[2]) / z[3] else NA_real_
++  row$boat_tau_bar   <- sp_idx(outdir, bag, "tau_bar", "median")
++  row$boat_tau_neff  <- sp_idx(outdir, bag, "tau_bar", "n_eff")
++  ss <- rd(outdir, "season_summary.csv")
++  if (!is.null(ss) && "metric" %in% names(ss)) row$fits_passed <- chr1(ss$value[ss$metric == "BSS fits passed"])
++  row
++}
++
++# ===========================================================================
++# P1. The PE / BSS incomplete-trip arm alignment, PE ONLY.
++#
++# The BSS learns R_G_boat from a frame that HAS been incomplete-trip filtered
++# (prep_bss_crab_pooled.R: intA descends from int_d, after filter_incomplete_trips). Both
++# Point Estimators built the same ratio from the UNFILTERED set. sensitivity_incomplete_trips
++# .csv has reported that as production_arm_bss = "exclude" against production_arm_pe =
++# "gear_only" since 2026-08-25 without anyone acting on it.
++#
++# The fix is a shared helper (pe_gear_ratio_frame.R) rather than the same edit in two files,
++# because the gear-resolved PE's comment ALREADY claimed it matched the BSS while it did not,
++# which is what two copies of one rule produces.
++#
++# This stage runs both arms of the Point Estimator and reports the difference. It is a
++# PE-only change, so it costs a minute rather than a fit, and it moves a reported number
++# wherever a component falls back to PE, which makes measuring it non-optional.
++# ===========================================================================
++run_P1 <- function() {
++  banner("STAGE P1  |  PE / BSS incomplete-trip arm alignment, PE only")
++  dir.create(desk_dir, recursive = TRUE, showWarnings = FALSE)
++  params <- modifyList(BASE, list(bss_model_file = "crab_bss_pooled.stan"))
++  params$crabbing_holiday_dates <- read_crabbing_holidays(params)
++  dwg     <- fetch_crab_data(params)
++  ie_data <- fetch_ie_data(params)
++  L_eff   <- if (!is.null(ie_data) && nrow(ie_data) > 0)
++               estimate_L_effective(ie_data, params$pot_open_date, params) else NULL
++  subs    <- build_subseasons(params)
++
++  rows <- list()
++  for (arm in c("gear_only", "match_bss")) {
++    p <- modifyList(params, list(pe_gear_ratio_arm = arm))
++    for (pop in c("shore", "private_boat")) for (ss in subs) {
++      lab <- paste0(pop, "_", ss$name)
++      days_ss <- prep_days_crab(ss$start, ss$end, p, L_eff_model = L_eff)
++      summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, p)
++      r <- run_pe_pooled(summ_ss, days_ss, p, lab)
++      rows[[length(rows) + 1]] <- data.frame(
++        arm = arm, component = lab,
++        pe_effort = r$effort_total %||% NA_real_,
++        pe_catch  = r[["Dungeness_Kept"]] %||% NA_real_, stringsAsFactors = FALSE)
++    }
++  }
++  df <- do.call(rbind, rows)
++  w <- merge(df[df$arm == "gear_only", ], df[df$arm == "match_bss", ],
++             by = "component", suffixes = c("_gear_only", "_match_bss"))
++  w$catch_change_pct  <- round(100 * (w$pe_catch_match_bss  - w$pe_catch_gear_only)  / pmax(w$pe_catch_gear_only, 1), 3)
++  w$effort_change_pct <- round(100 * (w$pe_effort_match_bss - w$pe_effort_gear_only) / pmax(w$pe_effort_gear_only, 1), 3)
++  utils::write.csv(w, file.path(desk_dir, "P1_pe_arm_alignment.csv"), row.names = FALSE)
++
++  rule()
++  cat(sprintf("  %-28s %14s %14s %10s %10s\n", "component", "PE gear_only", "PE match_bss", "d catch", "d effort"))
++  for (i in seq_len(nrow(w)))
++    cat(sprintf("  %-28s %14s %14s %+9.3f%% %+9.3f%%\n", w$component[i],
++                fmt(w$pe_catch_gear_only[i], 0), fmt(w$pe_catch_match_bss[i], 0),
++                w$catch_change_pct[i], w$effort_change_pct[i]))
++  rule()
++
++  i_worst <- which.max(abs(w$catch_change_pct))
++  worst <- w$catch_change_pct[i_worst]      # signed: the direction is part of the answer
++  # The shore is expected to be untouched: the alignment changes only the BOAT gear-per-group
++  # ratio, and the shore PE does not use one.
++  sh <- w[grepl("^shore", w$component), , drop = FALSE]
++  V1row("P1", "aligning the PE onto the BSS arm moves only the boat, and moves it little",
++    sprintf("largest change %+.3f%% (%s); shore components %s",
++            worst, w$component[i_worst],
++            if (all(abs(sh$catch_change_pct) < 1e-6)) "unchanged, as they must be"
++            else sprintf("MOVED by up to %+.3f%%", max(abs(sh$catch_change_pct)))),
++    "boat only, and under 1%",
++    if (all(abs(sh$catch_change_pct) < 1e-6) && abs(worst) < 1) "PASS" else "REVIEW",
++    paste("Two arms of one fused estimator disagreeing about which interviews count is a",
++          "documented inconsistency a reviewer asks about first, and the desk read on",
++          "2026-09-01 sized it at 3.552 against 3.550 gear per boat group. The shore is the",
++          "control here: the alignment touches the boat gear-per-group ratio only, and the",
++          "shore PE has no such ratio, so any shore movement means the shared helper is",
++          "reaching further than intended. A change under 1% on the boat is the expected",
++          "result and is why this is a CONSISTENCY fix rather than an accuracy one; the",
++          "reason to make it is that there is no estimate to defend, only an inconsistency",
++          "to remove."))
++  invisible(w)
++}
++
++# ---------------------------------------------------------------------------
++# The run loop.
++# ---------------------------------------------------------------------------
++sum_path <- .here("05_output", "shore_ar_zi_2026-09-03_summary.csv")
++ver_path <- .here("05_output", "shore_ar_zi_2026-09-03_verdicts.csv")
++lad_path <- .here("05_output", "shore_ar_zi_2026-09-03_ar_ladder.csv")
++append_row <- function(r) utils::write.table(
++  r, sum_path, sep = ",", row.names = FALSE, qmethod = "double",
++  col.names = !file.exists(sum_path), append = file.exists(sum_path))
++
++# PRE-FLIGHT 1: the R-to-Stan data contract. This batch adds THREE Stan data variables to the
++# pooled model, so it earns its place: an unforwarded field makes rstan return an EMPTY
++# stanfit rather than raise, and the 2026-08-25 ladder lost six runs to exactly that.
++local({
++  src_fn <- .here("03_R_functions", "bss_stan_fit.R")
++  if (!file.exists(src_fn)) { warning("bss_stan_fit.R not found; pre-flight skipped."); return(invisible(NULL)) }
++  e <- new.env(); sys.source(src_fn, envir = e)
++  pairs <- list(pooled = c("crab_bss_pooled.stan", "prep_bss_crab_pooled.R"),
++                gear_resolved = c("crab_bss_gear_resolved.stan", "prep_bss_crab_gear.R"))
++  fail <- character(0)
++  for (m in names(pairs)) {
++    need <- e$bss_stan_data_names(.here("02_stan_models", pairs[[m]][1]))
++    src  <- paste(readLines(.here("03_R_functions", pairs[[m]][2]), warn = FALSE), collapse = "\n")
++    miss <- need[!vapply(need, function(v) grepl(paste0("(^|[^A-Za-z0-9_.])", v, "([^A-Za-z0-9_]|$)"), src, perl = TRUE), logical(1))]
++    cat(sprintf("  pre-flight  %-14s %2d Stan data variables, %d not built in %s\n",
++                m, length(need), length(miss), basename(pairs[[m]][2])))
++    if (length(miss)) fail <- c(fail, sprintf("%s: %s", m, paste(miss, collapse = ", ")))
++  }
++  if (length(fail)) stop("PRE-FLIGHT FAILED, the R-to-Stan data contract is broken.\n  ",
++                         paste(fail, collapse = "\n  "), call. = FALSE)
++})
++
++# PRE-FLIGHT 2: the two code changes this batch tests are actually present, and production
++# still ships the ZINB off. A stage that silently tests the old code is worse than no stage.
++local({
++  ok_helper <- file.exists(.here("03_R_functions", "pe_gear_ratio_frame.R"))
++  gear_rmd  <- paste(readLines(model_rmd$gear_resolved, warn = FALSE), collapse = "\n")
++  ok_gear   <- grepl("bss_iter_boat_allgear", gear_rmd, fixed = TRUE)
++  cat(sprintf("  pre-flight  PE arm helper present: %s | gear boat sampler fix present: %s | ships ZINB off: %s\n",
++              ok_helper, ok_gear, isFALSE(BASE$estimate_catch_zi)))
++  if (!ok_helper) stop("03_R_functions/pe_gear_ratio_frame.R is missing; P1 has nothing to test.", call. = FALSE)
++  if (!ok_gear)   stop("The gear driver has no bss_iter_boat_allgear; G1 would reproduce the ",
++                       "broken fit and look like a null result.", call. = FALSE)
++  if (!isFALSE(BASE$estimate_catch_zi))
++    stop("run_config.R ships estimate_catch_zi = TRUE, so Z0 would not be an OFF control.", call. = FALSE)
++})
++
++collected <- list(); gate_ok <- TRUE
++
++for (sid in STAGES) {
++  S <- STAGE_DEFS[[sid]]
++
++  if (identical(S$kind, "pe_only")) {
++    if (isTRUE(DRY_RUN) && !isTRUE(.P1_ready)) {
++      banner("STAGE P1 DEFERRED: the packages it needs are not available in this session. It will run first when DRY_RUN <- FALSE, still without any fitting.")
++      next
++    }
++    t0 <- Sys.time()
++    tryCatch(run_P1(), error = function(e) message("*** STAGE P1 FAILED: ", conditionMessage(e)))
++    cat(sprintf("\n  [P1 done in %.1f s]\n", as.numeric(difftime(Sys.time(), t0, units = "secs"))))
++    next
++  }
++  if (isTRUE(DRY_RUN)) next
++
++  if (!gate_ok && isTRUE(GATE_ON_Z0) && identical(sid, "Z1")) {
++    banner(paste("STAGE Z1 SKIPPED: Z0 did not reproduce production with the feature off, so",
++                 "the ZINB edit is not behaviour-neutral and nothing in Z1 could be attributed",
++                 "to zero inflation. The AR ladder is unaffected: its four rungs share one Stan",
++                 "file, so it stays internally valid; only its comparison against the pre-edit",
++                 "production run would be lost."))
++    next
++  }
++
++  m <- S$model; run_tag <- S$tag; folder <- paste0(prefix[[m]], run_tag)
++  done <- find_outdir(m, run_tag)
++  if (isTRUE(RESUME) && !is.na(done) && file.exists(file.path(done, "port_total_Dungeness_Kept.csv"))) {
++    banner(sprintf("SKIP (already complete): %s / %s / %s", sid, m, folder))
++    r <- extract_run(sid, m, run_tag, done, NA_real_, TRUE)
++    collected[[length(collected) + 1]] <- r; append_row(r)
++  } else {
++    rc <- resolve_cfg(sid); rc$model <- m; rc$run_tag <- run_tag; rc$run_weather <- FALSE
++    banner(sprintf("STAGE %s  %s  |  %s  |  start %s", sid, folder, S$headline, format(Sys.time(), "%H:%M:%S")))
++    cat(sprintf("  item %s | ar_force=%s | estimate_catch_zi=%s (%s) | pe_gear_ratio_arm=%s\n",
++                S$item,
++                if (is.null(rc$ar_force)) "NULL" else paste(utils::capture.output(str(rc$ar_force)), collapse = " "),
++                rc$estimate_catch_zi %||% FALSE, paste(rc$catch_zi_populations %||% "-", collapse = "+"),
++                rc$pe_gear_ratio_arm %||% "match_bss"))
++    run_env <- new.env(parent = globalenv()); run_env$run_config <- rc
++    t0 <- Sys.time()
++    ok <- tryCatch({
++      html <- rmarkdown::render(model_rmd[[m]], envir = run_env, quiet = FALSE)
++      od <- tryCatch(get("output_dir", envir = run_env, inherits = FALSE), error = function(e) NA_character_)
++      if (!is.na(od) && dir.exists(od) && normalizePath(dirname(html)) != normalizePath(od)) {
++        if (isTRUE(file.copy(html, file.path(od, basename(html)), overwrite = TRUE))) suppressWarnings(file.remove(html))
++      }
++      TRUE
++    }, error = function(e) {
++      message("*** STAGE ", sid, " / ", m, " FAILED: ", conditionMessage(e))
++      od <- tryCatch(get("output_dir", envir = run_env, inherits = FALSE), error = function(e2) NA_character_)
++      if (!is.na(od) && dir.exists(od)) {
++        logs <- list.files(od, pattern = "^stan_console_.*\\.log$", full.names = TRUE)
++        if (length(logs)) { last <- logs[which.max(file.mtime(logs))]
++          message("    Stan console (", basename(last), "):")
++          message(paste0("      ", utils::tail(readLines(last, warn = FALSE), 8), collapse = "\n")) }
++        else message("    No stan_console_*.log in ", od, " -- failed before the first sampler call.")
++      }
++      FALSE })
++    mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
++    r <- extract_run(sid, m, run_tag, find_outdir(m, run_tag), mins, ok)
++    collected[[length(collected) + 1]] <- r
++    tryCatch(append_row(r), error = function(e) message("  (summary row not written: ", conditionMessage(e), ")"))
++    banner(sprintf("STAGE %s / %s -> %s (%s min)", sid, m, if (ok) "OK" else "FAILED", mins))
++  }
++
++  if (identical(sid, "Z0")) {
++    nd <- find_outdir(m, run_tag)
++    ex <- fit_exactness(nd %||% "", .here("05_output", REF$PROD$dir), NULL,
++                        "all four fits vs 2026-08-31 production",
++                        expect_delta = c("estimate_catch_zi", "catch_zi_populations",
++                                         "zi_catch_prior_a", "zi_catch_prior_b",
++                                         "pe_gear_ratio_arm"))
++    gate_ok <- identical(ex$verdict, "PASS")
++    cat("\n  GATE  ZINB edit, feature OFF: ", ex$verdict, "\n        ", ex$observed, "\n", sep = "")
++    if (!gate_ok) message("*** The ZINB edit is not behaviour-neutral with the feature off. Z1 will be skipped.")
++  }
++}
++
++# ---- THE SHORE AR LADDER ---------------------------------------------------
++# The table this batch exists to produce. Four rungs on ONE component, differing in one
++# thing. Every rung carries the quantities that separated the boat cells in the Stage 5
++# batch, so the two are read the same way.
++S <- if (length(collected)) do.call(rbind, collected) else NULL
++g1 <- function(sid, col) { if (is.null(S)) return(NA); x <- S[[col]][S$stage == sid]; if (length(x)) x[1] else NA }
++
++lad_row <- function(name, res, sid = NULL, from_dir = NULL) {
++  r <- if (!is.null(from_dir)) {
++    d <- .here("05_output", from_dir)
++    if (dir.exists(d)) extract_run("Z0", "pooled", "archived", d, NA_real_, TRUE) else NULL
++  } else if (!is.null(sid) && !is.null(S) && any(S$stage == sid)) S[S$stage == sid, ][1, ] else NULL
++  if (is.null(r)) return(NULL)
++  n_gear <- 311  # shore all-gear effort observations, constant across rungs
++  data.frame(rung = name, ar = res,
++             shore_all_gear = r$shore_ag_BSS, port = r$port_BSS_catch,
++             p_loo_frac = r$shore_ag_p_loo_frac, pareto_bad = r$shore_ag_bad_k,
++             p_loo_gear = r$shore_ag_ploo_gear, elpd_gear = r$shore_ag_elpd_gear,
++             elpd_catch = r$shore_ag_elpd_catch,
++             cov50_gear = r$shore_ag_cov50_gear, cov50_catch = r$shore_ag_cov50_catch,
++             cov50_gear_sd = (r$shore_ag_cov50_gear - 0.5) / sqrt(0.25 / n_gear),
++             phi_E = r$shore_ag_phi_E, sigma_eps_E = r$shore_ag_sigma_eps_E,
++             disp_scale = r$shore_ag_disp_scale, divergences = r$shore_ag_div,
++             stringsAsFactors = FALSE)
++}
++LAD <- do.call(rbind, Filter(Negate(is.null), list(
++  lad_row("daily (production)", "daily",    sid = "Z0"),
++  lad_row("weekly",             "weekly",   sid = "A1"),
++  lad_row("biweekly",           "biweekly", sid = "A2"),
++  lad_row("monthly",            "monthly",  sid = "A3"))))
++if (is.null(LAD) || !nrow(LAD))
++  LAD <- lad_row("daily (pre-edit production)", "daily", from_dir = REF$PROD$dir)
++if (!is.null(LAD)) utils::write.csv(LAD, lad_path, row.names = FALSE)
++
++# ---- VERDICTS --------------------------------------------------------------
++if (!is.null(S) && any(S$stage == "G1")) {
++  meth <- g1("G1", "boat_ag_method"); div <- g1("G1", "boat_ag_div")
++  V1row("G1", "the gear boat all-gear fit samples now that it has per-fit settings",
++    sprintf("method %s; divergences %s (was %s); tau_bar n_eff %s (was %s); port %s (was %s, S3 with the experiment override %s)",
++            meth, fmt(div, 0), fmt(REF$GEARBAD$divergences, 0), fmt(g1("G1","boat_tau_neff"), 0),
++            fmt(REF$GEARBAD$tau_neff, 0), fmt(g1("G1","port_BSS_catch"), 0),
++            fmt(REF$GEARBAD$port, 0), fmt(REF$GEARFIX$port, 0)),
++    "method_selected == BSS", if (identical(meth, "BSS")) "PASS" else "FAIL",
++    paste("Until this run the gear-resolved port total read 51,385 because the boat all-gear",
++          "fit was rejected and the component fell back to PE, a 27% understatement of the",
++          "cross-check that validates the pooled headline. The 2026-08-30 Stage 5 batch had",
++          "already demonstrated the fix and left it in an EXPERIMENT-only override, so",
++          "production never received it. A PASS here means the fix is in the driver where it",
++          "belongs and the two tracks can be compared again. A FAIL would mean the driver",
++          "edit does not reach the fit, which the pre-flight tries to catch first."))
++  V1row("G1", "cross-track agreement is restored",
++    sprintf("gear port %s vs pooled production %s (%.2f%%); gear boat all-gear %s vs pooled %s; tau_bar %s vs %s",
++            fmt(g1("G1","port_BSS_catch"), 0), fmt(REF$PROD$port, 0),
++            100 * (g1("G1","port_BSS_catch") - REF$PROD$port) / REF$PROD$port,
++            fmt(g1("G1","boat_ag_BSS"), 0), fmt(REF$PROD$boat_ag, 0),
++            fmt(g1("G1","boat_tau_bar"), 4), fmt(REF$GEARFIX$tau_bar, 4)),
++    "within about 1% at the port, as the 2026-08-26 shipped pair was (0.73%)",
++    if (!is.na(g1("G1","port_BSS_catch")) &&
++        abs(g1("G1","port_BSS_catch") - REF$PROD$port) / REF$PROD$port < 0.02) "PASS" else "REVIEW",
++    paste("Two independently parameterized CPUE structures fitting the same data. This is",
++          "the strongest internal check the project has, and it has been unavailable since",
++          "the shared turnover was adopted because one side could not sample. Read tau_bar",
++          "alongside the totals: on 2026-08-30 the two tracks agreed on it to 0.03%, which",
++          "is what makes the shared turnover a property of the data rather than of the",
++          "pooled parameterization."))
++}
++
++if (!is.null(S) && any(S$stage == "Z0")) {
++  nd <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
++  ex <- fit_exactness(nd %||% "", .here("05_output", REF$PROD$dir), NULL,
++                      "all four fits vs 2026-08-31 production",
++                      expect_delta = c("estimate_catch_zi", "catch_zi_populations",
++                                       "zi_catch_prior_a", "zi_catch_prior_b", "pe_gear_ratio_arm"))
++  V1row("Z0", "the ZINB edit is behaviour-neutral with the feature off",
++    ex$observed, "every shared parameter row identical at full precision", ex$verdict,
++    paste("theta_C is declared vector<lower=0,upper=1>[zi_catch], so it is zero-size when",
++          "the feature is off and the unconstrained parameter vector is unchanged. That is",
++          "the same guard pattern shared_tau and f_lower use and it has held both times, but",
++          "the project's own rule is to validate by run rather than by reasoning: a change",
++          "that looks inference-neutral on paper can still perturb the sampler geometry.",
++          "This is also the ladder's daily rung, so a FAIL costs the ladder its comparison",
++          "against the pre-edit production run as well as costing Z1 its interpretation."))
++}
++
++if (!is.null(LAD) && nrow(LAD) > 1) {
++  best_cov <- LAD$rung[which.min(abs(LAD$cov50_gear - 0.5))]
++  best_elpd <- LAD$rung[which.max(LAD$elpd_gear)]
++  V1row("A1-A3", "where does the shore all-gear effort process actually belong?",
++    paste(sprintf("%s: p_loo %s%% of n_obs, k>0.7 %s, gear cov50 %s (%+.1f SD), gear elpd %s, catch elpd %s, shore catch %s",
++                  LAD$rung, fmt(100 * LAD$p_loo_frac, 1), fmt(LAD$pareto_bad, 0),
++                  fmt(LAD$cov50_gear, 3), LAD$cov50_gear_sd, fmt(LAD$elpd_gear, 1),
++                  fmt(LAD$elpd_catch, 1), fmt(LAD$shore_all_gear, 0)), collapse = " | "),
++    "best calibrated rung, read together with p_loo and the catch stream",
++    sprintf("BEST COVERAGE: %s | BEST GEAR elpd: %s", best_cov, best_elpd),
++    paste("THE QUESTION THIS BATCH EXISTS FOR. Production fits this component at daily and",
++          "it is the worst-behaved fit in the production run: p_loo 35.2% of n_obs, 41",
++          "Pareto k above 0.7, coverage_50 0.701 at +7.1 sampling SDs. The gear track fits",
++          "it at monthly and gets coverage_50 0.035, -16.4 SDs, so both ends are bad. Read",
++          "this ladder the way the Stage 5 boat 2x2 was read, and in this order: (1)",
++          "COVERAGE first, because it is the statistic a reader can interpret without",
++          "knowing what a PIT is and the one that separated the boat cells; (2) p_loo as a",
++          "fraction of n_obs and the Pareto k count, because a rung that buys elpd by",
++          "spending effective parameters at about one nat each is buying noise; (3) the",
++          "CATCH stream's elpd, because the boat's daily AR improved the effort stream while",
++          "making the catch stream worse, and catch is what the harvest estimate is made of.",
++          "A rung that wins on all three is the answer. If the winner is not daily, the",
++          "ar_max_resolution entry for shore all-gear should change and the shore component",
++          "of the published estimate moves with it, so this is a number-moving decision and",
++          "needs sign-off rather than a silent config edit."))
++}
++
++if (!is.null(S) && any(S$stage == "Z1")) {
++  th <- g1("Z1","shore_ag_theta_C")
++  e0 <- g1("Z0","shore_ag_elpd_catch"); e1 <- g1("Z1","shore_ag_elpd_catch")
++  V1row("Z1", "does a structural-zero component earn its parameter on the shore catch stream?",
++    sprintf("theta_C = %s [%s, %s]; shore pot closure theta_C = %s; catch elpd %s -> %s (%+.1f nats for 1 parameter)",
++            fmt(th, 4), fmt(g1("Z1","shore_ag_theta_lo95"), 4), fmt(g1("Z1","shore_ag_theta_hi95"), 4),
++            fmt(g1("Z1","shore_pc_theta_C"), 4), fmt(e0, 1), fmt(e1, 1), e1 - e0),
++    "a positive elpd gain well beyond 1 nat, and an interval excluding zero",
++    if (is.na(th) || is.na(e1) || is.na(e0)) "REVIEW"
++    else if ((e1 - e0) > 4 && g1("Z1","shore_ag_theta_lo95") > 0.005) "ADOPTABLE"
++    else if ((e1 - e0) > 1) "MARGINAL" else "NOT WORTH IT",
++    paste("The 2026-09-01 zero bin put the shore all-gear catch stream at 676 observed zeros",
++          "against 605.4 expected, z = +3.8 on n = 1,649, with the shore pot closure agreeing",
++          "at z = +2.9 and every boat stream inside |z| = 2.3. So the target was chosen from",
++          "data rather than from taste, and the available gain is bounded by roughly 70",
++          "observations out of 1,649. One parameter buying more than about 4 nats is a",
++          "clearly good trade; 1 to 4 is the range where it is a judgement call; below 1 it",
++          "is fitting noise. The shore POT CLOSURE fit is the internal replicate: an",
++          "independent fit on different data that should land near the same theta_C if the",
++          "effect is real."))
++  V1row("Z1", "the zero bin closes on the treated stream",
++    sprintf("shore all-gear zeros: %s observed vs %s expected (z = %s), was %s vs %s (z = %s)",
++            fmt(g1("Z1","shore_ag_zero_obs"), 0), fmt(g1("Z1","shore_ag_zero_exp"), 1),
++            fmt(g1("Z1","shore_ag_zero_z"), 1), fmt(REF$PROD$shore_ag_obs_zeros, 0),
++            fmt(REF$PROD$shore_ag_exp_zeros, 1), fmt(REF$PROD$shore_ag_zero_z, 1)),
++    "|z| under about 2", if (!is.na(g1("Z1","shore_ag_zero_z")) && abs(g1("Z1","shore_ag_zero_z")) < 2) "PASS" else "REVIEW",
++    paste("The direct test that the feature does what it was added for. A theta_C with a",
++          "good elpd gain but an unchanged zero bin would mean the parameter is absorbing",
++          "something else. Note this is an IN-SAMPLE check on the quantity the parameter was",
++          "fitted to, so it cannot by itself justify adoption; it is the necessary condition,",
++          "and the elpd criterion above is the sufficient one."))
++  ex <- fit_exactness(find_outdir("pooled", STAGE_DEFS$Z1$tag) %||% "",
++                      find_outdir("pooled", STAGE_DEFS$Z0$tag) %||% "", "private_boat",
++                      "boat fits vs Z0", expect_delta = c("estimate_catch_zi"))
++  V1row("Z1", "the boat fits are an untouched negative control",
++    ex$observed, "boat fits bit-identical to Z0", ex$verdict,
++    paste("zi_catch is set per FIT from catch_zi_populations, so the boat fits in this very",
++          "run carry the feature off. That makes the control free: no extra run, and the",
++          "same RNG stream and the same everything else. A FAIL means the per-fit scoping",
++          "leaks, which would make the shore result unattributable AND would have quietly",
++          "changed the headline boat number."))
++  V1row("Z1", "what it does to the reported shore total",
++    sprintf("shore all-gear %s (Z0 %s, %+.1f%%); port %s (Z0 %s)",
++            fmt(g1("Z1","shore_ag_BSS"), 0), fmt(g1("Z0","shore_ag_BSS"), 0),
++            100 * (g1("Z1","shore_ag_BSS") - g1("Z0","shore_ag_BSS")) / g1("Z0","shore_ag_BSS"),
++            fmt(g1("Z1","port_BSS_catch"), 0), fmt(g1("Z0","port_BSS_catch"), 0)),
++    "informational, but READ THE WHY", "INFO",
++    paste("The season total is scaled by (1 - theta_C) in generated quantities, deliberately.",
++          "lambda_C is fitted to the NON-inflated component and rises to absorb the zeros",
++          "theta_C removed, so reporting lambda_C * effort unscaled would inflate the total",
++          "by 1/(1 - theta_C) purely as an artefact of turning the feature on. If this shows",
++          "the shore total moving by roughly theta_C in either direction, check that scaling",
++          "before believing it: a total that moves UP by about theta_C is the signature of",
++          "the scaling having been dropped somewhere."))
++}
++
++VD <- if (length(V)) do.call(rbind, V) else NULL
++if (!is.null(VD)) utils::write.csv(VD, ver_path, row.names = FALSE)
++
++banner("BATCH SUMMARY")
++if (!is.null(S)) {
++  print(S[, c("stage","item","model","ok","minutes","port_BSS_catch","shore_ag_BSS",
++              "shore_ag_ar","shore_ag_p_loo_frac","shore_ag_cov50_gear","fits_passed")], row.names = FALSE)
++  cat("\n  full summary -> ", sum_path, "\n", sep = "")
++}
++if (!is.null(LAD) && nrow(LAD) > 1) {
++  rule(); cat("  SHORE ALL-GEAR AR LADDER  (nominal coverage_50 = 0.500)\n\n")
++  cat(sprintf("  %-20s %9s %7s %9s %10s %11s %11s\n", "rung", "catch", "p_loo", "k>0.7",
++              "gear cov50", "gear elpd", "catch elpd"))
++  for (i in seq_len(nrow(LAD)))
++    cat(sprintf("  %-20s %9s %6.1f%% %9s %10s %11s %11s\n", LAD$rung[i],
++                fmt(LAD$shore_all_gear[i], 0), 100 * LAD$p_loo_frac[i], fmt(LAD$pareto_bad[i], 0),
++                sprintf("%.3f", LAD$cov50_gear[i]), fmt(LAD$elpd_gear[i], 1), fmt(LAD$elpd_catch[i], 1)))
++  cat("\n  ladder -> ", lad_path, "\n", sep = "")
++}
++if (!is.null(VD)) {
++  rule()
++  for (i in seq_len(nrow(VD)))
++    cat(sprintf("[%s] %-28s %s\n        %s\n", VD$stage[i], VD$verdict[i], VD$criterion[i], VD$observed[i]))
++  cat("\n  verdicts -> ", ver_path, "\n", sep = "")
++}
++if (isTRUE(DRY_RUN)) {
++  rule()
++  banner("DRY RUN: P1 ran for real; the fitted stages were resolved and NOT run")
++  for (sid in STAGES) {
++    Sd <- STAGE_DEFS[[sid]]; if (identical(Sd$kind, "pe_only")) next
++    cfg <- resolve_cfg(sid); ks <- names(Sd$delta %||% list())
++    cat(sprintf("  %-3s %-24s %-14s %s\n", sid, Sd$tag, Sd$model, Sd$headline))
++    if (!length(ks)) cat("      delta: none (production as shipped)\n")
++    for (k in ks) cat(sprintf("      delta: %-24s %s\n", k,
++      paste(utils::capture.output(str(cfg[[k]])), collapse = " ")))
++  }
++  cat("\n  Read the P1 result above, then set DRY_RUN <- FALSE.\n\n")
++} else banner(sprintf("DONE  %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
+diff --git a/06_diagnostics/test_improvements_2026-08-25.R b/06_diagnostics/test_improvements_2026-08-25.R
+index 64f1356..77132df 100644
+--- a/06_diagnostics/test_improvements_2026-08-25.R
++++ b/06_diagnostics/test_improvements_2026-08-25.R
+@@ -29,7 +29,8 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
+             "bss_stan_fit.R","save_run_diagnostics.R",
+             "model_diagnostics.R","bss_model_adequacy.R",
+             "annotate_decoupled_run.R",
+-            "bss_sampler_override.R")) source(file.path("03_R_functions", f))
++            "bss_sampler_override.R",
++            "pe_gear_ratio_frame.R")) source(file.path("03_R_functions", f))
+ 
+ ok <- 0; bad <- 0
+ chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
+@@ -1119,5 +1120,131 @@ local({
+   }
+ })
+ 
++# ---------------------------------------------------------------------------
++# 27. PE / BSS incomplete-trip arm alignment (2026-09-02). The BSS learns R_G_boat from a
++#     frame that HAS been incomplete-trip filtered; both Point Estimators used the unfiltered
++#     one. sensitivity_incomplete_trips.csv has reported that disagreement since 2026-08-25.
++#     One shared helper, because the gear PE's comment already claimed it matched the BSS
++#     while it did not, which is what two copies of one rule produces.
++# ---------------------------------------------------------------------------
++local({
++  chk("pe arm: the shared frame helper exists",
++      exists("pe_gear_ratio_frame", mode = "function"))
++  iv <- data.frame(number_of_gear = c(3, 4, 5, 6), angler_count = c(1, 1, 1, 1),
++                   trip_status = c("Complete", "Incomplete", NA, "Complete"),
++                   stringsAsFactors = FALSE)
++  p_on  <- list(pe_gear_ratio_arm = "match_bss", filter_incomplete_trips = TRUE)
++  p_off <- list(pe_gear_ratio_arm = "gear_only", filter_incomplete_trips = TRUE)
++  chk("pe arm: match_bss drops incomplete trips",
++      nrow(pe_gear_ratio_frame(iv, NULL, p_on, quiet = TRUE)) == 3)
++  chk("pe arm: and KEEPS a missing status, exactly as prep_bss_crab_pooled.R does",
++      NA %in% pe_gear_ratio_frame(iv, NULL, p_on, quiet = TRUE)$trip_status)
++  chk("pe arm: gear_only is the untouched pre-2026-09-02 behaviour",
++      nrow(pe_gear_ratio_frame(iv, NULL, p_off, quiet = TRUE)) == 4)
++  chk("pe arm: with filter_incomplete_trips OFF there is nothing to align",
++      nrow(pe_gear_ratio_frame(iv, NULL, list(pe_gear_ratio_arm = "match_bss",
++                                              filter_incomplete_trips = FALSE), quiet = TRUE)) == 4)
++  chk("pe arm: a caller-supplied frame is left alone (the four-arm diagnostic relies on this)",
++      nrow(pe_gear_ratio_frame(iv[1:2, ], iv, p_on, quiet = TRUE)) == 4)
++  chk("pe arm: an unrecognised arm ERRORS rather than silently defaulting",
++      inherits(try(pe_gear_ratio_frame(iv, NULL, list(pe_gear_ratio_arm = "nope"), quiet = TRUE),
++                   silent = TRUE), "try-error"))
++  for (fn in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R")) {
++    t <- paste(readLines(fn, warn = FALSE), collapse = "\n")
++    chk(sprintf("pe arm: %s routes through the shared helper", basename(fn)),
++        grepl("pe_gear_ratio_frame(", t, fixed = TRUE))
++  }
++  e <- new.env(); sys.source("run_config.R", envir = e)
++  chk("pe arm: run_config ships the aligned arm",
++      identical(e$run_config$pe_gear_ratio_arm, "match_bss"))
++})
++
++# ---------------------------------------------------------------------------
++# 28. Zero-inflated catch likelihood (2026-09-02, prototype, ships OFF). Targeted from the
++#     2026-09-01 zero bin: shore all-gear 676 observed zeros vs 605.4 expected (z = +3.8),
++#     shore pot closure z = +2.9, every boat stream inside |z| = 2.3.
++# ---------------------------------------------------------------------------
++local({
++  t <- paste(readLines("02_stan_models/crab_bss_pooled.stan", warn = FALSE), collapse = "\n")
++  chk("zinb: the guard flag and its Beta prior are Stan data",
++      grepl("int<lower=0, upper=1> zi_catch;", t, fixed = TRUE) &&
++      grepl("real<lower=0> zi_catch_prior_a;", t, fixed = TRUE))
++  chk("zinb: theta_C is ZERO-SIZE when off, so the OFF path is bit-identical",
++      grepl("vector<lower=0, upper=1>[zi_catch] theta_C;", t, fixed = TRUE))
++  chk("zinb: the model block uses a log_mix at the observed zeros",
++      grepl("target += log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C));", t, fixed = TRUE))
++  # If log_lik does not mirror the fitted likelihood, every elpd_loo comparison is void, and
++  # an elpd comparison is the entire basis on which this feature will be judged.
++  chk("zinb: generated-quantities log_lik MIRRORS the fitted likelihood",
++      grepl("log_lik_catch[a] = log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c_gq, r_C));",
++            t, fixed = TRUE))
++  # The correctness point that would otherwise silently inflate the headline.
++  chk("zinb: the season total is scaled by (1 - theta_C)",
++      grepl("* f_crab[f_stratum[d]] * zi_scale;", t, fixed = TRUE) &&
++      grepl("zi_scale = 1 - theta_C[1];", t, fixed = TRUE) &&
++      grepl("zi_scale = 1.0;", t, fixed = TRUE))
++  chk("zinb: theta_C_out is reported unconditionally so the parameter set keeps its shape",
++      grepl("real theta_C_out;", t, fixed = TRUE))
++  d <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
++  chk("zinb: a hard 0 is flagged decoupled, so it cannot be read as 'tested and absent'",
++      grepl('set(base %in% c("theta_C", "theta_C_out")', d, fixed = TRUE))
++  chk("zinb: theta_C reaches the curated structural table",
++      grepl('"theta_C")', d, fixed = TRUE))
++  p <- paste(readLines("03_R_functions/prep_bss_crab_pooled.R", warn = FALSE), collapse = "\n")
++  chk("zinb: it is scoped PER FIT, which is what makes the boat a free negative control",
++      grepl("population_name %in% (params$catch_zi_populations %||% \"shore\")", p, fixed = TRUE))
++  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
++  chk("zinb: ships OFF, scoped to the shore, with a Beta(1, 9) prior",
++      isFALSE(rc$estimate_catch_zi) && identical(rc$catch_zi_populations, "shore") &&
++      identical(rc$zi_catch_prior_a, 1) && identical(rc$zi_catch_prior_b, 9))
++})
++
++# ---------------------------------------------------------------------------
++# 29. The 2026-09-03 batch runner.
++# ---------------------------------------------------------------------------
++local({
++  f <- "06_diagnostics/run_shore_ar_zi_2026-09-03.R"
++  if (!file.exists(f)) { chk("shore/zi runner: present", FALSE); return(invisible(NULL)) }
++  chk("shore/zi runner: parses", !inherits(try(parse(f), silent = TRUE), "try-error"))
++  t <- paste(readLines(f, warn = FALSE), collapse = "\n")
++  chk("shore/zi runner: ships with DRY_RUN TRUE", grepl("\nDRY_RUN <- TRUE", t))
++  chk("shore/zi runner: the AR ladder forces ONE sub-season of ONE population",
++      grepl("AR_SHORE_AG <- function(res) list(shore = list(all_gear = res))", t, fixed = TRUE))
++  chk("shore/zi runner: all three coarser rungs are present",
++      grepl('AR_SHORE_AG("weekly")', t, fixed = TRUE) &&
++      grepl('AR_SHORE_AG("biweekly")', t, fixed = TRUE) &&
++      grepl('AR_SHORE_AG("monthly")', t, fixed = TRUE))
++  chk("shore/zi runner: Z0 is both the OFF gate and the ladder's daily rung",
++      grepl('lad_row("daily (production)", "daily",    sid = "Z0")', t, fixed = TRUE))
++  chk("shore/zi runner: coverage is read from the randomized PIT, not ppc_calibration",
++      grepl("cov50_byobs <- function", t, fixed = TRUE))
++  chk("shore/zi runner: it refuses to run if the two code changes are absent",
++      grepl("has nothing to test", t, fixed = TRUE) &&
++      grepl("would reproduce the ", t, fixed = TRUE))
++  chk("shore/zi runner: expect_delta carried over from the 2026-09-01 batch",
++      grepl("expect_delta", t, fixed = TRUE) && grepl("config_delta <- function", t, fixed = TRUE))
++  # Drift guard on the production numbers the ladder is judged against.
++  v1 <- "05_output/20260831/pooled-CPUE-VAL-1-adopted"
++  if (dir.exists(v1)) {
++    a <- read.csv(file.path(v1, "model_adequacy.csv"), stringsAsFactors = FALSE)
++    r <- a[a$fit == "shore_all_gear_Dungeness_Kept", ]
++    chk("shore/zi REF: production shore all-gear is still the flagged fit",
++        isTRUE(round(r$p_loo_frac, 2) == 0.35) && isTRUE(r$n_pareto_bad == 41),
++        sprintf("(p_loo %.3f, k>0.7 %d)", r$p_loo_frac, r$n_pareto_bad))
++    x <- read.csv(file.path(v1, "ppc_byobs_shore_all_gear_Dungeness_Kept.csv"), stringsAsFactors = FALSE)
++    y <- x[x$data_type == "gear", ]
++    cov <- mean(as.logical(y$in_50)); z <- (cov - 0.5) / sqrt(0.25 / nrow(y))
++    chk("shore/zi REF: and its gear-stream coverage is still ~0.70 at +7 sampling SDs",
++        isTRUE(abs(cov - 0.701) < 0.01) && isTRUE(z > 6),
++        sprintf("(%.3f, %+.1f SD on n = %d)", cov, z, nrow(y)))
++    zz <- x[x$data_type == "catch", ]
++    p <- zz$p_zero[is.finite(zz$p_zero)]
++    zsc <- (sum(zz$observed == 0) - sum(p)) / sqrt(sum(p * (1 - p)))
++    chk("shore/zi REF: the shore catch zero bin the ZINB targets is still off at z ~ +3.8",
++        isTRUE(zsc > 3), sprintf("(%d observed vs %.1f expected, z = %+.1f)",
++                                 sum(zz$observed == 0), sum(p), zsc))
++  }
++})
++
+ cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
+ if (bad > 0) quit(status = 1)
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+index 4e66bdf..515ec63 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+@@ -18,6 +18,20 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
+ 
+ ## Version log
+ 
++### 2026-09-03, Two code changes and the batch that tests them: the shore AR ladder, the restored gear cross-check, PE/BSS arm alignment and a targeted ZINB prototype (branch `OSP-boat-count-incorporation`)
++
++Harness **264 assertions**, 0 failing. Batch: `06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h, ships `DRY_RUN <- TRUE`. Details in `development_notes/PIPELINE_STATUS.md` Section 1f.
++
++**PE / BSS INCOMPLETE-TRIP ARM ALIGNMENT, and it is closed.** `prep_bss_crab_pooled.R` builds the `R_G_boat` frame from `int_d` AFTER `filter_incomplete_trips`, so the BSS behaves like the four-arm diagnostic's "exclude" arm; both Point Estimators built the same ratio from the UNFILTERED set, i.e. "gear_only". `sensitivity_incomplete_trips.csv` has reported that disagreement since 2026-08-25 as `production_arm_bss` against `production_arm_pe` without anyone acting on it. New shared helper `03_R_functions/pe_gear_ratio_frame.R` gives both tracks one definition, with `pe_gear_ratio_arm = "match_bss"` as the shipped default and `"gear_only"` kept for the diagnostic and for historical reproduction. Stage P1 measured it in seconds, PE only: the boat PE moves 11,176 to 11,170, **-0.059%**, and the shore components are unchanged, which is the control since the shore PE has no gear-per-group ratio. A CONSISTENCY fix rather than an accuracy one, and worth making precisely because it is small: there is no estimate to defend, only an inconsistency to remove. It is one helper and not two edits because the gear-resolved PE's comment already claimed it matched the BSS's `R_G_boat` while it did not, which is what two copies of one rule produces.
++
++**ZERO-INFLATED CATCH LIKELIHOOD, prototype, ships OFF.** `crab_bss_pooled.stan` gains `zi_catch`, `zi_catch_prior_a/b` and `vector<lower=0,upper=1>[zi_catch] theta_C`, the same zero-size guard pattern `shared_tau` and `f_lower` use, so the OFF path leaves the unconstrained parameter vector unchanged. The target was chosen from the 2026-09-01 zero bin rather than from taste: shore all-gear 676 observed zeros against 605.4 expected (z = +3.8 on n = 1,649), shore pot closure 146 against 118.5 (z = +2.9), every BOAT stream inside |z| = 2.3. Three things are worth knowing about the implementation. The generated-quantities `log_lik_catch` mirrors the fitted mixture exactly, because a log_lik computed under a different likelihood from the one fitted makes every `elpd_loo` comparison meaningless and an elpd comparison is the entire basis on which this will be judged. **The season total is scaled by (1 - theta_C)**: `lambda_C` is fitted to the non-inflated component and rises to absorb the zeros `theta_C` removed, so an unscaled total would be inflated by 1/(1 - theta_C) purely as an artefact of enabling the feature. And `zi_catch` is set PER FIT from `catch_zi_populations` (default `"shore"`), so a single run carries the shore fits as treatment and the boat fits as an untouched negative control at no extra cost. The model compiles to C++ in 3.1 minutes.
++
++**THE BATCH.** P1 (PE only, seconds) then G1 (gear track with the 2026-09-02 boat all-gear sampler fix, ~35 min, restoring a cross-check that has read 51,385 instead of about 70,900 since the fix lived only in an experiment flag), then Z0 (ZINB code present and OFF: the behaviour-neutrality gate AND the AR ladder's daily rung, so the ladder does not compare three post-edit rungs against a pre-edit production run), then A1-A3 (shore all-gear forced to weekly, biweekly and monthly), then Z1 (ZINB on the shore).
++
++**The shore AR ladder is the main event.** Production fits that component at daily and on the 2026-08-31 production run it is the worst-behaved fit in the run: p_loo 35.2% of `n_obs` against the boat's 8.0%, 41 Pareto k above 0.7 against 1, and `coverage_50` 0.701 against a nominal 0.500, which is +7.1 sampling SDs. The gear-resolved track fits the same component at monthly and gets 0.035, -16.4 SDs. Both ends are bad, the middle has never been run, and the component is 29% of the port total. The ladder is read in the order that settled the boat 2x2: coverage from the randomized PIT first, then `p_loo` as a fraction of `n_obs` with the Pareto k count, then the CATCH stream's elpd, because the boat's daily AR improved the effort stream while making the catch stream worse and catch is what the harvest estimate is made of.
++
++------------------------------------------------------------------------
++
+ ### 2026-09-02, The validation batch: the adoption is confirmed, and the gear track turns out never to have been able to fit its boat component (branch `OSP-boat-count-incorporation`)
+ 
+ Nineteen criteria, 14.1 h of fitting. Harness **233 assertions**, 0 failing. Full review in `development_notes/validation-batch-review-2026-09-02.md`.
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+index a68a113..40a944c 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+@@ -14,6 +14,20 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
+ 
+ ## Version log
+ 
++### 2026-09-03, Two code changes and the batch that tests them: the shore AR ladder, the restored gear cross-check, PE/BSS arm alignment and a targeted ZINB prototype (branch `OSP-boat-count-incorporation`)
++
++Harness **264 assertions**, 0 failing. Batch: `06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h, ships `DRY_RUN <- TRUE`. Details in `development_notes/PIPELINE_STATUS.md` Section 1f.
++
++**PE / BSS INCOMPLETE-TRIP ARM ALIGNMENT, and it is closed.** `prep_bss_crab_pooled.R` builds the `R_G_boat` frame from `int_d` AFTER `filter_incomplete_trips`, so the BSS behaves like the four-arm diagnostic's "exclude" arm; both Point Estimators built the same ratio from the UNFILTERED set, i.e. "gear_only". `sensitivity_incomplete_trips.csv` has reported that disagreement since 2026-08-25 as `production_arm_bss` against `production_arm_pe` without anyone acting on it. New shared helper `03_R_functions/pe_gear_ratio_frame.R` gives both tracks one definition, with `pe_gear_ratio_arm = "match_bss"` as the shipped default and `"gear_only"` kept for the diagnostic and for historical reproduction. Stage P1 measured it in seconds, PE only: the boat PE moves 11,176 to 11,170, **-0.059%**, and the shore components are unchanged, which is the control since the shore PE has no gear-per-group ratio. A CONSISTENCY fix rather than an accuracy one, and worth making precisely because it is small: there is no estimate to defend, only an inconsistency to remove. It is one helper and not two edits because the gear-resolved PE's comment already claimed it matched the BSS's `R_G_boat` while it did not, which is what two copies of one rule produces.
++
++**ZERO-INFLATED CATCH LIKELIHOOD, prototype, ships OFF.** `crab_bss_pooled.stan` gains `zi_catch`, `zi_catch_prior_a/b` and `vector<lower=0,upper=1>[zi_catch] theta_C`, the same zero-size guard pattern `shared_tau` and `f_lower` use, so the OFF path leaves the unconstrained parameter vector unchanged. The target was chosen from the 2026-09-01 zero bin rather than from taste: shore all-gear 676 observed zeros against 605.4 expected (z = +3.8 on n = 1,649), shore pot closure 146 against 118.5 (z = +2.9), every BOAT stream inside |z| = 2.3. Three things are worth knowing about the implementation. The generated-quantities `log_lik_catch` mirrors the fitted mixture exactly, because a log_lik computed under a different likelihood from the one fitted makes every `elpd_loo` comparison meaningless and an elpd comparison is the entire basis on which this will be judged. **The season total is scaled by (1 - theta_C)**: `lambda_C` is fitted to the non-inflated component and rises to absorb the zeros `theta_C` removed, so an unscaled total would be inflated by 1/(1 - theta_C) purely as an artefact of enabling the feature. And `zi_catch` is set PER FIT from `catch_zi_populations` (default `"shore"`), so a single run carries the shore fits as treatment and the boat fits as an untouched negative control at no extra cost. The model compiles to C++ in 3.1 minutes.
++
++**THE BATCH.** P1 (PE only, seconds) then G1 (gear track with the 2026-09-02 boat all-gear sampler fix, ~35 min, restoring a cross-check that has read 51,385 instead of about 70,900 since the fix lived only in an experiment flag), then Z0 (ZINB code present and OFF: the behaviour-neutrality gate AND the AR ladder's daily rung, so the ladder does not compare three post-edit rungs against a pre-edit production run), then A1-A3 (shore all-gear forced to weekly, biweekly and monthly), then Z1 (ZINB on the shore).
++
++**The shore AR ladder is the main event.** Production fits that component at daily and on the 2026-08-31 production run it is the worst-behaved fit in the run: p_loo 35.2% of `n_obs` against the boat's 8.0%, 41 Pareto k above 0.7 against 1, and `coverage_50` 0.701 against a nominal 0.500, which is +7.1 sampling SDs. The gear-resolved track fits the same component at monthly and gets 0.035, -16.4 SDs. Both ends are bad, the middle has never been run, and the component is 29% of the port total. The ladder is read in the order that settled the boat 2x2: coverage from the randomized PIT first, then `p_loo` as a fraction of `n_obs` with the Pareto k count, then the CATCH stream's elpd, because the boat's daily AR improved the effort stream while making the catch stream worse and catch is what the harvest estimate is made of.
++
++------------------------------------------------------------------------
++
+ ### 2026-09-02, The validation batch: the adoption is confirmed, and the gear track turns out never to have been able to fit its boat component (branch `OSP-boat-count-incorporation`)
+ 
+ Nineteen criteria, 14.1 h of fitting. Harness **233 assertions**, 0 failing. Full review in `development_notes/validation-batch-review-2026-09-02.md`.
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index 753a106..8d0054f 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -1,6 +1,6 @@
+ # Coastal Rec Crab BSS: Pipeline Status and Backlog
+ 
+-- **Last updated:** 2026-09-02
++- **Last updated:** 2026-09-03
+ - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
+ 
+ **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced past v7.9 with the Tier-2 batch (nine items, 2026-07-13) and the shore pot-closure per-sub-season AR fix (Run 6, 2026-07-15). The authoritative run is now **Run 6** (`20260715/pooled-CPUE-230256`), which supersedes Run 1 by resolving the shore pot-closure regression so all 3 fits pass. The 2024-25 reference numbers in the method documents remain pre-refresh; they should be regenerated to the Run 6 totals (port total 83,488; Section 1).
+@@ -310,7 +310,7 @@ The harness is at **128 assertions**, covering both fixes.
+ 
+ ## 1b. Stage 5 prerequisites (2026-08-30): what landed before the next batch
+ 
+-Everything below is code and reporting, applied and covered by the harness (**233 assertions** as of 2026-09-02, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
++Everything below is code and reporting, applied and covered by the harness (**264 assertions** as of 2026-09-03, 0 failing). No estimate has changed; the batch that tests these is `06_diagnostics/run_stage5_2026-08-30.R`, which ships with `DRY_RUN <- TRUE`.
+ 
+ **1. The shared-turnover informed-day floor (plan 5.2).** `bss_shared_tau_data()` now refuses `shared_tau` for a fit with fewer than `shared_tau_min_obs` (default **15**) days that can inform `L`, and falls back to the per-day parameterization with a printed reason. Informed days = I/E days, plus OSP days when `osp_scale_is_tau = 1` puts `L` into the OSP mean. The observed counts are 4 (shore all-gear), 0 (shore pot closure), 130 (boat all-gear), 18 (boat pot closure), so any threshold in 5..18 separates the shore from the boat; 15 sits just below 18 deliberately, to keep the cross-track-corroborated boat pot closure. `shared_tau` remains **off in production** and stays off until the Stage 5 gate confirms the floor does exactly what it claims.
+ 
+@@ -456,6 +456,42 @@ Two of the last three batches contained a criterion that compared against a refe
+ 
+ ---
+ 
++## 1f. The next batch (2026-09-03): shore AR ladder, gear cross-check, arm alignment, ZINB prototype
++
++`06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h. Ships `DRY_RUN <- TRUE`. Harness **264 assertions**.
++
++### Two code changes, both applied and both testable
++
++**1. PE / BSS incomplete-trip arm alignment (Tier 2, closed).** The BSS learns `R_G_boat` from a frame that HAS been incomplete-trip filtered; both Point Estimators used the unfiltered one. New shared helper `03_R_functions/pe_gear_ratio_frame.R`, called by both PEs, with `pe_gear_ratio_arm = "match_bss"` shipping as the default and `"gear_only"` retained for the four-arm diagnostic and historical reproduction. **Measured (stage P1, PE only, seconds): the boat PE moves 11,176 to 11,170, -0.059%, and the shore is unchanged as it must be.** A consistency fix, not an accuracy one; the reason to make it is that there is no estimate to defend, only an inconsistency a reviewer asks about first. One helper rather than two edits because the gear PE's comment already claimed it matched the BSS while it did not.
++
++**2. Zero-inflated catch likelihood (Tier 3, prototype, ships OFF).** `crab_bss_pooled.stan` gains `zi_catch`, a Beta prior and `vector<lower=0,upper=1>[zi_catch] theta_C`, so the OFF path is zero-size and bit-identical. Targeted from the 2026-09-01 zero bin rather than from taste: shore all-gear 676 observed zeros against 605.4 expected (z = +3.8, n = 1,649), shore pot closure z = +2.9, every boat stream inside |z| = 2.3.
++
++> **The season total is scaled by (1 - theta_C) in generated quantities, deliberately.** `lambda_C` is fitted to the non-inflated component and rises to absorb the zeros `theta_C` removes, so reporting `lambda_C * effort` unscaled would inflate the total by 1/(1 - theta_C) purely by turning the feature on. Judge the prototype on the catch stream's `elpd_loo` and on the zero bin, never on the total.
++
++It is scoped **per fit** (`catch_zi_populations`, default `"shore"`), so one run carries the shore fits as treatment and the boat fits as an untouched negative control at no extra cost. The model compiles to C++ in 3.1 min.
++
++### The stages
++
++```
++P1  PE arm alignment ..............  seconds, PE only        DONE in the dry run: -0.059% on the boat
++ |
++G1  gear track with the driver fix   ~35 min                 restores the cross-check (51,385 -> ~70,900)
++ |
++Z0  ZINB code present, OFF ........  ~4.5 h    GATE, and the ladder's DAILY rung
++ |
++A1  shore all-gear AR weekly ......  ~4-5 h    }  THE MAIN QUESTION
++A2  shore all-gear AR biweekly ....  ~4-5 h    }  four rungs, one component, one thing changing
++A3  shore all-gear AR monthly .....  ~4-5 h    }
++ |
++Z1  ZINB ON, shore only ...........  ~5 h      boat fits are a free negative control
++```
++
++**Read the ladder in this order**, the same order that settled the boat 2x2: coverage_50 from the randomized PIT first, then `p_loo` as a fraction of `n_obs` with the Pareto k count, then the CATCH stream's elpd. Production sits at daily with p_loo 35.2% of `n_obs`, 41 Pareto k above 0.7 and coverage 0.701 (+7.1 sampling SDs); the gear track's monthly fit of the same component gives 0.035 (-16.4 SDs). Both ends are bad and the middle has never been run. If the winner is not daily, the `ar_max_resolution` entry changes and the shore component of the published estimate moves with it, so it is a number-moving decision needing sign-off rather than a silent config edit.
++
++**Z0 does two jobs**, which is why it is not merely a control: it proves the Stan edit is behaviour-neutral when off, and it IS the ladder's daily rung, fitted under the same Stan file as the other three. Without the second job the ladder would compare three post-edit rungs against a pre-edit production run.
++
++---
++
+ ## 2. Repository map
+ 
+ - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and their rendered `.html`. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
+@@ -539,9 +575,9 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ ### Tier 2: accuracy, cross-track parity, or credibility
+ 
+ - **[NEW, 2026-08-25] Censored likelihood for incomplete trips.** The statistically correct way to recover the ~36% of interviews the filter discards. An incomplete trip's observed catch is a LOWER BOUND on its trip total, so its likelihood contribution becomes `neg_binomial_2_lccdf(c - 1 | lambda_C * h, r_C)` instead of the pmf; under the deployment unit its `h` (gear count) is already complete, so only the catch needs censoring. This recovers 1,334 interviews without the -20% bias, which is the largest single gain available on CPUE precision. It cannot be evaluated by the design-based arms in the four-arm diagnostic, so it needs its own Stan toggle, a compile, and an `elpd_loo` comparison against the current filter. **Effort: medium (Stan + one validation run).**
+-- **[DECIDABLE 2026-09-01, see Section 1d; the live defect is the PE/BSS disagreement, not the arm] Decide the `gear_only` incomplete-trip arm on the diagnostic's evidence.** An interrupted trip's gear count is fully observed; only its catch is truncated. Today it is discarded along with the catch, and the PE and the BSS silently disagree about that (the boat PE's gear-per-group uses the unfiltered set; the boat BSS's `R_G_boat` does not). The four-arm diagnostic now reports the gear ratio under each arm and a length-bias test. Decide after the first run that carries it: adopt `gear_only` if the incomplete-trip gear counts are not significantly higher than complete ones, and either way make the PE and the BSS agree. **Effort: low once the diagnostic has run.**
++- **[CLOSED 2026-09-03: the arms are aligned via the shared `pe_gear_ratio_frame()`, worth -0.059% on the boat PE and nothing on the shore; see Section 1f] Decide the `gear_only` incomplete-trip arm on the diagnostic's evidence.** An interrupted trip's gear count is fully observed; only its catch is truncated. Today it is discarded along with the catch, and the PE and the BSS silently disagree about that (the boat PE's gear-per-group uses the unfiltered set; the boat BSS's `R_G_boat` does not). The four-arm diagnostic now reports the gear ratio under each arm and a length-bias test. Decide after the first run that carries it: adopt `gear_only` if the incomplete-trip gear counts are not significantly higher than complete ones, and either way make the PE and the BSS agree. **Effort: low once the diagnostic has run.**
+ - **[NEW, 2026-08-25] Split Sunday from Saturday, or accept the residual.** Moving Friday to the weekday stratum was free from existing data; splitting Sunday is not. The boat's Sunday mean (3.4) is BELOW its weekday mean (6.9) on 5 sampled Sundays out of 50, and shore Sunday rests on 6 of 50. A third day-type indicator is designed (`log lambda = mu + omega[p] + B1*weekend + B2*holiday + B3*sunday`): at 0 sampled Sundays SE(B3) = 1.00 (the prior) with shore/boat season CV 15.1% / 19.7%; at 8 sampled Sundays SE 0.21 and 7.0% / 11.2%, within 0.5 CV points of sampling all 52. Sundays carry 13.7% of shore and 16.6% of boat season catch. This is a field-plan item first (Section 6) and a code item second. **Effort: field (a shift change), then low.**
+-- **[NEW, 2026-09-02, TIER 1] Coarsen the pooled SHORE all-gear AR, or defend daily on current diagnostics.** Production runs this component at daily and its adequacy is the worst in the run: p_loo 35.2% of n_obs, 41 Pareto k > 0.7, `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs). It is 29% of the port total. The gear track's monthly fit of the same component is differently wrong (coverage 0.035, -16.4 SD), so the answer is between them and weekly and biweekly have never been run. This is the direct analogue of the boat 2x2 that Stage 5 settled, on a larger component, and plan 5.4 explicitly set it aside as untested. **Effort: 2-3 pooled runs.**
++- **[BATCH WRITTEN 2026-09-03, stages A1-A3 of `run_shore_ar_zi_2026-09-03.R`; see Section 1f] Coarsen the pooled SHORE all-gear AR, or defend daily on current diagnostics.** Production runs this component at daily and its adequacy is the worst in the run: p_loo 35.2% of n_obs, 41 Pareto k > 0.7, `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs). It is 29% of the port total. The gear track's monthly fit of the same component is differently wrong (coverage 0.035, -16.4 SD), so the answer is between them and weekly and biweekly have never been run. This is the direct analogue of the boat 2x2 that Stage 5 settled, on a larger component, and plan 5.4 explicitly set it aside as untested. **Effort: 2-3 pooled runs.**
+ - **[NEW, 2026-08-25] Hierarchical (partially pooled) `f` across strata.** Per-stratum `f` currently falls back to the set value when a stratum is below `crab_fraction_min_obs` / `crab_fraction_osp_min_obs`. With OSP crab-only counts the summer strata will clear those thresholds easily (hundreds of boats a month), but the OSP-dark winter months will not, and defaulting them to a summer-flavoured 0.3 is known to be wrong in the other direction: the deck's own framing is "close to 100% crabbers when finfish are closed, perhaps 30% in summer". Two options: a hierarchical Beta across strata (`f[k] ~ Beta(mu_f * kappa_f, ...)`, principled, new parameters, needs validation), or per-stratum set values in config (cheap, transparent, still an assumption). Neither is built. **Effort: low (config) to medium (hierarchy).**
+ 
+ - **[DONE, Run 1] Make monthly the boat AR production default.** Run 1 ran with `ar_force = NULL` and boat monthly selected by the per-population resolution map, so monthly is now the production default by policy, not an override. Confirmed in the Run 1 convergence report (boat `ar_resolution = monthly`).
+@@ -561,7 +597,7 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
+ - **GR-7: genuine per-gear CPUE. PHASE 1 DONE + VALIDATED (2026-07-20).** Built as Option A1 behind `gear_resolved_G` (default off): the Stan effort process is one shared level split by the `pi_gear` share offset `O` (on `lambda_E` only), with per-gear CPUE identified by single-gear interviews and multi-gear trips folded to a "Mixed" gear (Matt's decisions). The `gear_resolved_G = TRUE` run resolves the SHORE harvest into real per-gear BSS posteriors (all-gear G = 5: Pot 3,757 / Ring Net 1,965 / Snare 1,746 / Trap 7,534 / Mixed 5,239; pot-closure G = 4), converged cleanly (27 / 4 divergences, R-hat ~1.000, min gear n_eff ~8,000), with `sum_g C_sum_gear = C_sum` exact and per-gear CPUE ordering matching the interview ratios (Trap highest). The shore total moved +0.82% (per-gear vs pooled CPUE, not a decomposition error); the boat stays `G = 1` (Phase 0: Pot-dominated). So the gear model now gives a usable gear breakdown for shore, no longer only the pooled Dirichlet split. **Open:** Phase 2 (Dirichlet `pi_gear` so the per-gear intervals include share uncertainty; they are currently slightly too narrow), a per-gear PPC/LOO read, and whether `gear_resolved_G = TRUE` becomes the gear-model default. Full design + validation evidence in `GR-7-per-gear-CPUE-design.md` (Sections 5-10). **Effort remaining: medium (Phase 2).**
+ - **GR-12: `tau_boat` identification. [RESOLVED via OSP, branch 2026-07-31].** Boat catch is proportional to `tau_boat` (was 1.2, resting on 2 WBL I/E days). The OSP boat-count stream now identifies boat turnover directly: with `osp_scale_is_tau = TRUE` (production) the dense 148-day OSP series sets the boat turnover in place of the thin I/E prior. Since the crab-creel trailer count is an instantaneous snapshot, the OSP-implied turnover (posterior `kappa_OSP` = 3.15, 95% [2.50, 3.91]) is real and the old `tau_boat` ~1.2 was a ~2x under-count, so the production boat roughly doubles (Section 1, 2026-07-31 update). The egress-classification pilot's role shifts from tau to the crabbing fraction f (Tier 1). One caveat: the exact multiplier assumes the trailer snapshot is timed representatively, not at a fixed daily peak (Section 6). **Effort: done (tau identification); the pilot now feeds f, not tau.**
+   - **QUANTIFIED 2026-07-20** (`run_tau_sweep.R`, outputs `05_output/20260720/gear-type-CPUE-model-tau-{0.90,1.20,1.50}`). The boat is exactly prior-dominated: boat all-gear BSS catch is proportional to `tau_boat` with **elasticity 1.00** (32,424 / 43,314 / 54,258 crab at tau = 0.90 / 1.20 / 1.50; boat/tau constant to 0.4%), all three fits converging cleanly. The port total moves **71,796 / 83,020 / 94,146** (±13.5% across 0.9-1.5; port elasticity ~0.53, the boat's share of the port). The BSS-vs-PE boat gap is tau-invariant (~19%), so tau shifts the boat *level*, not its relation to the design anchor. The reported boat 95% CI already carries the tau `sigma = 0.3` spread; the sweep shows that a biased prior *center* rescales the boat (and ~53% of the port) proportionally and is NOT captured in that CI, so the egress-classification pilot is the single highest-leverage boat-credibility measurement. The single-run projection (`diagnose_tau_sensitivity`, now default TRUE in `run_config.R`) reproduced these refits to ~0.2%, so the multi-hour sweep need not be repeated; the toggle carries the sensitivity table on every gear run.
+-- **[PRECONDITION MET 2026-09-02, and it targets ONE stream] Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The zero bin is now scored as observed zero count against the model's expected count over all days, with a Poisson-binomial z. Every BOAT stream is fine (|z| <= 2.3). The two SHORE CATCH streams under-predict zeros in the same direction at z = +3.8 (676 vs 605.4 on n = 1,649) and z = +2.9 (146 vs 118.5 on n = 627). A prototype should target the shore catch likelihood only, and its available gain is bounded by about 70 observations out of 1,649. Original entry follows. The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
++- **[PROTOTYPE BUILT 2026-09-03, stage Z1 of `run_shore_ar_zi_2026-09-03.R`; ships OFF; see Section 1f] Zero-inflation / ZINB (critique 9 / B2 follow-on): decide on evidence.** The zero bin is now scored as observed zero count against the model's expected count over all days, with a Poisson-binomial z. Every BOAT stream is fine (|z| <= 2.3). The two SHORE CATCH streams under-predict zeros in the same direction at z = +3.8 (676 vs 605.4 on n = 1,649) and z = +2.9 (146 vs 118.5 on n = 627). A prototype should target the shore catch likelihood only, and its available gain is bounded by about 70 observations out of 1,649. Original entry follows. The catch likelihood is NB2 with no zero inflation; a high zero fraction (snare, ring-net) may stretch `r_C`. Read the PPC zero-bin and per-observation residuals (O5); prototype ZINB (a variant exists in the freshwater lineage) on the worst-calibrated component only if the zero bin is systematically off, compare by PSIS-LOO. **Effort: low to read; medium if warranted.**
+ - **T3.2 / critique 11: shore soak-time basis.** Largely mooted now that shore is on gear-deployments rather than crabber-hours, but a one-line confirmation in the docs is worth it. **Effort: trivial.**
+ 
+ ### Tier 4: reproducibility and repository hygiene (correctness-neutral, publication-blocking)
+diff --git a/README-R-functions.md b/README-R-functions.md
+index cdf1741..276a3ff 100644
+--- a/README-R-functions.md
++++ b/README-R-functions.md
+@@ -35,6 +35,7 @@ One implementation each, called by both production drivers, so the two tracks ca
+ | `prep_days_crab.R` | `prep_days_crab` | Builds the per-day calendar (indices, day type, day-type integer, effective day length). Takes `params` and derives day-typing inputs from it. |
+ | `prep_population_summary.R` | `prep_population_summary` | Filters the data bundle to one population x sub-season and builds its effort, interview, and catch frames plus the gear/crabber ratios. |
+ | `estimate_comm_charter.R` | `estimate_comm_charter` | Day-type-stratified census expansion of the commercial/charter vessel tally (with optional red-rock, guarded by `params$estimate_red_rock`). |
++| `pe_gear_ratio_frame.R` | `pe_gear_ratio_frame` | ONE definition of which interviews the Point Estimator uses for the boat gear-per-group ratio, shared by `run_pe_pooled()` and `run_pe_gear()`. The BSS learns `R_G_boat` from a frame that HAS been incomplete-trip filtered while both PEs used the unfiltered one, a disagreement `sensitivity_incomplete_trips.csv` reported from 2026-08-25. `pe_gear_ratio_arm = "match_bss"` (shipped) aligns them; `"gear_only"` is the pre-2026-09-02 behaviour, kept for the four-arm diagnostic and for reproducing historical runs. Worth -0.059% on the boat PE and nothing on the shore, so it is a consistency fix. A caller-supplied frame is never filtered on top of. |
+ | `pe_monthly_effort_share.R` | `pe_monthly_effort_share` | Consolidated PE monthly effort-share helper: the shared share math for spreading a PE-fallback component's catch and effort across months, with each driver keeping its own draw accumulation and uncertainty handling. Its shore branch was still on the pre-v7.7 crabber-hours formula (and therefore on the seasonal day-length curve) until 2026-08-25; it now reads `bss_effort_spec`. |
+ | `bss_opener_covariates.R` | `opener_flag_series`, `opener_select`, `opener_design_matrix` | Other-fishery opener EFFORT covariates (2026-08-25), generalizing the retired razor-dig-only `B3` into the `K_open` / `X_open` / `B_open` block in both Stan models. `opener_select` is the automatic screen: adjusted p-values from the spillover diagnostic, with a multiplicity correction across the eight effort tests (BH by default). Treat it as a screen, not a verdict; the arbiter is the effort-stream `elpd_loo`. |
+ | `diagnose_incomplete_trips.R` | `diagnose_incomplete_trips`, `incomplete_trip_arm_frames` | The four-arm incomplete-trip treatment diagnostic (exclude / gear_only / impute_mean_cpue / keep) run through each track's own point estimator. DIAGNOSTIC ONLY; production remains `exclude`. |
+diff --git a/run_config.R b/run_config.R
+index 1d3bf4d..6467f01 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -484,6 +484,33 @@ run_config <- list(
+   # review), set list(private_boat = "monthly").
+   ar_force          = NULL,
+ 
++  # --- PE / BSS incomplete-trip arm alignment (2026-09-02) ---------------------
++  # Which interviews the Point Estimator uses for the boat gear-per-group ratio.
++  # "match_bss" (default) applies filter_incomplete_trips, matching the frame the BSS
++  # learns R_G_boat from; "gear_only" is the pre-2026-09-02 behaviour, which kept an
++  # interrupted trip's fully observed gear count. The two disagreed by 0.1% on the boat
++  # (3.552 vs 3.550) and at most 0.7% on any component, so this is a consistency fix rather
++  # than an accuracy one. See 03_R_functions/pe_gear_ratio_frame.R.
++  pe_gear_ratio_arm = "match_bss",
++
++  # --- Zero-inflated catch likelihood (2026-09-02; PROTOTYPE, ships OFF) -------
++  # The 2026-09-01 zero-bin read found the NB2 places too little mass at zero on the SHORE
++  # catch stream and only there: shore all-gear 676 observed zeros vs 605.4 expected
++  # (z = +3.8, n = 1,649), shore pot closure 146 vs 118.5 (z = +2.9), every boat stream
++  # inside |z| = 2.3. estimate_catch_zi = TRUE adds a structural-zero component theta_C to
++  # the catch likelihood of the populations named below, so a single run carries the shore
++  # fits as treatment and the boat fits as an untouched negative control.
++  #
++  # THE SEASON TOTAL IS SCALED BY (1 - theta_C) in generated quantities. lambda_C is fitted
++  # to the non-inflated component and rises to absorb the zeros theta_C removes, so an
++  # unscaled total would be inflated by 1/(1 - theta_C) purely by turning the feature on.
++  # Judge it on elpd_loo for the catch stream and on the zero bin, not on the total.
++  # Changing this forces a Stan recompile.
++  estimate_catch_zi     = FALSE,
++  catch_zi_populations  = c("shore"),
++  zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
++  zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
++
+   # --- Sampler override escape hatch (EXPERIMENTS ONLY; production is NULL) -----
+   # Each driver merges its own params_model ON TOP of run_config, so params_model
+   # WINS every key it sets, including all the per-fit sampler settings. Setting
+-- 
+2.43.0
+

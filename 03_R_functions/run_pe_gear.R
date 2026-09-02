@@ -90,9 +90,12 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     # Gear per boat group, from interviews where recorded (matches the BSS's
     # R_G_boat, which is learned from Gear_A_boat ~ Poisson(R_G_boat)).
     gpg_pe <- params$gear_per_group_default %||% 4.0
-    # summ$interview_gear (optional) supplies a separate gear-ratio frame; see the note in
-    # run_pe_pooled.R. Absent -> summ$interview, i.e. unchanged.
-    ng_pe  <- suppressWarnings(as.numeric((summ$interview_gear %||% summ$interview)$number_of_gear))
+    # 2026-09-02: the frame now comes from the shared pe_gear_ratio_frame(), so this track
+    # and the pooled one cannot drift. The comment above USED to claim this matched the BSS's
+    # R_G_boat and it did not: the BSS frame is incomplete-trip filtered and this one was not.
+    ng_pe  <- suppressWarnings(as.numeric(
+      pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
+                          label = "gear-resolved boat")$number_of_gear))
     ng_pe  <- ng_pe[!is.na(ng_pe) & ng_pe > 0]
     if(length(ng_pe) > 0) gpg_pe <- mean(ng_pe)
     tau_pe <- params$tau_boat_prior_mu %||% 1.2

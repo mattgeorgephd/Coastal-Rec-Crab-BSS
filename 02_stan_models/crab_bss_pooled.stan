@@ -229,6 +229,30 @@ data {
   int<lower=0> c[IntC];
   vector<lower=0>[IntC] h;
 
+  // --- Zero-inflated catch likelihood (2026-09-02, OFF by default) -----------
+  // WHY IT EXISTS. The 2026-09-01 validation batch scored the PPC zero bin as the observed
+  // zero COUNT against the model's own expected count over ALL interviews, with a
+  // Poisson-binomial SD. Every BOAT stream sat inside |z| = 2.3. The two SHORE CATCH
+  // streams did not: shore all-gear 676 observed zeros against 605.4 expected (z = +3.8,
+  // n = 1,649) and shore pot closure 146 against 118.5 (z = +2.9, n = 627). Same direction,
+  // two independent fits, so the NB2 places too little mass at zero on the shore catch
+  // stream specifically. Tier 3 of the backlog makes prototyping ZINB conditional on exactly
+  // this read, and the 2026-09-01 batch is the first time the read existed.
+  //
+  // zi_catch = 1 replaces the catch pmf with a two-component mixture: with probability
+  // theta_C the interview is a structural zero, otherwise it is NB2 as before. theta_C is
+  // declared vector<lower=0,upper=1>[zi_catch], so at zi_catch = 0 it is ZERO-SIZE and the
+  // unconstrained parameter vector is unchanged from the pre-2026-09-02 model. That is the
+  // same guard pattern shared_tau and f_lower use, and it is what makes an OFF run
+  // bit-identical rather than merely similar.
+  //
+  // IT IS SET PER FIT, NOT PER RUN. prep_bss_crab_pooled.R turns it on only for populations
+  // named in params$catch_zi_populations (default "shore"), so a single run carries the
+  // shore fits as treatment and the boat fits as an untouched negative control.
+  int<lower=0, upper=1> zi_catch;
+  real<lower=0> zi_catch_prior_a;         // Beta(a, b) prior on theta_C
+  real<lower=0> zi_catch_prior_b;
+
   // --- Gear-per-crabber interviews ---
   int<lower=0> IntA_gear;
   int<lower=0> Gear_A[IntA_gear];
@@ -348,6 +372,9 @@ transformed data {
 }
 
 parameters {
+  // Structural-zero probability for the interview catch likelihood. Zero-size unless
+  // zi_catch = 1, so the OFF path is bit-identical (see the data block).
+  vector<lower=0, upper=1>[zi_catch] theta_C;
   real B1;
   real B2;
   real B1_C;
@@ -655,10 +682,19 @@ model {
     );
   }
 
+  if (zi_catch == 1) theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b);
+
   for (a in 1:IntC) {
-    c[a] ~ neg_binomial_2(
-      lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
-    );
+    real mu_c = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
+    if (zi_catch == 1) {
+      // log_mix(t, x, y) = log(t*exp(x) + (1-t)*exp(y)); exp(0) = 1 is the structural zero.
+      if (c[a] == 0)
+        target += log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C));
+      else
+        target += log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c, r_C);
+    } else {
+      c[a] ~ neg_binomial_2(mu_c, r_C);
+    }
   }
 
   for (a in 1:IntA_gear) {
@@ -693,6 +729,13 @@ model {
 generated quantities {
   matrix[G*S, G*S] Omega_C;
   matrix[G*S, G*S] Omega_E;
+
+  // Zero-inflation reporting. theta_C_out is 0.0 when the feature is off, so the column
+  // always exists and structural_params_*.csv does not gain and lose a row between runs;
+  // model_diagnostics.R flags it decoupled in that case so a 0 is never read as an estimate.
+  // zi_scale = 1 - theta_C is the multiplier the season total needs; see lambda_Ctot_S below.
+  real theta_C_out;
+  real<lower=0, upper=1> zi_scale;
 
   matrix<lower=0>[D,G] lambda_Ctot_S[S];
   matrix<lower=0>[D,G] C_expected[S];
@@ -767,10 +810,22 @@ generated quantities {
     );
   }
   for (a in 1:IntC) {
-    log_lik_catch[a] = neg_binomial_2_lpmf(
-      c[a] | lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
-    );
+    real mu_c_gq = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
+    // MUST mirror the model block exactly. A log_lik computed under a different likelihood
+    // from the one that was fitted makes every elpd_loo comparison meaningless, and an elpd
+    // comparison is the whole basis on which this feature will be judged.
+    if (zi_catch == 1) {
+      if (c[a] == 0)
+        log_lik_catch[a] = log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c_gq, r_C));
+      else
+        log_lik_catch[a] = log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
+    } else {
+      log_lik_catch[a] = neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
+    }
   }
+
+  if (zi_catch == 1) { theta_C_out = theta_C[1]; zi_scale = 1 - theta_C[1]; }
+  else               { theta_C_out = 0.0;         zi_scale = 1.0; }
 
   C_sum = 0;
   C_expected_sum = 0;
@@ -780,7 +835,15 @@ generated quantities {
     for (d in 1:D) {
       for (s in 1:S) {
         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]];
+        // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently
+        // inflate the headline. Under the mixture the expected catch of an interview is
+        // (1 - theta_C) * mu, not mu: theta_C is the probability the trip caught nothing for
+        // a reason outside the CPUE process. lambda_C is fitted to the NON-inflated
+        // component, so it rises to absorb the zeros theta_C removed. Reporting
+        // lambda_C * effort unscaled would hand back a season total inflated by
+        // 1 / (1 - theta_C) purely as an artefact of turning the feature on. zi_scale is
+        // exactly 1.0 when the feature is off, so this is a no-op there.
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]] * zi_scale;
         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
         C_expected_sum = C_expected_sum + C_expected[s][d,g];
 
