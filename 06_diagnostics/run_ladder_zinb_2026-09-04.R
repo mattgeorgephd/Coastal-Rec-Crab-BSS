@@ -247,6 +247,18 @@ stage_D0 <- function() {
     f <- sprintf("loo_pointwise_catch_%s_Dungeness_Kept.csv", nm)
     r <- loo_elpd_paired(file.path(z0, f), file.path(z1, f), nm)
     if (is.null(r)) next
+    V1row("D0", sprintf("ZINB elpd on %s, split by COUNT SIZE", nm),
+          loo_elpd_by_count_str(r), "read as a whole",
+          if (isTRUE(r$by_count["1", "diff"] < -3 * r$by_count["1", "se"])) "MISFIT MIGRATED" else "READ",
+          paste("2026-09-05. The two-way zero/positive split said 'positives -10.5' and that was read as",
+                "the harvest-carrying counts getting worse. It is not: y=1 loses -42.0 at 16.7 SE, y=2 loses",
+                "-6.6, and every bin from 3 up IMPROVES, with the 3+ bins carrying 87% of the catch. r_C",
+                "doubles (0.95 -> 1.83): once theta absorbs structural zeros the NB2 no longer needs extreme",
+                "overdispersion to reach zero, so it tightens, fitting the mid and upper counts better and",
+                "the almost-zero count of 1 worse. The ZINB has MOVED the misfit from the 0 bin to the 1",
+                "bin. Excess mass at 0 AND 1 relative to NB2 is the signature of a two-regime process",
+                "(unsuccessful trips yielding 0-1 crab against successful ones), which a hurdle or a",
+                "two-component mixture fits and a ZINB cannot."))
     V1row("D0", sprintf("ZINB elpd on %s, scored against the PAIRED difference SE", nm),
           loo_elpd_paired_str(r), "at least 2 SE",
           if (isTRUE(r$ratio >= 2)) "WORTH IT" else if (isTRUE(r$ratio >= 1)) "MARGINAL" else "NOT WORTH IT",
@@ -407,25 +419,53 @@ verdict_L1 <- function(dir) {
 verdict_Z2 <- function(dir) {
   if (is.na(dir %||% NA) || !dir.exists(dir %||% "")) return(invisible(NULL))
   z0 <- .here("05_output", REF$Z0$dir)
-  # The zero bin, now rendered under the corrected likelihood rather than approximated.
+  # The 0 AND 1 bins, rendered under the corrected likelihood. Both are needed: the zero bin
+  # alone passed on the 2026-09-03 prototype while the misfit migrated one bin over.
+  zbin <- function(obs, p) (sum(obs) - sum(p)) / sqrt(sum(p * (1 - p)))
   for (nm in c("shore_all_gear", "shore_ring_net_only")) {
     b <- rd(dir, sprintf("ppc_byobs_%s_Dungeness_Kept.csv", nm))
     a <- rd(z0,  sprintf("ppc_byobs_%s_Dungeness_Kept.csv", nm))
     if (is.null(a) || is.null(b)) next
     bc <- b[b$data_type == "catch", ]; ac <- a[a$data_type == "catch", ]
-    obs0 <- sum(bc$observed == 0); e <- sum(bc$p_zero)
-    z <- (obs0 - e) / sqrt(sum(bc$p_zero * (1 - bc$p_zero)))
-    zb <- (sum(ac$observed == 0) - sum(ac$p_zero)) / sqrt(sum(ac$p_zero * (1 - ac$p_zero)))
-    V1row("Z2", sprintf("zero bin on %s, RENDERED under the mixture", nm),
-          sprintf("%d observed vs %.1f expected, z = %+.1f (NB2 baseline %.1f, z = %+.1f); D0's offline approximation gave %.1f / %+.1f",
-                  obs0, e, z, sum(ac$p_zero), zb,
-                  if (nm == "shore_all_gear") REF$Z1$zero_mix_ag else REF$Z1$zero_mix_pc,
-                  if (nm == "shore_all_gear") REF$Z1$zero_z_ag else REF$Z1$zero_z_pc),
-          "|z| under about 2, and within 0.2 of the D0 approximation", if (abs(z) < 2.5) "PASS" else "REVIEW",
-          paste("The exact value. D0 approximated E[theta*p0] by E[theta]*E[p0] from the committed",
-                "marginal means; if this differs from it by more than about 0.2 in z, the covariance",
-                "between theta_C and the per-day NB2 zero probability is not negligible and the",
-                "approximation should not be used again."))
+    z0_ <- zbin(bc$observed == 0, bc$p_zero); zb0 <- zbin(ac$observed == 0, ac$p_zero)
+    has1 <- "p_one" %in% names(bc)
+    z1_ <- if (has1) zbin(bc$observed == 1, bc$p_one) else NA_real_
+    # NB2 baseline for the one bin, recomputed from Z0 by the same rule if that file predates
+    # p_one (it does): P(Y=1) needs the draws, so read it from the persisted ppc_draws if
+    # present, otherwise report the baseline as unavailable rather than guessing.
+    zb1 <- if ("p_one" %in% names(ac)) zbin(ac$observed == 1, ac$p_one) else NA_real_
+    approx0 <- if (nm == "shore_all_gear") REF$Z1$zero_z_ag else REF$Z1$zero_z_pc
+    V1row("Z2", sprintf("count bins 0 and 1 on %s, RENDERED under the mixture", nm),
+          sprintf(paste("ZERO: %d obs vs %.1f exp, z = %+.1f (NB2 baseline z %+.1f; D0 approximation %+.1f).",
+                        "ONE: %d obs vs %s exp, z = %s (NB2 baseline z %s)"),
+                  sum(bc$observed == 0), sum(bc$p_zero), z0_, zb0, approx0,
+                  sum(bc$observed == 1), if (has1) fmt(sum(bc$p_one)) else "NA",
+                  if (has1) sprintf("%+.1f", z1_) else "NA",
+                  if (is.finite(zb1)) sprintf("%+.1f", zb1) else "NA (Z0 predates p_one)"),
+          "BOTH bins |z| under about 2.5; zero bin within 0.2 of the D0 approximation",
+          if (is.finite(z1_)) { if (abs(z0_) < 2.5 && abs(z1_) < 2.5) "PASS" else "MISFIT MIGRATED" } else "REVIEW",
+          paste("THE ADOPTION CRITERION, SET BEFORE THE RUN. The 2026-09-03 prototype halved the zero-bin",
+                "z (+3.8 -> +2.0) and the elpd split by count size showed y=1 losing -42.0 nats at 16.7 SE:",
+                "the ZINB moved the misfit rather than removing it. A count-bin table passes as a WHOLE or",
+                "not at all. If the one bin fails here, the zero-inflation mechanism is the wrong shape for",
+                "these data (excess at 0 AND 1 is a two-regime signature) and the next model to try is a",
+                "hurdle or a two-component NB mixture, not a retuned theta prior. On the zero bin, a gap",
+                "above 0.2 in z from D0's E[theta]*E[p0] approximation means the theta/p0 covariance is",
+                "not negligible and that approximation must not be used again."))
+  }
+  # elpd by count size, from this run's own pointwise files against Z0.
+  for (nm in c("shore_all_gear", "shore_ring_net_only")) {
+    f <- sprintf("loo_pointwise_catch_%s_Dungeness_Kept.csv", nm)
+    r <- loo_elpd_paired(file.path(z0, f), file.path(dir, f), nm)
+    if (is.null(r)) next
+    V1row("Z2", sprintf("ZINB elpd on %s by count size, and paired total", nm),
+          paste(loo_elpd_by_count_str(r), " || TOTAL: ", loo_elpd_paired_str(r)),
+          "3+ bins improve (they carry ~87% of catch); total >= 2 paired SE; y=1 loss is the price",
+          if (isTRUE(r$ratio >= 2) && all(r$by_count[c("3-4", "5-8"), "diff"] > 0)) "WORTH IT (read the y=1 row)" else "READ",
+          paste("Same fit as Z1 up to RNG, so this should reproduce D0's table; it is here so the",
+                "adoption decision and the rendered PPC come from the same folder. WORTH IT here means",
+                "the harvest-carrying counts fit better and the total clears 2 SE. It does not mean the",
+                "model is right: read it with the count-bin row above."))
   }
   # Calibration, which was unreadable in Z1.
   cal <- rd(dir, "ppc_calibration_shore_all_gear_Dungeness_Kept.csv")

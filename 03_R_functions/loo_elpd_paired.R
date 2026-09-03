@@ -66,6 +66,19 @@ loo_elpd_paired <- function(path_a, path_b, label = NULL) {
        se_naive_a = stats::sd(m$elpd_loo_a) * sqrt(n),
        se_naive_b = stats::sd(m$elpd_loo_b) * sqrt(n),
        zeros = sub(iz), positives = sub(!iz),
+       # 2026-09-05: the decomposition that actually explains the sign of `positives`. On the
+       # ZINB comparison "positives -10.5" was y=1 at -42.0 and every bin from 3 up POSITIVE,
+       # with the 3+ bins carrying 87% of the catch. Read this table, not the two-way split.
+       by_count = local({
+         bins <- cut(m$observed_a, c(-1, 0, 1, 2, 4, 8, 16, Inf),
+                     labels = c("0", "1", "2", "3-4", "5-8", "9-16", "17+"))
+         t(vapply(levels(bins), function(l) {
+           k <- bins == l
+           c(n = sum(k), diff = if (any(k)) sum(d[k]) else NA_real_,
+             se = if (sum(k) >= 2) stats::sd(d[k]) * sqrt(sum(k)) else NA_real_,
+             catch_share = sum(m$observed_a[k]) / max(1, sum(m$observed_a)))
+         }, numeric(4)))
+       }),
        n_pareto_bad_a = sum(m$pareto_k_a > 0.7, na.rm = TRUE),
        n_pareto_bad_b = sum(m$pareto_k_b > 0.7, na.rm = TRUE))
 }
@@ -80,4 +93,12 @@ loo_elpd_paired_str <- function(x) {
           x$zeros[["n"]], x$zeros[["diff"]], x$zeros[["diff"]] / x$zeros[["se"]],
           x$positives[["n"]], x$positives[["diff"]], x$positives[["diff"]] / x$positives[["se"]],
           x$n_pareto_bad_a, x$n_pareto_bad_b)
+}
+
+# The by-count table as one line, for a verdict's `observed` field.
+loo_elpd_by_count_str <- function(x) {
+  if (is.null(x) || is.null(x$by_count)) return("")
+  b <- x$by_count
+  paste(sprintf("y=%s n=%d %+.1f (%.1f SE, %.0f%% of catch)", rownames(b), as.integer(b[, "n"]),
+                b[, "diff"], b[, "diff"] / b[, "se"], 100 * b[, "catch_share"]), collapse = " | ")
 }

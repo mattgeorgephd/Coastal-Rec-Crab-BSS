@@ -1470,6 +1470,14 @@ local({
       abs(bss_zi_pit(0, mu, sz, th) - (th + (1 - th) * 0.5 * dnbinom(0, size = sz, mu = mu))) > 1e-3)
   chk("mixture PIT at y > 0 = F(y-1) + 0.5 f(y)",
       abs(bss_zi_pit(4, mu, sz, th) - (sum(vapply(0:3, f, 0)) + 0.5 * f(4))) < 1e-12)
+  # 2026-09-05: the ONE bin. The zero bin passed on the prototype while y=1 lost -42 nats;
+  # a count-bin check must cover both, and the mixture P(Y=1) is (1-theta)*NB2(1), NOT
+  # theta + (1-theta)*NB2(1).
+  chk("mixture p_k(1) = (1-theta) * NB2(1)", abs(bss_zi_p_k(1, mu, sz, th) - f(1)) < 1e-12)
+  chk("mixture p_k(0) agrees with p_zero", abs(bss_zi_p_k(0, mu, sz, th) - bss_zi_p_zero(mu, sz, th)) < 1e-12)
+  chk("p_one is written beside p_zero",
+      any(grepl("p_one[i]  <- bss_zi_p_k(1L, mu, sz, th)",
+                readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), fixed = TRUE)))
   chk("theta = NULL reproduces the NB2 arithmetic exactly",
       identical(bss_zi_pit(3, mu, sz, NULL),
                 mean(pnbinom(2, size = sz, mu = mu) + 0.5 * dnbinom(3, size = sz, mu = mu))) &&
@@ -1502,6 +1510,8 @@ local({
   chk("paired ratio detects a real small effect the naive ratio would miss",
       r$ratio > 5 && abs(r$elpd_diff / r$se_naive_a) < 1,
       sprintf("paired %.1f SE, naive %.2f SE", r$ratio, r$elpd_diff / r$se_naive_a))
+  chk("by-count decomposition is returned and sums to the total",
+      !is.null(r$by_count) && abs(sum(r$by_count[, "diff"], na.rm = TRUE) - r$elpd_diff) < 1e-8)
   chk("misaligned obs_index is refused rather than silently compared",
       is.null(local({ b2 <- b; b2$observed <- rev(b2$observed)
                       t2 <- tempfile(fileext = ".csv"); write.csv(b2, t2, row.names = FALSE)

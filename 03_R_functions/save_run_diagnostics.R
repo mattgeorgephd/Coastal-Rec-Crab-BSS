@@ -280,7 +280,7 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     # 03_R_functions/zinb_ppc.R for why the mixture PIT needs a separate y == 0 branch
     # and for what the NB2-only version cost on the 2026-09-03 Z1 stage.
     pit_block <- function(days, y, mu_mat, size, theta = NULL) {
-      no <- length(y); pit <- fit_mean <- p_zero <- rep(NA_real_, no)
+      no <- length(y); pit <- fit_mean <- p_zero <- p_one <- rep(NA_real_, no)
       for (i in seq_len(no)) {
         mu <- pmax(mu_mat[, i], 1e-8); keep <- is.finite(mu) & is.finite(size)
         if (sum(keep) < 20) next
@@ -299,11 +299,14 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
         # this diagnostic made exactly that error and read a well-calibrated trailer stream
         # as 20% observed against 45% implied.
         p_zero[i] <- bss_zi_p_zero(mu, sz, th)
+        # 2026-09-05: the ONE bin as well. The zero bin passed on the ZINB prototype while
+        # the misfit migrated to y = 1; see bss_zi_p_k() in zinb_ppc.R.
+        p_one[i]  <- bss_zi_p_k(1L, mu, sz, th)
       }
       data.frame(day_index = days,
                  event_date = if (!is.null(ev)) as.character(ev[days]) else NA,
                  observed = y, fitted_mean = round(fit_mean, 3), pit = round(pit, 4),
-                 p_zero = round(p_zero, 5),
+                 p_zero = round(p_zero, 5), p_one = round(p_one, 5),
                  in_50 = pit >= 0.25 & pit <= 0.75,
                  in_95 = pit >= 0.025 & pit <= 0.975)
     }

@@ -153,3 +153,22 @@ The structural change is `save_ppc_draws`. Three defects in five weeks (the quan
 - **Z2 (about 4 h, `ZINB_RERENDER`).** Re-renders the ZINB shore fit under the corrected PPC so the adoption decision rests on rendered output, checks the rendered zero bin against D0's approximation (a gap above 0.2 in z would mean the theta/`p0` covariance is not negligible), produces the first readable calibration for a ZINB fit in this project, and confirms the boat negative control still reproduces bit-for-bit.
 
 Both fitted stages will write `ppc_draws_*.rds`, so the next diagnostic defect costs a recomputation rather than a batch.
+
+---
+
+## 9. Correction, 2026-09-05: where the ZINB actually loses
+
+Section 4's "the positives get worse" reading was misleading and is corrected here rather than rewritten above.
+
+| shore all-gear, elpd change by count | y=0 | y=1 | y=2 | y=3-4 | y=5-8 | y=9-16 | y=17+ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| n | 676 | 236 | 161 | 239 | 230 | 91 | 16 |
+| diff (nats) | **+25.2** | **-42.0** | -6.6 | **+14.3** | **+18.1** | **+5.6** | +0.1 |
+| SE ratio | 11.6 | **-16.7** | -4.5 | 10.9 | 11.8 | 4.6 | 0.2 |
+| share of catch | 0% | 6% | 8% | 20% | 34% | 25% | 8% |
+
+Every bin from 3 upward improves, and those bins carry 87% of the shore catch. The loss is at y=1, and it is enormous. `r_C` doubles (0.95 -> 1.83): once `theta` absorbs structural zeros the NB2 no longer needs extreme overdispersion to reach zero, so it tightens, fitting the harvest-carrying counts better and the almost-zero count of 1 worse. The pot-closure replicate has the same shape (y=1 -20.4; `r_C` 1.68 -> 2.86).
+
+So the ZINB has **moved** the misfit from the 0 bin to the 1 bin, not removed it. Excess mass at both 0 and 1 relative to NB2 is the signature of a two-regime process, unsuccessful trips yielding 0-1 crab against successful ones, which a hurdle or a two-component NB mixture fits and a ZINB by construction cannot. The zero-bin check alone, which is all stage Z2 originally carried, would have passed while recording none of this.
+
+Changes: `ppc_byobs_*.csv` carries `p_one` beside `p_zero` (mixture-aware, `bss_zi_p_k()`); `loo_elpd_paired()` returns the by-count table; stage Z2's criterion is pre-set as a count-bin table that passes as a whole or not at all, with the named alternative if the one bin fails. Harness 335.

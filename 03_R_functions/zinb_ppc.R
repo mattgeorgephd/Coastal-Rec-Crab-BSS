@@ -72,6 +72,20 @@ bss_zi_p_zero <- function(mu, size, theta = NULL) {
   if (is.null(theta)) mean(nb0) else mean(theta + (1 - theta) * nb0)
 }
 
+# Model-implied P(Y = k) for one observation, averaged over draws, for any k >= 1.
+# Added 2026-09-05 because the ZERO bin alone was shown to be an insufficient check: the
+# ZINB prototype halved the zero-bin z on shore all-gear (+3.8 -> +2.0) while the elpd
+# split by count size showed the misfit had MIGRATED to y = 1 (-42.0 nats at 16.7 SE on
+# 236 ones). With theta absorbing structural zeros, r_C doubles (0.95 -> 1.83), the NB2
+# tightens, and the "almost-zero" count of 1 becomes the bin the model cannot reach.
+# Excess mass at 0 AND 1 relative to NB2 is the signature of a two-regime process, which
+# a hurdle or two-component mixture fits and a ZINB cannot. A count-bin table has to be
+# read as a whole; a single bin passing is not evidence.
+bss_zi_p_k <- function(k, mu, size, theta = NULL) {
+  nbk <- stats::dnbinom(k, size = size, mu = mu)
+  if (is.null(theta)) mean(nbk) else if (k == 0) mean(theta + (1 - theta) * nbk) else mean((1 - theta) * nbk)
+}
+
 # Pull theta_C draws for the CATCH stream, or NULL when the fit is plain NB2.
 #   Returns a numeric vector on the `use` draw subset, or NULL. NULL is returned for
 #   any failure, so a fit that predates the parameter, or an extraction that throws,

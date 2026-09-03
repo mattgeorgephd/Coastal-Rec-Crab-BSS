@@ -559,14 +559,17 @@ run_config <- list(
   #     R-side PPC scored a ZINB fit as plain NB2. See zinb_ppc.R.
   #   replicate (shore pot closure, a separate fit on different data): theta_C 0.107
   #     against 0.179, elpd +9.1 at 1.96 SE, zero bin z +2.9 -> +0.8.
-  # WHAT ARGUES AGAINST ADOPTING IT ANYWAY, and why this still ships FALSE: the elpd gain
-  # is bought entirely at the zeros (+25.2, 11.6 SE) while the POSITIVE counts get worse
-  # (-10.5, -2.1 SE). A mixture that improves the zeros by degrading the positives is a
-  # different object from one that fits better everywhere, and the harvest estimate is made
-  # of the positives. It also moves the reported shore total by -0.7%. Adopt only on
-  # RENDERED diagnostics from a run with the corrected PPC, not on the numbers above, which
-  # were recomputed offline from committed draws and carry a mean-product approximation in
-  # the zero bin (E[theta*p0] taken as E[theta]E[p0]).
+  # WHY THIS STILL SHIPS FALSE (corrected 2026-09-05). Split by count size the elpd change
+  # is y=0 +25.2, y=1 -42.0 (16.7 SE), y=2 -6.6, and every bin from 3 up POSITIVE, with the
+  # 3+ bins carrying 87% of the catch. So the harvest-carrying counts fit BETTER; the loss
+  # is at y=1, because r_C doubles (0.95 -> 1.83) once theta takes the structural zeros and
+  # the tightened NB2 can no longer reach the almost-zero count of 1. The ZINB has moved
+  # the misfit one bin over, not removed it. Excess mass at 0 AND 1 is a two-regime
+  # signature (unsuccessful 0-1 crab trips vs successful ones) that a hurdle or a
+  # two-component NB mixture fits and a ZINB cannot. Adopt only on a RENDERED count-bin
+  # table (0 and 1 together) from a run under the corrected PPC; the zero bin alone passed
+  # on the prototype while the misfit migrated. Stage Z2 of run_ladder_zinb_2026-09-04.R
+  # carries the pre-set criterion. It also moves the reported shore total by -0.7%.
 
   # --- Persist the draws the PPC is computed from (2026-09-04) -----------------
   # Three separate defects in the DIAGNOSTIC arithmetic have each forced a full multi-hour
