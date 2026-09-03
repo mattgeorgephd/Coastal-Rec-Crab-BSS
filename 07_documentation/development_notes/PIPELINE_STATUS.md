@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-03
+- **Last updated:** 2026-09-04
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
@@ -523,6 +523,45 @@ Both **method documents** now carry a superseded-numbers banner: they present 67
 `effort_overdispersion_diagnostic_HOWTO.md` instructed the reader to act on `coverage_50` from `ppc_calibration_*.csv`, which is the non-randomized statistic corrected on 2026-09-01. It now carries a warning and the `ppc_byobs` replacement recipe.
 
 **Not fixed, recorded instead:** three rendered `.html` files are content-stale by up to seven weeks; `PIPELINE_STATUS.md` Section 4 still carries ~14 items marked DONE inline rather than moving them to Section 3; five superseded source notes referenced by the ID legend no longer exist, so the `T1.x` / `GR-9` / `POOL-1` identifiers are untraceable; and `07_documentation/README.md` indexes only three development notes.
+
+---
+
+## 1h. The AR escalation ladder as a production toggle (2026-09-04)
+
+Came out of the FW creel team meeting. Harness **303 assertions**.
+
+### Project context, recorded because it changes how everything above should be read
+
+**WDFW has published no estimate from this pipeline.** `main` is the state of the model before the FW creel meeting and before OSP confirmed they can supply boat counts; this branch is the work incorporating both. **There is no published figure a change has to stay consistent with**, so continuity with an earlier internal run is not on its own a reason to prefer one modelling choice over another. This is now stated at the top of `run_config.R` and `CLAUDE.md`.
+
+**The OSP data** is, per day, the total returning vessels and the fraction that were *crabbing only*, which deliberately EXCLUDES combo trips that also crabbed. It is therefore a **lower bound on crabbing vessels, not the crabbing fraction `f`**, which is exactly what `osp_crab_lower` / `f_lower` were built for. Its purpose is to improve the accuracy of the boat estimate and reduce its uncertainty; the acknowledged limitation is that more **boat interviews** are needed next season, which boat counting cannot fix.
+
+### What the toggle does, and its one important limit
+
+`ar_escalate` already existed. What it lacked, and now has:
+
+- **A per-population and per-sub-season scope.** `TRUE`, `c("shore")`, or `list(shore = "all_gear")`. Every rung is a multi-hour fit, and two components already have known answers (shore pot closure funnelled at daily with 1,165 divergences; the boat diverged on ~100% of iterations), so escalating those from the top burns known-bad fits.
+- **Each rung's own estimate.** The log kept sampler diagnostics only; the estimate was discarded when `fit` was overwritten. `ar_escalation_log.csv` now carries `catch_median`, `catch_lo95`, `catch_hi95`, `pi_width`, `pi_width_rel`, `effort_median` and a `selected` flag per rung, and the HTML report tabulates them.
+- **`ar_escalate_stop`**: `"first_pass"` (default, and byte-identical to the previous behaviour) stops at the finest rung that passes the gate, which is the production rule. `"all_rungs"` fits every rung and reports the one `ar_escalate_select` names, which is the diagnostic mode for honing in on a resolution in a new season.
+
+> **THE LIMIT, stated because it bounds what the mechanism can do.** The ladder escalates on the CONVERGENCE gate. On the 2026-08-31 production run **every component passes that gate, shore all-gear at daily included**, so the production rule applied to this season changes nothing. That same fit carries p_loo at 35.2% of `n_obs`, 41 Pareto k above 0.7 and `coverage_50` 0.701 against a nominal 0.500. The gate is blind to all of it by construction. Making the ladder react to adequacy is a deliberate change to what the gate tests, not a setting.
+
+### On selecting by the narrowest prediction interval
+
+Tested against the boat 2x2, four cells on one track:
+
+| cell | catch | PI width | rel width | trailer coverage_50 |
+|---|---:|---:|---:|---:|
+| OFF x monthly | 25,868 | 40,358 | **156.0%** | 0.538 calibrated |
+| ON x monthly | 31,008 | 47,671 | 153.7% | 0.523 calibrated |
+| OFF x daily | 37,359 | 54,769 | 146.6% | 0.713 broken |
+| ON x daily | 42,344 | 60,294 | **142.4%** | 0.744 broken |
+
+On **relative** width the two miscalibrated cells look the most precise, because a latent process that absorbs observation noise reports a tighter interval. On **absolute** width the calibrated cell wins, but catch and width are nearly proportional here (ratio 0.64 in all four cells), so "narrowest absolute interval" is close to "smallest estimate" and would systematically select the lowest harvest number. `"narrowest_pi"` is available and is **not** the default; use precision to break a tie between rungs that are already adequate, never to decide adequacy.
+
+### Batch simplification
+
+The 2026-09-03 batch replaced its three forced rungs (A1/A2/A3) with **one** run of the production toggle: 7 fits instead of 12, one output folder instead of three, and it exercises the mechanism a future season will use rather than an experiment-only `ar_force`. Runtime drops from 23-26 h to 17-20 h.
 
 ---
 

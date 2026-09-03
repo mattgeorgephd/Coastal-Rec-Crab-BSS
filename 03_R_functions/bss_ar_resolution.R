@@ -109,6 +109,41 @@
   .bss_normalize_resolution(e[[gear_regime]])
 }
 
+# ---------------------------------------------------------------------------
+# .bss_resolve_ar_escalate()  --  2026-09-04.
+#
+# params$ar_escalate accepts three shapes, so a season can escalate exactly the components
+# that need it instead of paying for the ones whose resolution is already settled:
+#
+#   FALSE / TRUE                 off / on for every fit (the original scalar behaviour)
+#   c("shore")                   on for the named POPULATIONS only
+#   list(shore = "all_gear")     on for named population x sub-season pairs; a character
+#                                vector of gear_regimes, or TRUE for all of that
+#                                population's sub-seasons
+#
+# WHY THE SCOPING EARNS ITS PLACE. Every rung is a real multi-hour fit, and the two capped
+# components already have a known answer: the shore pot closure funnels at daily (1,165
+# divergences on Run 1) and the boat diverged on ~100% of iterations at daily. Escalating
+# those from the top burns two known-bad fits to rediscover the caps. The component that
+# genuinely needs the ladder in 2024-25 is shore all-gear, and `list(shore = "all_gear")`
+# says exactly that.
+# ---------------------------------------------------------------------------
+.bss_resolve_ar_escalate <- function(params, population_name, gear_regime = NULL) {
+  e <- params$ar_escalate
+  if (is.null(e)) return(FALSE)
+  if (is.logical(e) && length(e) == 1) return(isTRUE(e))
+  if (is.character(e)) return(population_name %in% e)
+  if (is.list(e)) {
+    if (!population_name %in% names(e)) return(FALSE)
+    v <- e[[population_name]]
+    if (is.logical(v) && length(v) == 1) return(isTRUE(v))
+    if (is.character(v)) return(!is.null(gear_regime) && gear_regime %in% v)
+    return(FALSE)
+  }
+  stop("params$ar_escalate must be TRUE/FALSE, a character vector of population names, or ",
+       "a named list of population -> gear_regime(s). Got: ", class(e)[1], call. = FALSE)
+}
+
 .bss_normalize_resolution <- function(x) {
   if (is.null(x) || is.na(x)) return(NA_character_)
   x <- tolower(trimws(as.character(x)))
@@ -281,7 +316,8 @@ bss_ar_ladder <- function(days, eff_d, population_name, params,
                                        fixed_resolution = fixed_resolution,
                                        gear_regime = gear_regime, verbose = FALSE)
 
-  if (!isTRUE(params$ar_escalate)) return(base_sel$resolution)
+  if (!.bss_resolve_ar_escalate(params, population_name, gear_regime))
+    return(base_sel$resolution)
 
   ladder <- vapply(params$ar_escalate_ladder %||% c("daily", "weekly", "biweekly", "monthly"),
                    .bss_normalize_resolution, character(1), USE.NAMES = FALSE)

@@ -45,14 +45,29 @@
 #       ladder, fitted under the same Stan file as the other rungs. Without (b) the ladder
 #       would compare three post-edit rungs against a pre-edit production run.
 #
-#   A1  shore all-gear AR forced to weekly     }  The main question. Production runs this
-#   A2  shore all-gear AR forced to biweekly   }  component at DAILY, and on the production
-#   A3  shore all-gear AR forced to monthly    }  run it is the worst-behaved fit in the run.
+#   A1  shore all-gear at EVERY rung of the ladder, in ONE run, via the PRODUCTION toggle
+#       (`ar_escalate` scoped to shore/all_gear, `ar_escalate_stop = "all_rungs"`). Each
+#       rung's own estimate and 95% interval are logged and tabulated in the HTML report.
+#       This replaces three separate forced runs: 7 fits instead of 12, one output folder
+#       instead of three, and it exercises the mechanism a future season will actually use
+#       rather than an experiment-only override.
 #
 #   Z1  ZINB ON for the shore. Last because it is the only stage whose value depends on
 #       another stage passing (Z0's gate), and because its own negative control is free:
 #       zi_catch is set per FIT, so the boat fits in this very run carry the feature off and
 #       must come back bit-identical to Z0.
+#
+# WHAT THE LADDER CAN AND CANNOT DECIDE, stated up front because it bounds the whole stage.
+# The production rule agreed with the FW creel team is: start at daily, and if a component
+# fails the CONVERGENCE GATE, coarsen until one passes. On the 2026-08-31 production run
+# EVERY component passes that gate, shore all-gear at daily included. So the production rule
+# applied to this season's data changes nothing, and the ladder's value here is diagnostic:
+# it measures how the estimate depends on resolution and whether the gate is the right thing
+# to escalate on. The adequacy problems at daily (p_loo 35.2% of n_obs, 41 Pareto k above
+# 0.7, coverage_50 0.701 against a nominal 0.500) are invisible to the gate by construction.
+# If the ladder shows a coarser rung is materially better on those axes while daily keeps
+# passing the gate, that is an argument about what the gate should test, and it needs a
+# deliberate decision rather than a config edit.
 #
 # WHY THE SHORE AR LADDER IS THE MAIN EVENT. On 05_output/20260831/pooled-CPUE-VAL-1-adopted
 # the shore all-gear fit carries p_loo = 35.2% of n_obs (109.4 effective parameters on 311
@@ -83,8 +98,10 @@
 # RESUMABLE. A stage whose output folder already holds port_total_Dungeness_Kept.csv is
 # skipped and re-extracted.
 #
-# RUNTIME. Roughly 23-26 h on 4 cores: G1 ~0.6 h, Z0 ~4.5 h, A1-A3 ~4-5 h each (a coarser AR
-# is usually FASTER, so the ladder may come in under this), Z1 ~5 h. P1 is minutes.
+# RUNTIME. Roughly 17-20 h on 4 cores: G1 ~0.6 h, Z0 ~4.5 h, A1 ~7-9 h (four shore all-gear
+# rungs plus three other components once each; coarser rungs are usually FASTER than daily,
+# so this may come in well under), Z1 ~5 h. P1 is minutes. That is 5-7 h less than the
+# three-forced-run design it replaces.
 #
 # ONE STAN RECOMPILE. The pooled model gains three data variables and one guarded parameter,
 # so the first pooled stage pays a compile (a few minutes). rstan_options(auto_write = TRUE)
@@ -94,8 +111,8 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE                  # TRUE: P1 runs, nothing is fitted. START HERE.
-STAGES  <- c("P1", "G1", "Z0", "A1", "A2", "A3", "Z1")
+DRY_RUN <- FALSE                  # TRUE: P1 runs, nothing is fitted. START HERE.
+STAGES  <- c("P1", "G1", "Z0", "A1", "Z1")
 RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete
 
 # Z0 is the gate for Z1: if the ZINB edit is not behaviour-neutral with the feature off,
@@ -222,12 +239,26 @@ STAGE_DEFS <- list(
   Z0 = stage("Z0", "SZ-Z0-zi-off", "pooled", list(estimate_catch_zi = FALSE),
              "GATE and the ladder's DAILY rung: the ZINB edit must be bit-identical when off",
              "zinb"),
-  A1 = stage("A1", "SZ-A1-shore-weekly", "pooled", list(ar_force = AR_SHORE_AG("weekly")),
-             "shore all-gear AR forced to weekly", "shore AR"),
-  A2 = stage("A2", "SZ-A2-shore-biweekly", "pooled", list(ar_force = AR_SHORE_AG("biweekly")),
-             "shore all-gear AR forced to biweekly", "shore AR"),
-  A3 = stage("A3", "SZ-A3-shore-monthly", "pooled", list(ar_force = AR_SHORE_AG("monthly")),
-             "shore all-gear AR forced to monthly (the gear track's resolution, same track)",
+  # 2026-09-04: ONE stage replaces the three forced rungs A1/A2/A3.
+  #
+  # `ar_escalate_stop = "all_rungs"` scoped to shore all-gear fits that component at every
+  # rung of the ladder INSIDE A SINGLE RENDER and logs each rung's own estimate and interval
+  # to ar_escalation_log.csv, which the HTML report now tabulates. Three separate forced
+  # runs fit 12 components to answer the same question; this fits 7 (4 shore all-gear rungs
+  # plus the three untouched components once each), keeps every rung in one output folder,
+  # and removes the need for a leak control, because the other three fits happen once and
+  # cannot be reached by a per-sub-season escalation scope.
+  #
+  # It also EXERCISES THE PRODUCTION MECHANISM rather than a batch-only override. `ar_force`
+  # is an experiment lever; `ar_escalate` is the toggle that will actually be used in future
+  # seasons, so testing it here is worth more than testing three forced runs that no
+  # production run will ever reproduce.
+  A1 = stage("A1", "SZ-A1-shore-ladder", "pooled",
+             list(ar_escalate = list(shore = "all_gear"),
+                  ar_escalate_stop = "all_rungs",
+                  ar_escalate_select = "first_pass",
+                  ar_escalate_respect_cap = FALSE),
+             "shore all-gear at EVERY rung in one run: the ladder, with each rung's estimate kept",
              "shore AR"),
   Z1 = stage("Z1", "SZ-Z1-zi-shore", "pooled",
              list(estimate_catch_zi = TRUE, catch_zi_populations = c("shore")),
@@ -699,11 +730,28 @@ lad_row <- function(name, res, sid = NULL, from_dir = NULL) {
              disp_scale = r$shore_ag_disp_scale, divergences = r$shore_ag_div,
              stringsAsFactors = FALSE)
 }
-LAD <- do.call(rbind, Filter(Negate(is.null), list(
-  lad_row("daily (production)", "daily",    sid = "Z0"),
-  lad_row("weekly",             "weekly",   sid = "A1"),
-  lad_row("biweekly",           "biweekly", sid = "A2"),
-  lad_row("monthly",            "monthly",  sid = "A3"))))
+# The ladder now comes from ONE run's ar_escalation_log.csv, which carries a row per rung
+# with that rung's own estimate and interval. Z0 supplies the production daily rung fitted
+# under the same Stan file, so the two are directly comparable.
+LAD <- local({
+  d <- find_outdir("pooled", STAGE_DEFS$A1$tag)
+  x <- if (!is.na(d %||% NA)) rd(d, "ar_escalation_log.csv") else NULL
+  if (is.null(x) || !"fit" %in% names(x)) return(lad_row("daily (production)", "daily", sid = "Z0"))
+  x <- x[grepl("^shore_all_gear", x$fit), , drop = FALSE]
+  if (!nrow(x)) return(lad_row("daily (production)", "daily", sid = "Z0"))
+  data.frame(rung = paste0(x$ar_resolution, ifelse(x$selected, " (REPORTED)", "")),
+             ar = x$ar_resolution, shore_all_gear = x$catch_median,
+             reported = x$selected, port = NA_real_, n_gear = NA_integer_,
+             p_loo_frac = NA_real_, pareto_bad = NA_real_, p_loo_gear = NA_real_,
+             elpd_gear = NA_real_, elpd_catch = NA_real_,
+             cov50_gear = NA_real_, cov50_catch = NA_real_, cov50_gear_sd = NA_real_,
+             se_elpd_gear = NA_real_, se_elpd_catch = NA_real_,
+             phi_E = NA_real_, sigma_eps_E = NA_real_, disp_scale = NA_real_,
+             divergences = x$divergences,
+             lo95 = x$catch_lo95, hi95 = x$catch_hi95,
+             pi_width = x$pi_width, pi_width_rel = x$pi_width_rel,
+             passed_gate = x$pass_convergence, stringsAsFactors = FALSE)
+})
 # The pre-edit production run is a FALLBACK rung, used only when Z0 has not run yet. It is
 # merged, never substituted: substituting it truncated this file to a single row on every
 # dry run, and the ladder is the main result of the batch.
@@ -768,23 +816,29 @@ if (!is.null(S) && any(S$stage == "Z0")) {
 # the first time, so the same check is worth its zero cost here. Every fit is an independent
 # Stan run with the same seed, so the three untouched fits must be BIT-IDENTICAL to Z0 in
 # every rung, not merely close.
-for (sid in c("A1", "A2", "A3")) {
-  if (is.null(S) || !any(S$stage == sid)) next
-  nd <- find_outdir("pooled", STAGE_DEFS[[sid]]$tag); z0 <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
-  if (is.na(nd %||% NA) || is.na(z0 %||% NA)) next
-  ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only", "shore POT CLOSURE fits vs Z0",
-                         expect_delta = "ar_force")
-  ex_bt <- fit_exactness(nd, z0, "private_boat", "BOAT fits vs Z0", expect_delta = "ar_force")
-  V1row(sid, "forcing the shore all-gear AR touches that fit and nothing else",
-    sprintf("%s | %s", ex_pc$observed, ex_bt$observed),
-    "the other three fits bit-identical to Z0",
-    if (identical(ex_pc$verdict, "PASS") && identical(ex_bt$verdict, "PASS")) "PASS" else "FAIL",
-    paste("A free control, and one this project has learned to run: an ar_force that reaches",
-          "a sub-season it was not aimed at produces a number that looks like a finding. The",
-          "boat half also protects the headline, because the boat is about 43% of the port",
-          "total and nothing in this ladder should move it. A FAIL here invalidates the",
-          "affected rung's shore comparison AND means the port totals in this ladder are not",
-          "comparable to production."))
+# SCOPE CONTROL. `ar_escalate = list(shore = "all_gear")` should reach exactly one fit. The
+# other three are fitted once each and must be bit-identical to Z0. This is the same class
+# of check that caught the 2026-08-28 ar_force leak, which cost 3,025 crab, and it is
+# cheaper here because the scope is resolved per fit rather than per population.
+if (!is.null(S) && any(S$stage == "A1")) {
+  nd <- find_outdir("pooled", STAGE_DEFS$A1$tag); z0 <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
+  if (!is.na(nd %||% NA) && !is.na(z0 %||% NA)) {
+    .esc_keys <- c("ar_escalate", "ar_escalate_stop", "ar_escalate_select", "ar_escalate_respect_cap")
+    ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only", "shore POT CLOSURE fits vs Z0",
+                           expect_delta = .esc_keys)
+    ex_bt <- fit_exactness(nd, z0, "private_boat", "BOAT fits vs Z0", expect_delta = .esc_keys)
+    V1row("A1", "the escalation scope reaches shore all-gear and nothing else",
+      sprintf("%s | %s", ex_pc$observed, ex_bt$observed),
+      "the other three fits bit-identical to Z0",
+      if (identical(ex_pc$verdict, "PASS") && identical(ex_bt$verdict, "PASS")) "PASS" else "FAIL",
+      paste("`ar_escalate` accepts a per-population and per-sub-season scope as of",
+            "2026-09-04, and this is its first use. A scope that reaches further than",
+            "intended produces a number that looks like a finding: that is exactly what",
+            "happened on 2026-08-28 when an ar_force keyed per population silently forced a",
+            "second sub-season and moved a component 3,025 crab. The boat half also protects",
+            "the headline, since the boat is about 43% of the port total and nothing in this",
+            "ladder should move it."))
+  }
 }
 
 if (!is.null(LAD) && nrow(LAD) > 1) {

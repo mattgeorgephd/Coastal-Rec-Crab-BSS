@@ -18,6 +18,22 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-04, The AR escalation ladder becomes a production toggle, and the project context that reframes it (branch `OSP-boat-count-incorporation`)
+
+Harness **303 assertions**, 0 failing. Details in `development_notes/PIPELINE_STATUS.md` Section 1h.
+
+**CONTEXT NOW RECORDED IN THE CODE.** WDFW has published no estimate from this pipeline; `main` is the pre-FW-creel-meeting, pre-OSP state. There is no published figure a change has to stay consistent with, so continuity with an earlier internal run is not on its own a reason to prefer a modelling choice. The OSP stream is, per day, total returning vessels and the fraction that were CRABBING ONLY, which excludes combo trips that also crabbed and is therefore a LOWER BOUND on crabbing vessels rather than the crabbing fraction `f`; that is what `osp_crab_lower` / `f_lower` exist for. Both facts are now at the top of `run_config.R` and `CLAUDE.md`, where an operator or an agent will actually meet them.
+
+**THE LADDER ALREADY EXISTED; WHAT IT LACKED NOW EXISTS.** `ar_escalate` gained a per-population and per-sub-season scope (`TRUE`, `c("shore")`, or `list(shore = "all_gear")`), because every rung is a multi-hour fit and two components already have known answers. `ar_escalation_log.csv` now keeps EACH RUNG'S OWN ESTIMATE and 95% interval rather than only its sampler diagnostics: the estimate used to be discarded when `fit` was overwritten, which meant the one thing a ladder exists to show, how the answer depends on resolution, was the one thing not recorded. The HTML report tabulates it with the reported rung marked. `ar_escalate_stop` adds an `"all_rungs"` diagnostic mode alongside the default `"first_pass"`, which is byte-identical to the previous behaviour.
+
+**THE LIMIT, stated because it bounds the mechanism.** The ladder escalates on the CONVERGENCE gate. On the 2026-08-31 production run every component passes that gate, shore all-gear at daily included, so the production rule applied to this season changes nothing; that same fit carries p_loo at 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500, all invisible to the gate by construction. Making the ladder react to adequacy is a change to what the gate tests, not a setting.
+
+**SELECTING BY THE NARROWEST INTERVAL WAS TESTED AND IS NOT THE DEFAULT.** On the boat 2x2 the two MISCALIBRATED cells have the narrowest relative intervals (142.4% and 146.6% against 153.7% and 156.0%), because a latent process that absorbs observation noise reports a tighter interval. On absolute width the calibrated cell wins, but catch and width are nearly proportional (ratio 0.64 in all four cells), so the criterion is close to "smallest estimate" and would bias the harvest number down. `"narrowest_pi"` is available for breaking a tie between rungs that are already adequate; it cannot decide adequacy.
+
+**BATCH SIMPLIFICATION.** The 2026-09-03 batch replaced three forced rungs with one run of the production toggle: 7 fits instead of 12, one output folder, 17-20 h instead of 23-26 h, and it exercises the mechanism a future season will use rather than an experiment-only `ar_force` override.
+
+------------------------------------------------------------------------
+
 ### 2026-09-03, Two code changes and the batch that tests them: the shore AR ladder, the restored gear cross-check, PE/BSS arm alignment and a targeted ZINB prototype (branch `OSP-boat-count-incorporation`)
 
 Harness **264 assertions**, 0 failing. Batch: `06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h, ships `DRY_RUN <- TRUE`. Details in `development_notes/PIPELINE_STATUS.md` Section 1f.

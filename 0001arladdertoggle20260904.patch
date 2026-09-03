@@ -1,0 +1,1051 @@
+From 55257fdf0833dfab6ea0f4f175e97e66c9901c6c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 05:09:51 +0000
+Subject: [PATCH] AR escalation as a production toggle; record the project
+ context that reframes it
+
+Harness 279 -> 303 assertions, 0 failing. Implements the FW-creel-meeting
+ladder as a run_config toggle, and records the context that changes how the
+rest of this work should be read.
+
+PROJECT CONTEXT, now at the top of run_config.R and CLAUDE.md
+WDFW has published NO estimate from this pipeline; main is the state before
+the FW creel meeting and before OSP confirmed they can supply boat counts.
+There is no published figure a change has to stay consistent with, so
+continuity with an earlier internal run is not on its own a reason to prefer
+a modelling choice. The OSP stream is, per day, total returning vessels and
+the fraction that were CRABBING ONLY, which excludes combo trips that also
+crabbed: a LOWER BOUND on crabbing vessels, not the crabbing fraction f.
+That is what osp_crab_lower / f_lower exist for; do not wire it in as f. Its
+purpose is to improve the boat estimate's accuracy and reduce its
+uncertainty; more boat interviews are needed next season regardless.
+
+THE LADDER ALREADY EXISTED (ar_escalate). What it lacked now exists:
+  * PER-POPULATION / PER-SUB-SEASON SCOPE. TRUE, c("shore"), or
+    list(shore = "all_gear"). Every rung is a multi-hour fit and two
+    components have known answers (shore pot closure funnelled at daily with
+    1,165 divergences; the boat diverged on ~100% of iterations), so
+    escalating those from the top burns known-bad fits.
+  * EACH RUNG'S OWN ESTIMATE. ar_escalation_log.csv kept sampler diagnostics
+    only; the estimate was discarded when `fit` was overwritten, so the one
+    thing a ladder exists to show was the one thing not recorded. It now
+    carries catch_median / lo95 / hi95 / pi_width / pi_width_rel /
+    effort_median and a `selected` flag, and the HTML report tabulates them.
+  * ar_escalate_stop = "first_pass" (default, byte-identical to the previous
+    behaviour: the production rule) or "all_rungs" (the diagnostic mode that
+    fits every rung in ONE render).
+
+THE LIMIT, stated because it bounds the mechanism. The ladder escalates on
+the CONVERGENCE gate. On the 2026-08-31 production run every component
+passes it, shore all-gear at daily included, so the production rule applied
+to this season changes nothing. That same fit carries p_loo 35.2% of n_obs,
+41 Pareto k > 0.7 and coverage_50 0.701 against a nominal 0.500, all
+invisible to the gate by construction. Making the ladder react to adequacy
+is a change to what the gate tests, not a setting.
+
+NARROWEST-INTERVAL SELECTION WAS TESTED AND IS NOT THE DEFAULT. On the boat
+2x2 the two MISCALIBRATED cells have the narrowest RELATIVE intervals
+(142.4%, 146.6% vs 153.7%, 156.0%), because a latent process absorbing
+observation noise reports a tighter interval. On ABSOLUTE width the
+calibrated cell wins, but catch and width are nearly proportional (ratio
+0.64 in all four cells), so the criterion is close to "smallest estimate"
+and would bias the harvest number down. "narrowest_pi" is available for
+breaking a tie between rungs that are already adequate.
+
+BATCH SIMPLIFICATION. run_shore_ar_zi_2026-09-03.R replaces its three forced
+rungs with one run of the production toggle: 7 fits instead of 12, one
+output folder, 17-20 h instead of 23-26 h, and it exercises the mechanism a
+future season will actually use rather than an experiment-only ar_force.
+
+Verified: harness 303/303; batch dry run (P1 PASS, all four stages resolve);
+all three Stan models pass stanc; both drivers purl and parse; 38 helpers
+parse; stage5 self-test 22/22.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019JpDrKZxssAV8FmRX4E5Wj
+---
+ 01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd |  55 ++++++--
+ 01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd    | 110 ++++++++++++++--
+ 03_R_functions/bss_ar_resolution.R            |  38 +++++-
+ 03_R_functions/bss_ar_rung_summary.R          |  80 ++++++++++++
+ 06_diagnostics/README.md                      |   4 +-
+ 06_diagnostics/run_shore_ar_zi_2026-09-03.R   | 122 +++++++++++++-----
+ 06_diagnostics/test_improvements_2026-08-25.R |  96 +++++++++++++-
+ ...ear-type-CPUE-model-development-history.md |  16 +++
+ ...H-pooled-CPUE-model-development-history.md |  16 +++
+ 07_documentation/CLAUDE.md                    |  22 ++++
+ .../development_notes/PIPELINE_STATUS.md      |  41 +++++-
+ README-R-functions.md                         |   1 +
+ run_config.R                                  |  96 ++++++++++++++
+ 13 files changed, 631 insertions(+), 66 deletions(-)
+ create mode 100644 03_R_functions/bss_ar_rung_summary.R
+
+diff --git a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+index 6cb4a27..a31cc68 100644
+--- a/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd
+@@ -797,8 +797,12 @@ for(cg in bss_catch_groups) {
+       ar_ladder <- bss_ar_ladder(days_ss, eff_d_ladder, pop, params,
+                                  fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else ss$period_bss,
+                                  gear_regime = ss$gear_regime)
+-      if (isTRUE(params$ar_escalate))
+-        message(sprintf("  AR escalation ladder: %s", paste(ar_ladder, collapse = " -> ")))
++      # 2026-09-04: resolved PER FIT; see the matching block in the pooled driver.
++      .esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)
++      .incumbent_passed <- FALSE; .incumbent_pi_rel <- Inf
++      if (.esc_on)
++        message(sprintf("  AR escalation ladder [%s/%s]: %s", pop, ss$gear_regime,
++                        paste(ar_ladder, collapse = " -> ")))
+ 
+       # improvement 6: post-filter interview floor (the guard above counts UNFILTERED
+       # interviews, so it reads looser than what the CPUE likelihood sees).
+@@ -892,24 +896,59 @@ for(cg in bss_catch_groups) {
+                            ar_resolution    = bss_data_try$.ar_resolution),
+           error = function(e) NULL)
+ 
++        # 2026-09-04: keep this rung's ANSWER as well as its sampler diagnostics; see the
++        # matching block in the pooled driver and 03_R_functions/bss_ar_rung_summary.R.
++        .rung <- bss_ar_rung_summary(fit_try)
+         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
+           fit                 = label,
+           attempt             = attempt,
+           n_attempts_planned  = length(ar_ladder),
+           ar_resolution       = bss_data_try$.ar_resolution %||% NA_character_,
+           P_n                 = bss_data_try$P_n,
+-          escalation_enabled  = isTRUE(params$ar_escalate),
++          escalation_enabled  = .esc_on,
+           divergences         = gate_try$divergences         %||% NA_integer_,
+           divergence_fraction = gate_try$divergence_fraction %||% NA_real_,
+           impact_C_sd         = gate_try$impact_C_sd         %||% NA_real_,
+-          pass_convergence    = gate_try$pass_convergence    %||% NA
++          pass_convergence    = gate_try$pass_convergence    %||% NA,
++          catch_median        = .rung$catch_median,
++          catch_lo95          = .rung$catch_lo95,
++          catch_hi95          = .rung$catch_hi95,
++          pi_width            = .rung$pi_width,
++          pi_width_rel        = .rung$pi_width_rel,
++          effort_median       = .rung$effort_median,
++          selected            = FALSE
+         )
+ 
+-        bss_data <- bss_data_try; fit <- fit_try
+-        ar_resolutions[[label]] <- bss_data_try$.ar_resolution
++        # Rung selection; see the fully commented block in the pooled driver. Default
++        # "first_pass" reproduces the pre-2026-09-04 behaviour exactly.
++        .stop_rule   <- params$ar_escalate_stop   %||% "first_pass"
++        .select_rule <- params$ar_escalate_select %||% "first_pass"
++        .passed      <- is.null(gate_try) || isTRUE(gate_try$pass_convergence)
++        .keep <- if (is.null(fit)) TRUE
++                 else if (identical(.stop_rule, "first_pass")) TRUE
++                 else if (!.passed) FALSE
++                 else if (!isTRUE(.incumbent_passed)) TRUE
++                 else if (identical(.select_rule, "narrowest_pi"))
++                   isTRUE(.rung$pi_width_rel < (.incumbent_pi_rel %||% Inf))
++                 else FALSE
++        if (.keep) {
++          bss_data <- bss_data_try; fit <- fit_try
++          ar_resolutions[[label]] <- bss_data_try$.ar_resolution
++          .incumbent_passed <- .passed
++          .incumbent_pi_rel <- .rung$pi_width_rel
++        }
++
++        if (identical(.stop_rule, "all_rungs") && .esc_on) {
++          if (attempt < length(ar_ladder)) {
++            message(sprintf("  [all_rungs] %s AR %s the gate; fitting %s next for the ladder.",
++                            bss_data_try$.ar_resolution, if (.passed) "PASSED" else "failed",
++                            ar_ladder[attempt + 1]))
++            next
++          } else break
++        }
+ 
+-        if (is.null(gate_try) || isTRUE(gate_try$pass_convergence)) break
+-        if (!isTRUE(params$ar_escalate)) break
++        if (.passed) break
++        if (!.esc_on) break
+         if (attempt < length(ar_ladder))
+           message(sprintf("  Gate FAILED at %s AR; escalating to %s and refitting.",
+                           bss_data_try$.ar_resolution, ar_ladder[attempt + 1]))
+diff --git a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+index 76beb0a..95d5279 100644
+--- a/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
++++ b/01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd
+@@ -1171,8 +1171,16 @@ for(cg in bss_catch_groups) {
+         filter(!is.na(day_index))
+       ar_ladder <- bss_ar_ladder(days_ss, eff_d_ladder, pop, params,
+                                  fixed_resolution = NULL, gear_regime = ss$gear_regime)
+-      if (isTRUE(params$ar_escalate))
+-        cat(sprintf("  AR escalation ladder: %s\n", paste(ar_ladder, collapse = " -> ")))
++      # Incumbent trackers for the rung-selection rule below. Reset per component.
++      .incumbent_passed <- FALSE; .incumbent_pi_rel <- Inf
++      # 2026-09-04: ar_escalate is resolved PER FIT, because it now accepts a per-population
++      # or per-sub-season scope as well as a scalar (03_R_functions/bss_ar_resolution.R).
++      # Every rung is a multi-hour fit, so escalating a component whose cap is already
++      # settled burns known-bad fits to rediscover it.
++      .esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)
++      if (.esc_on)
++        cat(sprintf("  AR escalation ladder [%s/%s]: %s\n", pop, ss$gear_regime,
++                    paste(ar_ladder, collapse = " -> ")))
+ 
+       # improvement 6: the POST-FILTER interview floor. The guard above counts UNFILTERED
+       # interviews and therefore reads looser than the count the CPUE likelihood sees;
+@@ -1274,24 +1282,77 @@ for(cg in bss_catch_groups) {
+                            ar_resolution    = attr(bss_data_try, "ar_resolution")),
+           error = function(e) NULL)
+ 
++        # 2026-09-04: keep this rung's ANSWER, not only its sampler diagnostics. The loop
++        # overwrites `fit` on the next attempt, so without this the estimate produced at
++        # every rung except the surviving one is lost, and the whole reason to run a ladder
++        # is to see how the answer depends on the resolution. It also makes
++        # params$ar_escalate_select's precision tie-break implementable at all.
++        .rung <- bss_ar_rung_summary(fit_try)
+         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
+           fit                = label,
+           attempt            = attempt,
+           n_attempts_planned = length(ar_ladder),
+           ar_resolution      = attr(bss_data_try, "ar_resolution") %||% NA_character_,
+           P_n                = bss_data_try$P_n,
+-          escalation_enabled = isTRUE(params$ar_escalate),
++          escalation_enabled = .esc_on,
+           divergences        = gate_try$divergences        %||% NA_integer_,
+           divergence_fraction= gate_try$divergence_fraction %||% NA_real_,
+           impact_C_sd        = gate_try$impact_C_sd        %||% NA_real_,
+-          pass_convergence   = gate_try$pass_convergence   %||% NA
++          pass_convergence   = gate_try$pass_convergence   %||% NA,
++          # The rung's own estimate. catch_* is the expected-catch season total, the same
++          # quantity the gate scores, so the verdict and the number refer to one thing.
++          catch_median       = .rung$catch_median,
++          catch_lo95         = .rung$catch_lo95,
++          catch_hi95         = .rung$catch_hi95,
++          pi_width           = .rung$pi_width,
++          pi_width_rel       = .rung$pi_width_rel,
++          effort_median      = .rung$effort_median,
++          selected           = FALSE      # set on the surviving rung after the loop
+         )
+ 
+-        bss_data <- bss_data_try; fit <- fit_try
+-        ar_resolutions[[label]] <- attr(bss_data_try, "ar_resolution")
++        # ---- which rung's fit is kept ------------------------------------------
++        # params$ar_escalate_stop:
++        #   "first_pass" (DEFAULT, and the pre-2026-09-04 behaviour exactly): stop at the
++        #      finest rung that passes the convergence gate and report it. Cheapest, and it
++        #      is the production rule: a component reports at the finest resolution the
++        #      sampler can actually support this season.
++        #   "all_rungs": fit EVERY rung on the ladder and keep the one params$
++        #      ar_escalate_select names. This is the DIAGNOSTIC mode. It costs one fit per
++        #      rung but it answers, in a single run and a single output folder, how the
++        #      estimate depends on resolution, which three separate forced runs answer far
++        #      more expensively and with the rungs scattered across three folders.
++        #
++        # Only ONE stanfit beyond the incumbent is ever held in memory: the challenger
++        # replaces the incumbent or is discarded immediately. Holding the whole ladder would
++        # be several GB for a daily shore fit.
++        .stop_rule   <- params$ar_escalate_stop   %||% "first_pass"
++        .select_rule <- params$ar_escalate_select %||% "first_pass"
++        .passed      <- is.null(gate_try) || isTRUE(gate_try$pass_convergence)
++        .keep <- if (is.null(fit)) TRUE                    # nothing kept yet
++                 else if (identical(.stop_rule, "first_pass")) TRUE
++                 else if (!.passed) FALSE                  # never report a rung that failed
++                 else if (!isTRUE(.incumbent_passed)) TRUE  # first passing rung wins outright
++                 else if (identical(.select_rule, "narrowest_pi"))
++                   isTRUE(.rung$pi_width_rel < (.incumbent_pi_rel %||% Inf))
++                 else FALSE                                # "first_pass": keep the finest
++        if (.keep) {
++          bss_data <- bss_data_try; fit <- fit_try
++          ar_resolutions[[label]] <- attr(bss_data_try, "ar_resolution")
++          .incumbent_passed <- .passed
++          .incumbent_pi_rel <- .rung$pi_width_rel
++        }
++
++        if (identical(.stop_rule, "all_rungs") && .esc_on) {
++          if (attempt < length(ar_ladder)) {
++            cat(sprintf("  [all_rungs] %s AR %s the gate; fitting %s next for the ladder.\n",
++                        attr(bss_data_try, "ar_resolution"),
++                        if (.passed) "PASSED" else "failed", ar_ladder[attempt + 1]))
++            next
++          } else break
++        }
+ 
+-        if (is.null(gate_try) || isTRUE(gate_try$pass_convergence)) break
+-        if (!isTRUE(params$ar_escalate)) break
++        if (.passed) break
++        if (!.esc_on) break
+         if (attempt < length(ar_ladder)) {
+           cat(sprintf(paste0("  Gate FAILED at %s AR; escalating to %s and refitting ",
+                              "(improvement 7 ladder).\n"),
+@@ -1434,6 +1495,17 @@ timer_stop("5_BSS_model_runs")
+ # decided whether to escalate, so the resolution actually used by each component is
+ # auditable rather than implicit.
+ ar_escalation_df <- if (length(ar_escalation_log)) bind_rows(ar_escalation_log) else NULL
++# Mark the rung whose fit was actually kept, so the log says which number was reported
++# rather than leaving the reader to infer it from the ordering. Under "first_pass" that is
++# the last row per fit; under "all_rungs" it can be any row, which is exactly why the flag
++# is needed.
++if (!is.null(ar_escalation_df) && nrow(ar_escalation_df)) {
++  for (.lb in unique(ar_escalation_df$fit)) {
++    .sel <- ar_resolutions[[.lb]] %||% NA_character_
++    .i <- which(ar_escalation_df$fit == .lb & ar_escalation_df$ar_resolution %in% .sel)
++    if (length(.i)) ar_escalation_df$selected[utils::tail(.i, 1)] <- TRUE
++  }
++}
+ if (!is.null(ar_escalation_df))
+   write.csv(ar_escalation_df, file.path(output_dir, "ar_escalation_log.csv"), row.names = FALSE)
+ 
+@@ -1448,11 +1520,23 @@ if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
+       Fit = short_fit(fit), Attempt = attempt, `AR resolution` = ar_resolution,
+       `AR periods` = P_n, Divergences = divergences,
+       `Div. fraction` = divergence_fraction, `Impact (SD)` = impact_C_sd,
+-      `Passed gate` = pass_convergence),
+-    caption = paste("AR resolution escalation ladder (improvement 7). Each component starts at the",
+-                    "finest rung and is refit one rung coarser whenever it fails the convergence",
+-                    "gate, stopping at the first rung that passes; the last row per fit is the",
+-                    "resolution actually reported. With ar_escalate = FALSE there is one row per",
++      `Passed gate` = pass_convergence,
++      # 2026-09-04: each rung's OWN answer, so a reader can see how the estimate depends on
++      # resolution instead of only seeing the one that survived.
++      `Catch (median)` = round(catch_median), `95% lo` = round(catch_lo95),
++      `95% hi` = round(catch_hi95), `PI width` = round(pi_width),
++      `PI width / median` = round(pi_width_rel, 3),
++      Reported = selected),
++    caption = paste("AR resolution escalation ladder. Each component starts at the finest rung",
++                    "and is refit one rung coarser whenever it fails the convergence gate,",
++                    "stopping at the first rung that passes (ar_escalate_stop = 'first_pass');",
++                    "under 'all_rungs' every rung is fitted and ar_escalate_select decides which",
++                    "is reported. The Reported column marks the rung whose fit was kept. Each",
++                    "rung's own catch estimate and 95% interval are shown so the sensitivity of",
++                    "the answer to resolution is visible here rather than only in the surviving",
++                    "row. NOTE that a narrower interval is not by itself evidence of a better",
++                    "model: on the 2026-08/09 boat 2x2 the two MISCALIBRATED cells had the",
++                    "narrowest relative intervals. With ar_escalate = FALSE there is one row per",
+                     "fit and this table simply records the single attempt."))
+ } else if (!is.null(ar_escalation_df)) {
+   cat("_AR escalation is off (`ar_escalate = FALSE`); each component was fitted once, at the resolution the coverage rule and `ar_max_resolution` selected._")
+diff --git a/03_R_functions/bss_ar_resolution.R b/03_R_functions/bss_ar_resolution.R
+index 341fd66..359e17c 100644
+--- a/03_R_functions/bss_ar_resolution.R
++++ b/03_R_functions/bss_ar_resolution.R
+@@ -109,6 +109,41 @@
+   .bss_normalize_resolution(e[[gear_regime]])
+ }
+ 
++# ---------------------------------------------------------------------------
++# .bss_resolve_ar_escalate()  --  2026-09-04.
++#
++# params$ar_escalate accepts three shapes, so a season can escalate exactly the components
++# that need it instead of paying for the ones whose resolution is already settled:
++#
++#   FALSE / TRUE                 off / on for every fit (the original scalar behaviour)
++#   c("shore")                   on for the named POPULATIONS only
++#   list(shore = "all_gear")     on for named population x sub-season pairs; a character
++#                                vector of gear_regimes, or TRUE for all of that
++#                                population's sub-seasons
++#
++# WHY THE SCOPING EARNS ITS PLACE. Every rung is a real multi-hour fit, and the two capped
++# components already have a known answer: the shore pot closure funnels at daily (1,165
++# divergences on Run 1) and the boat diverged on ~100% of iterations at daily. Escalating
++# those from the top burns two known-bad fits to rediscover the caps. The component that
++# genuinely needs the ladder in 2024-25 is shore all-gear, and `list(shore = "all_gear")`
++# says exactly that.
++# ---------------------------------------------------------------------------
++.bss_resolve_ar_escalate <- function(params, population_name, gear_regime = NULL) {
++  e <- params$ar_escalate
++  if (is.null(e)) return(FALSE)
++  if (is.logical(e) && length(e) == 1) return(isTRUE(e))
++  if (is.character(e)) return(population_name %in% e)
++  if (is.list(e)) {
++    if (!population_name %in% names(e)) return(FALSE)
++    v <- e[[population_name]]
++    if (is.logical(v) && length(v) == 1) return(isTRUE(v))
++    if (is.character(v)) return(!is.null(gear_regime) && gear_regime %in% v)
++    return(FALSE)
++  }
++  stop("params$ar_escalate must be TRUE/FALSE, a character vector of population names, or ",
++       "a named list of population -> gear_regime(s). Got: ", class(e)[1], call. = FALSE)
++}
++
+ .bss_normalize_resolution <- function(x) {
+   if (is.null(x) || is.na(x)) return(NA_character_)
+   x <- tolower(trimws(as.character(x)))
+@@ -281,7 +316,8 @@ bss_ar_ladder <- function(days, eff_d, population_name, params,
+                                        fixed_resolution = fixed_resolution,
+                                        gear_regime = gear_regime, verbose = FALSE)
+ 
+-  if (!isTRUE(params$ar_escalate)) return(base_sel$resolution)
++  if (!.bss_resolve_ar_escalate(params, population_name, gear_regime))
++    return(base_sel$resolution)
+ 
+   ladder <- vapply(params$ar_escalate_ladder %||% c("daily", "weekly", "biweekly", "monthly"),
+                    .bss_normalize_resolution, character(1), USE.NAMES = FALSE)
+diff --git a/03_R_functions/bss_ar_rung_summary.R b/03_R_functions/bss_ar_rung_summary.R
+new file mode 100644
+index 0000000..a40cd59
+--- /dev/null
++++ b/03_R_functions/bss_ar_rung_summary.R
+@@ -0,0 +1,80 @@
++# -----------------------------------------------------------------------------
++# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
++# for Grays Harbor / Westport (WDFW).
++# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
++#
++# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
++#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
++# Substantial portions of the methodology, structure, and R/Stan code originate
++# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
++# recreational crab are by WDFW.
++#
++# This program is free software: you can redistribute it and/or modify it under
++# the terms of the GNU General Public License, version 3, as published by the Free
++# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
++# implied
++# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++# General Public License for more details. You should have received a copy of
++# the GNU General Public License along with this program (see the LICENSE file);
++# if not, see <https://www.gnu.org/licenses/>.
++# ---------------------------------------------------------------------------
++# bss_ar_rung_summary()  --  2026-09-04.
++#
++# WHAT IT IS FOR. The escalation ladder (bss_ar_ladder / params$ar_escalate) refits a
++# component at successively coarser AR resolutions until one passes the convergence gate.
++# Until now the only thing kept from an attempt was its SAMPLER diagnostics: divergences,
++# the divergence fraction, the impact test and the pass/fail. The ESTIMATE each rung
++# produced was discarded the moment the loop moved on, because `fit` is overwritten.
++#
++# That is the wrong thing to throw away. The whole point of running a ladder is to see how
++# the answer depends on the resolution, and a reader of the report cannot see that if only
++# the surviving rung's number exists. It also makes the tie-break in
++# params$ar_escalate_select unimplementable: you cannot prefer the rung with the narrowest
++# predictive interval if you did not record any rung's interval.
++#
++# This extracts the season totals and their intervals from one attempt's fit, cheaply
++# (three parameters, no draw extraction), so every rung's answer survives into
++# ar_escalation_log.csv and into the rendered report.
++#
++# ON `pi_width_rel`, AND A WARNING ABOUT USING IT TO CHOOSE. It is (hi95 - lo95) / median,
++# a coefficient-of-variation-like precision measure. It is reported because precision is a
++# reasonable thing to want, and it is NOT the default selection rule because on this
++# project's own data it points the wrong way. Measured on the 2026-08/09 private-boat 2x2,
++# four cells on one track:
++#
++#     cell            catch    PI width   rel width   trailer coverage_50 (nominal 0.500)
++#     OFF x monthly  25,868      40,358      156.0%   0.538   calibrated
++#     ON  x monthly  31,008      47,671      153.7%   0.523   calibrated
++#     OFF x daily    37,359      54,769      146.6%   0.713   BROKEN
++#     ON  x daily    42,344      60,294      142.4%   0.744   BROKEN
++#
++# On RELATIVE width the two miscalibrated cells look the most precise. On ABSOLUTE width the
++# calibrated one wins, but only because catch and width are nearly proportional here (the
++# ratio is 0.64 in every cell), so "narrowest absolute interval" is very close to "smallest
++# estimate" and would systematically select the lowest harvest number. Neither is a model
++# selection criterion on its own. Use precision to break a tie between rungs that are
++# already adequate, never to decide adequacy.
++# ---------------------------------------------------------------------------
++bss_ar_rung_summary <- function(fit, pars = c("C_expected_sum", "C_sum", "E_sum")) {
++  out <- list(catch_median = NA_real_, catch_lo95 = NA_real_, catch_hi95 = NA_real_,
++              pi_width = NA_real_, pi_width_rel = NA_real_, effort_median = NA_real_)
++  if (is.null(fit)) return(out)
++  have <- pars[pars %in% fit@model_pars]
++  if (!length(have)) return(out)
++  s <- tryCatch(rstan::summary(fit, pars = have, probs = c(0.025, 0.5, 0.975))$summary,
++                error = function(e) NULL)
++  if (is.null(s)) return(out)
++  g <- function(p, col) if (p %in% rownames(s) && col %in% colnames(s)) s[p, col] else NA_real_
++  # C_expected_sum is the expected-catch total the convergence gate itself is computed on
++  # (catch_par = "C_expected_sum"), so the rung's reported number and its gate verdict are
++  # about the same quantity. C_sum, the predictive total, differs by the Poisson observation
++  # noise and is not what the gate scores.
++  cm <- g("C_expected_sum", "50%"); if (is.na(cm)) cm <- g("C_sum", "50%")
++  lo <- g("C_expected_sum", "2.5%"); if (is.na(lo)) lo <- g("C_sum", "2.5%")
++  hi <- g("C_expected_sum", "97.5%"); if (is.na(hi)) hi <- g("C_sum", "97.5%")
++  out$catch_median <- cm; out$catch_lo95 <- lo; out$catch_hi95 <- hi
++  out$pi_width     <- if (is.finite(hi) && is.finite(lo)) hi - lo else NA_real_
++  out$pi_width_rel <- if (is.finite(out$pi_width) && is.finite(cm) && cm > 0) out$pi_width / cm else NA_real_
++  out$effort_median <- g("E_sum", "50%")
++  out
++}
+diff --git a/06_diagnostics/README.md b/06_diagnostics/README.md
+index 68374dd..c6c6e93 100644
+--- a/06_diagnostics/README.md
++++ b/06_diagnostics/README.md
+@@ -15,10 +15,10 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
+ | `gear_coverage_audit.R` | Standalone audit of per-gear interview coverage against the gear-model's effective-N threshold. NOTE it sources `run_config.R` only, while `bss_min_gear_effective_n` lives in the gear driver's `params_model`, so its threshold always falls back to the literal 15; it agrees with production today but would not follow a change. Writes `gear_coverage_audit.csv` to the REPO ROOT, which `.gitignore` does not cover. |
+ | `run_improvement_plan_2026-08-27.R` | The 2026-08-27 improvement batch (stages A-F). Reviewed in `improvement-batch-review-2026-08-29.md`. |
+ | `run_tau_sweep.R` | Three-point `tau_boat` prior sweep. **Superseded**: `diagnose_tau_sensitivity` reproduces it to ~0.2% on every run, and `shared_tau = TRUE` (2026-09-01) replaces the per-day draws it perturbs. Its header baselines are stale; see the warning at the top of the file. |
+-| `test_improvements_2026-08-25.R` | Dependency-light regression harness (no rstan, seconds to run) for the functions the 2026-08-25 batch added or changed, plus a guard on the shipped defaults in `run_config.R`, on the sampler-override whitelist, on the retro audit tables, and on the Stage 5 runner's hard-coded baselines. **279 assertions.** Run it before committing to any long fit. |
++| `test_improvements_2026-08-25.R` | Dependency-light regression harness (no rstan, seconds to run) for the functions the 2026-08-25 batch added or changed, plus a guard on the shipped defaults in `run_config.R`, on the sampler-override whitelist, on the retro audit tables, and on the Stage 5 runner's hard-coded baselines. **303 assertions.** Run it before committing to any long fit. |
+ | `run_stage5_2026-08-30.R` | Unattended batch for Stage 5 of `improvement-plan-2026-08-27.md`: S1 PE-fill re-run (minutes, no MCMC), S2 the `shared_tau` informed-day floor as an exact per-population bit-identity GATE, S3 the gear-track cross-check with the pooled track's sampler settings, S4a/S4b the tau x AR 2x2 (two runs, not one; stage F is not a matched control), S5 the uncontaminated boat pot-closure AR re-run. Ships with `DRY_RUN <- TRUE`, which resolves every config, runs the R-to-Stan data-contract pre-flight and a 22-assertion extractor self-test against the archived runs, and fits nothing. Roughly 18-24 h with `DRY_RUN <- FALSE`; resumable. **Ran 2026-08-30** (24 h; 11 of 12 criteria passing, the one FAIL being a criterion compared against a reference that differed in two ways); results reviewed in `07_documentation/development_notes/stage5-batch-review-2026-08-31.md`. |
+ | `run_validation_2026-09-01.R` | The outstanding validation and diagnosis work after the 2026-09-01 adoption. FOUR DESK STAGES (D1-D4) that run during the dry run, need no Stan toolchain, and score backlog items against data already on disk: the Tier-1 shore I/E unit fix against its four pre-set criteria, the `gear_only` arm decision and the PE-vs-BSS arm disagreement, the PPC coverage and zero-bin reads, and a repository-hygiene audit. Then FIVE FITTED STAGES: V1 the adoption gate (production as shipped must reproduce S2 exactly), V2/V3 the never-sampled GR-7 Phase 2 Dirichlet gear shares with its control, V4 the untested shared-turnover x biweekly-pot-closure corner, V5 a `shared_tau_min_obs = 20` sensitivity. Ships `DRY_RUN <- TRUE`; roughly 15-17 h with it FALSE; resumable. **Ran 2026-09-01** (14.1 h; 17 of 19 criteria resolving, one FAIL a real production defect and one a criterion using the wrong reference); reviewed in `07_documentation/development_notes/validation-batch-review-2026-09-02.md`. |
+-| `run_shore_ar_zi_2026-09-03.R` | The four next steps from the 2026-09-02 review. P1 aligns the PE and BSS incomplete-trip arms and measures it (PE only, seconds, runs during the dry run). G1 re-runs the gear track with the 2026-09-02 boat all-gear sampler fix to restore the cross-check. Z0 is the ZINB behaviour-neutrality gate AND the AR ladder's daily rung. A1-A3 force the shore all-gear AR to weekly, biweekly and monthly, the largest open modelling question at 29% of the port total. Z1 turns the ZINB on for the shore, with the boat fits as a free negative control. Ships `DRY_RUN <- TRUE`; roughly 23-26 h with it FALSE; resumable; one Stan recompile. |
++| `run_shore_ar_zi_2026-09-03.R` | The four next steps from the 2026-09-02 review. P1 aligns the PE and BSS incomplete-trip arms and measures it (PE only, seconds, runs during the dry run). G1 re-runs the gear track with the 2026-09-02 boat all-gear sampler fix to restore the cross-check. Z0 is the ZINB behaviour-neutrality gate AND the AR ladder's daily rung. A1-A3 force the shore all-gear AR to weekly, biweekly and monthly, the largest open modelling question at 29% of the port total. Z1 turns the ZINB on for the shore, with the boat fits as a free negative control. Ships `DRY_RUN <- TRUE`; roughly 17-20 h with it FALSE; resumable; one Stan recompile. **A1 runs the shore ladder through the PRODUCTION `ar_escalate` toggle in a single render** (every rung fitted, each rung's estimate logged) rather than as three forced runs. |
+ | `README.md` | This file. |
+ 
+ The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and ****no longer collapses to `crab_bss_pooled.stan`** (it did when written; as of 2026-09-02 the fork is missing about 40 data variables the production model declares, including the entire `shared_tau` block that production adopted, the OSP stream, the `crab_fraction_*` block and the ZINB flags), and when `K_E = K_C = 0` it collapses only to the v6.9-era model it was forked from**, so one file serves both the baseline and augmented fits.
+diff --git a/06_diagnostics/run_shore_ar_zi_2026-09-03.R b/06_diagnostics/run_shore_ar_zi_2026-09-03.R
+index 7f632c9..ddd4fc5 100644
+--- a/06_diagnostics/run_shore_ar_zi_2026-09-03.R
++++ b/06_diagnostics/run_shore_ar_zi_2026-09-03.R
+@@ -45,15 +45,30 @@
+ #       ladder, fitted under the same Stan file as the other rungs. Without (b) the ladder
+ #       would compare three post-edit rungs against a pre-edit production run.
+ #
+-#   A1  shore all-gear AR forced to weekly     }  The main question. Production runs this
+-#   A2  shore all-gear AR forced to biweekly   }  component at DAILY, and on the production
+-#   A3  shore all-gear AR forced to monthly    }  run it is the worst-behaved fit in the run.
++#   A1  shore all-gear at EVERY rung of the ladder, in ONE run, via the PRODUCTION toggle
++#       (`ar_escalate` scoped to shore/all_gear, `ar_escalate_stop = "all_rungs"`). Each
++#       rung's own estimate and 95% interval are logged and tabulated in the HTML report.
++#       This replaces three separate forced runs: 7 fits instead of 12, one output folder
++#       instead of three, and it exercises the mechanism a future season will actually use
++#       rather than an experiment-only override.
+ #
+ #   Z1  ZINB ON for the shore. Last because it is the only stage whose value depends on
+ #       another stage passing (Z0's gate), and because its own negative control is free:
+ #       zi_catch is set per FIT, so the boat fits in this very run carry the feature off and
+ #       must come back bit-identical to Z0.
+ #
++# WHAT THE LADDER CAN AND CANNOT DECIDE, stated up front because it bounds the whole stage.
++# The production rule agreed with the FW creel team is: start at daily, and if a component
++# fails the CONVERGENCE GATE, coarsen until one passes. On the 2026-08-31 production run
++# EVERY component passes that gate, shore all-gear at daily included. So the production rule
++# applied to this season's data changes nothing, and the ladder's value here is diagnostic:
++# it measures how the estimate depends on resolution and whether the gate is the right thing
++# to escalate on. The adequacy problems at daily (p_loo 35.2% of n_obs, 41 Pareto k above
++# 0.7, coverage_50 0.701 against a nominal 0.500) are invisible to the gate by construction.
++# If the ladder shows a coarser rung is materially better on those axes while daily keeps
++# passing the gate, that is an argument about what the gate should test, and it needs a
++# deliberate decision rather than a config edit.
++#
+ # WHY THE SHORE AR LADDER IS THE MAIN EVENT. On 05_output/20260831/pooled-CPUE-VAL-1-adopted
+ # the shore all-gear fit carries p_loo = 35.2% of n_obs (109.4 effective parameters on 311
+ # gear observations), 41 Pareto k above 0.7, and coverage_50 = 0.701 against a nominal 0.500,
+@@ -83,8 +98,10 @@
+ # RESUMABLE. A stage whose output folder already holds port_total_Dungeness_Kept.csv is
+ # skipped and re-extracted.
+ #
+-# RUNTIME. Roughly 23-26 h on 4 cores: G1 ~0.6 h, Z0 ~4.5 h, A1-A3 ~4-5 h each (a coarser AR
+-# is usually FASTER, so the ladder may come in under this), Z1 ~5 h. P1 is minutes.
++# RUNTIME. Roughly 17-20 h on 4 cores: G1 ~0.6 h, Z0 ~4.5 h, A1 ~7-9 h (four shore all-gear
++# rungs plus three other components once each; coarser rungs are usually FASTER than daily,
++# so this may come in well under), Z1 ~5 h. P1 is minutes. That is 5-7 h less than the
++# three-forced-run design it replaces.
+ #
+ # ONE STAN RECOMPILE. The pooled model gains three data variables and one guarded parameter,
+ # so the first pooled stage pays a compile (a few minutes). rstan_options(auto_write = TRUE)
+@@ -95,7 +112,7 @@
+ #            ^^^^ the only lines you normally edit ^^^^
+ 
+ DRY_RUN <- TRUE                  # TRUE: P1 runs, nothing is fitted. START HERE.
+-STAGES  <- c("P1", "G1", "Z0", "A1", "A2", "A3", "Z1")
++STAGES  <- c("P1", "G1", "Z0", "A1", "Z1")
+ RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete
+ 
+ # Z0 is the gate for Z1: if the ZINB edit is not behaviour-neutral with the feature off,
+@@ -222,12 +239,26 @@ STAGE_DEFS <- list(
+   Z0 = stage("Z0", "SZ-Z0-zi-off", "pooled", list(estimate_catch_zi = FALSE),
+              "GATE and the ladder's DAILY rung: the ZINB edit must be bit-identical when off",
+              "zinb"),
+-  A1 = stage("A1", "SZ-A1-shore-weekly", "pooled", list(ar_force = AR_SHORE_AG("weekly")),
+-             "shore all-gear AR forced to weekly", "shore AR"),
+-  A2 = stage("A2", "SZ-A2-shore-biweekly", "pooled", list(ar_force = AR_SHORE_AG("biweekly")),
+-             "shore all-gear AR forced to biweekly", "shore AR"),
+-  A3 = stage("A3", "SZ-A3-shore-monthly", "pooled", list(ar_force = AR_SHORE_AG("monthly")),
+-             "shore all-gear AR forced to monthly (the gear track's resolution, same track)",
++  # 2026-09-04: ONE stage replaces the three forced rungs A1/A2/A3.
++  #
++  # `ar_escalate_stop = "all_rungs"` scoped to shore all-gear fits that component at every
++  # rung of the ladder INSIDE A SINGLE RENDER and logs each rung's own estimate and interval
++  # to ar_escalation_log.csv, which the HTML report now tabulates. Three separate forced
++  # runs fit 12 components to answer the same question; this fits 7 (4 shore all-gear rungs
++  # plus the three untouched components once each), keeps every rung in one output folder,
++  # and removes the need for a leak control, because the other three fits happen once and
++  # cannot be reached by a per-sub-season escalation scope.
++  #
++  # It also EXERCISES THE PRODUCTION MECHANISM rather than a batch-only override. `ar_force`
++  # is an experiment lever; `ar_escalate` is the toggle that will actually be used in future
++  # seasons, so testing it here is worth more than testing three forced runs that no
++  # production run will ever reproduce.
++  A1 = stage("A1", "SZ-A1-shore-ladder", "pooled",
++             list(ar_escalate = list(shore = "all_gear"),
++                  ar_escalate_stop = "all_rungs",
++                  ar_escalate_select = "first_pass",
++                  ar_escalate_respect_cap = FALSE),
++             "shore all-gear at EVERY rung in one run: the ladder, with each rung's estimate kept",
+              "shore AR"),
+   Z1 = stage("Z1", "SZ-Z1-zi-shore", "pooled",
+              list(estimate_catch_zi = TRUE, catch_zi_populations = c("shore")),
+@@ -699,11 +730,28 @@ lad_row <- function(name, res, sid = NULL, from_dir = NULL) {
+              disp_scale = r$shore_ag_disp_scale, divergences = r$shore_ag_div,
+              stringsAsFactors = FALSE)
+ }
+-LAD <- do.call(rbind, Filter(Negate(is.null), list(
+-  lad_row("daily (production)", "daily",    sid = "Z0"),
+-  lad_row("weekly",             "weekly",   sid = "A1"),
+-  lad_row("biweekly",           "biweekly", sid = "A2"),
+-  lad_row("monthly",            "monthly",  sid = "A3"))))
++# The ladder now comes from ONE run's ar_escalation_log.csv, which carries a row per rung
++# with that rung's own estimate and interval. Z0 supplies the production daily rung fitted
++# under the same Stan file, so the two are directly comparable.
++LAD <- local({
++  d <- find_outdir("pooled", STAGE_DEFS$A1$tag)
++  x <- if (!is.na(d %||% NA)) rd(d, "ar_escalation_log.csv") else NULL
++  if (is.null(x) || !"fit" %in% names(x)) return(lad_row("daily (production)", "daily", sid = "Z0"))
++  x <- x[grepl("^shore_all_gear", x$fit), , drop = FALSE]
++  if (!nrow(x)) return(lad_row("daily (production)", "daily", sid = "Z0"))
++  data.frame(rung = paste0(x$ar_resolution, ifelse(x$selected, " (REPORTED)", "")),
++             ar = x$ar_resolution, shore_all_gear = x$catch_median,
++             reported = x$selected, port = NA_real_, n_gear = NA_integer_,
++             p_loo_frac = NA_real_, pareto_bad = NA_real_, p_loo_gear = NA_real_,
++             elpd_gear = NA_real_, elpd_catch = NA_real_,
++             cov50_gear = NA_real_, cov50_catch = NA_real_, cov50_gear_sd = NA_real_,
++             se_elpd_gear = NA_real_, se_elpd_catch = NA_real_,
++             phi_E = NA_real_, sigma_eps_E = NA_real_, disp_scale = NA_real_,
++             divergences = x$divergences,
++             lo95 = x$catch_lo95, hi95 = x$catch_hi95,
++             pi_width = x$pi_width, pi_width_rel = x$pi_width_rel,
++             passed_gate = x$pass_convergence, stringsAsFactors = FALSE)
++})
+ # The pre-edit production run is a FALLBACK rung, used only when Z0 has not run yet. It is
+ # merged, never substituted: substituting it truncated this file to a single row on every
+ # dry run, and the ladder is the main result of the batch.
+@@ -768,23 +816,29 @@ if (!is.null(S) && any(S$stage == "Z0")) {
+ # the first time, so the same check is worth its zero cost here. Every fit is an independent
+ # Stan run with the same seed, so the three untouched fits must be BIT-IDENTICAL to Z0 in
+ # every rung, not merely close.
+-for (sid in c("A1", "A2", "A3")) {
+-  if (is.null(S) || !any(S$stage == sid)) next
+-  nd <- find_outdir("pooled", STAGE_DEFS[[sid]]$tag); z0 <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
+-  if (is.na(nd %||% NA) || is.na(z0 %||% NA)) next
+-  ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only", "shore POT CLOSURE fits vs Z0",
+-                         expect_delta = "ar_force")
+-  ex_bt <- fit_exactness(nd, z0, "private_boat", "BOAT fits vs Z0", expect_delta = "ar_force")
+-  V1row(sid, "forcing the shore all-gear AR touches that fit and nothing else",
+-    sprintf("%s | %s", ex_pc$observed, ex_bt$observed),
+-    "the other three fits bit-identical to Z0",
+-    if (identical(ex_pc$verdict, "PASS") && identical(ex_bt$verdict, "PASS")) "PASS" else "FAIL",
+-    paste("A free control, and one this project has learned to run: an ar_force that reaches",
+-          "a sub-season it was not aimed at produces a number that looks like a finding. The",
+-          "boat half also protects the headline, because the boat is about 43% of the port",
+-          "total and nothing in this ladder should move it. A FAIL here invalidates the",
+-          "affected rung's shore comparison AND means the port totals in this ladder are not",
+-          "comparable to production."))
++# SCOPE CONTROL. `ar_escalate = list(shore = "all_gear")` should reach exactly one fit. The
++# other three are fitted once each and must be bit-identical to Z0. This is the same class
++# of check that caught the 2026-08-28 ar_force leak, which cost 3,025 crab, and it is
++# cheaper here because the scope is resolved per fit rather than per population.
++if (!is.null(S) && any(S$stage == "A1")) {
++  nd <- find_outdir("pooled", STAGE_DEFS$A1$tag); z0 <- find_outdir("pooled", STAGE_DEFS$Z0$tag)
++  if (!is.na(nd %||% NA) && !is.na(z0 %||% NA)) {
++    .esc_keys <- c("ar_escalate", "ar_escalate_stop", "ar_escalate_select", "ar_escalate_respect_cap")
++    ex_pc <- fit_exactness(nd, z0, "shore_ring_net_only", "shore POT CLOSURE fits vs Z0",
++                           expect_delta = .esc_keys)
++    ex_bt <- fit_exactness(nd, z0, "private_boat", "BOAT fits vs Z0", expect_delta = .esc_keys)
++    V1row("A1", "the escalation scope reaches shore all-gear and nothing else",
++      sprintf("%s | %s", ex_pc$observed, ex_bt$observed),
++      "the other three fits bit-identical to Z0",
++      if (identical(ex_pc$verdict, "PASS") && identical(ex_bt$verdict, "PASS")) "PASS" else "FAIL",
++      paste("`ar_escalate` accepts a per-population and per-sub-season scope as of",
++            "2026-09-04, and this is its first use. A scope that reaches further than",
++            "intended produces a number that looks like a finding: that is exactly what",
++            "happened on 2026-08-28 when an ar_force keyed per population silently forced a",
++            "second sub-season and moved a component 3,025 crab. The boat half also protects",
++            "the headline, since the boat is about 43% of the port total and nothing in this",
++            "ladder should move it."))
++  }
+ }
+ 
+ if (!is.null(LAD) && nrow(LAD) > 1) {
+diff --git a/06_diagnostics/test_improvements_2026-08-25.R b/06_diagnostics/test_improvements_2026-08-25.R
+index 1b127c0..0f94a9a 100644
+--- a/06_diagnostics/test_improvements_2026-08-25.R
++++ b/06_diagnostics/test_improvements_2026-08-25.R
+@@ -30,7 +30,8 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
+             "model_diagnostics.R","bss_model_adequacy.R",
+             "annotate_decoupled_run.R",
+             "bss_sampler_override.R",
+-            "pe_gear_ratio_frame.R")) source(file.path("03_R_functions", f))
++            "pe_gear_ratio_frame.R",
++            "bss_ar_rung_summary.R")) source(file.path("03_R_functions", f))
+ 
+ ok <- 0; bad <- 0
+ chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
+@@ -1210,12 +1211,17 @@ local({
+   chk("shore/zi runner: ships with DRY_RUN TRUE", grepl("\nDRY_RUN <- TRUE", t))
+   chk("shore/zi runner: the AR ladder forces ONE sub-season of ONE population",
+       grepl("AR_SHORE_AG <- function(res) list(shore = list(all_gear = res))", t, fixed = TRUE))
+-  chk("shore/zi runner: all three coarser rungs are present",
+-      grepl('AR_SHORE_AG("weekly")', t, fixed = TRUE) &&
+-      grepl('AR_SHORE_AG("biweekly")', t, fixed = TRUE) &&
+-      grepl('AR_SHORE_AG("monthly")', t, fixed = TRUE))
+-  chk("shore/zi runner: Z0 is both the OFF gate and the ladder's daily rung",
+-      grepl('lad_row("daily (production)", "daily",    sid = "Z0")', t, fixed = TRUE))
++  # 2026-09-04: the three forced rungs were replaced by ONE run of the production
++  # escalation toggle, which fits every rung inside a single render and logs each rung's own
++  # estimate. Fewer fits, one output folder, and it exercises the mechanism a future season
++  # will actually use instead of an experiment-only override.
++  chk("shore/zi runner: the ladder runs via the PRODUCTION toggle, not a forced override",
++      grepl('ar_escalate = list(shore = "all_gear")', t, fixed = TRUE) &&
++      grepl('ar_escalate_stop = "all_rungs"', t, fixed = TRUE))
++  chk("shore/zi runner: the ladder table is built from ar_escalation_log.csv",
++      grepl('rd(d, "ar_escalation_log.csv")', t, fixed = TRUE))
++  chk("shore/zi runner: Z0 remains the OFF gate and the production daily reference",
++      grepl('lad_row("daily (production)", "daily", sid = "Z0")', t, fixed = TRUE))
+   chk("shore/zi runner: coverage is read from the randomized PIT, not ppc_calibration",
+       grepl("cov50_byobs <- function", t, fixed = TRUE))
+   chk("shore/zi runner: it refuses to run if the two code changes are absent",
+@@ -1326,5 +1332,81 @@ local({
+       grepl("shore_ag_se_elpd_catch", t, fixed = TRUE) && grepl("2 * .se", t, fixed = TRUE))
+ })
+ 
++# ---------------------------------------------------------------------------
++# 33. The AR escalation ladder as a PRODUCTION toggle (2026-09-04). It came out of the FW
++#     creel team meeting: a component should report at the finest AR resolution its own
++#     sampler behaviour supports, decided per run rather than frozen into config.
++# ---------------------------------------------------------------------------
++local({
++  chk("ar_escalate: the per-population/sub-season resolver exists",
++      exists(".bss_resolve_ar_escalate", mode = "function"))
++  r <- .bss_resolve_ar_escalate
++  chk("ar_escalate: FALSE and absent are off",
++      isFALSE(r(list(ar_escalate = FALSE), "shore", "all_gear")) && isFALSE(r(list(), "shore", "all_gear")))
++  chk("ar_escalate: TRUE is on for every fit",
++      isTRUE(r(list(ar_escalate = TRUE), "shore", "all_gear")) &&
++      isTRUE(r(list(ar_escalate = TRUE), "private_boat", "pot_closure")))
++  chk("ar_escalate: a character vector scopes to POPULATIONS",
++      isTRUE(r(list(ar_escalate = "shore"), "shore", "all_gear")) &&
++      isFALSE(r(list(ar_escalate = "shore"), "private_boat", "all_gear")))
++  chk("ar_escalate: a named list scopes to population x SUB-SEASON",
++      isTRUE(r(list(ar_escalate = list(shore = "all_gear")), "shore", "all_gear")) &&
++      isFALSE(r(list(ar_escalate = list(shore = "all_gear")), "shore", "pot_closure")) &&
++      isFALSE(r(list(ar_escalate = list(shore = "all_gear")), "private_boat", "all_gear")))
++  chk("ar_escalate: an unusable shape ERRORS rather than silently defaulting off",
++      inherits(try(r(list(ar_escalate = 3), "shore", "all_gear"), silent = TRUE), "try-error"))
++
++  chk("ar rung summary: the per-rung estimate helper exists",
++      exists("bss_ar_rung_summary", mode = "function"))
++  chk("ar rung summary: a NULL fit yields NAs rather than erroring",
++      { v <- try(bss_ar_rung_summary(NULL), silent = TRUE)
++        !inherits(v, "try-error") && all(is.na(unlist(v))) })
++
++  for (rmd in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
++                "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
++    t <- paste(readLines(rmd, warn = FALSE), collapse = "\n")
++    b <- basename(rmd)
++    chk(sprintf("ar ladder: %s logs each rung's OWN estimate and interval", b),
++        grepl("catch_median       = .rung$catch_median", t, fixed = TRUE) ||
++        grepl("catch_median        = .rung$catch_median", t, fixed = TRUE))
++    chk(sprintf("ar ladder: %s resolves the escalation scope PER FIT", b),
++        grepl(".esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)", t, fixed = TRUE))
++    chk(sprintf("ar ladder: %s honours ar_escalate_stop", b),
++        grepl('params$ar_escalate_stop   %||% "first_pass"', t, fixed = TRUE) &&
++        grepl('identical(.stop_rule, "all_rungs")', t, fixed = TRUE))
++    chk(sprintf("ar ladder: %s never keeps a rung that FAILED the gate under all_rungs", b),
++        grepl("else if (!.passed) FALSE", t, fixed = TRUE))
++  }
++  t <- paste(readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
++  chk("ar ladder: the report table shows each rung's estimate and marks the reported one",
++      grepl("`Catch (median)` = round(catch_median)", t, fixed = TRUE) &&
++      grepl("Reported = selected", t, fixed = TRUE))
++  chk("ar ladder: the report warns that a narrower interval is not evidence of a better model",
++      grepl("narrower interval is not by itself evidence", t, fixed = TRUE))
++
++  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
++  chk("ar ladder: production ships the ladder OFF and stopping at the first pass",
++      isFALSE(rc$ar_escalate) && identical(rc$ar_escalate_stop, "first_pass") &&
++      identical(rc$ar_escalate_select, "first_pass"))
++  chk("ar ladder: run_config records WHY narrowest_pi is not the default",
++      { s <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
++        grepl("the two MISCALIBRATED cells look the most precise", s, fixed = TRUE) ||
++        grepl("miscalibrated cells look the most precise", s, fixed = TRUE) })
++})
++
++# ---------------------------------------------------------------------------
++# 34. Project context is recorded where an operator or an agent will actually meet it.
++# ---------------------------------------------------------------------------
++local({
++  rc <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
++  chk("context: run_config states that nothing has been published",
++      grepl("NOTHING HAS BEEN PUBLISHED", rc, fixed = TRUE))
++  chk("context: run_config states what the OSP crab-only column IS (a lower bound on f)",
++      grepl("LOWER BOUND", rc, fixed = TRUE) && grepl("crab-only column in as if it were f", rc, fixed = TRUE))
++  cl <- paste(readLines("07_documentation/CLAUDE.md", warn = FALSE), collapse = "\n")
++  chk("context: CLAUDE.md carries the same two facts",
++      grepl("published \\*\\*no\\*\\*", cl) && grepl("lower bound", cl, fixed = TRUE))
++})
++
+ cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
+ if (bad > 0) quit(status = 1)
+diff --git a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+index 515ec63..60486e3 100644
+--- a/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
+@@ -18,6 +18,22 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
+ 
+ ## Version log
+ 
++### 2026-09-04, The AR escalation ladder becomes a production toggle, and the project context that reframes it (branch `OSP-boat-count-incorporation`)
++
++Harness **303 assertions**, 0 failing. Details in `development_notes/PIPELINE_STATUS.md` Section 1h.
++
++**CONTEXT NOW RECORDED IN THE CODE.** WDFW has published no estimate from this pipeline; `main` is the pre-FW-creel-meeting, pre-OSP state. There is no published figure a change has to stay consistent with, so continuity with an earlier internal run is not on its own a reason to prefer a modelling choice. The OSP stream is, per day, total returning vessels and the fraction that were CRABBING ONLY, which excludes combo trips that also crabbed and is therefore a LOWER BOUND on crabbing vessels rather than the crabbing fraction `f`; that is what `osp_crab_lower` / `f_lower` exist for. Both facts are now at the top of `run_config.R` and `CLAUDE.md`, where an operator or an agent will actually meet them.
++
++**THE LADDER ALREADY EXISTED; WHAT IT LACKED NOW EXISTS.** `ar_escalate` gained a per-population and per-sub-season scope (`TRUE`, `c("shore")`, or `list(shore = "all_gear")`), because every rung is a multi-hour fit and two components already have known answers. `ar_escalation_log.csv` now keeps EACH RUNG'S OWN ESTIMATE and 95% interval rather than only its sampler diagnostics: the estimate used to be discarded when `fit` was overwritten, which meant the one thing a ladder exists to show, how the answer depends on resolution, was the one thing not recorded. The HTML report tabulates it with the reported rung marked. `ar_escalate_stop` adds an `"all_rungs"` diagnostic mode alongside the default `"first_pass"`, which is byte-identical to the previous behaviour.
++
++**THE LIMIT, stated because it bounds the mechanism.** The ladder escalates on the CONVERGENCE gate. On the 2026-08-31 production run every component passes that gate, shore all-gear at daily included, so the production rule applied to this season changes nothing; that same fit carries p_loo at 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500, all invisible to the gate by construction. Making the ladder react to adequacy is a change to what the gate tests, not a setting.
++
++**SELECTING BY THE NARROWEST INTERVAL WAS TESTED AND IS NOT THE DEFAULT.** On the boat 2x2 the two MISCALIBRATED cells have the narrowest relative intervals (142.4% and 146.6% against 153.7% and 156.0%), because a latent process that absorbs observation noise reports a tighter interval. On absolute width the calibrated cell wins, but catch and width are nearly proportional (ratio 0.64 in all four cells), so the criterion is close to "smallest estimate" and would bias the harvest number down. `"narrowest_pi"` is available for breaking a tie between rungs that are already adequate; it cannot decide adequacy.
++
++**BATCH SIMPLIFICATION.** The 2026-09-03 batch replaced three forced rungs with one run of the production toggle: 7 fits instead of 12, one output folder, 17-20 h instead of 23-26 h, and it exercises the mechanism a future season will use rather than an experiment-only `ar_force` override.
++
++------------------------------------------------------------------------
++
+ ### 2026-09-03, Two code changes and the batch that tests them: the shore AR ladder, the restored gear cross-check, PE/BSS arm alignment and a targeted ZINB prototype (branch `OSP-boat-count-incorporation`)
+ 
+ Harness **264 assertions**, 0 failing. Batch: `06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h, ships `DRY_RUN <- TRUE`. Details in `development_notes/PIPELINE_STATUS.md` Section 1f.
+diff --git a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+index 40a944c..b3cfee0 100644
+--- a/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
++++ b/07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
+@@ -14,6 +14,22 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
+ 
+ ## Version log
+ 
++### 2026-09-04, The AR escalation ladder becomes a production toggle, and the project context that reframes it (branch `OSP-boat-count-incorporation`)
++
++Harness **303 assertions**, 0 failing. Details in `development_notes/PIPELINE_STATUS.md` Section 1h.
++
++**CONTEXT NOW RECORDED IN THE CODE.** WDFW has published no estimate from this pipeline; `main` is the pre-FW-creel-meeting, pre-OSP state. There is no published figure a change has to stay consistent with, so continuity with an earlier internal run is not on its own a reason to prefer a modelling choice. The OSP stream is, per day, total returning vessels and the fraction that were CRABBING ONLY, which excludes combo trips that also crabbed and is therefore a LOWER BOUND on crabbing vessels rather than the crabbing fraction `f`; that is what `osp_crab_lower` / `f_lower` exist for. Both facts are now at the top of `run_config.R` and `CLAUDE.md`, where an operator or an agent will actually meet them.
++
++**THE LADDER ALREADY EXISTED; WHAT IT LACKED NOW EXISTS.** `ar_escalate` gained a per-population and per-sub-season scope (`TRUE`, `c("shore")`, or `list(shore = "all_gear")`), because every rung is a multi-hour fit and two components already have known answers. `ar_escalation_log.csv` now keeps EACH RUNG'S OWN ESTIMATE and 95% interval rather than only its sampler diagnostics: the estimate used to be discarded when `fit` was overwritten, which meant the one thing a ladder exists to show, how the answer depends on resolution, was the one thing not recorded. The HTML report tabulates it with the reported rung marked. `ar_escalate_stop` adds an `"all_rungs"` diagnostic mode alongside the default `"first_pass"`, which is byte-identical to the previous behaviour.
++
++**THE LIMIT, stated because it bounds the mechanism.** The ladder escalates on the CONVERGENCE gate. On the 2026-08-31 production run every component passes that gate, shore all-gear at daily included, so the production rule applied to this season changes nothing; that same fit carries p_loo at 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500, all invisible to the gate by construction. Making the ladder react to adequacy is a change to what the gate tests, not a setting.
++
++**SELECTING BY THE NARROWEST INTERVAL WAS TESTED AND IS NOT THE DEFAULT.** On the boat 2x2 the two MISCALIBRATED cells have the narrowest relative intervals (142.4% and 146.6% against 153.7% and 156.0%), because a latent process that absorbs observation noise reports a tighter interval. On absolute width the calibrated cell wins, but catch and width are nearly proportional (ratio 0.64 in all four cells), so the criterion is close to "smallest estimate" and would bias the harvest number down. `"narrowest_pi"` is available for breaking a tie between rungs that are already adequate; it cannot decide adequacy.
++
++**BATCH SIMPLIFICATION.** The 2026-09-03 batch replaced three forced rungs with one run of the production toggle: 7 fits instead of 12, one output folder, 17-20 h instead of 23-26 h, and it exercises the mechanism a future season will use rather than an experiment-only `ar_force` override.
++
++------------------------------------------------------------------------
++
+ ### 2026-09-03, Two code changes and the batch that tests them: the shore AR ladder, the restored gear cross-check, PE/BSS arm alignment and a targeted ZINB prototype (branch `OSP-boat-count-incorporation`)
+ 
+ Harness **264 assertions**, 0 failing. Batch: `06_diagnostics/run_shore_ar_zi_2026-09-03.R`, one PE-only stage and six fitted, roughly 23-26 h, ships `DRY_RUN <- TRUE`. Details in `development_notes/PIPELINE_STATUS.md` Section 1f.
+diff --git a/07_documentation/CLAUDE.md b/07_documentation/CLAUDE.md
+index 6d37f4c..39c7488 100644
+--- a/07_documentation/CLAUDE.md
++++ b/07_documentation/CLAUDE.md
+@@ -4,6 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
+ 
+ ## What this is
+ 
++> ### PROJECT CONTEXT: nothing here has been published
++>
++> WDFW has published **no** recreational Dungeness crab harvest estimate from this pipeline.
++> The `main` branch is the state of the model *before* a meeting with the WDFW freshwater
++> creel team and *before* OSP confirmed they can supply daily boat counts; the
++> `OSP-boat-count-incorporation` branch is the work incorporating both. **There is no
++> published figure that a change has to stay consistent with**, so continuity with an
++> earlier internal run is not on its own a reason to prefer one modelling choice over
++> another. Judge changes on the evidence, and record what moved.
++>
++> **The OSP data** is, per day, the total number of returning vessels and the fraction that
++> were *crabbing only*. The second deliberately excludes combo trips that also crabbed, so
++> it is a **lower bound** on crabbing vessels, not the crabbing fraction `f`. That is what
++> `osp_crab_lower` / `f_lower` are for; do not wire it in as if it were `f`. Its purpose is
++> to improve the accuracy of the boat estimate and reduce its uncertainty. The acknowledged
++> limitation is that more **boat interviews** are needed next season, which no amount of
++> boat counting fixes.
++>
++> **The authoritative run** and its totals live in one place:
++> `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top.
++
++
+ A WDFW recreational Dungeness crab creel-estimation pipeline for Grays Harbor / Westport (R + Stan). It estimates total seasonal harvest by fusing a design-based **Point Estimator (PE)** with a **Bayesian State-Space (BSS)** time-series model, across three crabbing populations, over two gear-regime sub-seasons. There are two production models (pooled and gear-resolved CPUE) and one experimental module (weather-tide covariates).
+ 
+ The repository is organized as a numbered stage pipeline: `01_BSS_models/` (drivers) → `02_stan_models/` (Stan code) → `03_R_functions/` (shared helpers) → `04_input_files/` (raw data) → `05_output/` (dated runs) → `06_diagnostics/` (experimental) → `07_documentation/` (reference layer). Most folders have their own `README.md` with a file inventory; this file covers what those don't, the cross-cutting architecture and the conventions that will bite you.
+diff --git a/07_documentation/development_notes/PIPELINE_STATUS.md b/07_documentation/development_notes/PIPELINE_STATUS.md
+index c687022..97385ec 100644
+--- a/07_documentation/development_notes/PIPELINE_STATUS.md
++++ b/07_documentation/development_notes/PIPELINE_STATUS.md
+@@ -1,6 +1,6 @@
+ # Coastal Rec Crab BSS: Pipeline Status and Backlog
+ 
+-- **Last updated:** 2026-09-03
++- **Last updated:** 2026-09-04
+ - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
+ 
+ **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
+@@ -526,6 +526,45 @@ Both **method documents** now carry a superseded-numbers banner: they present 67
+ 
+ ---
+ 
++## 1h. The AR escalation ladder as a production toggle (2026-09-04)
++
++Came out of the FW creel team meeting. Harness **303 assertions**.
++
++### Project context, recorded because it changes how everything above should be read
++
++**WDFW has published no estimate from this pipeline.** `main` is the state of the model before the FW creel meeting and before OSP confirmed they can supply boat counts; this branch is the work incorporating both. **There is no published figure a change has to stay consistent with**, so continuity with an earlier internal run is not on its own a reason to prefer one modelling choice over another. This is now stated at the top of `run_config.R` and `CLAUDE.md`.
++
++**The OSP data** is, per day, the total returning vessels and the fraction that were *crabbing only*, which deliberately EXCLUDES combo trips that also crabbed. It is therefore a **lower bound on crabbing vessels, not the crabbing fraction `f`**, which is exactly what `osp_crab_lower` / `f_lower` were built for. Its purpose is to improve the accuracy of the boat estimate and reduce its uncertainty; the acknowledged limitation is that more **boat interviews** are needed next season, which boat counting cannot fix.
++
++### What the toggle does, and its one important limit
++
++`ar_escalate` already existed. What it lacked, and now has:
++
++- **A per-population and per-sub-season scope.** `TRUE`, `c("shore")`, or `list(shore = "all_gear")`. Every rung is a multi-hour fit, and two components already have known answers (shore pot closure funnelled at daily with 1,165 divergences; the boat diverged on ~100% of iterations), so escalating those from the top burns known-bad fits.
++- **Each rung's own estimate.** The log kept sampler diagnostics only; the estimate was discarded when `fit` was overwritten. `ar_escalation_log.csv` now carries `catch_median`, `catch_lo95`, `catch_hi95`, `pi_width`, `pi_width_rel`, `effort_median` and a `selected` flag per rung, and the HTML report tabulates them.
++- **`ar_escalate_stop`**: `"first_pass"` (default, and byte-identical to the previous behaviour) stops at the finest rung that passes the gate, which is the production rule. `"all_rungs"` fits every rung and reports the one `ar_escalate_select` names, which is the diagnostic mode for honing in on a resolution in a new season.
++
++> **THE LIMIT, stated because it bounds what the mechanism can do.** The ladder escalates on the CONVERGENCE gate. On the 2026-08-31 production run **every component passes that gate, shore all-gear at daily included**, so the production rule applied to this season changes nothing. That same fit carries p_loo at 35.2% of `n_obs`, 41 Pareto k above 0.7 and `coverage_50` 0.701 against a nominal 0.500. The gate is blind to all of it by construction. Making the ladder react to adequacy is a deliberate change to what the gate tests, not a setting.
++
++### On selecting by the narrowest prediction interval
++
++Tested against the boat 2x2, four cells on one track:
++
++| cell | catch | PI width | rel width | trailer coverage_50 |
++|---|---:|---:|---:|---:|
++| OFF x monthly | 25,868 | 40,358 | **156.0%** | 0.538 calibrated |
++| ON x monthly | 31,008 | 47,671 | 153.7% | 0.523 calibrated |
++| OFF x daily | 37,359 | 54,769 | 146.6% | 0.713 broken |
++| ON x daily | 42,344 | 60,294 | **142.4%** | 0.744 broken |
++
++On **relative** width the two miscalibrated cells look the most precise, because a latent process that absorbs observation noise reports a tighter interval. On **absolute** width the calibrated cell wins, but catch and width are nearly proportional here (ratio 0.64 in all four cells), so "narrowest absolute interval" is close to "smallest estimate" and would systematically select the lowest harvest number. `"narrowest_pi"` is available and is **not** the default; use precision to break a tie between rungs that are already adequate, never to decide adequacy.
++
++### Batch simplification
++
++The 2026-09-03 batch replaced its three forced rungs (A1/A2/A3) with **one** run of the production toggle: 7 fits instead of 12, one output folder instead of three, and it exercises the mechanism a future season will use rather than an experiment-only `ar_force`. Runtime drops from 23-26 h to 17-20 h.
++
++---
++
+ ## 2. Repository map
+ 
+ - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
+diff --git a/README-R-functions.md b/README-R-functions.md
+index 276a3ff..bbbccbb 100644
+--- a/README-R-functions.md
++++ b/README-R-functions.md
+@@ -78,6 +78,7 @@ Per-fit and per-run diagnostic writers, mostly `tryCatch`-wrapped so one fit can
+ | File | Public function(s) | Role |
+ |---|---|---|
+ | `model_diagnostics.R` | `bss_structural_summary`, `bss_decoupled_reasons`, `bss_divergence_localization`, `bss_ppc_calibration` | Structural-parameter summary, divergence localization, and posterior-predictive calibration per fit. **As of 2026-09-01 the PPC coverage is read off the RANDOMIZED PIT** rather than a quantile interval of simulated draws, which over-covers small counts by construction and disagreed with `ppc_byobs_*.csv` by up to 0.154 on the private-boat trailer stream. As of 2026-08-27 `structural_params_*.csv` carries a `decoupled` flag and its reason: several parameters here are declared with a proper prior unconditionally, so an unused one reports its PRIOR in the same columns as an estimate. The 2026-08-26 ladder's worked example is `kappa_OSP`, inert under the production `osp_scale_is_tau = TRUE` and reporting `lognormal(log 3, 0.3)` exactly. As of 2026-08-30 the same file also carries `fit_method` and an `estimate` column, which is `median` with the decoupled rows blanked, so a prior cannot be read out of an estimate column by a reader who did not check the flag. |
++| `bss_ar_rung_summary.R` | `bss_ar_rung_summary` | Extracts one AR-escalation attempt's season totals and 95% interval from its fit, so `ar_escalation_log.csv` records what each rung ESTIMATED and not only how it sampled. Before this the estimate was discarded when the loop overwrote `fit`, which meant the one thing a ladder exists to show was the one thing not recorded. Also carries the warning that a narrower interval is not evidence of a better model: on the 2026-08/09 boat 2x2 the two miscalibrated cells had the narrowest relative intervals. |
+ | `bss_model_adequacy.R` | `bss_model_adequacy`, `write_model_adequacy`, `annotate_model_adequacy_run` | Model-adequacy diagnostics reported BESIDE the convergence gate, never gating it (improvement-plan 5.5): `p_loo` as a fraction of `n_obs`, the Pareto k > 0.7 count, the worst PIT bias, and the smallest `n_eff` among the observation-model dispersion parameters the gate never inspects (decoupled ones excluded). Writes `model_adequacy.csv`, quoting the convergence gate's own `method_selected` rather than a second wording for it. **As of 2026-08-31 it also carries `cov50_worst_dev`, `pit_sd_worst_dev` and `flag_miscalibrated`,** because the 2026-08-30 Stage 5 batch showed `pit_mean` alone ranks configurations BACKWARDS: a latent process with one state per observation interpolates the data and piles every PIT value at 0.5, so the worst-calibrated cell in that batch (98% of observations inside a nominal 50% interval) had the best PIT mean. `disp_scale_min` reports the smallest dispersion SCALE, unflagged, because `disp_neff_min` sees sampling efficiency and not collapse. `annotate_model_adequacy_run()` rebuilds the same table for an ARCHIVED run folder from its committed CSVs into `model_adequacy_reconstructed.csv`; both paths share one body so the two are directly comparable. Exists because six configurations passed every gate criterion while spanning 44% on the boat component. |
+ | `annotate_decoupled_run.R` | `annotate_decoupled_run` | Retro-fits the `decoupled` flag onto a run folder that predates it, reconstructing each rule from the fit label, `fit_data_summary.csv` and `run_parameters.txt` into `decoupled_audit.csv`. Committed outputs are never rewritten; every row is marked `source = "reconstructed"`, and a rule that cannot be reconstructed reports `unknown` rather than a guess. |
+ | `bss_sampler_override.R` | `bss_apply_sampler_override` | The one sanctioned way for `run_config` to reach a per-fit sampler setting. Both drivers merge `params_model` ON TOP of `run_config`, so `params_model` wins every sampler key and a `run_config` delta on `bss_iter_default` silently does nothing. This named list is applied AFTER the merge, is restricted to sampler keys by pattern, prints every change, and ERRORS on a non-sampler key rather than dropping it. Experiments only; production value is `NULL`. |
+diff --git a/run_config.R b/run_config.R
+index 6467f01..38c85e5 100644
+--- a/run_config.R
++++ b/run_config.R
+@@ -21,6 +21,43 @@
+ ###############################################################################
+ # run_config.R  --  the single control surface for a production run.
+ #
++# ---------------------------------------------------------------------------
++# WHERE THIS WORK STANDS (context, 2026-09-04). Read this before treating any
++# number in this repository as an estimate.
++#
++# NOTHING HAS BEEN PUBLISHED. WDFW has published no recreational Dungeness crab
++# harvest estimate from this pipeline. The `main` branch holds the state of the
++# model BEFORE two things happened: a meeting with the WDFW freshwater creel
++# team, and confirmation from OSP that they can supply daily boat-count data.
++# Everything on the `OSP-boat-count-incorporation` branch is work toward
++# incorporating both. There is therefore NO published figure that a change here
++# has to stay consistent with, and continuity with an earlier internal run is
++# not by itself a reason to prefer one modelling choice over another.
++#
++# WHAT THE OSP DATA IS, and why the boat model is built the way it is. OSP will
++# provide, per day: (a) the TOTAL number of vessels returning, and (b) the
++# fraction of those that were CRABBING ONLY. (b) deliberately EXCLUDES combo
++# trips that included crabbing alongside another fishery, so it is a LOWER BOUND
++# on the vessels that did any crabbing, not the crabbing fraction itself. That
++# is exactly what `osp_crab_lower` / `f_lower` exist for: the crab-only count
++# bounds f from below while the combo-trip share stays on a prior. Do not wire
++# the crab-only column in as if it were f.
++#
++# WHAT THE OSP DATA IS FOR. Two things, in order: improve the ACCURACY of the
++# boat harvest estimate, and reduce its UNCERTAINTY. Before the OSP stream the
++# boat rested on `tau_boat` ~ 1.2 from two I/E days, with catch proportional to
++# it at elasticity 1.0; the dense OSP series identifies the turnover directly.
++# The acknowledged limitation is that more BOAT INTERVIEWS are needed next
++# season; no amount of boat counting fixes a thin CPUE sample.
++#
++# THE AR ESCALATION LADDER came out of the FW creel team meeting. The idea is
++# that a component should report at the finest AR resolution its own sampler
++# behaviour supports, decided per run rather than frozen into config. It is
++# implemented as `ar_escalate` plus `ar_escalate_stop` / `ar_escalate_select`
++# below, and it ships OFF so a production run is reproducible; turn it on
++# deliberately.
++# ---------------------------------------------------------------------------
++#
+ # This is the ONE file you edit to run the estimation. Set the RUN SELECTION
+ # block (which model, and whether to run the weather module), then set the
+ # toggles below, then launch with either:
+@@ -579,9 +616,68 @@ run_config <- list(
+   # ar_escalate_ladder is finest-to-coarsest and may be shortened (e.g. drop "weekly")
+   # to trade guarantee for runtime. ar_escalate_max_attempts caps the number of fits per
+   # component regardless of ladder length.
++  # ar_escalate accepts THREE shapes, so a season escalates only the components that need
++  # it. Every rung is a real multi-hour fit, and two of the four components already have a
++  # known answer (the shore pot closure funnelled at daily on Run 1 with 1,165 divergences;
++  # the boat diverged on ~100% of iterations at daily), so escalating those from the top
++  # burns known-bad fits to rediscover the caps.
++  #
++  #   FALSE / TRUE                    off / on for every fit
++  #   c("shore")                      on for the named POPULATIONS only
++  #   list(shore = "all_gear")        on for named population x sub-season pairs
++  #
++  # For 2024-25 the component that actually needs it is shore all-gear, so
++  #   ar_escalate = list(shore = "all_gear")
++  # is the cheap diagnostic setting and TRUE is the exhaustive one.
+   ar_escalate             = FALSE,
+   ar_escalate_ladder      = c("daily", "weekly", "biweekly", "monthly"),
+   ar_escalate_max_attempts = 4,
++
++  # --- HOW THE LADDER STOPS, AND WHICH RUNG IS REPORTED (2026-09-04) -----------
++  # ar_escalate_stop:
++  #   "first_pass" (DEFAULT, and the behaviour that existed before this key) stop at the
++  #      finest rung that passes the convergence gate and report it. This is the PRODUCTION
++  #      rule agreed with the FW creel team: start at daily, and if a component cannot
++  #      support daily, coarsen until it can. It costs one fit per failed rung and nothing
++  #      extra when the first rung passes.
++  #   "all_rungs" fit EVERY rung on the ladder, then report the one ar_escalate_select
++  #      names. This is the DIAGNOSTIC mode, for honing in on the right resolution in a new
++  #      season: it answers "how does the estimate depend on resolution" in ONE run and one
++  #      output folder. It costs one fit per rung whether or not earlier rungs passed.
++  #
++  # ar_escalate_select, used only under "all_rungs":
++  #   "first_pass"   report the FINEST rung that passed. Same answer as the production rule,
++  #                  but with the whole ladder measured and logged alongside it.
++  #   "narrowest_pi" among the rungs that passed, report the one with the narrowest RELATIVE
++  #                  predictive interval (hi95 - lo95) / median.
++  #
++  # A WARNING ABOUT "narrowest_pi", because the instinct behind it is reasonable and the
++  # data does not support it. On the 2026-08/09 private-boat 2x2, four cells on one track:
++  #
++  #     cell            catch    PI width   rel width   trailer coverage_50 (nominal 0.500)
++  #     OFF x monthly  25,868      40,358      156.0%   0.538   calibrated
++  #     ON  x monthly  31,008      47,671      153.7%   0.523   calibrated
++  #     OFF x daily    37,359      54,769      146.6%   0.713   BROKEN
++  #     ON  x daily    42,344      60,294      142.4%   0.744   BROKEN
++  #
++  # On RELATIVE width the two miscalibrated cells look the most precise, because a latent
++  # process that absorbs observation noise reports a tighter interval than one that does
++  # not. On ABSOLUTE width the calibrated cell wins, but only because catch and width are
++  # nearly proportional here (the ratio is 0.64 in all four cells), so "narrowest absolute
++  # interval" is close to "smallest estimate" and would systematically select the lowest
++  # harvest number. Use precision to break a tie between rungs that are ALREADY adequate,
++  # never to decide adequacy. That is why the default is "first_pass".
++  #
++  # WHAT THE GATE CANNOT SEE, stated because it bounds what this whole mechanism can do.
++  # The ladder escalates on the CONVERGENCE gate, which asks whether a fit sampled. On the
++  # 2026-08-31 production run every component passes it, including shore all-gear at daily,
++  # so the production rule would change nothing this season. That same fit carries p_loo at
++  # 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500,
++  # all of which the gate is blind to and all of which model_adequacy.csv reports beside it.
++  # If a future season wants the ladder to react to adequacy as well as to sampling, that is
++  # a deliberate change to the gate, not a setting here.
++  ar_escalate_stop        = "first_pass",
++  ar_escalate_select      = "first_pass",
+   # When escalating, should ar_max_resolution still apply as a floor on how FINE the
+   # ladder may start? FALSE (default, and the point of the feature) starts at the top of
+   # the ladder for every component. TRUE keeps the caps and escalates only from the
+-- 
+2.43.0
+

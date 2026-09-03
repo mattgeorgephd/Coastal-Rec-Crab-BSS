@@ -797,8 +797,12 @@ for(cg in bss_catch_groups) {
       ar_ladder <- bss_ar_ladder(days_ss, eff_d_ladder, pop, params,
                                  fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else ss$period_bss,
                                  gear_regime = ss$gear_regime)
-      if (isTRUE(params$ar_escalate))
-        message(sprintf("  AR escalation ladder: %s", paste(ar_ladder, collapse = " -> ")))
+      # 2026-09-04: resolved PER FIT; see the matching block in the pooled driver.
+      .esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)
+      .incumbent_passed <- FALSE; .incumbent_pi_rel <- Inf
+      if (.esc_on)
+        message(sprintf("  AR escalation ladder [%s/%s]: %s", pop, ss$gear_regime,
+                        paste(ar_ladder, collapse = " -> ")))
 
       # improvement 6: post-filter interview floor (the guard above counts UNFILTERED
       # interviews, so it reads looser than what the CPUE likelihood sees).
@@ -892,24 +896,59 @@ for(cg in bss_catch_groups) {
                            ar_resolution    = bss_data_try$.ar_resolution),
           error = function(e) NULL)
 
+        # 2026-09-04: keep this rung's ANSWER as well as its sampler diagnostics; see the
+        # matching block in the pooled driver and 03_R_functions/bss_ar_rung_summary.R.
+        .rung <- bss_ar_rung_summary(fit_try)
         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
           fit                 = label,
           attempt             = attempt,
           n_attempts_planned  = length(ar_ladder),
           ar_resolution       = bss_data_try$.ar_resolution %||% NA_character_,
           P_n                 = bss_data_try$P_n,
-          escalation_enabled  = isTRUE(params$ar_escalate),
+          escalation_enabled  = .esc_on,
           divergences         = gate_try$divergences         %||% NA_integer_,
           divergence_fraction = gate_try$divergence_fraction %||% NA_real_,
           impact_C_sd         = gate_try$impact_C_sd         %||% NA_real_,
-          pass_convergence    = gate_try$pass_convergence    %||% NA
+          pass_convergence    = gate_try$pass_convergence    %||% NA,
+          catch_median        = .rung$catch_median,
+          catch_lo95          = .rung$catch_lo95,
+          catch_hi95          = .rung$catch_hi95,
+          pi_width            = .rung$pi_width,
+          pi_width_rel        = .rung$pi_width_rel,
+          effort_median       = .rung$effort_median,
+          selected            = FALSE
         )
 
-        bss_data <- bss_data_try; fit <- fit_try
-        ar_resolutions[[label]] <- bss_data_try$.ar_resolution
+        # Rung selection; see the fully commented block in the pooled driver. Default
+        # "first_pass" reproduces the pre-2026-09-04 behaviour exactly.
+        .stop_rule   <- params$ar_escalate_stop   %||% "first_pass"
+        .select_rule <- params$ar_escalate_select %||% "first_pass"
+        .passed      <- is.null(gate_try) || isTRUE(gate_try$pass_convergence)
+        .keep <- if (is.null(fit)) TRUE
+                 else if (identical(.stop_rule, "first_pass")) TRUE
+                 else if (!.passed) FALSE
+                 else if (!isTRUE(.incumbent_passed)) TRUE
+                 else if (identical(.select_rule, "narrowest_pi"))
+                   isTRUE(.rung$pi_width_rel < (.incumbent_pi_rel %||% Inf))
+                 else FALSE
+        if (.keep) {
+          bss_data <- bss_data_try; fit <- fit_try
+          ar_resolutions[[label]] <- bss_data_try$.ar_resolution
+          .incumbent_passed <- .passed
+          .incumbent_pi_rel <- .rung$pi_width_rel
+        }
 
-        if (is.null(gate_try) || isTRUE(gate_try$pass_convergence)) break
-        if (!isTRUE(params$ar_escalate)) break
+        if (identical(.stop_rule, "all_rungs") && .esc_on) {
+          if (attempt < length(ar_ladder)) {
+            message(sprintf("  [all_rungs] %s AR %s the gate; fitting %s next for the ladder.",
+                            bss_data_try$.ar_resolution, if (.passed) "PASSED" else "failed",
+                            ar_ladder[attempt + 1]))
+            next
+          } else break
+        }
+
+        if (.passed) break
+        if (!.esc_on) break
         if (attempt < length(ar_ladder))
           message(sprintf("  Gate FAILED at %s AR; escalating to %s and refitting.",
                           bss_data_try$.ar_resolution, ar_ladder[attempt + 1]))

@@ -4,6 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
+> ### PROJECT CONTEXT: nothing here has been published
+>
+> WDFW has published **no** recreational Dungeness crab harvest estimate from this pipeline.
+> The `main` branch is the state of the model *before* a meeting with the WDFW freshwater
+> creel team and *before* OSP confirmed they can supply daily boat counts; the
+> `OSP-boat-count-incorporation` branch is the work incorporating both. **There is no
+> published figure that a change has to stay consistent with**, so continuity with an
+> earlier internal run is not on its own a reason to prefer one modelling choice over
+> another. Judge changes on the evidence, and record what moved.
+>
+> **The OSP data** is, per day, the total number of returning vessels and the fraction that
+> were *crabbing only*. The second deliberately excludes combo trips that also crabbed, so
+> it is a **lower bound** on crabbing vessels, not the crabbing fraction `f`. That is what
+> `osp_crab_lower` / `f_lower` are for; do not wire it in as if it were `f`. Its purpose is
+> to improve the accuracy of the boat estimate and reduce its uncertainty. The acknowledged
+> limitation is that more **boat interviews** are needed next season, which no amount of
+> boat counting fixes.
+>
+> **The authoritative run** and its totals live in one place:
+> `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top.
+
+
 A WDFW recreational Dungeness crab creel-estimation pipeline for Grays Harbor / Westport (R + Stan). It estimates total seasonal harvest by fusing a design-based **Point Estimator (PE)** with a **Bayesian State-Space (BSS)** time-series model, across three crabbing populations, over two gear-regime sub-seasons. There are two production models (pooled and gear-resolved CPUE) and one experimental module (weather-tide covariates).
 
 The repository is organized as a numbered stage pipeline: `01_BSS_models/` (drivers) → `02_stan_models/` (Stan code) → `03_R_functions/` (shared helpers) → `04_input_files/` (raw data) → `05_output/` (dated runs) → `06_diagnostics/` (experimental) → `07_documentation/` (reference layer). Most folders have their own `README.md` with a file inventory; this file covers what those don't, the cross-cutting architecture and the conventions that will bite you.

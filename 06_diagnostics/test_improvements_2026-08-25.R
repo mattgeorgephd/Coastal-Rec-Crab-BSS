@@ -30,7 +30,8 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "model_diagnostics.R","bss_model_adequacy.R",
             "annotate_decoupled_run.R",
             "bss_sampler_override.R",
-            "pe_gear_ratio_frame.R")) source(file.path("03_R_functions", f))
+            "pe_gear_ratio_frame.R",
+            "bss_ar_rung_summary.R")) source(file.path("03_R_functions", f))
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -1210,12 +1211,17 @@ local({
   chk("shore/zi runner: ships with DRY_RUN TRUE", grepl("\nDRY_RUN <- TRUE", t))
   chk("shore/zi runner: the AR ladder forces ONE sub-season of ONE population",
       grepl("AR_SHORE_AG <- function(res) list(shore = list(all_gear = res))", t, fixed = TRUE))
-  chk("shore/zi runner: all three coarser rungs are present",
-      grepl('AR_SHORE_AG("weekly")', t, fixed = TRUE) &&
-      grepl('AR_SHORE_AG("biweekly")', t, fixed = TRUE) &&
-      grepl('AR_SHORE_AG("monthly")', t, fixed = TRUE))
-  chk("shore/zi runner: Z0 is both the OFF gate and the ladder's daily rung",
-      grepl('lad_row("daily (production)", "daily",    sid = "Z0")', t, fixed = TRUE))
+  # 2026-09-04: the three forced rungs were replaced by ONE run of the production
+  # escalation toggle, which fits every rung inside a single render and logs each rung's own
+  # estimate. Fewer fits, one output folder, and it exercises the mechanism a future season
+  # will actually use instead of an experiment-only override.
+  chk("shore/zi runner: the ladder runs via the PRODUCTION toggle, not a forced override",
+      grepl('ar_escalate = list(shore = "all_gear")', t, fixed = TRUE) &&
+      grepl('ar_escalate_stop = "all_rungs"', t, fixed = TRUE))
+  chk("shore/zi runner: the ladder table is built from ar_escalation_log.csv",
+      grepl('rd(d, "ar_escalation_log.csv")', t, fixed = TRUE))
+  chk("shore/zi runner: Z0 remains the OFF gate and the production daily reference",
+      grepl('lad_row("daily (production)", "daily", sid = "Z0")', t, fixed = TRUE))
   chk("shore/zi runner: coverage is read from the randomized PIT, not ppc_calibration",
       grepl("cov50_byobs <- function", t, fixed = TRUE))
   chk("shore/zi runner: it refuses to run if the two code changes are absent",
@@ -1324,6 +1330,82 @@ local({
       grepl('sum(x$data_type == "gear")', t, fixed = TRUE) && !grepl("n_gear <- 311", t, fixed = TRUE))
   chk("ladder: the ZINB elpd threshold is in SE units, not bare nats",
       grepl("shore_ag_se_elpd_catch", t, fixed = TRUE) && grepl("2 * .se", t, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 33. The AR escalation ladder as a PRODUCTION toggle (2026-09-04). It came out of the FW
+#     creel team meeting: a component should report at the finest AR resolution its own
+#     sampler behaviour supports, decided per run rather than frozen into config.
+# ---------------------------------------------------------------------------
+local({
+  chk("ar_escalate: the per-population/sub-season resolver exists",
+      exists(".bss_resolve_ar_escalate", mode = "function"))
+  r <- .bss_resolve_ar_escalate
+  chk("ar_escalate: FALSE and absent are off",
+      isFALSE(r(list(ar_escalate = FALSE), "shore", "all_gear")) && isFALSE(r(list(), "shore", "all_gear")))
+  chk("ar_escalate: TRUE is on for every fit",
+      isTRUE(r(list(ar_escalate = TRUE), "shore", "all_gear")) &&
+      isTRUE(r(list(ar_escalate = TRUE), "private_boat", "pot_closure")))
+  chk("ar_escalate: a character vector scopes to POPULATIONS",
+      isTRUE(r(list(ar_escalate = "shore"), "shore", "all_gear")) &&
+      isFALSE(r(list(ar_escalate = "shore"), "private_boat", "all_gear")))
+  chk("ar_escalate: a named list scopes to population x SUB-SEASON",
+      isTRUE(r(list(ar_escalate = list(shore = "all_gear")), "shore", "all_gear")) &&
+      isFALSE(r(list(ar_escalate = list(shore = "all_gear")), "shore", "pot_closure")) &&
+      isFALSE(r(list(ar_escalate = list(shore = "all_gear")), "private_boat", "all_gear")))
+  chk("ar_escalate: an unusable shape ERRORS rather than silently defaulting off",
+      inherits(try(r(list(ar_escalate = 3), "shore", "all_gear"), silent = TRUE), "try-error"))
+
+  chk("ar rung summary: the per-rung estimate helper exists",
+      exists("bss_ar_rung_summary", mode = "function"))
+  chk("ar rung summary: a NULL fit yields NAs rather than erroring",
+      { v <- try(bss_ar_rung_summary(NULL), silent = TRUE)
+        !inherits(v, "try-error") && all(is.na(unlist(v))) })
+
+  for (rmd in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+                "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    t <- paste(readLines(rmd, warn = FALSE), collapse = "\n")
+    b <- basename(rmd)
+    chk(sprintf("ar ladder: %s logs each rung's OWN estimate and interval", b),
+        grepl("catch_median       = .rung$catch_median", t, fixed = TRUE) ||
+        grepl("catch_median        = .rung$catch_median", t, fixed = TRUE))
+    chk(sprintf("ar ladder: %s resolves the escalation scope PER FIT", b),
+        grepl(".esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)", t, fixed = TRUE))
+    chk(sprintf("ar ladder: %s honours ar_escalate_stop", b),
+        grepl('params$ar_escalate_stop   %||% "first_pass"', t, fixed = TRUE) &&
+        grepl('identical(.stop_rule, "all_rungs")', t, fixed = TRUE))
+    chk(sprintf("ar ladder: %s never keeps a rung that FAILED the gate under all_rungs", b),
+        grepl("else if (!.passed) FALSE", t, fixed = TRUE))
+  }
+  t <- paste(readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
+  chk("ar ladder: the report table shows each rung's estimate and marks the reported one",
+      grepl("`Catch (median)` = round(catch_median)", t, fixed = TRUE) &&
+      grepl("Reported = selected", t, fixed = TRUE))
+  chk("ar ladder: the report warns that a narrower interval is not evidence of a better model",
+      grepl("narrower interval is not by itself evidence", t, fixed = TRUE))
+
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("ar ladder: production ships the ladder OFF and stopping at the first pass",
+      isFALSE(rc$ar_escalate) && identical(rc$ar_escalate_stop, "first_pass") &&
+      identical(rc$ar_escalate_select, "first_pass"))
+  chk("ar ladder: run_config records WHY narrowest_pi is not the default",
+      { s <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
+        grepl("the two MISCALIBRATED cells look the most precise", s, fixed = TRUE) ||
+        grepl("miscalibrated cells look the most precise", s, fixed = TRUE) })
+})
+
+# ---------------------------------------------------------------------------
+# 34. Project context is recorded where an operator or an agent will actually meet it.
+# ---------------------------------------------------------------------------
+local({
+  rc <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
+  chk("context: run_config states that nothing has been published",
+      grepl("NOTHING HAS BEEN PUBLISHED", rc, fixed = TRUE))
+  chk("context: run_config states what the OSP crab-only column IS (a lower bound on f)",
+      grepl("LOWER BOUND", rc, fixed = TRUE) && grepl("crab-only column in as if it were f", rc, fixed = TRUE))
+  cl <- paste(readLines("07_documentation/CLAUDE.md", warn = FALSE), collapse = "\n")
+  chk("context: CLAUDE.md carries the same two facts",
+      grepl("published \\*\\*no\\*\\*", cl) && grepl("lower bound", cl, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

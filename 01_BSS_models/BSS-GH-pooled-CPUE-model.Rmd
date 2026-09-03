@@ -1171,8 +1171,16 @@ for(cg in bss_catch_groups) {
         filter(!is.na(day_index))
       ar_ladder <- bss_ar_ladder(days_ss, eff_d_ladder, pop, params,
                                  fixed_resolution = NULL, gear_regime = ss$gear_regime)
-      if (isTRUE(params$ar_escalate))
-        cat(sprintf("  AR escalation ladder: %s\n", paste(ar_ladder, collapse = " -> ")))
+      # Incumbent trackers for the rung-selection rule below. Reset per component.
+      .incumbent_passed <- FALSE; .incumbent_pi_rel <- Inf
+      # 2026-09-04: ar_escalate is resolved PER FIT, because it now accepts a per-population
+      # or per-sub-season scope as well as a scalar (03_R_functions/bss_ar_resolution.R).
+      # Every rung is a multi-hour fit, so escalating a component whose cap is already
+      # settled burns known-bad fits to rediscover it.
+      .esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)
+      if (.esc_on)
+        cat(sprintf("  AR escalation ladder [%s/%s]: %s\n", pop, ss$gear_regime,
+                    paste(ar_ladder, collapse = " -> ")))
 
       # improvement 6: the POST-FILTER interview floor. The guard above counts UNFILTERED
       # interviews and therefore reads looser than the count the CPUE likelihood sees;
@@ -1274,24 +1282,77 @@ for(cg in bss_catch_groups) {
                            ar_resolution    = attr(bss_data_try, "ar_resolution")),
           error = function(e) NULL)
 
+        # 2026-09-04: keep this rung's ANSWER, not only its sampler diagnostics. The loop
+        # overwrites `fit` on the next attempt, so without this the estimate produced at
+        # every rung except the surviving one is lost, and the whole reason to run a ladder
+        # is to see how the answer depends on the resolution. It also makes
+        # params$ar_escalate_select's precision tie-break implementable at all.
+        .rung <- bss_ar_rung_summary(fit_try)
         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
           fit                = label,
           attempt            = attempt,
           n_attempts_planned = length(ar_ladder),
           ar_resolution      = attr(bss_data_try, "ar_resolution") %||% NA_character_,
           P_n                = bss_data_try$P_n,
-          escalation_enabled = isTRUE(params$ar_escalate),
+          escalation_enabled = .esc_on,
           divergences        = gate_try$divergences        %||% NA_integer_,
           divergence_fraction= gate_try$divergence_fraction %||% NA_real_,
           impact_C_sd        = gate_try$impact_C_sd        %||% NA_real_,
-          pass_convergence   = gate_try$pass_convergence   %||% NA
+          pass_convergence   = gate_try$pass_convergence   %||% NA,
+          # The rung's own estimate. catch_* is the expected-catch season total, the same
+          # quantity the gate scores, so the verdict and the number refer to one thing.
+          catch_median       = .rung$catch_median,
+          catch_lo95         = .rung$catch_lo95,
+          catch_hi95         = .rung$catch_hi95,
+          pi_width           = .rung$pi_width,
+          pi_width_rel       = .rung$pi_width_rel,
+          effort_median      = .rung$effort_median,
+          selected           = FALSE      # set on the surviving rung after the loop
         )
 
-        bss_data <- bss_data_try; fit <- fit_try
-        ar_resolutions[[label]] <- attr(bss_data_try, "ar_resolution")
+        # ---- which rung's fit is kept ------------------------------------------
+        # params$ar_escalate_stop:
+        #   "first_pass" (DEFAULT, and the pre-2026-09-04 behaviour exactly): stop at the
+        #      finest rung that passes the convergence gate and report it. Cheapest, and it
+        #      is the production rule: a component reports at the finest resolution the
+        #      sampler can actually support this season.
+        #   "all_rungs": fit EVERY rung on the ladder and keep the one params$
+        #      ar_escalate_select names. This is the DIAGNOSTIC mode. It costs one fit per
+        #      rung but it answers, in a single run and a single output folder, how the
+        #      estimate depends on resolution, which three separate forced runs answer far
+        #      more expensively and with the rungs scattered across three folders.
+        #
+        # Only ONE stanfit beyond the incumbent is ever held in memory: the challenger
+        # replaces the incumbent or is discarded immediately. Holding the whole ladder would
+        # be several GB for a daily shore fit.
+        .stop_rule   <- params$ar_escalate_stop   %||% "first_pass"
+        .select_rule <- params$ar_escalate_select %||% "first_pass"
+        .passed      <- is.null(gate_try) || isTRUE(gate_try$pass_convergence)
+        .keep <- if (is.null(fit)) TRUE                    # nothing kept yet
+                 else if (identical(.stop_rule, "first_pass")) TRUE
+                 else if (!.passed) FALSE                  # never report a rung that failed
+                 else if (!isTRUE(.incumbent_passed)) TRUE  # first passing rung wins outright
+                 else if (identical(.select_rule, "narrowest_pi"))
+                   isTRUE(.rung$pi_width_rel < (.incumbent_pi_rel %||% Inf))
+                 else FALSE                                # "first_pass": keep the finest
+        if (.keep) {
+          bss_data <- bss_data_try; fit <- fit_try
+          ar_resolutions[[label]] <- attr(bss_data_try, "ar_resolution")
+          .incumbent_passed <- .passed
+          .incumbent_pi_rel <- .rung$pi_width_rel
+        }
 
-        if (is.null(gate_try) || isTRUE(gate_try$pass_convergence)) break
-        if (!isTRUE(params$ar_escalate)) break
+        if (identical(.stop_rule, "all_rungs") && .esc_on) {
+          if (attempt < length(ar_ladder)) {
+            cat(sprintf("  [all_rungs] %s AR %s the gate; fitting %s next for the ladder.\n",
+                        attr(bss_data_try, "ar_resolution"),
+                        if (.passed) "PASSED" else "failed", ar_ladder[attempt + 1]))
+            next
+          } else break
+        }
+
+        if (.passed) break
+        if (!.esc_on) break
         if (attempt < length(ar_ladder)) {
           cat(sprintf(paste0("  Gate FAILED at %s AR; escalating to %s and refitting ",
                              "(improvement 7 ladder).\n"),
@@ -1434,6 +1495,17 @@ timer_stop("5_BSS_model_runs")
 # decided whether to escalate, so the resolution actually used by each component is
 # auditable rather than implicit.
 ar_escalation_df <- if (length(ar_escalation_log)) bind_rows(ar_escalation_log) else NULL
+# Mark the rung whose fit was actually kept, so the log says which number was reported
+# rather than leaving the reader to infer it from the ordering. Under "first_pass" that is
+# the last row per fit; under "all_rungs" it can be any row, which is exactly why the flag
+# is needed.
+if (!is.null(ar_escalation_df) && nrow(ar_escalation_df)) {
+  for (.lb in unique(ar_escalation_df$fit)) {
+    .sel <- ar_resolutions[[.lb]] %||% NA_character_
+    .i <- which(ar_escalation_df$fit == .lb & ar_escalation_df$ar_resolution %in% .sel)
+    if (length(.i)) ar_escalation_df$selected[utils::tail(.i, 1)] <- TRUE
+  }
+}
 if (!is.null(ar_escalation_df))
   write.csv(ar_escalation_df, file.path(output_dir, "ar_escalation_log.csv"), row.names = FALSE)
 
@@ -1448,11 +1520,23 @@ if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
       Fit = short_fit(fit), Attempt = attempt, `AR resolution` = ar_resolution,
       `AR periods` = P_n, Divergences = divergences,
       `Div. fraction` = divergence_fraction, `Impact (SD)` = impact_C_sd,
-      `Passed gate` = pass_convergence),
-    caption = paste("AR resolution escalation ladder (improvement 7). Each component starts at the",
-                    "finest rung and is refit one rung coarser whenever it fails the convergence",
-                    "gate, stopping at the first rung that passes; the last row per fit is the",
-                    "resolution actually reported. With ar_escalate = FALSE there is one row per",
+      `Passed gate` = pass_convergence,
+      # 2026-09-04: each rung's OWN answer, so a reader can see how the estimate depends on
+      # resolution instead of only seeing the one that survived.
+      `Catch (median)` = round(catch_median), `95% lo` = round(catch_lo95),
+      `95% hi` = round(catch_hi95), `PI width` = round(pi_width),
+      `PI width / median` = round(pi_width_rel, 3),
+      Reported = selected),
+    caption = paste("AR resolution escalation ladder. Each component starts at the finest rung",
+                    "and is refit one rung coarser whenever it fails the convergence gate,",
+                    "stopping at the first rung that passes (ar_escalate_stop = 'first_pass');",
+                    "under 'all_rungs' every rung is fitted and ar_escalate_select decides which",
+                    "is reported. The Reported column marks the rung whose fit was kept. Each",
+                    "rung's own catch estimate and 95% interval are shown so the sensitivity of",
+                    "the answer to resolution is visible here rather than only in the surviving",
+                    "row. NOTE that a narrower interval is not by itself evidence of a better",
+                    "model: on the 2026-08/09 boat 2x2 the two MISCALIBRATED cells had the",
+                    "narrowest relative intervals. With ar_escalate = FALSE there is one row per",
                     "fit and this table simply records the single attempt."))
 } else if (!is.null(ar_escalation_df)) {
   cat("_AR escalation is off (`ar_escalate = FALSE`); each component was fitted once, at the resolution the coverage rule and `ar_max_resolution` selected._")

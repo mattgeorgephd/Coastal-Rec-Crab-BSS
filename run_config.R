@@ -21,6 +21,43 @@
 ###############################################################################
 # run_config.R  --  the single control surface for a production run.
 #
+# ---------------------------------------------------------------------------
+# WHERE THIS WORK STANDS (context, 2026-09-04). Read this before treating any
+# number in this repository as an estimate.
+#
+# NOTHING HAS BEEN PUBLISHED. WDFW has published no recreational Dungeness crab
+# harvest estimate from this pipeline. The `main` branch holds the state of the
+# model BEFORE two things happened: a meeting with the WDFW freshwater creel
+# team, and confirmation from OSP that they can supply daily boat-count data.
+# Everything on the `OSP-boat-count-incorporation` branch is work toward
+# incorporating both. There is therefore NO published figure that a change here
+# has to stay consistent with, and continuity with an earlier internal run is
+# not by itself a reason to prefer one modelling choice over another.
+#
+# WHAT THE OSP DATA IS, and why the boat model is built the way it is. OSP will
+# provide, per day: (a) the TOTAL number of vessels returning, and (b) the
+# fraction of those that were CRABBING ONLY. (b) deliberately EXCLUDES combo
+# trips that included crabbing alongside another fishery, so it is a LOWER BOUND
+# on the vessels that did any crabbing, not the crabbing fraction itself. That
+# is exactly what `osp_crab_lower` / `f_lower` exist for: the crab-only count
+# bounds f from below while the combo-trip share stays on a prior. Do not wire
+# the crab-only column in as if it were f.
+#
+# WHAT THE OSP DATA IS FOR. Two things, in order: improve the ACCURACY of the
+# boat harvest estimate, and reduce its UNCERTAINTY. Before the OSP stream the
+# boat rested on `tau_boat` ~ 1.2 from two I/E days, with catch proportional to
+# it at elasticity 1.0; the dense OSP series identifies the turnover directly.
+# The acknowledged limitation is that more BOAT INTERVIEWS are needed next
+# season; no amount of boat counting fixes a thin CPUE sample.
+#
+# THE AR ESCALATION LADDER came out of the FW creel team meeting. The idea is
+# that a component should report at the finest AR resolution its own sampler
+# behaviour supports, decided per run rather than frozen into config. It is
+# implemented as `ar_escalate` plus `ar_escalate_stop` / `ar_escalate_select`
+# below, and it ships OFF so a production run is reproducible; turn it on
+# deliberately.
+# ---------------------------------------------------------------------------
+#
 # This is the ONE file you edit to run the estimation. Set the RUN SELECTION
 # block (which model, and whether to run the weather module), then set the
 # toggles below, then launch with either:
@@ -579,9 +616,68 @@ run_config <- list(
   # ar_escalate_ladder is finest-to-coarsest and may be shortened (e.g. drop "weekly")
   # to trade guarantee for runtime. ar_escalate_max_attempts caps the number of fits per
   # component regardless of ladder length.
+  # ar_escalate accepts THREE shapes, so a season escalates only the components that need
+  # it. Every rung is a real multi-hour fit, and two of the four components already have a
+  # known answer (the shore pot closure funnelled at daily on Run 1 with 1,165 divergences;
+  # the boat diverged on ~100% of iterations at daily), so escalating those from the top
+  # burns known-bad fits to rediscover the caps.
+  #
+  #   FALSE / TRUE                    off / on for every fit
+  #   c("shore")                      on for the named POPULATIONS only
+  #   list(shore = "all_gear")        on for named population x sub-season pairs
+  #
+  # For 2024-25 the component that actually needs it is shore all-gear, so
+  #   ar_escalate = list(shore = "all_gear")
+  # is the cheap diagnostic setting and TRUE is the exhaustive one.
   ar_escalate             = FALSE,
   ar_escalate_ladder      = c("daily", "weekly", "biweekly", "monthly"),
   ar_escalate_max_attempts = 4,
+
+  # --- HOW THE LADDER STOPS, AND WHICH RUNG IS REPORTED (2026-09-04) -----------
+  # ar_escalate_stop:
+  #   "first_pass" (DEFAULT, and the behaviour that existed before this key) stop at the
+  #      finest rung that passes the convergence gate and report it. This is the PRODUCTION
+  #      rule agreed with the FW creel team: start at daily, and if a component cannot
+  #      support daily, coarsen until it can. It costs one fit per failed rung and nothing
+  #      extra when the first rung passes.
+  #   "all_rungs" fit EVERY rung on the ladder, then report the one ar_escalate_select
+  #      names. This is the DIAGNOSTIC mode, for honing in on the right resolution in a new
+  #      season: it answers "how does the estimate depend on resolution" in ONE run and one
+  #      output folder. It costs one fit per rung whether or not earlier rungs passed.
+  #
+  # ar_escalate_select, used only under "all_rungs":
+  #   "first_pass"   report the FINEST rung that passed. Same answer as the production rule,
+  #                  but with the whole ladder measured and logged alongside it.
+  #   "narrowest_pi" among the rungs that passed, report the one with the narrowest RELATIVE
+  #                  predictive interval (hi95 - lo95) / median.
+  #
+  # A WARNING ABOUT "narrowest_pi", because the instinct behind it is reasonable and the
+  # data does not support it. On the 2026-08/09 private-boat 2x2, four cells on one track:
+  #
+  #     cell            catch    PI width   rel width   trailer coverage_50 (nominal 0.500)
+  #     OFF x monthly  25,868      40,358      156.0%   0.538   calibrated
+  #     ON  x monthly  31,008      47,671      153.7%   0.523   calibrated
+  #     OFF x daily    37,359      54,769      146.6%   0.713   BROKEN
+  #     ON  x daily    42,344      60,294      142.4%   0.744   BROKEN
+  #
+  # On RELATIVE width the two miscalibrated cells look the most precise, because a latent
+  # process that absorbs observation noise reports a tighter interval than one that does
+  # not. On ABSOLUTE width the calibrated cell wins, but only because catch and width are
+  # nearly proportional here (the ratio is 0.64 in all four cells), so "narrowest absolute
+  # interval" is close to "smallest estimate" and would systematically select the lowest
+  # harvest number. Use precision to break a tie between rungs that are ALREADY adequate,
+  # never to decide adequacy. That is why the default is "first_pass".
+  #
+  # WHAT THE GATE CANNOT SEE, stated because it bounds what this whole mechanism can do.
+  # The ladder escalates on the CONVERGENCE gate, which asks whether a fit sampled. On the
+  # 2026-08-31 production run every component passes it, including shore all-gear at daily,
+  # so the production rule would change nothing this season. That same fit carries p_loo at
+  # 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500,
+  # all of which the gate is blind to and all of which model_adequacy.csv reports beside it.
+  # If a future season wants the ladder to react to adequacy as well as to sampling, that is
+  # a deliberate change to the gate, not a setting here.
+  ar_escalate_stop        = "first_pass",
+  ar_escalate_select      = "first_pass",
   # When escalating, should ar_max_resolution still apply as a floor on how FINE the
   # ladder may start? FALSE (default, and the point of the feature) starts at the top of
   # the ladder for every component. TRUE keeps the caps and escalates only from the
