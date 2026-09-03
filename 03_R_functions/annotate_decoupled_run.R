@@ -60,6 +60,17 @@
 #   invisible(lapply(list.dirs("05_output", recursive = TRUE), annotate_decoupled_run))
 ###############################################################################
 
+# Was this dump written by a driver that truncated str()? Every run_parameters.txt written
+# before 2026-09-04 was capped at str()'s list.len = 99 while run_config carried 120 keys, so
+# roughly 21 keys are simply absent and every lookup for one of them returns NA. NA then
+# flows into isTRUE() and reads as FALSE, which is indistinguishable from a genuine FALSE.
+# On the 2026-09-01 and later folders `opener_covariate_mode` fell past the cut, so B_open
+# would have been left UNFLAGGED in a run where it is decoupled: the same class of silent
+# missing-flag as the unflagged R_G_boat raised on 2026-08-25. Callers get a warning rather
+# than a quiet wrong answer; the driver-side annotation reads `params` directly and is not
+# affected, so this only matters for post-hoc backfill of old folders.
+.adr_truncated <- function(txt) any(grepl("list output truncated", txt, fixed = TRUE))
+
 # Pull one scalar out of a run_parameters.txt str() dump. Returns NA when absent.
 .adr_param <- function(txt, key) {
   hit <- grep(sprintf("^\\s*\\$ %s\\s*:", key), txt, value = TRUE)
@@ -85,6 +96,12 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
   fds  <- if (file.exists(file.path(dir, "fit_data_summary.csv")))
             utils::read.csv(file.path(dir, "fit_data_summary.csv"), stringsAsFactors = FALSE) else NULL
 
+  if (.adr_truncated(rp) && !isTRUE(quiet))
+    warning(sprintf(paste0("annotate_decoupled_run: run_parameters.txt in %s is TRUNCATED ",
+                           "(str() list.len cap). Run flags absent from the dump read as ",
+                           "FALSE, so decoupled flags derived from them may be missing. ",
+                           "Re-render the run, or set the flags by hand."), basename(dir)),
+            call. = FALSE)
   tau_sw  <- isTRUE(.adr_param(rp, "osp_scale_is_tau"))
   dens    <- isTRUE(.adr_param(rp, "estimate_cpue_density"))
   use_f   <- isTRUE(.adr_param(rp, "use_crab_fraction"))

@@ -275,15 +275,21 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     rE <- as.numeric(ex$r_E[use_pit]); rC <- as.numeric(ex$r_C[use_pit])
     RG <- as.numeric(ex$R_G[use_pit])
     RT <- bss_trailer_multiplier(ex, trailer_par, use_pit)   # R_T or 1/R_G_boat
-    pit_block <- function(days, y, mu_mat, size) {
+    # `theta` is NULL for every stream except the catch stream of a zi_catch = 1 fit,
+    # and the NULL path is the pre-2026-09-04 NB2 arithmetic unchanged. See
+    # 03_R_functions/zinb_ppc.R for why the mixture PIT needs a separate y == 0 branch
+    # and for what the NB2-only version cost on the 2026-09-03 Z1 stage.
+    pit_block <- function(days, y, mu_mat, size, theta = NULL) {
       no <- length(y); pit <- fit_mean <- p_zero <- rep(NA_real_, no)
       for (i in seq_len(no)) {
         mu <- pmax(mu_mat[, i], 1e-8); keep <- is.finite(mu) & is.finite(size)
         if (sum(keep) < 20) next
         mu <- mu[keep]; sz <- size[keep]
-        pit[i] <- mean(stats::pnbinom(y[i] - 1, size = sz, mu = mu) +
-                       0.5 * stats::dnbinom(y[i], size = sz, mu = mu))
-        fit_mean[i] <- mean(mu)
+        th <- if (is.null(theta)) NULL else theta[keep]
+        pit[i] <- bss_zi_pit(y[i], mu, sz, th)
+        # The MIXTURE mean (1 - theta) * mu, so fitted_mean stays comparable with the
+        # observation; under NB2 theta is 0 and this is mu, exactly as before.
+        fit_mean[i] <- if (is.null(th)) mean(mu) else mean((1 - th) * mu)
         # 2026-09-01: the model's own zero probability for THIS day, averaged over draws.
         # Tier 3 makes the zero-inflation decision conditional on reading the PPC zero bin,
         # and the only way to do that correctly is to compare the observed zero COUNT against
@@ -292,7 +298,7 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
         # the low-mean days and their P(Y=0) is high by construction. The first attempt at
         # this diagnostic made exactly that error and read a well-calibrated trailer stream
         # as 20% observed against 45% implied.
-        p_zero[i] <- mean(stats::dnbinom(0, size = sz, mu = mu))
+        p_zero[i] <- bss_zi_p_zero(mu, sz, th)
       }
       data.frame(day_index = days,
                  event_date = if (!is.null(ev)) as.character(ev[days]) else NA,
@@ -335,8 +341,12 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
     }
     if (!is.null(stan_data$IntC) && stan_data$IntC > 0) {
       muC <- lamC[, stan_data$day_IntC, drop = FALSE] * rep(stan_data$h, each = nrow(lamC))
+      # 2026-09-04: the catch stream is the ONLY stream zi_catch touches, so it is the only
+      # one that gets theta. NULL when the feature is off, which keeps every historical run
+      # bit-reproducible.
+      thC <- bss_zi_theta_draws(fit, stan_data, use_pit)
       parts$catch <- cbind(data_type = "catch",
-                           pit_block(stan_data$day_IntC, stan_data$c, muC, rC))
+                           pit_block(stan_data$day_IntC, stan_data$c, muC, rC, thC))
     }
     if (length(parts) > 0) {
       df <- do.call(rbind, parts)

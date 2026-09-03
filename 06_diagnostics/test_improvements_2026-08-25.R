@@ -963,8 +963,11 @@ local({
   t2 <- paste(readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), collapse = "\n")
   chk("ppc: the OSP stream now gets per-observation rows",
       grepl('parts$osp <- cbind(data_type = "osp"', t2, fixed = TRUE))
+  # 2026-09-04: the arithmetic moved into 03_R_functions/zinb_ppc.R so the NB2 and the
+  # mixture forms cannot drift between this file and model_diagnostics.R. Assert the
+  # PROPERTY (p_zero is written, over all days) rather than the literal expression.
   chk("ppc: p_zero is written, so the zero bin can be scored against ALL days",
-      grepl("p_zero[i] <- mean(stats::dnbinom(0, size = sz, mu = mu))", t2, fixed = TRUE))
+      grepl("p_zero[i] <- bss_zi_p_zero(mu, sz, th)", t2, fixed = TRUE))
   chk("adequacy: coverage prefers the randomized source and records which it used",
       exists(".bma_core", mode = "function") &&
       "byobs" %in% names(formals(.bma_core)))
@@ -1056,7 +1059,7 @@ local({
 
   t2 <- paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n")
   chk("ppc: the aggregate PIT is the EXACT expectation, so the two files agree exactly",
-      grepl("pit[i]   <- mean(stats::pnbinom(y[i] - 1, size = sz_k, mu = mu_k)", t2, fixed = TRUE))
+      grepl("pit[i]   <- bss_zi_pit(y[i], mu_k, sz_k, th_k)", t2, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------
@@ -1406,6 +1409,117 @@ local({
   cl <- paste(readLines("07_documentation/CLAUDE.md", warn = FALSE), collapse = "\n")
   chk("context: CLAUDE.md carries the same two facts",
       grepl("published \\*\\*no\\*\\*", cl) && grepl("lower bound", cl, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 35. The 2026-09-03 defects. Each of these is one line of code and each cost a real
+#     result: 14.7 h of wasted fitting, a nearly-rejected feature, and five of eleven
+#     batch verdicts wrong. Assert the FIX, not the symptom.
+# ---------------------------------------------------------------------------
+local({
+  # 35a. ar_escalate is scoped-resolvable EVERYWHERE it is consulted. The ladder built
+  #      four rungs and the loop ran four attempts, but force_resolution was gated on
+  #      isTRUE(params$ar_escalate), which is FALSE for list(shore = "all_gear"), so the
+  #      data prep re-derived `daily` on every rung. Assert no driver tests the raw value.
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    src <- readLines(drv, warn = FALSE)
+    code <- src[!grepl("^\\s*#", src)]        # comments may quote the old expression
+    chk(sprintf("%s: no isTRUE(params$ar_escalate) in live code", basename(drv)),
+        !any(grepl("isTRUE(params$ar_escalate)", code, fixed = TRUE)),
+        paste(grep("isTRUE(params$ar_escalate)", code, fixed = TRUE, value = TRUE), collapse = " | "))
+    chk(sprintf("%s: force_resolution is gated on the resolved flag", basename(drv)),
+        any(grepl("force_res <- if (.esc_on)", code, fixed = TRUE)))
+    # 35b. the reported rung is identified by ATTEMPT INDEX, never by resolution string.
+    chk(sprintf("%s: selected rung tracked by attempt index", basename(drv)),
+        any(grepl(".kept_attempt[[label]] <- attempt", code, fixed = TRUE)))
+  }
+  # 35c. a scoped ar_escalate must still produce a MULTI-RUNG ladder with DISTINCT rungs.
+  #      This is the property the A1 stage silently lost: four rungs, one resolution.
+  Ps <- modifyList(P1, list(ar_escalate = list(shore = "all_gear")))
+  Ls <- bss_ar_ladder(days289, eff, "shore", Ps, gear_regime = "all_gear")
+  chk("scoped ar_escalate yields a multi-rung ladder", length(Ls) >= 3, paste(Ls, collapse = "->"))
+  chk("every rung on the ladder is a DISTINCT resolution", !any(duplicated(Ls)), paste(Ls, collapse = "->"))
+  chk("scoped ar_escalate does NOT reach the unscoped sub-season",
+      identical(bss_ar_ladder(days76, tibble(day_index = seq(1, 76, by = 2)), "shore", Ps,
+                              gear_regime = "pot_closure"), "daily") ||
+      length(bss_ar_ladder(days76, tibble(day_index = seq(1, 76, by = 2)), "shore", Ps,
+                           gear_regime = "pot_closure")) == 1)
+  chk("scoped ar_escalate does NOT reach the other population",
+      length(bss_ar_ladder(days289, eff, "private_boat", Ps, gear_regime = "all_gear")) == 1)
+})
+
+# ---------------------------------------------------------------------------
+# 36. The catch-stream PPC is computed under the likelihood Stan actually sampled.
+#     Under zi_catch = 1 the NB2 arithmetic reported 419 expected zeros against 676
+#     observed (z = 15.4) where the mixture gives 637.9 (z = 2.0), and the batch
+#     recorded that as the feature making the zero bin worse.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/zinb_ppc.R")
+  th <- 0.178; mu <- 3.0; sz <- 0.8
+  f <- function(y) if (y == 0) th + (1 - th) * dnbinom(0, size = sz, mu = mu) else
+                               (1 - th) * dnbinom(y, size = sz, mu = mu)
+  chk("mixture pmf integrates to 1", abs(sum(vapply(0:500, f, 0)) - 1) < 1e-10)
+  chk("mixture p_zero matches the pmf at 0", abs(bss_zi_p_zero(mu, sz, th) - f(0)) < 1e-12)
+  # THE branch that is easy to get wrong: at y = 0, F(-1) = 0, so the point mass theta is
+  # NOT added ahead of the observation. Folding the two cases into one expression puts the
+  # zero observations about theta too high, flattering exactly the observations theta explains.
+  chk("mixture PIT at y = 0 is 0.5 * f(0), not theta + ...",
+      abs(bss_zi_pit(0, mu, sz, th) - 0.5 * f(0)) < 1e-12)
+  chk("mixture PIT at y = 0 is NOT the naive folded form",
+      abs(bss_zi_pit(0, mu, sz, th) - (th + (1 - th) * 0.5 * dnbinom(0, size = sz, mu = mu))) > 1e-3)
+  chk("mixture PIT at y > 0 = F(y-1) + 0.5 f(y)",
+      abs(bss_zi_pit(4, mu, sz, th) - (sum(vapply(0:3, f, 0)) + 0.5 * f(4))) < 1e-12)
+  chk("theta = NULL reproduces the NB2 arithmetic exactly",
+      identical(bss_zi_pit(3, mu, sz, NULL),
+                mean(pnbinom(2, size = sz, mu = mu) + 0.5 * dnbinom(3, size = sz, mu = mu))) &&
+      identical(bss_zi_p_zero(mu, sz, NULL), mean(dnbinom(0, size = sz, mu = mu))))
+  # both diagnostic files must route through the shared helper, or they drift apart again
+  for (f2 in c("03_R_functions/save_run_diagnostics.R", "03_R_functions/model_diagnostics.R")) {
+    src <- readLines(f2, warn = FALSE)
+    chk(sprintf("%s uses the shared mixture PIT", basename(f2)),
+        any(grepl("bss_zi_pit(", src, fixed = TRUE)))
+    chk(sprintf("%s passes theta on the CATCH stream only", basename(f2)),
+        any(grepl("bss_zi_theta_draws(fit, stan_data,", src, fixed = TRUE)))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 37. Model comparison uses the PAIRED difference SE, and the config dump is complete.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/loo_elpd_paired.R")
+  set.seed(1)
+  n <- 800; base <- rnorm(n, -2, 1.5)          # large across-observation spread
+  a <- data.frame(obs_index = 1:n, observed = rpois(n, 1), elpd_loo = base,
+                  pareto_k = runif(n, 0, .5))
+  b <- a; b$elpd_loo <- base + rnorm(n, 0.02, 0.05)   # small, consistent per-obs gain
+  ta <- tempfile(fileext = ".csv"); tb <- tempfile(fileext = ".csv")
+  write.csv(a, ta, row.names = FALSE); write.csv(b, tb, row.names = FALSE)
+  r <- loo_elpd_paired(ta, tb, "synthetic")
+  chk("paired SE is far smaller than the per-fit SE when the fits are correlated",
+      r$se_diff < r$se_naive_a / 10, sprintf("%.2f vs %.2f", r$se_diff, r$se_naive_a))
+  chk("paired ratio detects a real small effect the naive ratio would miss",
+      r$ratio > 5 && abs(r$elpd_diff / r$se_naive_a) < 1,
+      sprintf("paired %.1f SE, naive %.2f SE", r$ratio, r$elpd_diff / r$se_naive_a))
+  chk("misaligned obs_index is refused rather than silently compared",
+      is.null(local({ b2 <- b; b2$observed <- rev(b2$observed)
+                      t2 <- tempfile(fileext = ".csv"); write.csv(b2, t2, row.names = FALSE)
+                      r2 <- loo_elpd_paired(ta, t2); if (identical(b2$observed, a$observed)) NULL else r2 })))
+  # run_parameters.txt must capture EVERY run_config key: config_delta() and
+  # annotate_decoupled_run() both read it, and str()'s default caps a list at 99.
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE))
+    chk(sprintf("%s writes an untruncated config dump", basename(drv)),
+        any(grepl("str(params, list.len =", readLines(drv, warn = FALSE), fixed = TRUE)))
+  src <- readLines("run_config.R", warn = FALSE)
+  dump <- capture.output(str(run_config_for_test <- local({ e <- new.env(); sys.source("run_config.R", e); e$run_config }),
+                            list.len = 1000, nchar.max = 2000, vec.len = 100))
+  chk("the dump settings capture every run_config key",
+      !any(grepl("truncated", dump)) &&
+      sum(grepl("^ \\$ ", dump)) == length(run_config_for_test),
+      sprintf("%d of %d", sum(grepl("^ \\$ ", dump)), length(run_config_for_test)))
+  chk("annotate_decoupled_run refuses to trust a truncated dump",
+      any(grepl(".adr_truncated", readLines("03_R_functions/annotate_decoupled_run.R", warn = FALSE), fixed = TRUE)))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

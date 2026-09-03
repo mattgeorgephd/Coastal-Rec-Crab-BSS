@@ -260,13 +260,19 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   # non-finite mu, and rnbinom(mu = Inf) returns NA, which previously aborted
   # quantile() and the entire PPC. Non-finite mu and non-finite draws are now
   # dropped; an observation with < 20 usable draws is recorded NA and excluded.
-  calib <- function(mu_mat, y, size_vec) {
+  # 2026-09-04: `theta` is NULL for every stream except the catch stream of a zi_catch = 1
+  # fit. NULL is the pre-2026-09-04 NB2 arithmetic unchanged, so ppc_calibration_*.csv is
+  # bit-reproducible for every earlier run. The mixture arithmetic lives in
+  # 03_R_functions/zinb_ppc.R, shared with pit_block() in save_run_diagnostics.R so the
+  # aggregate and per-observation files cannot drift apart again.
+  calib <- function(mu_mat, y, size_vec, theta = NULL) {
     nobs <- length(y); cov50 <- cov95 <- pit <- rep(NA_real_, nobs)
     for (i in seq_len(nobs)) {
       mu_i <- pmax(mu_mat[, i], 1e-8)
       keep <- is.finite(mu_i) & is.finite(size_vec)
       if (sum(keep) < 20) next
       mu_k <- mu_i[keep]; sz_k <- size_vec[keep]
+      th_k <- if (is.null(theta)) NULL else theta[keep]
       # 2026-09-02: the EXACT expectation, matching ppc_byobs_*.csv, instead of simulating.
       # The simulated version is an unbiased estimate of the same quantity but carries Monte
       # Carlo noise, which left the two files disagreeing by 0.005-0.015 even after the
@@ -277,8 +283,7 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
       yp <- stats::rnbinom(sum(keep), mu = mu_k, size = sz_k)
       yp <- yp[is.finite(yp)]
       if (length(yp) < 20) next
-      pit[i]   <- mean(stats::pnbinom(y[i] - 1, size = sz_k, mu = mu_k) +
-                       0.5 * stats::dnbinom(y[i], size = sz_k, mu = mu_k))
+      pit[i]   <- bss_zi_pit(y[i], mu_k, sz_k, th_k)
       # 2026-09-01 FIX. Coverage is now read off the RANDOMIZED PIT, not off a quantile
       # interval of the simulated draws.
       #
@@ -351,7 +356,8 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   if (stan_data$IntC > 0)
     parts$catch   <- calib(sweep(lamC[, stan_data$day_IntC, drop = FALSE], 2,
                                  stan_data$h, "*"),
-                           stan_data$c, rC)
+                           stan_data$c, rC,
+                           bss_zi_theta_draws(fit, stan_data, use))
   if (length(parts) == 0) return(NULL)
 
   summ <- do.call(rbind, lapply(names(parts), function(nm)

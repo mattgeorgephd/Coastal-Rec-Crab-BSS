@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-04
+- **Last updated:** 2026-09-04 (Section 1i: review of the 2026-09-03 batch)
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
@@ -11,7 +11,7 @@
 >
 > **Everything below this line that names a different authoritative run is HISTORICAL**, kept for provenance: rung 4 `20260826/pooled-CPUE-PV4-minint` (66,237), the 2026-08-04/05 OSP validation pair (67,312 pooled / 66,461 gear), Run 6 `20260715/pooled-CPUE-230256` (83,488), Run 1 (83,035). The 2024-25 reference numbers in the two method documents are **pre-refresh and superseded**; they have not been regenerated.
 >
-> **One open caveat on the headline.** The shore all-gear component, 29% of the port total, is fitted at a DAILY AR whose adequacy is the worst in the production run: p_loo 35.2% of `n_obs`, 41 Pareto k above 0.7, `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs). Section 1f's ladder tests it, and if a coarser rung wins this number moves.
+> **One open caveat on the headline, STILL OPEN as of 2026-09-04.** The shore all-gear component, 29% of the port total, is fitted at a DAILY AR whose adequacy is the worst in the production run: p_loo 35.2% of `n_obs`, 41 Pareto k above 0.7, `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs). The 2026-09-03 batch was supposed to settle this and **did not**: a one-line defect made all four ladder rungs refit `daily`, so 14.7 h bought no comparison. See Section 1i. `run_ladder_zinb_2026-09-04.R` is the retry.
 
 ---
 
@@ -565,6 +565,67 @@ The 2026-09-03 batch replaced its three forced rungs (A1/A2/A3) with **one** run
 
 ---
 
+## 1i. The 2026-09-03 batch: two good stages, three defects, and a ladder that did not ladder (reviewed 2026-09-04)
+
+Full review: `07_documentation/development_notes/shore-ar-zi-review-2026-09-04.md`. Harness **330 assertions, 0 failures**.
+
+**The authoritative run does not move.** `20260831/pooled-CPUE-VAL-1-adopted`, port 71,513, still stands.
+
+| stage | model | min | port | shore all-gear | AR | boat all-gear | outcome |
+|---|---|---:|---:|---:|---|---:|---|
+| P1 | PE only | ~0 | - | - | - | - | PASS, -0.059% on the boat |
+| G1 | gear | 26.5 | 70,953 | 20,754 | monthly | 30,760 | PASS x2 |
+| Z0 | pooled | 263.9 | 71,450 | 20,898 | daily | 31,008 | PASS |
+| A1 | pooled | 883.0 | 71,535 | 20,898 | daily | 31,008 | **VOID** |
+| Z1 | pooled | 242.4 | 71,326 | 20,745 | daily | 31,008 | re-scored |
+
+### What worked
+
+**G1 restores the cross-track check.** The gear-track boat all-gear fit had never sampled in production: 554 divergences, gate rejection, PE fallback, and a gear port total of 51,385, a 27% understatement of the number that cross-validates the pooled headline. With the per-fit sampler settings moved from an experiment override into the driver, it now runs at **2 divergences**, `tau_bar` n_eff **19,292** against 49, and a port total of **70,953**, which is **-0.78%** from the pooled production run (the 2026-08-26 shipped pair was 0.73% apart). The two independently parameterized tracks agree on `tau_bar` to four decimals, 2.5962 against 2.5962, which is what makes the shared turnover a property of the data rather than of the pooled parameterization.
+
+**P1 closes the incomplete-trip inconsistency.** The PE and BSS arms of one fused estimator no longer disagree about which interviews count. Largest movement -0.059% on the boat, shore unchanged, which is the control.
+
+**Z0 confirms the ZINB Stan edit is inference-neutral when off.** 11,223 shared parameter rows identical at full precision.
+
+### The four defects
+
+| id | what | cost |
+|---|---|---|
+| **D1** | `force_res <- if (isTRUE(params$ar_escalate))` in both drivers. `ar_escalate` became SCOPED the same day; `isTRUE()` on `list(shore = "all_gear")` is FALSE, so the resolution never reached the data prep while `.esc_on` twelve lines above resolved correctly. All four rungs ran at `daily`, `P_n = 289`, catch 20,897.819 to three decimals. | **14.7 h of 23.6 h; both A1-A3 verdicts VOID** |
+| **D1b** | `selected` was marked by matching the resolution string and taking the last hit, so the log named attempt 4 while attempt 1 was kept. The gear driver never set it at all. | log unreadable exactly when it matters |
+| **D2** | `pit_block()` and `calib()` scored the catch stream as plain NB2 on a ZINB fit, excluding `theta_C`. Reported **419.0** expected zeros against 676 observed, z = **+15.4**, i.e. "the feature made the zero bin worse". Under the mixture it is **637.9, z = +2.0**, against the NB2 baseline's 605.5 / +3.8: the bin halves. Also makes Z1's catch `pit_mean`, `pit_sd`, `coverage_50` and `flag_pit_bias` unreadable. `elpd` unaffected; Stan's `log_lik` always carried the mixture. | the feature was nearly rejected on it |
+| **D3** | the elpd criterion compared +14.8 nats against `se_elpd_loo` (~46), the SE of ONE model's total, which is dominated by across-observation variation common to both models and cancels in the difference. The paired-difference SE is **5.5**, so the gain is **2.69 SE** and clears the stated 2 SE bar. | "NOT WORTH IT" was wrong |
+| **D4** | `run_parameters.txt` is written by `str(params)`, which caps a list at `list.len = 99`; `run_config` carries 120 keys. **Every dump in the repo before 2026-09-04 is truncated.** `config_delta()` and `annotate_decoupled_run()` both read it, so it yields false positives (the Z0 "9 UNEXPECTED keys" caveat, on a correct config) and false negatives (a key past entry 99 in both dumps is never compared). `opener_covariate_mode` fell past the cut from 2026-09-01 on, so post-hoc annotation of those folders would leave `B_open` unflagged. | one false caveat; one latent missing-flag |
+
+**Five of eleven verdicts were wrong.** The committed `05_output/shore_ar_zi_2026-09-03_verdicts.csv` now carries `verdict_2026_09_04` and `correction_2026_09_04` beside the originals so the supersession is auditable rather than rewritten. An injected `[A1] PASS fake fitted criterion` test row that was never removed is deleted, and `run_shore_ar_zi_2026-09-03.R` shipped `DRY_RUN <- FALSE` and is reset.
+
+### The ZINB decision, re-scored
+
+| stream | elpd diff | paired SE | ratio | zeros | positives | zero bin z |
+|---|---:|---:|---:|---|---|---|
+| shore all-gear | +14.8 | 5.5 | **2.69** | n=676, +25.2 (11.6 SE) | n=973, **-10.5 (-2.1 SE)** | +3.8 -> **+2.0** |
+| shore pot closure | +9.1 | 4.6 | 1.96 | n=146, +19.0 (8.9 SE) | n=481, **-10.0 (-2.6 SE)** | +2.9 -> **+0.8** |
+
+Pareto k>0.7 on the shore all-gear fit fell **41 -> 26**. `theta_C` 0.179 on all-gear, 0.107 on the independent pot-closure replicate.
+
+**`estimate_catch_zi` stays FALSE.** Two reasons, neither of them the batch's original one. First, the gain is bought entirely at the zeros while the POSITIVE counts get worse by about 2 SE, and the harvest estimate is made of the positives; a mixture that trades one for the other is a different object from one that fits better everywhere. Second, the corrected numbers above were recomputed offline from committed marginal means with `E[theta*p0]` approximated by `E[theta]*E[p0]`. That is very unlikely to move z by more than about 0.1, and "very unlikely" is not a basis for changing the likelihood of a harvest estimate.
+
+### The structural change: posterior draws are now persisted
+
+Three defects in five weeks (the quantile-interval coverage defect 2026-08-31, the `tau_bar` row-key defect 2026-09-01, D2 above) were all in code that runs AFTER sampling, on a fit that was never wrong, and each cost a multi-hour re-fit to correct a file. Nothing persisted a stanfit or any subset of its draws. `save_ppc_draws = TRUE` now writes `ppc_draws_<fit>.rds` per fit, tens of MB, carrying the draw objects every R-side predictive statistic reads plus `stan_data`. The next such fix is a recomputation. See `03_R_functions/save_bss_ppc_draws.R` for what it does and does not cover.
+
+### Why this keeps happening
+
+Three of the four defects share a shape: **a change was validated by the mechanism it was about to break.** The ladder was tested by a harness that checked `bss_ar_ladder()`'s output and never that the resolution reached the data prep. The ZINB feature was validated by a zero-bin diagnostic written before the mixture existed. The config comparison was validated by reading the file it was silently truncating. The new assertions target that shape: they read the driver SOURCE and assert the property that failed, not the helper's return value.
+
+### Next: `06_diagnostics/run_ladder_zinb_2026-09-04.R`, 3-6 h against the 23.6 h it corrects
+
+- **D0**, desk, free, runs in a dry run: re-derives every corrected number above from committed files.
+- **L1**, ~2-3 h: the shore all-gear ladder for real, via the production `ar_escalate` toggle. `LADDER_INCLUDE_DAILY` defaults FALSE and reuses Z0's daily rung (config differs only in `ar_escalate` keys, none of which touch model, data or seed), saving 3.7 h; set TRUE if the ladder will be shown outside the project. Decision rule as agreed: escalate on the convergence gate, report the finest rung that PASSES, narrowest relative PI only as a tie-break, and check `cov50` and Pareto k on any rung the tie-break selects.
+- **Z2**, ~4 h, switchable: re-render the ZINB shore fit under the corrected PPC, so adoption rests on rendered output; also checks the rendered zero bin against D0's approximation and confirms the boat negative control reproduces bit-for-bit.
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
@@ -636,6 +697,9 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
 - **[CLOSED 2026-09-01, all four criteria met; see Section 1d] Validate the shore I/E observation-unit fix.** The isolating run existed from 2026-08-26 (ladder rung 1 to rung 2) and had simply never been scored. sigma_IE 1.034 to 0.341 (a); shore BSS 20,708 to 21,017 (b); L posterior span 0.354 to 0.873 with excursions below the prior centre (c); boat bit-identical across 3,158 shared rows (d). The original entry is kept below for the record. The shore I/E stream has been comparing crabber-HOURS against a predicted crabber-TRIP count since v7.7 (see the 2026-08-25 update, item A). The fix is coded and defaults ON. It moves the shore number and nothing else in the batch does, so it must be run ISOLATED against `20260804/pooled-CPUE-boat-count-validation-run`, with everything else at its previous value. Pre-set criteria, so the run is read rather than rationalised: (a) shore all-gear `sigma_IE` should fall sharply from ~1.07 - if it does not, the GR-9 tension is NOT the unit mismatch and that item stays open with a new hypothesis needed; (b) the shore effort posterior should move, and the direction is not predictable in advance because the old stream was pulling `lambda_E` up against the gear counts; (c) the shore `tau_shore` posterior should now depart from its prior on the in-window I/E days, where before it could not; (d) the boat must be byte-identical (the boat stream was already correct, so any boat movement is a bug in the patch). **Effort: one pooled run + one gear-resolved run.**
 - **[NEW, 2026-08-25] Get the OSP crab-only daily counts.** The machinery for using them as a hard lower bound on `f` is built, tested and inert (item 8). What is missing is the column: a per-day count of boats OSP labelled as crabbing ONLY, alongside the existing `WestportPrivateEffort` daily total, in `WBL_boat_counts.xlsx`. This is a data request to OSP, not code. It does NOT by itself make `f` data-driven - it bounds `f` from below and leaves the combo-trip share `theta` on a placeholder prior - so it must be paired with the egress classification item in Section 6. **Effort: a data request.**
 
+- **[OPEN, RETRY QUEUED 2026-09-04] Settle the shore all-gear AR resolution.** The single largest open item on the headline. This component is 29% of the port total and production fits it at a daily AR with p_loo at 35.2% of `n_obs`, 41 Pareto k above 0.7 and `coverage_50` 0.701 against a nominal 0.500 (+7.1 sampling SDs); the gear track fits it at monthly and gets `coverage_50` 0.035 (-16.4 SDs). Both ends are bad. The 2026-09-03 batch was built to bracket it and produced nothing: a scoped-`ar_escalate` defect made all four rungs refit `daily`, burning 14.7 h (Section 1i, D1). Fixed, asserted, and retried as stage L1 of `06_diagnostics/run_ladder_zinb_2026-09-04.R`. Decision rule, from the FWC discussion: escalate on the convergence gate, report the finest rung that PASSES, use the narrowest relative prediction interval only as a tie-break, and check `cov50` and the Pareto k count on any rung the tie-break selects (the Stage 5 boat 2x2 showed the two MISCALIBRATED cells carrying the narrowest relative intervals). If a coarser rung wins, `ar_max_resolution` for shore all-gear changes and this component of the estimate moves. **Effort: one pooled run, 2-3 h.**
+- **[OPEN, EVIDENCE POSITIVE, DECISION DEFERRED 2026-09-04] Zero-inflated shore catch likelihood.** Re-scored correctly, the prototype earns its parameter: +14.8 nats at 2.69 PAIRED SE on shore all-gear, replicated at 1.96 SE with `theta_C` 0.107 on the independent pot-closure fit, the zero bin halving from z = +3.8 to +2.0, and Pareto k>0.7 falling 41 -> 26. Held anyway for two reasons: the gain is bought entirely at the zeros while the POSITIVE counts get worse by about 2 SE, and the harvest estimate is made of the positives; and the corrected figures were recomputed offline with `E[theta*p0]` approximated by `E[theta]*E[p0]`. Stage Z2 of the 2026-09-04 batch renders the exact values under the corrected PPC. **Effort: one pooled run, ~4 h.**
+
 Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on Run 5 (robust to the R_G prior; below). External validation (T1.1b) still needs benchmark data. Run 1 also closed two of the 7/12 findings: the boat PE-vs-BSS gap (empty-stratum pooled fallback, item 2) and the boat incomplete-trip-filter anomaly (now resolved; Tier 2).
 
 - **P0 [DONE + CONFIRMED 2026-07-12]: pooled PE on ratio-of-sums.** `run_pe_pooled` computes stratum CPUE as within-stratum `sum(catch)/sum(hrs)`, replacing the unstable `weighted.mean(daily_ratios, w = n_int)`, with an implied-CPUE-vs-ratio-of-sums guard that fails fast before the multi-hour fits. Mirrors `run_pe_gear`. **Run result:** the SHORE PE is now internally consistent (implied CPUE 0.865 vs interview ratio-of-sums 0.873; `cpue_estimators_*` drift flag FALSE). The BOAT PE, however, stayed at 22,823 (implied CPUE 1.84), NOT the ~40k an earlier version of this note predicted: ratio-of-sums fixes the within-stratum estimator but not the across-stratum effort weighting, and the boat's expanded effort concentrates on low-CPUE strata, so its effort-weighted CPUE remains far below the interview ratio-of-sums (3.36). The guard passes only marginally for the boat (0.55x vs the 0.5 floor). Net: P0 closed the shore inconsistency and is correct to keep, but the boat PE-vs-BSS gap is a real imputation difference, not an estimator artifact P0 could remove. Renders in Section 4.4. **Update (Run 1):** the across-stratum weighting P0 could not fix is what the empty-stratum pooled fallback (item 2) addresses, and it mostly closes the boat gap: boat PE 22,823 -> 37,638 (implied CPUE 3.02). See Section 1, fact 2.
@@ -692,6 +756,9 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
 - **The harvest is summer-extrapolation-dominated.** The largest uncertainty and the largest BSS-vs-PE divergence both live in the thinly sampled months; no code refinement manufactures information that was not sampled. The single highest-value field change for 2025-26 is more summer interview/effort coverage.
 - **BSS-vs-PE gaps are a diagnostic, not a defect, but demand a mechanism.** The two estimate the same harvest by different routes (design-based stratum expansion vs a latent process that imputes unobserved days and propagates uncertainty). A gap is expected where sampling under-covers effort. Report the BSS (now cross-model stable for the boat) with the PE as a caveated cross-check; the boat gap is mostly the PE undercounting (P0), the shore gap is an effort-imputation tied to `sigma_IE`.
 - **Validate by run, never by reasoning alone (the "pin" lesson).** A change that looks inference-neutral on paper (the v7.3 pin; the B1.7 collapse) can perturb a delicate mass-matrix geometry. Isolate each change, compare against a confirmed baseline, and decide on pre-set criteria. Every "done pending run" item is not done until the run confirms it.
+- **[2026-09-04] Never validate a change with the mechanism it is about to break.** Three of the four defects in the 2026-09-03 batch share exactly that shape. The AR ladder was tested by a harness that checked `bss_ar_ladder()`'s return value and never that the resolution reached the data prep, so a scoped `ar_escalate` refit one model four times while every observable except the resolution string said the ladder worked. The ZINB feature was judged by a zero-bin diagnostic written before the mixture existed, which reported the opposite of the truth. The config comparison was validated by reading the very file it was silently truncating. The counter-measure is an assertion that reads the SOURCE of the thing under test and asserts the property that failed, not the helper's output: `06_diagnostics/test_improvements_2026-08-25.R` sections 35-37.
+- **[2026-09-04] A model comparison needs the PAIRED difference SE, never the SE of either total.** `se_elpd_loo` is dominated by across-observation variation that is common to both models and cancels in the difference; on the ZINB comparison it read 46 nats where the paired SE was 5.5, turning a 2.69 SE effect into an apparent 0.32 SE non-effect. Use `03_R_functions/loo_elpd_paired.R`, and read its zero/positive decomposition: a mixture that earns its elpd at the zeros while degrading the positive counts is a different object from one that fits better everywhere. Primary source: Vehtari, Gelman & Gabry 2017, Statistics and Computing 27:1413-1432, section 3.3.
+- **[2026-09-04] Persist what the diagnostics are computed from.** Three defects in five weeks lived entirely in code that runs AFTER sampling, on fits that were never wrong, and each cost a multi-hour re-fit to correct a CSV. `save_ppc_draws = TRUE` writes the draw objects every R-side predictive statistic reads, so the next such fix is a recomputation.
 
 ---
 

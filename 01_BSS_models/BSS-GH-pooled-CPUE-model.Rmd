@@ -1121,6 +1121,7 @@ bss_catch_groups <- catch_groups
 bss_all <- list()
 ar_resolutions <- list()  # track AR resolution per fit (the FINAL attempt's, when escalating)
 ar_escalation_log <- list()  # improvement 7: one row per fit attempt (see ar_escalation_log.csv)
+.kept_attempt <- list()      # fit label -> the attempt index whose stanfit was retained
 
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
@@ -1199,7 +1200,17 @@ for(cg in bss_catch_groups) {
 
         # force_resolution only when escalating: with the ladder off we must go through
         # the historical data-driven + cap path so the run is bit-comparable to Run 6.
-        force_res <- if (isTRUE(params$ar_escalate)) ar_ladder[attempt] else NULL
+        #
+        # 2026-09-04 DEFECT FIX. This line read `isTRUE(params$ar_escalate)`. When
+        # ar_escalate became scoped (`list(shore = "all_gear")`, or a character vector of
+        # populations) on the same day, `isTRUE()` on a list is FALSE, so force_res stayed
+        # NULL while `.esc_on` above correctly resolved TRUE. The ladder was therefore BUILT
+        # with four rungs and the loop ran four attempts, but every attempt re-derived the
+        # SAME resolution from the data-driven selector. The 2026-09-03 A1 stage fitted
+        # shore all-gear at `daily` four consecutive times, 333 divergences and
+        # catch_median 20,897.819 on every rung, and burned 14.7 h of a 23.6 h batch to
+        # learn nothing. Resolve it the same way `.esc_on` does, from the one helper.
+        force_res <- if (.esc_on) ar_ladder[attempt] else NULL
         bss_data_try <- prep_bss_crab_pooled(days_ss, summ_ss, cg, params, pop,
                                              gear_regime = ss$gear_regime, ie_data = ie_data,
                                              force_resolution = force_res)
@@ -1340,6 +1351,12 @@ for(cg in bss_catch_groups) {
           ar_resolutions[[label]] <- attr(bss_data_try, "ar_resolution")
           .incumbent_passed <- .passed
           .incumbent_pi_rel <- .rung$pi_width_rel
+          # 2026-09-04: record the ATTEMPT NUMBER kept, not just its resolution. The
+          # post-loop marker used to re-derive the selected row by matching the resolution
+          # string and taking the last match, which is wrong whenever two rungs share a
+          # resolution. On the 2026-09-03 A1 stage all four rungs read "daily", so the log
+          # marked attempt 4 as reported while `.keep` had actually retained attempt 1.
+          .kept_attempt[[label]] <- attempt
         }
 
         if (identical(.stop_rule, "all_rungs") && .esc_on) {
@@ -1501,9 +1518,18 @@ ar_escalation_df <- if (length(ar_escalation_log)) bind_rows(ar_escalation_log) 
 # is needed.
 if (!is.null(ar_escalation_df) && nrow(ar_escalation_df)) {
   for (.lb in unique(ar_escalation_df$fit)) {
-    .sel <- ar_resolutions[[.lb]] %||% NA_character_
-    .i <- which(ar_escalation_df$fit == .lb & ar_escalation_df$ar_resolution %in% .sel)
-    if (length(.i)) ar_escalation_df$selected[utils::tail(.i, 1)] <- TRUE
+    # 2026-09-04: match on the recorded ATTEMPT INDEX. Matching on the resolution string
+    # and taking the last hit silently mislabels the reported rung whenever two rungs
+    # carry the same resolution, which is precisely the state a broken ladder leaves the
+    # log in, i.e. exactly when a reader most needs the flag to be trustworthy.
+    .ka <- .kept_attempt[[.lb]] %||% NA_integer_
+    .i <- if (!is.na(.ka)) which(ar_escalation_df$fit == .lb & ar_escalation_df$attempt == .ka) else integer(0)
+    if (!length(.i)) {   # pre-2026-09-04 logs have no tracker; fall back to the old rule
+      .sel <- ar_resolutions[[.lb]] %||% NA_character_
+      .i <- utils::tail(which(ar_escalation_df$fit == .lb &
+                              ar_escalation_df$ar_resolution %in% .sel), 1)
+    }
+    if (length(.i)) ar_escalation_df$selected[.i] <- TRUE
   }
 }
 if (!is.null(ar_escalation_df))
@@ -1514,7 +1540,12 @@ if (!is.null(ar_escalation_df))
 
 ```{r ar-escalation-show, echo=FALSE}
 if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
-    (isTRUE(params$ar_escalate) || nrow(ar_escalation_df) > length(bss_all))) {
+    # 2026-09-04: read the per-fit flag the loop already recorded. This condition used
+    # isTRUE(params$ar_escalate), which is FALSE for every scoped form, so the table was
+    # rendered only by the row-count fallback; with a one-rung ladder it would have been
+    # dropped entirely.
+    (any(ar_escalation_df$escalation_enabled %in% TRUE) ||
+     nrow(ar_escalation_df) > length(bss_all))) {
   report_table(
     dplyr::transmute(ar_escalation_df,
       Fit = short_fit(fit), Attempt = attempt, `AR resolution` = ar_resolution,
@@ -2226,6 +2257,12 @@ for(label in names(bss_all)) {
                         label, output_dir,
                         fit_method = b$gate_info$method_selected %||%
                           (if (isTRUE(b$use_bss)) "BSS" else "PE (convergence fail)"))
+  # 2026-09-04: persist the draws the PPC is computed from. Three separate defects in the
+  # diagnostic arithmetic have each cost a full multi-hour re-fit to correct, most recently
+  # the ZINB catch stream being scored as NB2. See 03_R_functions/save_bss_ppc_draws.R.
+  if (isTRUE(params$save_ppc_draws) && !is.null(b$bss_data))
+    save_bss_ppc_draws(b$fit, b$bss_data, label, output_dir,
+                       max_draws = params$save_ppc_draws_max %||% NULL)
 }
 
 
@@ -2681,7 +2718,20 @@ Writes the full run parameters and the timing summary to the run folder for repr
 ```{r save-params, results='hide'}
 # ---- 7.19 SAVE PARAMETERS ----
 timer_stop("6_outputs")
-writeLines(capture.output(str(params)), file.path(output_dir, "run_parameters.txt"))
+# 2026-09-04 DEFECT FIX. This was `str(params)` with its defaults, and str() truncates a
+# list at list.len = 99 entries with a "[list output truncated]" line. run_config carries 120
+# keys, so EVERY run_parameters.txt in this repo before this date is missing about 21 of
+# them, silently. That file is not decoration: config_delta() in the batch runners compares
+# two runs key by key from it, and annotate_decoupled_run.R reads run flags out of it. A
+# truncated dump gives that machinery false POSITIVES (a key that scrolled off one side of a
+# comparison reads as "differs") and, far worse, false NEGATIVES (a key that genuinely
+# differs but sits past entry 99 in both dumps is never compared at all). The 2026-09-03 Z0
+# stage reported 9 UNEXPECTED config keys on a run whose config was in fact correct; all 9
+# were keys that crossed the truncation boundary when new keys were added above them.
+# list.len is set well above the key count and nchar.max is raised so long vectors are not
+# elided either.
+writeLines(capture.output(str(params, list.len = 1000, nchar.max = 2000, vec.len = 100)),
+           file.path(output_dir, "run_parameters.txt"))
 
 # B1.6: session and version capture for reproducibility. Pins package and Stan
 # versions and the seed with each output set, so a result is reproducible from

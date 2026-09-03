@@ -762,6 +762,7 @@ message(sprintf("Running BSS for: %s\n", paste(bss_catch_groups, collapse=", "))
 bss_all <- list()
 ar_resolutions <- list()   # AR resolution actually used, per fit (for the gate report)
 ar_escalation_log <- list()  # improvement 7: one row per fit attempt (ar_escalation_log.csv)
+.kept_attempt <- list()      # fit label -> the attempt index whose stanfit was retained
 for(cg in bss_catch_groups) {
   for(pop in c("shore","private_boat")) {
     for(ss in subseasons) {
@@ -816,7 +817,11 @@ for(cg in bss_catch_groups) {
 
       for (attempt in seq_along(ar_ladder)) {
 
-        force_res <- if (isTRUE(params$ar_escalate)) ar_ladder[attempt] else NULL
+        # 2026-09-04: `.esc_on`, not isTRUE(). See the long note at the same line in
+        # BSS-GH-pooled-CPUE-model.Rmd: isTRUE() is FALSE for every scoped form of
+        # ar_escalate, which silently refits the SAME resolution on every rung. The gear
+        # track has not yet been run with a scoped ar_escalate, so this one was latent.
+        force_res <- if (.esc_on) ar_ladder[attempt] else NULL
         bss_data_try <- prep_bss_crab_gear(days_ss, summ_ss, cg, params, pop, ss$period_bss,
                                   gear_exclude = ss$gear_exclude %||% character(0),
                                   gear_regime = ss$gear_regime,
@@ -934,6 +939,7 @@ for(cg in bss_catch_groups) {
         if (.keep) {
           bss_data <- bss_data_try; fit <- fit_try
           ar_resolutions[[label]] <- bss_data_try$.ar_resolution
+          .kept_attempt[[label]] <- attempt
           .incumbent_passed <- .passed
           .incumbent_pi_rel <- .rung$pi_width_rel
         }
@@ -1074,6 +1080,17 @@ timer_stop("5_BSS_model_runs")
 # improvement 7: persist the ladder (one row per attempt, with the gate verdict that
 # decided whether to escalate).
 ar_escalation_df <- if (length(ar_escalation_log)) bind_rows(ar_escalation_log) else NULL
+# 2026-09-04: mark the rung whose fit was actually kept. This track wrote `selected` as a
+# column of FALSE and never set it, so its ar_escalation_log.csv could not answer the one
+# question the file exists to answer. Same rule as the pooled driver: match on the recorded
+# attempt index, never on the resolution string.
+if (!is.null(ar_escalation_df) && nrow(ar_escalation_df)) {
+  for (.lb in unique(ar_escalation_df$fit)) {
+    .ka <- .kept_attempt[[.lb]] %||% NA_integer_
+    .i <- if (!is.na(.ka)) which(ar_escalation_df$fit == .lb & ar_escalation_df$attempt == .ka) else integer(0)
+    if (length(.i)) ar_escalation_df$selected[.i] <- TRUE
+  }
+}
 if (!is.null(ar_escalation_df))
   write.csv(ar_escalation_df, file.path(output_dir, "ar_escalation_log.csv"), row.names = FALSE)
 
@@ -1717,6 +1734,10 @@ for(label in names(bss_all)) {
   write_bss_diagnostics(b$fit, b$bss_data, label, output_dir,
                         fit_method = b$gate_info$method_selected %||%
                           (if (isTRUE(b$use_bss)) "BSS" else "PE (convergence fail)"))
+  # 2026-09-04: see the note at the same call in BSS-GH-pooled-CPUE-model.Rmd.
+  if (isTRUE(params$save_ppc_draws) && !is.null(b$bss_data))
+    save_bss_ppc_draws(b$fit, b$bss_data, label, output_dir,
+                       max_draws = params$save_ppc_draws_max %||% NULL)
   write_effort_overdispersion_diag(b$fit, b$bss_data, label, output_dir)
   # 2026-08-27: pass the run seed so the diagnostic draw subsampling is reproducible
   # (see the note in save_run_diagnostics.R; the port total stays RNG-sensitive regardless).
@@ -2359,7 +2380,20 @@ timer_stop("7_sensitivity")
 
 # ---- 7.20 SAVE PARAMETERS ----
 timer_stop("6_outputs")
-writeLines(capture.output(str(params)), file.path(output_dir, "run_parameters.txt"))
+# 2026-09-04 DEFECT FIX. This was `str(params)` with its defaults, and str() truncates a
+# list at list.len = 99 entries with a "[list output truncated]" line. run_config carries 120
+# keys, so EVERY run_parameters.txt in this repo before this date is missing about 21 of
+# them, silently. That file is not decoration: config_delta() in the batch runners compares
+# two runs key by key from it, and annotate_decoupled_run.R reads run flags out of it. A
+# truncated dump gives that machinery false POSITIVES (a key that scrolled off one side of a
+# comparison reads as "differs") and, far worse, false NEGATIVES (a key that genuinely
+# differs but sits past entry 99 in both dumps is never compared at all). The 2026-09-03 Z0
+# stage reported 9 UNEXPECTED config keys on a run whose config was in fact correct; all 9
+# were keys that crossed the truncation boundary when new keys were added above them.
+# list.len is set well above the key count and nchar.max is raised so long vectors are not
+# elided either.
+writeLines(capture.output(str(params, list.len = 1000, nchar.max = 2000, vec.len = 100)),
+           file.path(output_dir, "run_parameters.txt"))
 
 message(sprintf("\nAll outputs saved to: %s\n", output_dir))
 message(paste(" ", list.files(output_dir), collapse="\n"), "\n")

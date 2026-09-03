@@ -111,7 +111,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                  # TRUE: P1 runs, nothing is fitted. START HERE.
+DRY_RUN <- TRUE                  # TRUE: P1 runs, nothing is fitted. START HERE.
 STAGES  <- c("P1", "G1", "Z0", "A1", "Z1")
 RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete
 

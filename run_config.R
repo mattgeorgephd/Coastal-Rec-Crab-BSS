@@ -547,6 +547,35 @@ run_config <- list(
   catch_zi_populations  = c("shore"),
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
+  #
+  # 2026-09-04 RESULT OF THE PROTOTYPE (stage Z1, 2026-09-03 batch), after two corrections
+  # to the way it was SCORED. Both corrections went the same way, toward the feature:
+  #   elpd, paired: +14.8 nats at a paired SE of 5.5, i.e. 2.69 SE, clearing the stated
+  #     2 SE bar. The batch had compared +14.8 against se_elpd_loo (about 46 nats), which
+  #     is the SE of ONE model total, dominated by across-observation variation that is
+  #     common to both models and cancels in the difference. See loo_elpd_paired.R.
+  #   zero bin, under the MIXTURE: 676 observed against 637.9 expected, z = +2.0, from the
+  #     NB2 baseline's 605.4 / z = +3.8. The batch computed 419.0 / z = +15.4 because the
+  #     R-side PPC scored a ZINB fit as plain NB2. See zinb_ppc.R.
+  #   replicate (shore pot closure, a separate fit on different data): theta_C 0.107
+  #     against 0.179, elpd +9.1 at 1.96 SE, zero bin z +2.9 -> +0.8.
+  # WHAT ARGUES AGAINST ADOPTING IT ANYWAY, and why this still ships FALSE: the elpd gain
+  # is bought entirely at the zeros (+25.2, 11.6 SE) while the POSITIVE counts get worse
+  # (-10.5, -2.1 SE). A mixture that improves the zeros by degrading the positives is a
+  # different object from one that fits better everywhere, and the harvest estimate is made
+  # of the positives. It also moves the reported shore total by -0.7%. Adopt only on
+  # RENDERED diagnostics from a run with the corrected PPC, not on the numbers above, which
+  # were recomputed offline from committed draws and carry a mean-product approximation in
+  # the zero bin (E[theta*p0] taken as E[theta]E[p0]).
+
+  # --- Persist the draws the PPC is computed from (2026-09-04) -----------------
+  # Three separate defects in the DIAGNOSTIC arithmetic have each forced a full multi-hour
+  # re-fit to correct a file the fit itself was never wrong about. Saving the draw objects
+  # the PPC reads makes such a fix a recomputation instead of a re-run. Tens of MB per fit
+  # at full draws; save_ppc_draws_max thins if that is too much for a given run.
+  # See 03_R_functions/save_bss_ppc_draws.R for what is and is not covered.
+  save_ppc_draws        = TRUE,
+  save_ppc_draws_max    = NULL,       # NULL keeps every draw, so recomputation is EXACT
 
   # --- Sampler override escape hatch (EXPERIMENTS ONLY; production is NULL) -----
   # Each driver merges its own params_model ON TOP of run_config, so params_model
