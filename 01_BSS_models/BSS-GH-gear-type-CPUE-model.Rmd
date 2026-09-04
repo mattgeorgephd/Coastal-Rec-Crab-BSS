@@ -2406,6 +2406,8 @@ timing_df <- tibble(
   Minutes = sapply(bss_timer_log(), function(x) round(as.numeric(x$elapsed), 1))
 )
 report_table(timing_df, caption = "Run timing summary")
+# 2026-09-05: persist it, as the pooled driver now does; see the note there.
+utils::write.csv(timing_df, file.path(output_dir, "run_timings.csv"), row.names = FALSE)
 message(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
             as.numeric(run_total), as.numeric(run_total)/60))
 

@@ -39,9 +39,12 @@
 #   divergences against 554, port 70,953 against 51,385), and the PE arm alignment moved
 #   the boat by -0.059%. Nothing here touches them.
 #
-# RUNTIME. Roughly 3-6 h depending on the two switches below, against 23.6 h for the run
-# it corrects. The saving comes from not refitting the daily rung, which stage Z0 already
-# holds bit-identically.
+# RUNTIME. About 6-7 h with both switches at their defaults, against 23.6 h for the run it
+# corrects: L1 about 2-3 h (the pooled shore all-gear fit took ~205 min at daily on this
+# machine and the gear track fits it in 10 min at monthly, so weekly/biweekly/monthly
+# should come in around 40-60, 25-40 and 15-25 min, plus ~60 min for the three untouched
+# components), Z2 about 4 h (Z1 took 242 min). LADDER_INCLUDE_DAILY adds ~3.5 h;
+# ZINB_RERENDER = FALSE removes ~4 h.
 #
 # NO STAN RECOMPILE unless ZINB_RERENDER is TRUE and the cached ZINB binary is gone; the
 # Stan file is unchanged from 2026-09-03.
@@ -50,7 +53,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE                   # TRUE: desk stages run, nothing is fitted. START HERE.
+DRY_RUN <- FALSE                   # TRUE: desk stages run, nothing is fitted. START HERE.
 STAGES  <- c("D0", "L1", "Z2")
 RESUME  <- TRUE
 
@@ -225,6 +228,25 @@ preflight <- function() {
   say(exists("loo_elpd_paired", mode = "function"), "D3: paired elpd helper is sourced")
   # Draw persistence, so the next diagnostic fix is not another re-fit.
   say(isTRUE(BASE$save_ppc_draws), "PPC draws will be persisted for every fit")
+  # Folder naming. The driver reads run_config$run_tag and nothing else; simulate exactly
+  # what run_stage() will hand it and assert the two fitted stages cannot collide.
+  tags <- vapply(setdiff(STAGES, "D0"), function(sid) {
+    cfg <- resolve_cfg(sid); cfg$run_tag <- STAGE_DEFS[[sid]]$tag
+    if (is.null(cfg$run_tag) || !nzchar(cfg$run_tag)) "<blank>" else cfg$run_tag }, character(1))
+  say(all(tags != "<blank>") && !any(duplicated(tags)) &&
+      !any(tags == (BASE$run_tag %||% "")),
+      "each fitted stage writes to its OWN folder, none to the run_config default",
+      paste(names(tags), tags, sep = " -> ", collapse = "; "))
+  .self <- .here("06_diagnostics", "run_ladder_zinb_2026-09-04.R")
+  .src <- if (file.exists(.self)) readLines(.self, warn = FALSE) else character(0)
+  .src <- .src[!grepl("^\\s*#", .src)]
+  # Match the actual render CALL (rmarkdown::render(...)), which excludes this check's own
+  # text; a literal-string self-match is how the first version of this line tripped itself.
+  .calls <- .src[grepl("rmarkdown::render(", .src, fixed = TRUE)]
+  say(length(.calls) > 0 && !any(grepl("output_dir", .calls, fixed = TRUE)) &&
+      any(grepl("cfg$run_tag <- st$tag", .src, fixed = TRUE)),
+      "run_stage() puts the tag INSIDE run_config and does not pass output_dir= to render()",
+      paste(trimws(.calls), collapse = " ; "))
   rule()
   if (length(fails)) {
     cat("  PRE-FLIGHT FAILED:\n"); for (f in fails) cat("   -", f, "\n")
@@ -341,22 +363,36 @@ run_stage <- function(sid) {
                 else sprintf("taken from %s: catch %.3f, PI rel %.4f", REF$DAILY$dir,
                              REF$DAILY$shore_ag, REF$DAILY$pi_rel)))
   existing <- find_outdir(st$model, st$tag)
+  # Completion marker: run_parameters.txt is written by the driver's LAST chunk. Testing
+  # the first shore summary instead would let a stage that crashed after the shore fit
+  # (before the boat fits, the diagnostics and the draw persistence) resume as "complete".
   if (isTRUE(RESUME) && !is.na(existing) &&
+      file.exists(file.path(existing, "run_parameters.txt")) &&
       file.exists(file.path(existing, "bss_summary_shore_all_gear_Dungeness_Kept.csv"))) {
     cat("  RESUME: output already present at", basename(existing), "- skipping the fit.\n")
     return(existing)
   }
   if (isTRUE(DRY_RUN)) { cat("  DRY_RUN: not fitting.\n"); return(NA_character_) }
-  dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  # 2026-09-05 DEFECT FIX, caught in the pre-run audit. The driver names its OWN output
+  # folder from run_config$run_tag (BSS-GH-pooled-CPUE-model.Rmd line ~168) and ignores
+  # any `output_dir` placed in the render environment. The first version of this runner
+  # set run_tag as a bare variable and passed output_dir= to render(), neither of which
+  # the driver reads, so BOTH stages would have written into
+  # pooled-CPUE-boat-count-validation-run (the run_config.R default), Z2 overwriting the
+  # L1 ladder it had just spent 2-3 h producing, and RESUME would never have found
+  # either folder. The tag goes INSIDE the config, as run_shore_ar_zi_2026-09-03.R did.
+  cfg$model <- st$model; cfg$run_tag <- st$tag; cfg$run_weather <- FALSE
   run_env <- new.env(parent = globalenv())
-  assign("run_config", cfg, envir = run_env)
-  assign("output_dir", out, envir = run_env)
-  assign("run_tag", st$tag, envir = run_env)
+  run_env$run_config <- cfg
   t0 <- Sys.time()
-  rmarkdown::render(model_rmd[[st$model]], output_dir = out, envir = run_env, quiet = FALSE)
-  cat(sprintf("  %s finished in %.1f min\n", sid,
-              as.numeric(difftime(Sys.time(), t0, units = "mins"))))
-  out
+  rmarkdown::render(model_rmd[[st$model]], envir = run_env, quiet = FALSE)
+  done <- find_outdir(st$model, st$tag)
+  cat(sprintf("  %s finished in %.1f min -> %s\n", sid,
+              as.numeric(difftime(Sys.time(), t0, units = "mins")),
+              if (is.na(done)) "OUTPUT FOLDER NOT FOUND" else done))
+  if (is.na(done)) stop(sprintf("%s rendered but no folder named %s%s exists under 05_output",
+                                sid, prefix[[st$model]], st$tag))
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -381,7 +417,7 @@ verdict_L1 <- function(dir) {
   # prediction interval. Read adequacy BESIDE that, never as a gate.
   rung <- paste(sprintf("%s: catch %s [%s, %s], PI rel %.4f, div %s, gate %s",
                         sa$ar_resolution, fmt(sa$catch_median), fmt(sa$catch_lo95), fmt(sa$catch_hi95),
-                        sa$pi_width_rel, sa$n_divergent %||% NA, sa$pass_convergence), collapse = " | ")
+                        sa$pi_width_rel, sa$divergences, sa$pass_convergence), collapse = " | ")
   if (!isTRUE(LADDER_INCLUDE_DAILY))
     rung <- paste0(sprintf("daily (from %s): catch %s [%s, %s], PI rel %.4f, div %d | ",
                            REF$DAILY$dir, fmt(REF$DAILY$shore_ag), fmt(REF$DAILY$lo95),

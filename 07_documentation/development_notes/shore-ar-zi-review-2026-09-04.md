@@ -172,3 +172,28 @@ Every bin from 3 upward improves, and those bins carry 87% of the shore catch. T
 So the ZINB has **moved** the misfit from the 0 bin to the 1 bin, not removed it. Excess mass at both 0 and 1 relative to NB2 is the signature of a two-regime process, unsuccessful trips yielding 0-1 crab against successful ones, which a hurdle or a two-component NB mixture fits and a ZINB by construction cannot. The zero-bin check alone, which is all stage Z2 originally carried, would have passed while recording none of this.
 
 Changes: `ppc_byobs_*.csv` carries `p_one` beside `p_zero` (mixture-aware, `bss_zi_p_k()`); `loo_elpd_paired()` returns the by-count table; stage Z2's criterion is pre-set as a count-bin table that passes as a whole or not at all, with the named alternative if the one bin fails. Harness 335.
+
+---
+
+## 10. Pre-run audit of `run_ladder_zinb_2026-09-04.R`, 2026-09-05
+
+Done by tracing the execution path of both fitted stages rather than by re-reading the config, because the last two batches each shipped a defect that config-level checks passed. Harness 355.
+
+**Verified by execution, not by reading.**
+
+- `prep_bss_crab_pooled()` called exactly as the L1 loop will call it, with each forced rung: `P_n` = 289 (NULL, i.e. what the broken driver passed) / 44 (weekly) / 21 (biweekly) / 10 (monthly), `attr(ar_resolution)` following. `bss_ar_ladder()` under the L1 config returns `weekly -> biweekly -> monthly`; the scope resolves TRUE for shore/all_gear and FALSE for shore/pot_closure and boat/all_gear. Under the Z2 config `zi_catch` is 1 on shore with Beta(1, 9) and 0 on the boat.
+- The `fixed_resolution` branch of `bss_select_ar_resolution()` is the branch the gear driver takes on every run (`ar_adaptive = FALSE`), so the path from a forced resolution to `P_n` has been exercised at weekly, biweekly and monthly in production, on the gear side. The pooled prep calls the same function.
+- `save_bss_ppc_draws()` and `bss_zi_theta_draws()` against a REAL ZINB stanfit (a 12-day toy model with the production parameter shapes, compiled here): theta draws extract with the right length and return NULL on the NB2 path; separate `extract()` calls are aligned draw-for-draw (rstan stores one permutation per fit); all present parameters save and absent ones (`R_T`, `kappa_OSP`, `r_OSP`) are skipped; the thinning path indexes the 4-d `lambda_*_S` correctly; and **the mixture PIT recomputed from the saved `.rds` is identical to the one computed from the live fit**, which is the property the file exists for.
+- Config injection: the driver-internal `params` block carries 24 keys (sampler settings, gate thresholds, AR coverage thresholds) and none of the eleven keys the batch injects, so nothing the batch sets is overridden by the merge.
+
+**Found and fixed.**
+
+- **The runner's output folders would have collided.** The driver builds `output_dir` from `run_config$run_tag` unconditionally and ignores both a bare `run_tag` variable and an `output_dir=` argument to `render()`. The runner did both of the wrong things and neither of the right one, so L1 and Z2 would both have written to `pooled-CPUE-boat-count-validation-run`, the `run_config.R` default, with Z2 overwriting the L1 ladder after it cost 2-3 h, and RESUME would never have found either. A dry run cannot catch this because it returns before `render()`. Fixed to match every other runner (`cfg$run_tag <- st$tag` inside the config); the pre-flight now simulates the folder name per stage and asserts they differ from each other and from the default; the harness asserts the pattern over every runner and that both drivers still read `run_config$run_tag`.
+- Two latent defects in `save_bss_ppc_draws()`: the draw count was read from `dim()[1]`, which is NULL for a scalar parameter, and the thinning path indexed a 4-d array with 3-d syntax. Both would have been caught by the `tryCatch` and reported as "NOT saved", defeating the feature silently. Fixed and exercised on the toy fit.
+- `verdict_L1` referenced `n_divergent`; the log column is `divergences`.
+- RESUME tested the first shore summary, so a stage that crashed after the shore fit would have resumed as complete. It now also requires `run_parameters.txt`, the driver's last-written file.
+- Per-fit timings were console-only inside a `results='hide'` chunk. Both drivers now write `run_timings.csv`.
+
+**Runtime, corrected.** About 6-7 h at the defaults, not 3-6: L1 about 2-3 h (daily shore all-gear took ~205 min on this machine; the gear track fits it in 10 min at monthly), Z2 about 4 h (Z1 took 242 min). `LADDER_INCLUDE_DAILY = TRUE` adds ~3.5 h; `ZINB_RERENDER = FALSE` removes ~4 h.
+
+**Noted, not changed.** `*.rds` is gitignored, so `ppc_draws_*.rds` stays on the machine that ran the fit (tens of MB per fit; the committed output folders are ~14 MB each). A recompute path that reads the `.rds` and regenerates `ppc_byobs_*.csv` does not exist yet; until it does the file is write-only. That is a post-run item.

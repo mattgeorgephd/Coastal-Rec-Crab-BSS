@@ -1532,5 +1532,30 @@ local({
       any(grepl(".adr_truncated", readLines("03_R_functions/annotate_decoupled_run.R", warn = FALSE), fixed = TRUE)))
 })
 
+# ---------------------------------------------------------------------------
+# 38. Every batch runner hands the driver its folder name the ONE way the driver reads
+#     it. BSS-GH-*-CPUE-model.Rmd builds output_dir from run_config$run_tag and ignores
+#     both a bare `run_tag` variable and an `output_dir=` passed to render(). The first
+#     version of run_ladder_zinb_2026-09-04.R did both of the wrong things, so its two
+#     fitted stages would have shared the run_config.R default folder and Z2 would have
+#     overwritten the L1 ladder. Caught in the 2026-09-05 pre-run audit, not by a dry run,
+#     because a dry run returns before render(). Generated over every runner.
+# ---------------------------------------------------------------------------
+local({
+  for (rf in list.files("06_diagnostics", pattern = "^run_.*\\.R$", full.names = TRUE)) {
+    src <- readLines(rf, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+    calls <- src[grepl("rmarkdown::render(", src, fixed = TRUE)]
+    if (!length(calls)) next
+    chk(sprintf("%s: render() is not handed output_dir= (the driver ignores it)", basename(rf)),
+        !any(grepl("output_dir", calls, fixed = TRUE)), paste(trimws(calls), collapse = " ; "))
+    chk(sprintf("%s: run_tag is set INSIDE the config the driver reads", basename(rf)),
+        any(grepl("\\$run_tag\\s*<-", src)))
+  }
+  # and the drivers must keep reading it from there
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE))
+    chk(sprintf("%s: output_dir is built from run_config$run_tag", basename(drv)),
+        any(grepl("run_config$run_tag", readLines(drv, warn = FALSE), fixed = TRUE)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

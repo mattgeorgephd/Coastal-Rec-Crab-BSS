@@ -567,7 +567,7 @@ The 2026-09-03 batch replaced its three forced rungs (A1/A2/A3) with **one** run
 
 ## 1i. The 2026-09-03 batch: two good stages, three defects, and a ladder that did not ladder (reviewed 2026-09-04)
 
-Full review: `07_documentation/development_notes/shore-ar-zi-review-2026-09-04.md`. Harness **335 assertions, 0 failures**.
+Full review: `07_documentation/development_notes/shore-ar-zi-review-2026-09-04.md`. Harness **355 assertions, 0 failures**.
 
 **The authoritative run does not move.** `20260831/pooled-CPUE-VAL-1-adopted`, port 71,513, still stands.
 
@@ -620,7 +620,9 @@ Three defects in five weeks (the quantile-interval coverage defect 2026-08-31, t
 
 Three of the four defects share a shape: **a change was validated by the mechanism it was about to break.** The ladder was tested by a harness that checked `bss_ar_ladder()`'s output and never that the resolution reached the data prep. The ZINB feature was validated by a zero-bin diagnostic written before the mixture existed. The config comparison was validated by reading the file it was silently truncating. The new assertions target that shape: they read the driver SOURCE and assert the property that failed, not the helper's return value.
 
-### Next: `06_diagnostics/run_ladder_zinb_2026-09-04.R`, 3-6 h against the 23.6 h it corrects
+### Next: `06_diagnostics/run_ladder_zinb_2026-09-04.R`, about 6-7 h against the 23.6 h it corrects
+
+**Pre-run audit 2026-09-05** (review doc section 10): traced by execution rather than by reading. `prep_bss_crab_pooled()` returns `P_n` 289/44/21/10 for NULL/weekly/biweekly/monthly under the L1 config; the draw-persistence and theta-extraction code reproduce the live PIT exactly from a saved `.rds` on a real ZINB stanfit; nothing the batch injects is overridden by the driver merge. One defect found and fixed that a dry run cannot reach: the runner set `run_tag` where the driver does not read it, so L1 and Z2 would have shared the default output folder and **Z2 would have overwritten the L1 ladder**. Now asserted over every runner (harness 355).
 
 - **D0**, desk, free, runs in a dry run: re-derives every corrected number above from committed files.
 - **L1**, ~2-3 h: the shore all-gear ladder for real, via the production `ar_escalate` toggle. `LADDER_INCLUDE_DAILY` defaults FALSE and reuses Z0's daily rung (config differs only in `ar_escalate` keys, none of which touch model, data or seed), saving 3.7 h; set TRUE if the ladder will be shown outside the project. Decision rule as agreed: escalate on the convergence gate, report the finest rung that PASSES, narrowest relative PI only as a tie-break, and check `cov50` and Pareto k on any rung the tie-break selects.

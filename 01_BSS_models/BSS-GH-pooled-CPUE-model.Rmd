@@ -2754,6 +2754,10 @@ timing_df <- tibble(
   Minutes = sapply(bss_timer_log(), function(x) round(as.numeric(x$elapsed), 1))
 )
 print(timing_df, n = 20)
+# 2026-09-05: persist it. Per-fit wall-clock by AR resolution is what a batch runtime
+# estimate is built from, and until now it existed only as console output inside a
+# results='hide' chunk, so the 2026-09-05 pre-run audit had to scrape the gear HTML for it.
+utils::write.csv(timing_df, file.path(output_dir, "run_timings.csv"), row.names = FALSE)
 cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
             as.numeric(run_total), as.numeric(run_total)/60))
 

@@ -54,15 +54,23 @@ save_bss_ppc_draws <- function(fit, stan_data, label, output_dir,
       if (!inherits(x, "try-error") && !is.null(x)) dr[[p]] <- x
     }
     if (!length(dr)) return(invisible(NULL))
-    nd <- dim(dr[[1]])[1]
+    # Draw count from the FIRST dimension whatever the rank: a scalar parameter extracts
+    # as a plain vector (dim NULL), a vector as a matrix, lambda_*_S as a 4-d array.
+    n_of <- function(x) if (is.null(dim(x))) length(x) else dim(x)[1]
+    nd <- n_of(dr[[1]])
+    stopifnot(all(vapply(dr, n_of, numeric(1)) == nd))
     # Optional thinning. The PPC averages over draws, so a subset is an unbiased but
     # noisier estimate; the default keeps everything because the point of the file is to
     # reproduce the run's numbers EXACTLY, not approximately.
     idx <- if (!is.null(max_draws) && nd > max_draws)
              sort(sample.int(nd, max_draws)) else seq_len(nd)
-    if (length(idx) < nd) dr <- lapply(dr, function(x)
-      if (is.null(dim(x))) x[idx] else if (length(dim(x)) == 2) x[idx, , drop = FALSE]
-      else x[idx, , , drop = FALSE])
+    # Index the first dimension of an array of ANY rank (the 4-d lambda_*_S included).
+    take <- function(x, i) {
+      if (is.null(dim(x))) return(x[i])
+      args <- c(list(x, i), rep(list(quote(expr = )), length(dim(x)) - 1L), list(drop = FALSE))
+      do.call(`[`, args)
+    }
+    if (length(idx) < nd) dr <- lapply(dr, take, i = idx)
     obj <- list(label = label, saved_at = Sys.time(), n_draws = length(idx),
                 thinned = length(idx) < nd, pars = names(dr), draws = dr,
                 stan_data = stan_data,
