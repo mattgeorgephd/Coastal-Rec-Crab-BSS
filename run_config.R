@@ -116,7 +116,11 @@ run_config <- list(
   # timestamp (folder like 05_output/<date>/pooled-CPUE-143022). Set a meaningful
   # string (e.g. "run5") for a named folder like pooled-CPUE-run5. run_rg_sweep.R
   # sets this per run automatically.
-  run_tag           = "boat-count-validation-run",
+  # 2026-09-08: renamed from "boat-count-validation-run", which had named every production
+  # output folder since the OSP validation era and no longer described what a default run
+  # is. Purely cosmetic: run_tag names the output folder, config_delta() ignores it, and no
+  # fit or estimate depends on it. Historical folders keep their old names.
+  run_tag           = "production",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -801,7 +805,9 @@ run_config <- list(
   # WHAT THE GATE CANNOT SEE, stated because it bounds what this whole mechanism can do.
   # The ladder escalates on the CONVERGENCE gate, which asks whether a fit sampled. On the
   # 2026-08-31 production run every component passes it, including shore all-gear at daily,
-  # so the production rule would change nothing this season. That same fit carries p_loo at
+  # so the production rule would change nothing this season. (That is exactly how it played
+  # out: the 2026-09-04 ladder saw every rung pass the gate, adequacy alone separated them,
+  # and weekly was adopted through ar_max_resolution rather than through this rule.) That same fit carries p_loo at
   # 35.2% of n_obs, 41 Pareto k above 0.7 and coverage_50 0.701 against a nominal 0.500,
   # all of which the gate is blind to and all of which model_adequacy.csv reports beside it.
   # If a future season wants the ladder to react to adequacy as well as to sampling, that is

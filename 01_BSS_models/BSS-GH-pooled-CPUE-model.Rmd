@@ -211,6 +211,10 @@ params <- list(
   # saturated max_treedepth=10 on 91.6% of iterations in the 2026-04-08 run;
   # ring-net fits are data-sparse and benefit from tighter adaptation. Any fit
   # without an override uses the *_default values.
+  # 2026-09-08: production now caps shore all-gear at WEEKLY (P_n 44, not 289), so
+  # these settings, tuned for the daily geometry, are retained as headroom rather
+  # than necessity; they also cover the ladder, which can still fit this component
+  # at daily. Do not trim them without re-checking a daily rung.
   bss_treedepth_shore_allgear = 14,
   bss_delta_shore_allgear     = 0.95,
   bss_treedepth_ringnet       = 12,

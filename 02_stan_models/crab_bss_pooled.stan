@@ -23,7 +23,7 @@
 // Adaptive-resolution AR(1) + CPUE Day-Type Effect + L_effective Uncertainty
 //
 // The AR(1) processes for effort and CPUE evolve over P_n temporal periods.
-// The R preprocessing selects the resolution (daily, weekly, or monthly)
+// The R preprocessing selects the resolution (daily, weekly, biweekly, or monthly)
 // based on data density for each population × sub-season, then sets:
 //   P_n = number of AR periods (= D for daily, ~D/7 for weekly, etc.)
 //   period[d] = mapping from each day to its AR period index

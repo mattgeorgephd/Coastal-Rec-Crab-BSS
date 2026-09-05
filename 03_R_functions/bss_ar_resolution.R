@@ -53,7 +53,7 @@
 #   population, and a list NAMED by gear_regime forces only the sub-seasons it names.
 #
 #   gear_regime (optional) selects a per-sub-season cap when the population's
-#   ar_max_resolution entry is a named list (e.g. list(all_gear = "daily",
+#   ar_max_resolution entry is a named list (e.g. list(all_gear = "weekly",
 #   pot_closure = "biweekly")). NULL, or a scalar cap entry, preserves the
 #   original per-population behavior. Only consulted in the data-driven branch.
 #
