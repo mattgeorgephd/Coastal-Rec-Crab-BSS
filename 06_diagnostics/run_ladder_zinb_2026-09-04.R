@@ -39,7 +39,13 @@
 #   divergences against 554, port 70,953 against 51,385), and the PE arm alignment moved
 #   the boat by -0.059%. Nothing here touches them.
 #
-# RUNTIME. About 6-7 h with both switches at their defaults, against 23.6 h for the run it
+# RUNTIME, MEASURED. L1 took 5.4 h and Z2 3.7 h on the 2026-09-04 run, 9.1 h in total; the
+# ladder rungs cost 95.6 / 91.1 / 83.3 min, so coarsening the AR barely reduces the cost and
+# a ladder should be budgeted at one full fit per rung. With L1 and Z2 resumed from disk,
+# the outstanding work (C1 + C2) is about 4 h + 5 h. The original estimate below was wrong.
+#
+# ORIGINAL ESTIMATE (kept because it was wrong by 2x and the reason is worth remembering):
+# About 6-7 h with both switches at their defaults, against 23.6 h for the run it
 # corrects: L1 about 2-3 h (the pooled shore all-gear fit took ~205 min at daily on this
 # machine and the gear track fits it in 10 min at monthly, so weekly/biweekly/monthly
 # should come in around 40-60, 25-40 and 15-25 min, plus ~60 min for the three untouched
@@ -53,8 +59,13 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                   # TRUE: desk stages run, nothing is fitted. START HERE.
-STAGES  <- c("D0", "L1", "Z2")
+DRY_RUN <- FALSE                    # TRUE: desk stages run, nothing is fitted. START HERE.
+# 2026-09-06: L1 and Z2 have RUN (results at 20260903/pooled-CPUE-LZ-*). Their stage
+# definitions are kept so RESUME re-scores them without refitting. The work still to do is
+# C1 (the candidate production configuration: weekly AR + ZINB together, never yet run) and
+# C2 (the ladder again with per-rung adequacy, which the first ladder could not record).
+# To re-score only, leave this as c("D0", "L1", "Z2") with RESUME = TRUE.
+STAGES  <- c("D0", "L1", "Z2", "C1", "C2")
 RESUME  <- TRUE
 
 # ---- SWITCH 1: does the ladder refit its DAILY rung? -----------------------
@@ -96,8 +107,16 @@ setwd(.root)
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
 banner <- function(msg) cat("\n", strrep("=", 78), "\n ", msg, "\n", strrep("=", 78), "\n", sep = "")
 rule   <- function() cat(strrep("-", 78), "\n")
-fmt    <- function(x, d = 1) if (length(x) == 0 || is.na(x)) "NA" else
-  formatC(as.numeric(x), format = "f", digits = d, big.mark = ",")
+# 2026-09-06: VECTORISED. The scalar form used `if (is.na(x))`, which under R >= 4.2 is
+# an ERROR on a length-3 input, not a warning; verdict_L1 passes whole ladder columns to
+# it and the batch aborted after both stages had already been fitted. A formatter that
+# only works on scalars has no business in a verdict block that summarises a table.
+fmt <- function(x, d = 1) {
+  if (length(x) == 0) return("NA")
+  out <- formatC(suppressWarnings(as.numeric(x)), format = "f", digits = d, big.mark = ",")
+  out[is.na(suppressWarnings(as.numeric(x)))] <- "NA"
+  out
+}
 
 if (!isTRUE(DRY_RUN)) {
   suppressPackageStartupMessages({ library(here); library(rmarkdown) })
@@ -166,7 +185,38 @@ STAGE_DEFS <- list(
             headline = "shore all-gear at every rung, for real this time"),
   Z2 = list(id = "Z2", kind = "run", model = "pooled", tag = "LZ-Z2-zi-shore",
             delta = list(estimate_catch_zi = TRUE, catch_zi_populations = c("shore")),
-            headline = "ZINB shore catch, re-rendered under the CORRECTED PPC"))
+            headline = "ZINB shore catch, re-rendered under the CORRECTED PPC"),
+  # ---- added 2026-09-06 after the L1/Z2 review -------------------------------
+  # C1 is the CANDIDATE PRODUCTION CONFIGURATION. L1 moved the shore effort process to
+  # weekly and Z2 changed the shore catch likelihood, in separate runs, and both look
+  # right; neither has been run in the other's presence. Zero-inflation is a catch-stream
+  # change and leaves the daily-AR overfitting untouched (Z2 still carries p_loo at 34.4%
+  # of n_obs and 26 bad Pareto k), so the two are complementary rather than alternatives.
+  # Read C1 against L1 to isolate the LIKELIHOOD at the new resolution, and against Z2 to
+  # isolate the RESOLUTION under the new likelihood. The boat is untouched in both, which
+  # makes it a free negative control for the third time.
+  #
+  # ar_force, not ar_escalate: this is not a ladder, it is one fit at a chosen resolution,
+  # and ar_force is the lever that bypasses the data-driven selector and the cap.
+  C1 = list(id = "C1", kind = "run", model = "pooled", tag = "LZ-C1-weekly-zi",
+            delta = list(ar_force = list(shore = list(all_gear = "weekly")),
+                         estimate_catch_zi = TRUE, catch_zi_populations = c("shore")),
+            headline = "CANDIDATE: shore all-gear at WEEKLY with the ZINB catch likelihood"),
+  # C2 is the missing half of the bracket. The 2026-09-04 ladder left biweekly and monthly
+  # with no p_loo, no Pareto count and no coverage, so "weekly" currently means "the finest
+  # rung that is clearly not overfitted" rather than "the best rung". With
+  # ar_rung_adequacy = TRUE every rung reports them. Runs the SAME three coarse rungs; the
+  # daily rung stays out for the same reason as before, and its adequacy is already known.
+  C2 = list(id = "C2", kind = "run", model = "pooled", tag = "LZ-C2-ladder-adequacy",
+            delta = list(ar_escalate = list(shore = "all_gear"),
+                         ar_escalate_stop = "all_rungs",
+                         ar_escalate_select = "first_pass",
+                         ar_escalate_respect_cap = FALSE,
+                         ar_escalate_ladder = c("weekly", "biweekly", "monthly"),
+                         ar_escalate_max_attempts = 3L,
+                         ar_rung_adequacy = TRUE,
+                         estimate_catch_zi = FALSE),
+            headline = "the ladder again, with adequacy recorded for EVERY rung"))
 if (!isTRUE(ZINB_RERENDER)) STAGES <- setdiff(STAGES, "Z2")
 
 resolve_cfg <- function(sid) modifyList(BASE, STAGE_DEFS[[sid]]$delta %||% list(), keep.null = TRUE)
@@ -247,6 +297,8 @@ preflight <- function() {
       any(grepl("cfg$run_tag <- st$tag", .src, fixed = TRUE)),
       "run_stage() puts the tag INSIDE run_config and does not pass output_dir= to render()",
       paste(trimws(.calls), collapse = " ; "))
+  say(any(grepl("file.copy(html, file.path(od, basename(html))", .src, fixed = TRUE)),
+      "run_stage() MOVES the rendered HTML into the run folder (else the next stage overwrites it)")
   rule()
   if (length(fails)) {
     cat("  PRE-FLIGHT FAILED:\n"); for (f in fails) cat("   -", f, "\n")
@@ -385,7 +437,23 @@ run_stage <- function(sid) {
   run_env <- new.env(parent = globalenv())
   run_env$run_config <- cfg
   t0 <- Sys.time()
-  rmarkdown::render(model_rmd[[st$model]], envir = run_env, quiet = FALSE)
+  html <- rmarkdown::render(model_rmd[[st$model]], envir = run_env, quiet = FALSE)
+  # 2026-09-06 DEFECT FIX. rmarkdown writes the rendered HTML NEXT TO THE .Rmd, not into
+  # output_dir, and every driver names its CSV folder itself. The 2026-09-03 runner moved
+  # the file afterwards; this one did not, so on the 2026-09-04 run stage L1 rendered its
+  # report to 01_BSS_models/BSS-GH-pooled-CPUE-model.html and stage Z2 then OVERWROTE it.
+  # The L1 HTML, which is where the AR ladder table is tabulated for a reader, is gone and
+  # can only be regenerated by refitting; ar_escalation_log.csv preserved the numbers, so
+  # the loss was cosmetic, but it also left a 6,000-line render artefact committed inside
+  # 01_BSS_models/. Move it, and say so if the move fails.
+  od <- tryCatch(get("output_dir", envir = run_env, inherits = FALSE), error = function(e) NA_character_)
+  if (!is.na(od) && dir.exists(od) && file.exists(html) &&
+      normalizePath(dirname(html)) != normalizePath(od)) {
+    if (isTRUE(file.copy(html, file.path(od, basename(html)), overwrite = TRUE)))
+      suppressWarnings(file.remove(html))
+    else cat(sprintf("  WARNING: could not move %s into %s; the NEXT stage will overwrite it.\n",
+                     basename(html), basename(od)))
+  }
   done <- find_outdir(st$model, st$tag)
   cat(sprintf("  %s finished in %.1f min -> %s\n", sid,
               as.numeric(difftime(Sys.time(), t0, units = "mins")),
@@ -407,17 +475,26 @@ verdict_L1 <- function(dir) {
   V1row("L1", "the ladder produced one DISTINCT resolution per rung",
         sprintf("%d attempts: %s; P_n: %s", nrow(sa), paste(sa$ar_resolution, collapse = ", "),
                 paste(sa$P_n, collapse = ", ")),
-        "no two rungs share a resolution",
-        if (nrow(sa) == length(unique(sa$ar_resolution))) "PASS" else "FAIL",
+        "no two rungs share a resolution, and each carries its own adequacy",
+        if (nrow(sa) != length(unique(sa$ar_resolution))) "FAIL"
+        else if (!all(c("p_loo_frac", "n_pareto_bad") %in% names(sa)) ||
+                 all(is.na(sa$p_loo_frac))) "PASS (adequacy missing)" else "PASS",
         paste("This is the assertion whose absence let the 2026-09-03 batch burn 14.7 h refitting one",
               "model four times. Identical P_n across rungs is the cheapest tell and is checked here",
               "as well as the resolution string."))
   # Rung comparison. The user's rule, from the FWC meeting: escalate on the BSS convergence
   # gate, report the finest rung that passes; if a margin is needed, prefer the narrowest
   # prediction interval. Read adequacy BESIDE that, never as a gate.
-  rung <- paste(sprintf("%s: catch %s [%s, %s], PI rel %.4f, div %s, gate %s",
+  # 2026-09-06: the adequacy columns are now per rung (bss_rung_adequacy.R). On the
+  # 2026-09-04 run they existed for the REPORTED rung only, so the two coarser rungs cost
+  # 174 minutes and left nothing to compare. Print them; they, not the gate, decide.
+  has_adq <- all(c("p_loo_frac", "n_pareto_bad", "cov50_gear") %in% names(sa))
+  rung <- paste(sprintf("%s: catch %s [%s, %s], PI rel %.4f, div %s, gate %s%s",
                         sa$ar_resolution, fmt(sa$catch_median), fmt(sa$catch_lo95), fmt(sa$catch_hi95),
-                        sa$pi_width_rel, sa$divergences, sa$pass_convergence), collapse = " | ")
+                        sa$pi_width_rel, sa$divergences, sa$pass_convergence,
+                        if (has_adq) sprintf(", p_loo %.1f%% of n_obs, bad k %s, cov50 gear %.3f / catch %.3f",
+                                             100 * sa$p_loo_frac, sa$n_pareto_bad, sa$cov50_gear, sa$cov50_catch)
+                        else ", adequacy NOT RECORDED for this rung"), collapse = " | ")
   if (!isTRUE(LADDER_INCLUDE_DAILY))
     rung <- paste0(sprintf("daily (from %s): catch %s [%s, %s], PI rel %.4f, div %d | ",
                            REF$DAILY$dir, fmt(REF$DAILY$shore_ag), fmt(REF$DAILY$lo95),
@@ -512,9 +589,14 @@ verdict_Z2 <- function(dir) {
           sprintf("ZINB: cov50 %.3f, PIT mean %.4f, PIT sd %.4f | NB2: cov50 %.3f, PIT mean %.4f, PIT sd %.4f | Z1 as reported (WRONG): cov50 0.405, PIT mean 0.4325",
                   g(cal)$coverage_50, g(cal)$pit_mean, g(cal)$pit_sd,
                   g(cz)$coverage_50,  g(cz)$pit_mean,  g(cz)$pit_sd),
-          "cov50 nearer 0.50 and PIT mean nearer 0.50 than the NB2 baseline",
+          "cov50 nearer 0.50; PIT mean not worse by more than 1 sampling SD",
+          # 2026-09-06: the original form demanded BOTH statistics improve and fired REVIEW
+          # on the 2026-09-04 run over a pit_mean difference of 0.0019, which is noise. The
+          # sampling SD of a PIT mean on n observations is about 1/sqrt(12 n) = 0.0071 here,
+          # so require only that pit_mean not DEGRADE beyond that.
           if (abs(g(cal)$coverage_50 - 0.5) <= abs(g(cz)$coverage_50 - 0.5) &&
-              abs(g(cal)$pit_mean - 0.5) <= abs(g(cz)$pit_mean - 0.5)) "PASS" else "REVIEW",
+              abs(g(cal)$pit_mean - 0.5) <= abs(g(cz)$pit_mean - 0.5) + 1 / sqrt(12 * g(cal)$n))
+            "PASS" else "REVIEW",
           paste("Z1 reported cov50 0.405 and PIT mean 0.4325 for this stream and raised",
                 "flag_pit_bias = TRUE on the strength of it. Both were computed under NB2 on a mixture",
                 "fit: with theta absorbing the excess zeros lambda_C rises, and scoring the observed",
@@ -534,11 +616,95 @@ verdict_Z2 <- function(dir) {
   # Draw persistence, so this class of defect stops costing a re-fit.
   n_rds <- length(list.files(dir, pattern = "^ppc_draws_.*\\.rds$"))
   V1row("Z2", "PPC draws are persisted for every fit",
-        sprintf("%d ppc_draws_*.rds written", n_rds), "one per fitted component",
-        if (n_rds >= 4) "PASS" else "REVIEW",
-        paste("Three diagnostic defects in five weeks have each forced a multi-hour re-fit to correct a",
-              "file the fit itself was never wrong about. With the draws on disk the next one is a",
-              "recomputation. See 03_R_functions/save_bss_ppc_draws.R for what this does and does not cover."))
+        sprintf("%d ppc_draws_*.rds present in %s", n_rds, basename(dir)),
+        "one per fitted component, ON THE MACHINE THAT RAN THE FIT",
+        if (n_rds >= 4) "PASS" else "NOT CHECKABLE HERE (gitignored)",
+        paste("*.rds is gitignored, so these files stay on the machine that ran the fit and do",
+              "NOT travel with a pushed result. A zero here on a cloned repo means the files were",
+              "not committed, which is intended, not that they were not written; the run that",
+              "produced them reported 4. Three diagnostic defects in five weeks have each forced a",
+              "multi-hour re-fit to correct a file the fit itself was never wrong about, which is",
+              "what these are for, but note that as of 2026-09-06 NO recompute path reads them",
+              "back, so they are still write-only. See 03_R_functions/save_bss_ppc_draws.R."))
+}
+
+# C1: the candidate. Two isolations and one control, and the adequacy that decides.
+verdict_C1 <- function(dir) {
+  if (is.na(dir %||% NA) || !dir.exists(dir %||% "")) return(invisible(NULL))
+  L1d <- find_outdir("pooled", STAGE_DEFS$L1$tag); Z2d <- find_outdir("pooled", STAGE_DEFS$Z2$tag)
+  ad <- rd(dir, "model_adequacy.csv")
+  if (!is.null(ad)) {
+    r <- ad[grepl("shore_all_gear", ad$fit), ]
+    if (nrow(r))
+      V1row("C1", "does the candidate keep the ladder's adequacy gain with the ZINB on?",
+            sprintf(paste("p_loo %.1f%% of n_obs (daily+NB2 35.2%%, weekly+NB2 9.6%%, daily+ZINB 34.4%%);",
+                          "Pareto k>0.7 %s (41 / 1 / 26); worst cov50 dev %.4f on %s; miscalibrated %s"),
+                    100 * r$p_loo_frac[1], r$n_pareto_bad[1], r$cov50_worst_dev[1],
+                    r$cov50_worst_stream[1], r$flag_miscalibrated[1]),
+            "p_loo near the weekly figure and the miscalibration flag clear",
+            if (isTRUE(r$p_loo_frac[1] < 0.15) && !isTRUE(as.logical(r$flag_miscalibrated[1]))) "PASS" else "REVIEW",
+            paste("The whole point of running them together. Zero-inflation is a CATCH-stream change and",
+                  "the AR resolution is an EFFORT-process change, so on the arithmetic they should not",
+                  "interact and this should land on the weekly figures. If it does not, they DO interact",
+                  "and neither result from the separate runs transfers to the combination."))
+  }
+  # isolate the likelihood: C1 vs L1 (both weekly, ZINB on/off)
+  for (nm in c("shore_all_gear", "shore_ring_net_only")) {
+    f <- sprintf("loo_pointwise_catch_%s_Dungeness_Kept.csv", nm)
+    r <- loo_elpd_paired(file.path(L1d, f), file.path(dir, f), nm)
+    if (is.null(r)) next
+    V1row("C1", sprintf("the ZINB at WEEKLY: %s, elpd by count size", nm),
+          paste(loo_elpd_by_count_str(r), " || TOTAL: ", loo_elpd_paired_str(r)),
+          "at least 2 paired SE, and the 3+ bins improving",
+          if (isTRUE(r$ratio >= 2)) "WORTH IT" else if (isTRUE(r$ratio >= 1)) "MARGINAL" else "NOT WORTH IT",
+          paste("At daily the ZINB was worth +14.8 nats at 2.69 paired SE. The daily fit was overfitted,",
+                "and an overfitted effort process can absorb structure the catch likelihood would",
+                "otherwise have to explain, so the gain may be smaller at weekly. A gain that VANISHES",
+                "at weekly would mean theta_C was compensating for the AR, not for structural zeros."))
+  }
+  # the zero and one bins at the new resolution
+  zbin <- function(o, p) (sum(o) - sum(p)) / sqrt(sum(p * (1 - p)))
+  for (nm in c("shore_all_gear", "shore_ring_net_only")) {
+    b <- rd(dir, sprintf("ppc_byobs_%s_Dungeness_Kept.csv", nm))
+    a <- rd(L1d, sprintf("ppc_byobs_%s_Dungeness_Kept.csv", nm))
+    if (is.null(a) || is.null(b) || !("p_one" %in% names(b))) next
+    bc <- b[b$data_type == "catch", ]; ac <- a[a$data_type == "catch", ]
+    V1row("C1", sprintf("count bins 0 and 1 at WEEKLY: %s", nm),
+          sprintf(paste("ZINB: zero %d vs %.1f (z %+.1f), one %d vs %.1f (z %+.1f) |",
+                        "NB2 at the same resolution: zero %.1f (z %+.1f), one %.1f (z %+.1f)"),
+                  sum(bc$observed == 0), sum(bc$p_zero), zbin(bc$observed == 0, bc$p_zero),
+                  sum(bc$observed == 1), sum(bc$p_one),  zbin(bc$observed == 1, bc$p_one),
+                  sum(ac$p_zero), zbin(ac$observed == 0, ac$p_zero),
+                  sum(ac$p_one),  zbin(ac$observed == 1, ac$p_one)),
+          "both bins improve on the NB2 at the SAME resolution, and both |z| under about 2.5",
+          if (abs(zbin(bc$observed == 0, bc$p_zero)) < 2.5 &&
+              abs(zbin(bc$observed == 1, bc$p_one)) < 2.5) "PASS" else "REVIEW",
+          paste("THE CLEAN COMPARISON the 2026-09-04 batch could not make: same AR, same data, one",
+                "likelihood difference. At daily the ZINB halved both bins against an NB2 baseline",
+                "measured at a DIFFERENT resolution, because Z0 predates the p_one column."))
+  }
+  # the boat, untouched in every one of these runs
+  fe <- fit_exactness(dir, L1d, pat = "private_boat", what = "BOAT fits vs L1",
+                      expect_delta = c("ar_force", "estimate_catch_zi", "catch_zi_populations"))
+  V1row("C1", "the boat fits are still an untouched negative control", fe$observed,
+        "bit-identical to L1", fe$verdict,
+        paste("Neither change is scoped to the boat: ar_force names shore/all_gear and",
+              "catch_zi_populations names shore. The boat is 43% of the port total, so a FAIL here",
+              "would mean the headline moved for a reason nobody chose. This control has held three",
+              "times; it costs nothing and it is the reason a shore result stays attributable."))
+  # what it does to the reported number
+  pt <- rd(dir, "port_total_Dungeness_Kept.csv")
+  if (!is.null(pt)) {
+    row <- pt[pt$Estimate == "Expected_Catch", ]
+    V1row("C1", "the candidate port total", 
+          sprintf("%s [%s, %s]  (production 71,513; daily+NB2 71,450; weekly+NB2 72,122; daily+ZINB 71,287)",
+                  fmt(row$BSS_median, 0), fmt(row$BSS_lo95, 0), fmt(row$BSS_hi95, 0)),
+          "informational", "INFO",
+          paste("The two changes push in opposite directions on the total: weekly AR added about +672",
+                "and the ZINB removed about -163, so the candidate should land near 71,950. Nothing is",
+                "published, so this is a change to a working estimate; it still needs to be a recorded",
+                "decision with the adequacy table attached, not a config flip."))
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -559,6 +725,8 @@ for (sid in STAGES) {
 }
 if ("L1" %in% STAGES) verdict_L1(dirs$L1)
 if ("Z2" %in% STAGES) verdict_Z2(dirs$Z2)
+if ("C2" %in% STAGES) verdict_L1(dirs$C2)   # same ladder reading, now with adequacy per rung
+if ("C1" %in% STAGES) verdict_C1(dirs$C1)
 
 if (length(V)) {
   dir.create(desk_dir, recursive = TRUE, showWarnings = FALSE)

@@ -559,17 +559,24 @@ run_config <- list(
   #     R-side PPC scored a ZINB fit as plain NB2. See zinb_ppc.R.
   #   replicate (shore pot closure, a separate fit on different data): theta_C 0.107
   #     against 0.179, elpd +9.1 at 1.96 SE, zero bin z +2.9 -> +0.8.
-  # WHY THIS STILL SHIPS FALSE (corrected 2026-09-05). Split by count size the elpd change
-  # is y=0 +25.2, y=1 -42.0 (16.7 SE), y=2 -6.6, and every bin from 3 up POSITIVE, with the
-  # 3+ bins carrying 87% of the catch. So the harvest-carrying counts fit BETTER; the loss
-  # is at y=1, because r_C doubles (0.95 -> 1.83) once theta takes the structural zeros and
-  # the tightened NB2 can no longer reach the almost-zero count of 1. The ZINB has moved
-  # the misfit one bin over, not removed it. Excess mass at 0 AND 1 is a two-regime
-  # signature (unsuccessful 0-1 crab trips vs successful ones) that a hurdle or a
-  # two-component NB mixture fits and a ZINB cannot. Adopt only on a RENDERED count-bin
-  # table (0 and 1 together) from a run under the corrected PPC; the zero bin alone passed
-  # on the prototype while the misfit migrated. Stage Z2 of run_ladder_zinb_2026-09-04.R
-  # carries the pre-set criterion. It also moves the reported shore total by -0.7%.
+  # RENDERED RESULT (stage Z2, 2026-09-04 batch; supersedes the 2026-09-05 reading below).
+  # Every objection is answered by rendered output:
+  #   zero bin  676 observed vs 638.5 expected, z = +2.0, from the NB2's 605.5 / +3.8
+  #   ONE bin   236 vs 285.0, z = -3.2, against the NB2's 236 vs 335.4, z = -6.1
+  #   catch coverage_50 0.4645 (-2.9 SD) against the NB2's 0.4572 (-3.5 SD)
+  #   elpd +14.8 at 2.69 PAIRED SE, replicated at 1.96 SE on the pot-closure fit
+  # The 2026-09-05 note said the misfit had MIGRATED to y=1. That was wrong: it could not
+  # be checked at the time because the NB2 baseline had no p_one column. The ZINB halves
+  # BOTH ends. And the -42.0 nat elpd loss at y=1 is not a shape failure, it is the mass
+  # tax a mixture levies on every non-zero observation: log(1 - 0.178) x 236 = -46.3. The
+  # r_C tightening (0.947 -> 1.828) repays it at y >= 3, which carries 87% of the catch.
+  #
+  # IT STILL SHIPS FALSE FOR ONE REASON. It has never been run at the AR resolution the
+  # 2026-09-04 ladder points to (weekly, not daily). Zero-inflation is a CATCH-stream
+  # change and leaves the daily-AR effort overfitting untouched: the Z2 fit still carries
+  # p_loo at 34.4% of n_obs, 26 Pareto k above 0.7 and flag_miscalibrated TRUE. Adopting a
+  # likelihood change and a resolution change in one step would leave neither attributable.
+  # Stage C1 (weekly + ZINB, boat as the untouched control) settles it.
 
   # --- Persist the draws the PPC is computed from (2026-09-04) -----------------
   # Three separate defects in the DIAGNOSTIC arithmetic have each forced a full multi-hour
@@ -579,6 +586,35 @@ run_config <- list(
   # See 03_R_functions/save_bss_ppc_draws.R for what is and is not covered.
   save_ppc_draws        = TRUE,
   save_ppc_draws_max    = NULL,       # NULL keeps every draw, so recomputation is EXACT
+
+  # --- Per-rung adequacy inside the AR ladder (2026-09-06) --------------------
+  # Only the fit the ladder KEEPS reaches write_bss_diagnostics(), so on the 2026-09-04
+  # run the biweekly and monthly rungs cost 174 minutes and left no p_loo, no Pareto k
+  # and no coverage. That is the evidence a ladder exists to produce: all three rungs
+  # PASSED the convergence gate, so the gate separated nothing and the adequacy
+  # statistics were the only thing that could. With this on, each rung's row in
+  # ar_escalation_log.csv carries them. Costs seconds to a minute per rung against a
+  # multi-hour fit; only ever computed when the ladder has more than one rung.
+  ar_rung_adequacy      = TRUE,
+
+  # --- WHERE THE SHORE ALL-GEAR AR STANDS (measured 2026-09-04, NOT yet adopted) ---
+  # ar_max_resolution$pooled leaves shore all-gear data-driven, which selects DAILY. The
+  # ladder fitted it at daily / weekly / biweekly / monthly and ALL FOUR passed the
+  # convergence gate, so the gate cannot choose between them. Adequacy can:
+  #        rung   P_n   catch    p_loo/n_obs   bad Pareto k   gear coverage_50
+  #        daily  289   20,898       0.352          41         0.701  (+7.1 SD)
+  #        weekly  44   21,547       0.096           1         0.559  (+2.1 SD)
+  #      biweekly  21   21,383        n/a          n/a           n/a
+  #       monthly  10   20,771        n/a          n/a           n/a
+  # The four rungs span only 3.7% in catch, so this is a smaller lever on the number than
+  # feared; but daily is spending about one effective parameter per three observations and
+  # is flagged miscalibrated, and weekly is not. elpd favours daily by 85.8 nats on the
+  # effort stream and must NOT be believed: that is 1.08 nats per additional effective
+  # parameter, and 41 of the daily fit's 311 gear observations have Pareto k above 0.7, so
+  # PSIS-LOO has failed for 13% of the stream being cited. Moving to weekly takes the port
+  # total from 71,450 to 72,122 (+0.94%). Biweekly and monthly have NO adequacy because
+  # only the rung the ladder keeps reaches write_bss_diagnostics(); ar_rung_adequacy above
+  # fixes that for the next run, which is what has to happen before this cap changes.
 
   # --- Sampler override escape hatch (EXPERIMENTS ONLY; production is NULL) -----
   # Each driver merges its own params_model ON TOP of run_config, so params_model

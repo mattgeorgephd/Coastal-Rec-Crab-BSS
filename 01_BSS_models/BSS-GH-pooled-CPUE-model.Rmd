@@ -1299,6 +1299,12 @@ for(cg in bss_catch_groups) {
         # is to see how the answer depends on the resolution. It also makes
         # params$ar_escalate_select's precision tie-break implementable at all.
         .rung <- bss_ar_rung_summary(fit_try)
+        # 2026-09-06: adequacy PER RUNG. Only the kept fit reaches write_bss_diagnostics(),
+        # so on the 2026-09-04 ladder the two coarser rungs cost 174 minutes and left no
+        # p_loo, no Pareto k and no coverage. See 03_R_functions/bss_rung_adequacy.R.
+        .radq <- if (isTRUE(params$ar_rung_adequacy %||% TRUE) && length(ar_ladder) > 1)
+                   bss_rung_adequacy(fit_try, bss_data_try) else
+                   bss_rung_adequacy(NULL, NULL)
         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
           fit                = label,
           attempt            = attempt,
@@ -1318,6 +1324,12 @@ for(cg in bss_catch_groups) {
           pi_width           = .rung$pi_width,
           pi_width_rel       = .rung$pi_width_rel,
           effort_median      = .rung$effort_median,
+          p_loo              = .radq$p_loo,
+          p_loo_frac         = .radq$p_loo_frac,
+          n_pareto_bad       = .radq$n_pareto_bad,
+          cov50_gear         = .radq$cov50_gear,
+          cov50_catch        = .radq$cov50_catch,
+          pit_mean_catch     = .radq$pit_mean_catch,
           selected           = FALSE      # set on the surviving rung after the loop
         )
 

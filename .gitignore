@@ -51,3 +51,9 @@ Thumbs.db
 *.RData
 .Rproj.user/shared/notebooks/paths
 .Rproj.user/shared/notebooks/paths
+
+# Rendered driver reports belong in the run folder under 05_output/, never beside the
+# .Rmd. rmarkdown::render() writes there by default and a batch runner must move it; on
+# 2026-09-04 two stages rendered in sequence and the second overwrote the first (see
+# 07_documentation/development_notes/PIPELINE_STATUS.md section 1j).
+01_BSS_models/*.html

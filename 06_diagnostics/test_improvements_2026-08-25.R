@@ -1557,5 +1557,55 @@ local({
         any(grepl("run_config$run_tag", readLines(drv, warn = FALSE), fixed = TRUE)))
 })
 
+# ---------------------------------------------------------------------------
+# 39. The ladder records adequacy PER RUNG. On the 2026-09-04 run all three rungs
+#     PASSED the convergence gate, so the gate separated nothing, and the statistics
+#     that could separate them (p_loo as a fraction of n_obs, the Pareto k count,
+#     coverage) existed for the ONE rung the loop kept. The two coarser rungs cost
+#     174 minutes of fitting and left no evidence.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/bss_rung_adequacy.R")
+  chk("rung adequacy: NULL fit yields an all-NA row, never an error",
+      all(is.na(unlist(bss_rung_adequacy(NULL, NULL)))))
+  nm <- names(bss_rung_adequacy(NULL, NULL))
+  chk("rung adequacy: carries p_loo_frac, the Pareto count and per-stream coverage",
+      all(c("p_loo_frac", "n_pareto_bad", "cov50_gear", "cov50_catch") %in% nm), paste(nm, collapse = ","))
+  # it must call loo the SAME way write_loo_diagnostics does, or its numbers are not
+  # comparable with loo_summary_*.csv and model_adequacy.csv for the reported rung
+  src <- readLines("03_R_functions/bss_rung_adequacy.R", warn = FALSE)
+  chk("rung adequacy: uses the production loo call (plain matrix, no r_eff)",
+      any(grepl("loo::loo(ll)", src, fixed = TRUE)) &&
+      !any(grepl("relative_eff", src, fixed = TRUE)))
+  chk("rung adequacy: guards absent streams on the same n as production",
+      any(grepl("stan_data$Gear_n", src, fixed = TRUE)) &&
+      any(grepl("stan_data$IntC", src, fixed = TRUE)))
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: logs per-rung adequacy", basename(drv)),
+        any(grepl("bss_rung_adequacy(fit_try, bss_data_try)", d, fixed = TRUE)) &&
+        any(grepl("p_loo_frac", d, fixed = TRUE)))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 40. A batch runner that renders more than once must MOVE the HTML. rmarkdown writes
+#     it beside the .Rmd, not into output_dir; on 2026-09-04 stage L1 rendered its
+#     report there and stage Z2 overwrote it, destroying the only rendered view of the
+#     AR ladder and leaving a 6,000-line artefact committed in 01_BSS_models/.
+# ---------------------------------------------------------------------------
+local({
+  for (rf in list.files("06_diagnostics", pattern = "^run_.*\\.R$", full.names = TRUE)) {
+    src <- readLines(rf, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+    if (!any(grepl("rmarkdown::render(", src, fixed = TRUE))) next
+    chk(sprintf("%s: moves the rendered HTML into the run folder", basename(rf)),
+        any(grepl("file.copy(html", src, fixed = TRUE)))
+  }
+  chk("01_BSS_models/*.html is gitignored so a stray render is never committed",
+      any(grepl("^01_BSS_models/\\*\\.html", readLines(".gitignore", warn = FALSE))))
+  chk("no rendered driver HTML is committed beside the .Rmd",
+      !length(list.files("01_BSS_models", pattern = "\\.html$")))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

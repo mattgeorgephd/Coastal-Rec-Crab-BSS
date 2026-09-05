@@ -18,6 +18,27 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-06, The AR ladder measured: daily is overfitted, and the ZINB halves both the zero and the one bin (branch `OSP-boat-count-incorporation`)
+
+Harness **372 assertions**, 0 failing. Full review in `development_notes/ladder-zinb-review-2026-09-06.md`; summary in `PIPELINE_STATUS.md` Section 1j. 9.1 h of fitting.
+
+**THE LADDER RAN.** Four distinct resolutions, four distinct `P_n` (289 / 44 / 21 / 10), four distinct estimates. **All four pass the convergence gate**, so the production rule decided nothing, exactly as Section 1h predicted it would this season. The four rungs span 777 crab, **3.7%** of the component, against 44% for the Stage 5 boat 2x2: the AR resolution is a much smaller lever on the shore point estimate than the p_loo 35.2% figure suggested.
+
+**AND IT SAYS DAILY IS OVERFITTED.** From daily to weekly: `p_loo` falls from 35.2% of `n_obs` to 9.6% (the gear stream drops 79.7 effective parameters), Pareto k above 0.7 falls from **41 of 311 to 1**, gear `coverage_50` moves from 0.701 (+7.1 sampling SD) to 0.559 (+2.1), and `flag_miscalibrated` clears. Port total at weekly is **72,122 [53,228, 101,553]**, +0.94% on the same configuration at daily.
+
+**`elpd` FAVOURS DAILY AND MUST NOT BE BELIEVED.** Daily wins by 85.8 nats on the gear stream (paired SE 11.7) and 7.4 on catch. Two disqualifications: the gear gain is 85.8 nats for 79.7 additional effective parameters, 1.08 nats each, which is this project's own definition of buying noise; and with 41 bad Pareto k, PSIS-LOO has failed for 13% of the stream whose elpd is being cited. Read `n_pareto_bad` before `elpd_loo`.
+
+**WHAT THE LADDER COULD NOT ANSWER, AND WHY.** Only the fit the loop KEEPS reaches `write_bss_diagnostics()`, so biweekly and monthly were fitted, cost 174 minutes, and produced no `p_loo`, no Pareto count and no coverage. The gear track fits this component at monthly and gets `coverage_50` 0.035 (-16.4 SD), so the turnover is between weekly and monthly and is unlocated. `03_R_functions/bss_rung_adequacy.R` (`ar_rung_adequacy = TRUE`) now writes those statistics into every rung's row of `ar_escalation_log.csv`, computed through the SAME `loo::loo()` call and the same randomized-PIT coverage as `write_loo_diagnostics()` so the rows are comparable with `model_adequacy.csv`.
+
+**THE ZINB, RE-RENDERED: I HAD IT WRONG TWICE, ONCE AGAINST THE MODEL.** Z2 reproduces Z1 exactly, so the corrections are attributable to the diagnostics. (1) The offline `E[theta]*E[p0]` approximation was accurate: the zero bin renders at 638.5 / z +2.0 against the approximation's 637.9 / +2.0. (2) **"The misfit migrated to y = 1" was wrong.** With `p_one` now written, the NB2 over-predicts ones at 236 observed vs **335.4 expected (z -6.1)** and the ZINB at **285.0 (z -3.2)**: it halves BOTH ends. The -42.0 nat elpd loss at y=1 is the mixture's uniform mass tax, log(1 - 0.178) x 236 = -46.3, not a failure of shape; `r_C` tightens 0.947 -> 1.828 and repays it at y >= 3 where 87% of the catch is. (3) Catch `coverage_50` is **0.4645 (-2.9 SD)** against the NB2's 0.4572 (-3.5), where the wrong-likelihood arithmetic had reported 0.4051 (-7.7) and raised `flag_pit_bias`.
+
+**THE TWO CHANGES HAVE NEVER BEEN RUN TOGETHER.** Zero-inflation is a catch-stream change and leaves the daily-AR overfitting untouched (Z2 still shows `p_loo_frac` 0.3437, 26 bad k, `flag_miscalibrated` TRUE). Stage C1 runs weekly + ZINB as the candidate production configuration.
+
+**DEFECTS IN THE RUN.** The runner never moved the rendered HTML, which `rmarkdown::render()` writes beside the `.Rmd`, so stage L1 rendered its report there and stage Z2 **overwrote it**: the rendered AR ladder table, the artefact the FW creel discussion asked to preserve, is gone and needs a refit, and a 6,062-line artefact was committed inside `01_BSS_models/`. `fmt()` was scalar-only while `verdict_L1` hands it whole ladder columns, which on **R >= 4.3 is an error**, so the batch would have aborted in the verdict block after 9.1 h of fitting had the run used a current R. `DRY_RUN <- FALSE` was committed for the third time. All fixed and asserted; `01_BSS_models/*.html` is gitignored.
+
+**RUNTIME.** The rungs cost 95.6, 91.1 and 83.3 minutes: coarsening the AR barely reduces the cost, so a ladder is one full fit per rung.
+
+
 ### 2026-09-04b, Post-run review of the 2026-09-03 batch: four defects, three of them in code that judged the model rather than in the model (branch `OSP-boat-count-incorporation`)
 
 Harness **330 assertions**, 0 failing. Full review in `development_notes/shore-ar-zi-review-2026-09-04.md`; summary in `PIPELINE_STATUS.md` Section 1i. **The authoritative run does not move**: `20260831/pooled-CPUE-VAL-1-adopted`, port 71,513.
