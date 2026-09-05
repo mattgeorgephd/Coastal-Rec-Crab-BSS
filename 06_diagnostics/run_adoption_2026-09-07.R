@@ -39,7 +39,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                   # TRUE: the desk pre-flight runs, nothing is fitted. START HERE.
+DRY_RUN <- TRUE                    # TRUE: the desk pre-flight runs, nothing is fitted. START HERE.
 STAGES  <- c("A1", "A2")
 RESUME  <- TRUE
 
@@ -94,6 +94,20 @@ model_rmd <- list(pooled        = .here("01_BSS_models", "BSS-GH-pooled-CPUE-mod
                   gear_resolved = .here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd"))
 prefix    <- list(pooled = "pooled-CPUE-", gear_resolved = "gear-type-CPUE-model-")
 stopifnot(all(file.exists(unlist(model_rmd))))
+
+# 2026-09-08 DEFECT FIX. The two tracks label the port-total row DIFFERENTLY: the pooled
+# driver writes "Expected_Catch" and the gear-resolved driver writes "Catch". verdict_A2
+# looked for "Expected_Catch" in the gear file, got numeric(0), and `is.finite(numeric(0))
+# && ...` is an ERROR in R (not FALSE), so the verdict block aborted AFTER 4.1 h of
+# fitting and the run's verdicts were never written. Read the row by pattern, and return
+# NA rather than a zero-length vector so a downstream `if` behaves.
+.port_row <- function(x) {
+  if (is.null(x) || !all(c("Estimate", "BSS_median") %in% names(x))) return(NULL)
+  i <- which(grepl("^(Expected_)?Catch$", x$Estimate))
+  if (!length(i)) return(NULL)
+  as.list(x[i[1], , drop = FALSE])
+}
+.num1 <- function(x) { v <- suppressWarnings(as.numeric(x)); if (length(v)) v[1] else NA_real_ }
 
 rd <- function(dir, f) {
   p <- file.path(dir, f); if (!file.exists(p)) return(NULL)
@@ -331,7 +345,7 @@ verdict_A1 <- function(dir) {
   }
   pt <- rd(dir, "port_total_Dungeness_Kept.csv")
   if (!is.null(pt)) {
-    row <- pt[pt$Estimate == "Expected_Catch", ]
+    row <- .port_row(pt)
     V1row("A1", "the new authoritative port total",
           sprintf("%s [%s, %s]  (superseded run %s [%s, %s]; C1 %s)",
                   fmt(row$BSS_median, 0), fmt(row$BSS_lo95, 0), fmt(row$BSS_hi95, 0),
@@ -353,9 +367,9 @@ verdict_A2 <- function(dir, pooled_dir) {
   gp <- rd(dir, "port_total_Dungeness_Kept.csv"); pp <- rd(pooled_dir %||% "", "port_total_Dungeness_Kept.csv")
   gc <- rd(dir, "pe_vs_bss_comparison.csv");      pc <- rd(pooled_dir %||% "", "pe_vs_bss_comparison.csv")
   if (is.null(gp)) return(invisible(NULL))
-  g_port <- gp$BSS_median[gp$Estimate == "Expected_Catch"]
-  p_port <- if (!is.null(pp)) pp$BSS_median[pp$Estimate == "Expected_Catch"] else NA_real_
-  gap <- if (is.finite(p_port)) 100 * (g_port - p_port) / p_port else NA_real_
+  g_port <- .num1(.port_row(gp)$BSS_median)
+  p_port <- .num1(.port_row(pp)$BSS_median)
+  gap <- if (isTRUE(is.finite(p_port)) && isTRUE(is.finite(g_port))) 100 * (g_port - p_port) / p_port else NA_real_
   gs <- function(x, k) if (is.null(x)) NA_real_ else x$BSS_catch[x$component == k][1]
   V1row("A2", "the two tracks still agree after the pooled shore component moved",
         sprintf(paste("gear port %s vs pooled %s (%+.2f%%); gear shore all-gear %s vs pooled %s;",
@@ -365,7 +379,7 @@ verdict_A2 <- function(dir, pooled_dir) {
                 fmt(gs(gc, "private_boat (All gear)"), 0), fmt(gs(pc, "private_boat (All gear)"), 0),
                 fmt(REF$GEAR$port, 0)),
         "within about 2% at the port",
-        if (is.finite(gap) && abs(gap) <= 2) "PASS" else "REVIEW",
+        if (isTRUE(is.finite(gap)) && abs(gap) <= 2) "PASS" else "REVIEW",
         paste("Two independently parameterized CPUE structures fitting the same data, and the strongest",
               "internal check the project has. EXPECT THE GAP TO CHANGE and read it carefully: the",
               "pooled shore all-gear component just moved from daily to weekly while the gear track",
@@ -385,11 +399,46 @@ verdict_A2 <- function(dir, pooled_dir) {
               "part of any gap and none of a large one. Porting the block to the gear model would restore",
               "symmetry and is a Stan edit plus a recompile; it is NOT needed to read this cross-check, but",
               "it should be recorded as the reason the two tracks are no longer like for like."))
-  gt <- rd(dir, "bss_summary_private_boat_all_gear_Dungeness_Kept.csv")
+  # THE comparison that says whether the tracks actually disagree. They fit the shore
+  # all-gear component at DIFFERENT resolutions now (pooled weekly, gear monthly), so the
+  # headline gap conflates a resolution difference with a structural one. The pooled
+  # ladder fitted that component at monthly too, so the like-for-like number exists.
+  c2 <- rd(.here("05_output", "20260904/pooled-CPUE-LZ-C2-ladder-adequacy"), "ar_escalation_log.csv")
+  pm <- if (!is.null(c2)) .num1(c2$catch_median[c2$ar_resolution == "monthly" &
+                                                grepl("^shore_all_gear", c2$fit)]) else NA_real_
+  gsa <- .num1(gs(gc, "shore (All gear)"))
+  V1row("A2", "do the tracks disagree, or are they just at different resolutions?",
+        sprintf(paste("shore all-gear: pooled at the ADOPTED weekly %s vs gear at monthly %s (%+.2f%%);",
+                      "pooled at MONTHLY (from the C2 ladder) %s vs gear at monthly %s (%+.2f%%)"),
+                fmt(.num1(gs(pc, "shore (All gear)")), 0), fmt(gsa, 0),
+                100 * (gsa - .num1(gs(pc, "shore (All gear)"))) / .num1(gs(pc, "shore (All gear)")),
+                fmt(pm, 0), fmt(gsa, 0),
+                if (isTRUE(is.finite(pm))) 100 * (gsa - pm) / pm else NA_real_),
+        "the like-for-like gap is much smaller than the headline gap", "READ",
+        paste("If the two tracks agree closely AT THE SAME RESOLUTION, the headline gap is a",
+              "resolution difference and not a disagreement about the fishery, and the right response",
+              "is to decide whether the GEAR track's cap should move too rather than to worry about",
+              "the pooled estimate. Note the gear track's shore fits carry per-gear CPUE (G = 5), a",
+              "thinner likelihood per gear type, so it may genuinely need a coarser AR than the pooled",
+              "model does: that needs its own ladder, not an assumption copied across."))
+  # The control that proves estimate_catch_zi really is inert on this track.
+  fe <- fit_exactness(dir, .here("05_output", REF$GEAR$dir), what = "gear fits vs the G1 baseline",
+                      expect_delta = c("ar_max_resolution", "estimate_catch_zi", "run_tag", "model",
+                                       "save_ppc_draws", "save_ppc_draws_max", "ar_rung_adequacy",
+                                       "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
+  V1row("A2", "the gear track did not move at all", fe$observed,
+        "bit-identical to the 2026-09-01 G1 run", fe$verdict,
+        paste("Nothing in this run's config reaches the gear track: its ar_max_resolution map is",
+              "untouched and crab_bss_gear_resolved.stan has no zero-inflation block, so",
+              "estimate_catch_zi is inert here. A FAIL would mean the pooled adoption leaked into the",
+              "cross-check, which would make the cross-check worthless as an independent reading."))
+  gt <- rd(dir, "bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv")
+  pt2 <- rd(pooled_dir %||% "", "bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv")
+  .tau <- function(x) if (is.null(x)) NA_real_ else .num1(x$mean[grepl("^tau_bar", x[[1]])])
   V1row("A2", "the shared turnover is still a property of the data, not of one parameterization",
-        if (is.null(gt)) "gear boat summary unavailable" else
-          sprintf("gear tau_bar[1] %s (2026-09-01 pair agreed to 0.03%%: 2.5962 vs 2.5962)",
-                  fmt(suppressWarnings(as.numeric(gt[gt[[1]] == "tau_bar[1]", "mean"]))[1], 4)),
+        sprintf("gear tau_bar %s vs pooled %s (%+.2f%%); the 2026-09-01 pair agreed to 0.03%%",
+                fmt(.tau(gt), 4), fmt(.tau(pt2), 4),
+                100 * (.tau(gt) - .tau(pt2)) / .tau(pt2)),
         "close to the pooled value", "INFO",
         paste("tau_bar is estimated independently by the two tracks from different CPUE structures. Its",
               "agreement is what makes the shared-turnover adoption a finding about the fishery rather",
@@ -411,8 +460,22 @@ desk_routing()
 
 dirs <- list()
 for (sid in STAGES) dirs[[sid]] <- run_stage(sid)
-if ("A1" %in% STAGES) verdict_A1(dirs$A1)
-if ("A2" %in% STAGES) verdict_A2(dirs$A2, dirs$A1 %||% .here("05_output", REF$C1$dir))
+# 2026-09-08: every verdict block is wrapped, and the verdicts are written whatever
+# happens. This is the THIRD time a defect in a verdict block has aborted a batch AFTER
+# all the fitting was done (fmt() on a vector, 2026-09-06; the port-row label, this run),
+# and on both occasions the run's own verdicts were lost while the expensive part had
+# succeeded. A verdict is a reading of a result; it must not be able to destroy one.
+.safe <- function(sid, expr) tryCatch(force(expr), error = function(e) {
+  cat(sprintf("\n  *** VERDICT BLOCK %s FAILED: %s\n", sid, conditionMessage(e)))
+  cat("      The run itself is intact; re-run with RESUME = TRUE after fixing the block.\n")
+  V1row(sid, "verdict block did not complete", conditionMessage(e),
+        "the block runs to completion", "ERROR",
+        paste("The fits are on disk and unaffected: this is a defect in the code that READS them.",
+              "Fix the block and re-run with RESUME = TRUE, which re-scores from disk in seconds."))
+  invisible(NULL)
+})
+if ("A1" %in% STAGES) .safe("A1", verdict_A1(dirs$A1))
+if ("A2" %in% STAGES) .safe("A2", verdict_A2(dirs$A2, dirs$A1 %||% .here("05_output", REF$C1$dir)))
 
 if (length(V)) {
   vp <- .here("05_output", "adoption_2026-09-07_verdicts.csv")

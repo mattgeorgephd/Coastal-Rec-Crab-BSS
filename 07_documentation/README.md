@@ -52,3 +52,7 @@ The method documents summarize the history in one screen and point here for deta
 | `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
 
 **OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
+
+## Change register
+
+`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.

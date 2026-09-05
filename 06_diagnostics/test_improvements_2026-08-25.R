@@ -1706,5 +1706,42 @@ local({
   }
 })
 
+# ---------------------------------------------------------------------------
+# 44. Two defects the 2026-09-07 adoption run exposed, both in verdict code, both
+#     surfacing only AFTER the fitting was done.
+# ---------------------------------------------------------------------------
+local({
+  # 44a. The two drivers label the port-total row differently: the pooled writes
+  #      "Expected_Catch" and the gear-resolved writes "Catch". Reading one label
+  #      against the other file yields numeric(0), and `is.finite(numeric(0)) && ...`
+  #      is an ERROR in R, not FALSE. Assert the committed outputs still differ (so the
+  #      pattern match is still needed) and that the runner matches by pattern.
+  pf <- "05_output/20260904/pooled-CPUE-AD-A1-adopted/port_total_Dungeness_Kept.csv"
+  gf <- "05_output/20260905/gear-type-CPUE-model-AD-A2-gear-crosscheck/port_total_Dungeness_Kept.csv"
+  if (file.exists(pf) && file.exists(gf)) {
+    pl <- utils::read.csv(pf, stringsAsFactors = FALSE)$Estimate
+    gl <- utils::read.csv(gf, stringsAsFactors = FALSE)$Estimate
+    chk("the two tracks really do label the port row differently (so a pattern match is required)",
+        !identical(sort(pl), sort(gl)), sprintf("pooled: %s | gear: %s",
+                                                paste(pl, collapse = "/"), paste(gl, collapse = "/")))
+  }
+  rf <- "06_diagnostics/run_adoption_2026-09-07.R"
+  if (file.exists(rf)) {
+    src <- readLines(rf, warn = FALSE); code <- src[!grepl("^\\s*#", src)]
+    chk("adoption runner: the port row is matched by PATTERN, not by one track's label",
+        any(grepl('grepl("^(Expected_)?Catch$", x$Estimate)', code, fixed = TRUE)) &&
+        !any(grepl('$Estimate == "Expected_Catch"', code, fixed = TRUE)))
+    # 44b. A verdict block must never be able to cost a completed run its output.
+    chk("adoption runner: every verdict block is wrapped so a defect cannot lose the run",
+        any(grepl(".safe <- function(sid, expr) tryCatch(", code, fixed = TRUE)) &&
+        all(grepl("\\.safe\\(", grep("verdict_A[12]\\(dirs", code, value = TRUE))))
+  }
+  # the same trap in R itself, asserted so the reasoning stays on the record
+  chk("R: `is.finite(numeric(0)) && TRUE` errors rather than returning FALSE",
+      inherits(try(if (is.finite(numeric(0)) && TRUE) 1 else 2, silent = TRUE), "try-error"))
+  chk("R: isTRUE(is.finite(numeric(0))) is the safe form",
+      identical(isTRUE(is.finite(numeric(0))), FALSE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

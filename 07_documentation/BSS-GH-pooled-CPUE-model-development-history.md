@@ -14,6 +14,21 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-09-08, The adoption gate passes: a new authoritative run, and the cross-check explained (branch `OSP-boat-count-incorporation`)
+
+Harness **452 assertions**, 0 failing. Full review in `development_notes/adoption-review-2026-09-08.md`; summary in `PIPELINE_STATUS.md` Section 1m; every change on this branch and its status in `development_notes/CHANGE_REGISTER.md`.
+
+**THE GATE PASSED.** A1's four fits are identical to stage C1's across **10,253 shared parameter rows at full precision**. C1 reached the weekly shore AR through `ar_force`, which takes the `fixed` branch of `bss_select_ar_resolution()` and skips the cap; A1 reaches it through `ar_max_resolution`, which selects daily from the effort density and then coarsens. Different code paths, same posterior, demonstrated rather than assumed: a desk stage proved the two build byte-identical Stan data before the render started.
+
+**NEW AUTHORITATIVE RUN: `05_output/20260904/pooled-CPUE-AD-A1-adopted`, port total 72,027 [53,018, 101,364]**, superseding 71,513 (+0.72%). **No fit carries the miscalibration flag**, the first run for which that is true. The shore all-gear component, the standing caveat on every headline since 2026-08-31, is now the best-behaved fit in the run: `p_loo` 9.5% of `n_obs` against 35.2%, **zero** Pareto k above 0.7 against 41, `cov50` deviation 0.066 against 0.204.
+
+**THE CROSS-CHECK WIDENED, AND THAT IS NOT A DISAGREEMENT.** The gear track reads 71,026, -1.39% apart against -0.78% for the last pair. I predicted it would narrow. The number that explains it: shore all-gear as configured (pooled weekly vs gear monthly) is -3.42%, but **both at monthly it is -0.08%**, 17 crab, between a pooled CPUE structure and one carrying per-gear CPUE at `G = 5`. The strongest agreement this cross-check has produced. `tau_bar` agrees to 0.05% (2.6128 vs 2.6114). Two controls held: the gear track is **bit-identical to its own 2026-09-01 baseline** on all four components, and that confirms `estimate_catch_zi` is inert there, which in turn means the two tracks now differ in the shore CATCH LIKELIHOOD as well as the resolution (worth about -0.3%).
+
+**ONE DEFECT, THE THIRD OF ITS SHAPE.** The pooled driver labels the port-total row `"Expected_Catch"` and the gear driver labels it `"Catch"`; reading one against the other file gives `numeric(0)`, and `is.finite(numeric(0)) && ...` is an ERROR in R rather than FALSE, so `verdict_A2` aborted after 4.1 h of fitting and the run's verdicts were never written. Nothing was lost from the run itself. Fixed three ways: match the row by pattern; **wrap every verdict block so a defect records itself as an ERROR row and the verdicts are written regardless**; and assert both in the harness, including that the two tracks really do still use different labels so the pattern match cannot be simplified away.
+
+**THE LARGEST REMAINING CROSS-TRACK DIFFERENCE** is now the gear track's own shore cap, still monthly. Do not copy the pooled cap across: the gear shore fits carry a thinner per-gear likelihood and may genuinely need a coarser AR. That needs its own ladder, which the machinery now supports with per-rung adequacy.
+
+
 ### 2026-09-07b, Adoption: weekly shore all-gear AR and the zero-inflated shore catch ship in run_config (branch `OSP-boat-count-incorporation`)
 
 Harness **391 assertions**, 0 failing. See `PIPELINE_STATUS.md` Section 1l.
