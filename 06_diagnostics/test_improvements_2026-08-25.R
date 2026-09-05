@@ -1198,8 +1198,12 @@ local({
   chk("zinb: it is scoped PER FIT, which is what makes the boat a free negative control",
       grepl("population_name %in% (params$catch_zi_populations %||% \"shore\")", p, fixed = TRUE))
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("zinb: ships OFF, scoped to the shore, with a Beta(1, 9) prior",
-      isFALSE(rc$estimate_catch_zi) && identical(rc$catch_zi_populations, "shore") &&
+  # 2026-09-07: this asserted the PROTOTYPE default (OFF). The feature was adopted on
+  # 2026-09-07 after the C1 run, so the shipped default is now TRUE. The scoping and the
+  # prior are the parts that must not drift; whether it is on is a decision, recorded in
+  # section 42 below and in PIPELINE_STATUS.md Section 1k.
+  chk("zinb: scoped to the shore, with a Beta(1, 9) prior",
+      identical(rc$catch_zi_populations, "shore") &&
       identical(rc$zi_catch_prior_a, 1) && identical(rc$zi_catch_prior_b, 9))
 })
 
@@ -1643,6 +1647,62 @@ local({
     k <- paste(v$stage, v$criterion, sep = "\r")
     chk("the committed verdicts file has one row per stage+criterion",
         !any(duplicated(k)), paste(unique(k[duplicated(k)]), collapse = " | "))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 42. The 2026-09-07 adoption. run_config must SHIP the candidate configuration, with
+#     no experiment lever active, and the gear track must be untouched so the
+#     cross-check measures the pooled change alone.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("adoption: pooled shore all-gear is capped at weekly",
+      identical(rc$ar_max_resolution$pooled$shore$all_gear, "weekly"))
+  chk("adoption: the ZINB catch likelihood is on, scoped to shore",
+      isTRUE(rc$estimate_catch_zi) && identical(rc$catch_zi_populations, "shore"))
+  chk("adoption: no experiment lever ships enabled",
+      is.null(rc$ar_force) && !isTRUE(rc$ar_escalate))
+  chk("adoption: the other pooled caps and the whole gear map are untouched",
+      identical(rc$ar_max_resolution$pooled$shore$pot_closure, "biweekly") &&
+      identical(rc$ar_max_resolution$pooled$private_boat, "monthly") &&
+      identical(rc$ar_max_resolution$gear_resolved$shore$all_gear, "monthly"))
+  # The asymmetry this creates is a fact about the models, so assert it is RECORDED
+  # rather than assert it away: the gear Stan has no ZINB and the config says so.
+  gz <- any(grepl("zi_catch", readLines("02_stan_models/crab_bss_gear_resolved.stan", warn = FALSE), fixed = TRUE))
+  rc <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
+  chk("adoption: if the gear model lacks the ZINB, run_config says so where the flag lives",
+      gz || grepl("POOLED ONLY", rc, fixed = TRUE),
+      sprintf("gear stan has zi_catch: %s", gz))
+  # and the runner that renders it carries the two standing runner rules
+  rf <- "06_diagnostics/run_adoption_2026-09-07.R"
+  if (file.exists(rf)) {
+    src <- readLines(rf, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+    calls <- src[grepl("rmarkdown::render(", src, fixed = TRUE)]
+    chk("adoption runner: render() is not handed output_dir=",
+        length(calls) > 0 && !any(grepl("output_dir", calls, fixed = TRUE)))
+    chk("adoption runner: moves the rendered HTML into the run folder",
+        any(grepl("file.copy(html", src, fixed = TRUE)))
+    chk("adoption runner: ships DRY_RUN TRUE",
+        any(grepl("^DRY_RUN <- TRUE", src)))
+    chk("adoption runner: stage A1 carries NO config delta (production as shipped)",
+        any(grepl('tag = "AD-A1-adopted", delta = list()', src, fixed = TRUE)))
+  } else chk("adoption runner present", FALSE)
+})
+
+# ---------------------------------------------------------------------------
+# 43. No trailing whitespace in the R sources. Harmless to R, but `git apply` warns on
+#     every patch that introduces it ("warning: N lines add whitespace errors"), which
+#     makes a clean application look like a problem to whoever is applying it.
+# ---------------------------------------------------------------------------
+local({
+  for (f in c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE),
+              list.files("06_diagnostics", pattern = "\\.R$", full.names = TRUE),
+              "run_config.R")) {
+    ln <- readLines(f, warn = FALSE)
+    bad_i <- which(grepl("[ \t]+$", ln))
+    chk(sprintf("no trailing whitespace: %s", basename(f)), !length(bad_i),
+        if (length(bad_i)) sprintf("line(s) %s", paste(utils::head(bad_i, 5), collapse = ", ")) else "")
   }
 })
 

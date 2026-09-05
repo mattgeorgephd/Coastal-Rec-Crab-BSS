@@ -18,6 +18,19 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-07b, Adoption: weekly shore all-gear AR and the zero-inflated shore catch ship in run_config (branch `OSP-boat-count-incorporation`)
+
+Harness **391 assertions**, 0 failing. See `PIPELINE_STATUS.md` Section 1l.
+
+`ar_max_resolution$pooled$shore$all_gear` goes `"daily" -> "weekly"` and `estimate_catch_zi` goes `FALSE -> TRUE` (scoped to shore). Nothing else moves: the shore pot-closure cap stays biweekly, the boat stays monthly, and the whole gear-resolved map is untouched so the cross-check measures the pooled change alone.
+
+**THE ROUTING PROOF, DONE BEFORE THE RENDER.** Stage C1 reached weekly through `ar_force`, which takes the `fixed` branch of `bss_select_ar_resolution()` and skips the cap; production reaches it through the adaptive branch, which picks daily from the effort density and is then coarsened. Both were verified to build **byte-identical Stan data**, weekly at `P_n` 44, no entry differing. `run_adoption_2026-09-07.R` repeats that check as a desk stage in seconds and refuses to start the four-hour render if it fails, and gates the render itself on the four fits being bit-identical to C1.
+
+**THE CHANGE SHIPS BEFORE THE RENDER, DELIBERATELY.** The authoritative run should come out of `run_config` as shipped rather than out of a batch override. The cost is that a failed gate leaves `run_config` carrying an unvalidated configuration, so a FAIL means reverting both lines together: the routing would be at fault, not the resolution.
+
+**ONE ASYMMETRY, RECORDED RATHER THAN HIDDEN.** `crab_bss_gear_resolved.stan` has no `theta_C` and `prep_bss_crab_gear.R` never emits `zi_catch`, so the gear track silently ignores `estimate_catch_zi` and fits plain NB2. The two tracks now differ in the shore CATCH LIKELIHOOD as well as the AR resolution, for the first time. The effect is about -0.3% on the pooled shore component, so it explains a sliver of any cross-track gap and none of a large one. Porting the block would restore symmetry and is a Stan edit plus a recompile.
+
+
 ### 2026-09-07, The 2x2 completes: a candidate production configuration, and four defects in my own diagnostics helper (branch `OSP-boat-count-incorporation`)
 
 Harness **378 assertions**, 0 failing. Full review in `development_notes/candidate-config-review-2026-09-07.md`; summary in `PIPELINE_STATUS.md` Section 1k. 9.3 h of fitting.

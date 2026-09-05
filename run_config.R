@@ -543,7 +543,18 @@ run_config <- list(
   # unscaled total would be inflated by 1/(1 - theta_C) purely by turning the feature on.
   # Judge it on elpd_loo for the catch stream and on the zero bin, not on the total.
   # Changing this forces a Stan recompile.
-  estimate_catch_zi     = FALSE,
+  # 2026-09-07: ADOPTED alongside the weekly shore AR (ar_max_resolution below). The two
+  # changes are additive (+95 crab of interaction on a 21,500 component) and together give
+  # the best-behaved fit this project has produced: ZERO Pareto k above 0.7, the only such
+  # fit. Compared like for like at weekly, the ZINB halves both count bins on shore
+  # all-gear (zero z +3.7 -> +2.0, one z -6.1 -> -3.3) and closes both on the pot-closure
+  # replicate, for +11.6 nats at 2.30 paired SE.
+  # POOLED ONLY. crab_bss_gear_resolved.stan has no theta_C and prep_bss_crab_gear.R never
+  # emits zi_catch, so the gear track silently ignores this flag and fits plain NB2. That
+  # makes the two-track cross-check compare UNLIKE shore catch likelihoods for the first
+  # time. The effect is small (about -0.3% on the pooled shore component), so it explains
+  # a sliver of the cross-track gap and none of a large one, but read the gap knowing it.
+  estimate_catch_zi     = TRUE,
   catch_zi_populations  = c("shore"),
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
@@ -691,7 +702,20 @@ run_config <- list(
   # experiment, where it now agrees with the fixed periods instead of the old
   # blanket "weekly".
   ar_max_resolution = list(
-    pooled        = list(shore = list(all_gear = "daily",
+    # 2026-09-07 ADOPTION: pooled shore all_gear "daily" -> "weekly". See Section 1k of
+    # PIPELINE_STATUS.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of
+    # n_obs, 41 Pareto k above 0.7, coverage_50 0.701 at +7.1 sampling SD, miscalibration
+    # flag set); at weekly those become 9.6%, 1, 0.559 (+2.3 SD) and clear. ONLY daily is
+    # an outlier: weekly, biweekly and monthly sit within 0.5 sampling SD of each other and
+    # span 3.6% in catch, so the evidence does not choose among them and the agreed rule
+    # does, reporting the finest rung that PASSES the gate.
+    # NOTE the routing. Stage C1 reached weekly through ar_force, an experiment lever that
+    # bypasses both the selector and the cap; this reaches it by letting the data-driven
+    # selector pick daily and then coarsening. The two were verified to produce
+    # byte-identical Stan data before this edit, and run_adoption_2026-09-07.R gates on the
+    # fits being bit-identical to C1. If that gate FAILS, revert this line AND
+    # estimate_catch_zi together: the routing would be at fault, not the resolution.
+    pooled        = list(shore = list(all_gear = "weekly",
                                       pot_closure = "biweekly"),
                          private_boat = "monthly"),
     gear_resolved = list(shore = list(all_gear = "monthly",

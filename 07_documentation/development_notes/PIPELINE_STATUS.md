@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-07 (Section 1k: the C1/C2 run and the candidate configuration)
+- **Last updated:** 2026-09-07 (Section 1l: adoption applied to run_config, confirming render outstanding)
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
@@ -11,7 +11,7 @@
 >
 > **Everything below this line that names a different authoritative run is HISTORICAL**, kept for provenance: rung 4 `20260826/pooled-CPUE-PV4-minint` (66,237), the 2026-08-04/05 OSP validation pair (67,312 pooled / 66,461 gear), Run 6 `20260715/pooled-CPUE-230256` (83,488), Run 1 (83,035). The 2024-25 reference numbers in the two method documents are **pre-refresh and superseded**; they have not been regenerated.
 >
-> **A CANDIDATE CONFIGURATION now exists and this run should be superseded (2026-09-07).** The shore all-gear component, 29% of the port total, is fitted here at a DAILY AR that the 2026-09-04 ladder showed to be overfitted: p_loo 35.2% of `n_obs`, 41 Pareto k above 0.7, `coverage_50` 0.701 (+7.1 sampling SDs), miscalibration flag set. **`05_output/20260904/pooled-CPUE-LZ-C1-weekly-zi`** fits it at weekly with a zero-inflated shore catch likelihood and is the best-behaved fit in the project: p_loo 9.5%, **zero** bad Pareto k, coverage +2.3 SD, flag clear. Port total **72,032 [53,044, 101,212]**, +0.73%. The two changes are additive (+95 crab interaction). Adoption needs one confirming render that routes the resolution through `ar_max_resolution` rather than `ar_force`; see Section 1k.
+> **SUPERSESSION IN PROGRESS (2026-09-07): `run_config` now ships the candidate and one confirming render is outstanding; see Section 1l.** The shore all-gear component, 29% of the port total, is fitted here at a DAILY AR that the 2026-09-04 ladder showed to be overfitted: p_loo 35.2% of `n_obs`, 41 Pareto k above 0.7, `coverage_50` 0.701 (+7.1 sampling SDs), miscalibration flag set. **`05_output/20260904/pooled-CPUE-LZ-C1-weekly-zi`** fits it at weekly with a zero-inflated shore catch likelihood and is the best-behaved fit in the project: p_loo 9.5%, **zero** bad Pareto k, coverage +2.3 SD, flag clear. Port total **72,032 [53,044, 101,212]**, +0.73%. The two changes are additive (+95 crab interaction). Adoption needs one confirming render that routes the resolution through `ar_max_resolution` rather than `ar_force`; see Section 1k.
 
 ---
 
@@ -750,6 +750,32 @@ The C2 per-rung numbers carry the superseded `p_loo` definition and the RNG shif
 `ar_max_resolution$pooled$shore$all_gear = "weekly"` and `estimate_catch_zi = TRUE` scoped to shore. C1 used `ar_force`, an experiment lever; production expresses the same thing through the cap, which is a one-line difference needing one confirming render that doubles as the new authoritative run.
 
 **Next: P1, the adoption render** (about 4 h), gated on reproducing C1's four fits bit-identically, since routing the same resolution through the cap rather than the override should change nothing. **P2**, the gear-track cross-check, can share the run: the two-track agreement is the strongest internal check the project has and has not been re-measured since the shore component moved.
+
+---
+
+## 1l. Adoption (2026-09-07): run_config now ships the candidate, pending one confirming render
+
+`run_config.R` has been changed:
+
+```r
+ar_max_resolution$pooled$shore$all_gear  : "daily"  ->  "weekly"
+estimate_catch_zi                        :  FALSE   ->  TRUE     (scoped to shore)
+```
+
+Nothing else moved: the shore pot-closure cap stays biweekly, the boat stays monthly, and **the entire gear-resolved map is untouched**, so the cross-check measures the pooled change alone.
+
+**Why the change ships before the render.** The authoritative run should come out of `run_config` as shipped, not out of a batch override, or its provenance is a footnote. The cost is that a failed gate leaves `run_config` carrying an unvalidated configuration, so **if A1 fails, revert both lines together**; the routing would be at fault, not the resolution.
+
+**The routing proof, run before spending four hours on it.** Stage C1 reached weekly through `ar_force`, which takes the `fixed` branch of `bss_select_ar_resolution()` and skips the cap; production reaches it through the adaptive branch, which selects daily from the effort density and is then coarsened. **Verified: both build byte-identical Stan data, weekly with `P_n` 44, no entry differing.** The desk stage of the runner repeats this check every time and refuses to start the render if it fails.
+
+**One asymmetry this creates, stated because a reviewer will find it.** `crab_bss_gear_resolved.stan` has no `theta_C` and `prep_bss_crab_gear.R` never emits `zi_catch`, so the gear track silently ignores `estimate_catch_zi` and fits plain NB2. **The two tracks now differ in the shore CATCH LIKELIHOOD as well as the AR resolution**, for the first time. The ZINB is worth about -0.3% on the pooled shore component, so it explains a sliver of any cross-track gap and none of a large one. Porting the block to the gear model would restore symmetry; it is a Stan edit plus a recompile and is not needed to read the cross-check.
+
+### The run: `06_diagnostics/run_adoption_2026-09-07.R`, about 4.5 h
+
+- **A1** (about 4 h), production as `run_config` ships it, **no config delta at all**. Gate: the four fits must be **bit-identical to `20260904/pooled-CPUE-LZ-C1-weekly-zi`**. A PASS means the adoption is a routing change and nothing else, which is what makes the folder callable authoritative. Judge the gate on the per-fit summaries, never on the port total: `rstan::extract(permuted = TRUE)` permutes draws, so a port total moves about 0.2% between bit-identical fits.
+- **A2** (about 0.5 h), the gear-resolved cross-check, not re-measured since the shore component moved. **Expect the gap to NARROW**: the gear track fits shore all-gear at monthly, so the two tracks are now closer in resolution than they were (last measured pair -0.78%). If it widens, the pooled change did something the gear track disagrees with, and that is worth more attention than the port total.
+
+Harness **391 assertions, 0 failures**, including a section that asserts `run_config` ships the adopted configuration with no experiment lever active and the gear map untouched.
 
 ---
 

@@ -57,3 +57,7 @@ Thumbs.db
 # 2026-09-04 two stages rendered in sequence and the second overwrote the first (see
 # 07_documentation/development_notes/PIPELINE_STATUS.md section 1j).
 01_BSS_models/*.html
+
+# Patch files are a transport format, not repository content. Five have been committed
+# by accident since 2026-08-25; each is a duplicate of a commit already in the history.
+*.patch

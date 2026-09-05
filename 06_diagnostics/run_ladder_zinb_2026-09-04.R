@@ -702,7 +702,7 @@ verdict_C1 <- function(dir) {
   pt <- rd(dir, "port_total_Dungeness_Kept.csv")
   if (!is.null(pt)) {
     row <- pt[pt$Estimate == "Expected_Catch", ]
-    V1row("C1", "the candidate port total", 
+    V1row("C1", "the candidate port total",
           sprintf("%s [%s, %s]  (production 71,513; daily+NB2 71,450; weekly+NB2 72,122; daily+ZINB 71,287)",
                   fmt(row$BSS_median, 0), fmt(row$BSS_lo95, 0), fmt(row$BSS_hi95, 0)),
           "informational", "INFO",
