@@ -571,12 +571,25 @@ run_config <- list(
   # tax a mixture levies on every non-zero observation: log(1 - 0.178) x 236 = -46.3. The
   # r_C tightening (0.947 -> 1.828) repays it at y >= 3, which carries 87% of the catch.
   #
-  # IT STILL SHIPS FALSE FOR ONE REASON. It has never been run at the AR resolution the
-  # 2026-09-04 ladder points to (weekly, not daily). Zero-inflation is a CATCH-stream
-  # change and leaves the daily-AR effort overfitting untouched: the Z2 fit still carries
-  # p_loo at 34.4% of n_obs, 26 Pareto k above 0.7 and flag_miscalibrated TRUE. Adopting a
-  # likelihood change and a resolution change in one step would leave neither attributable.
-  # Stage C1 (weekly + ZINB, boat as the untouched control) settles it.
+  # SETTLED 2026-09-07 BY STAGE C1 (weekly + ZINB). Compared like for like at the SAME
+  # resolution against L1, which is the comparison every earlier run lacked:
+  #     shore all-gear  zero bin  z +3.7 -> +2.0     one bin  z -6.1 -> -3.3
+  #     shore pot clos. zero bin  z +2.9 -> +0.7     one bin  z -3.5 -> -1.2
+  #     elpd +11.6 nats at 2.30 PAIRED SE (it was +14.8 / 2.69 at daily)
+  #     Pareto k > 0.7: 1 -> 0, the only fit in this project with none
+  # The gain SHRINKS when the effort process is no longer overfitted, which is the right
+  # direction and the expected size: it was not an artefact of daily absorbing structure
+  # the catch likelihood should have explained. The two changes are ADDITIVE, +95 crab of
+  # interaction on a 21,500 component.
+  #
+  # WHAT IT DOES NOT FIX. The all-gear one bin is still 3.3 SD out and the catch stream is
+  # under-covered at every AR resolution: the data has more zeros AND fewer ones than the
+  # mixture predicts, i.e. it is more bimodal than a zero-inflated NB can be. A hurdle
+  # model, or a two-component NB with its own mean in the low regime, is the shape that
+  # fits it; the remaining gain is bounded at roughly 6% of the catch, so that effort can
+  # be judged before it is spent.
+  #
+  # RECOMMENDED: set this TRUE together with the weekly AR below, in ONE adoption render.
 
   # --- Persist the draws the PPC is computed from (2026-09-04) -----------------
   # Three separate defects in the DIAGNOSTIC arithmetic have each forced a full multi-hour
@@ -597,6 +610,31 @@ run_config <- list(
   # multi-hour fit; only ever computed when the ladder has more than one rung.
   ar_rung_adequacy      = TRUE,
 
+  # --- SHORE ALL-GEAR AR: RESOLVED 2026-09-07, ADOPTION RENDER OUTSTANDING ---------
+  # The pooled bracket is now measured across all four rungs (C2, 2026-09-04):
+  #     rung   cov50 gear      cov50 catch    total p_loo  bad k   catch   PI rel
+  #     daily  0.7010 (+7.1SD) 0.4572 (-3.5)     153.6      41    20,898  0.2974
+  #     weekly 0.5659 (+2.3SD) 0.4433 (-4.6)      54.8       1    21,547  0.2530
+  #   biweekly 0.5659 (+2.3SD) 0.4500 (-4.1)      34.2       0    21,383  0.2291
+  #    monthly 0.5788 (+2.8SD) 0.4506 (-4.0)      22.2       0    20,771  0.2209
+  # ONLY DAILY IS AN OUTLIER. The three coarse rungs sit within 0.5 sampling SD of each
+  # other and span 3.6% in catch, so the evidence does not choose between them; the agreed
+  # rule (finest rung that PASSES the gate) selects WEEKLY, and that is defensible here
+  # because weekly is adequate on every statistic rather than merely passing a gate that
+  # everything passes. NOTE the correction: the "monthly is also bad, cov50 0.035, -16.4 SD"
+  # figure quoted from 2026-08-31 onward is from the GEAR-RESOLVED model, a different
+  # likelihood with per-gear CPUE, and never applied to this one.
+  # The catch stream is under-covered at EVERY resolution (-3.5 to -4.6 SD). That is a
+  # likelihood problem, not a resolution problem; see estimate_catch_zi above.
+  #
+  # TO ADOPT: set ar_max_resolution$pooled$shore$all_gear to "weekly" (below) together with
+  # estimate_catch_zi = TRUE, and render once. The gate on that render is that it must
+  # reproduce 05_output/20260904/pooled-CPUE-LZ-C1-weekly-zi bit-identically, because C1
+  # reached weekly through ar_force (an experiment lever that bypasses the cap) and
+  # production must reach it through the cap: same resolution, different routing, and
+  # nothing else may move.
+
+  # --- SUPERSEDED by the block above, kept for the record ---------------------------
   # --- WHERE THE SHORE ALL-GEAR AR STANDS (measured 2026-09-04, NOT yet adopted) ---
   # ar_max_resolution$pooled leaves shore all-gear data-driven, which selects DAILY. The
   # ladder fitted it at daily / weekly / biweekly / monthly and ALL FOUR passed the

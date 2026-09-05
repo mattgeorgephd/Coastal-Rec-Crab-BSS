@@ -34,10 +34,24 @@
 ###############################################################################
 
 bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
-  na_row <- list(p_loo = NA_real_, p_loo_frac = NA_real_, n_obs_loo = NA_integer_,
-                 n_pareto_bad = NA_integer_, cov50_gear = NA_real_, cov50_catch = NA_real_,
-                 pit_mean_catch = NA_real_)
+  na_row <- list(p_loo = NA_real_, p_loo_frac = NA_real_, p_loo_worst_stream = NA_character_,
+                 n_obs_loo = NA_integer_, n_pareto_bad = NA_integer_,
+                 cov50_gear = NA_real_, cov50_catch = NA_real_, pit_mean_catch = NA_real_)
   if (is.null(fit) || is.null(stan_data)) return(na_row)
+  # 2026-09-07 DEFECT FIX. bss_ppc_calibration() calls set.seed() unconditionally, and both
+  # it and save_run_diagnostics() take a RANDOM SUBSET of draws. Calling this helper inside
+  # the fitting loop therefore shifted the global RNG stream for every diagnostic computed
+  # afterwards: on the 2026-09-04 run, C2's kept fit is BIT-IDENTICAL to L1's across 10,251
+  # parameter rows and yet reported gear coverage_50 0.5659 against L1's 0.5595, purely
+  # because a diagnostic-only toggle moved the seed. Bit-comparability is the tool that has
+  # caught four defects in this project; a helper that quietly breaks it is worse than the
+  # gap it fills. Save the RNG state and put it back.
+  .seed_before <- if (exists(".Random.seed", envir = globalenv(), inherits = FALSE))
+    get(".Random.seed", envir = globalenv()) else NULL
+  on.exit({
+    if (!is.null(.seed_before)) assign(".Random.seed", .seed_before, envir = globalenv())
+    else suppressWarnings(rm(".Random.seed", envir = globalenv()))
+  }, add = TRUE)
   out <- tryCatch({
     r <- na_row
     # --- loo, summed over streams EXACTLY as write_loo_diagnostics() does ------
@@ -50,6 +64,7 @@ bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
       trailer = list(par = "log_lik_trailer", n = stan_data$T_n    %||% 0),
       catch   = list(par = "log_lik_catch",   n = stan_data$IntC   %||% 0))
     p_loo <- 0; n_obs <- 0L; bad <- 0L; any_ok <- FALSE
+    frac <- setNames(rep(NA_real_, length(streams)), names(streams))
     if (requireNamespace("loo", quietly = TRUE)) {
       for (sn in names(streams)) {
         st <- streams[[sn]]
@@ -58,17 +73,33 @@ bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
         if (inherits(ll, "try-error") || is.null(ll) || nrow(ll) == 0 || ncol(ll) == 0) next
         lo <- try(suppressWarnings(loo::loo(ll)), silent = TRUE)
         if (inherits(lo, "try-error") || is.null(lo)) next
-        p_loo <- p_loo + lo$estimates["p_loo", "Estimate"]
+        pl <- lo$estimates["p_loo", "Estimate"]
+        frac[sn] <- pl / ncol(ll)
+        p_loo <- p_loo + pl
         n_obs <- n_obs + ncol(ll)
         bad   <- bad + sum(lo$diagnostics$pareto_k > 0.7, na.rm = TRUE)
         any_ok <- TRUE
       }
     }
     if (any_ok && n_obs > 0) {
-      r$p_loo <- p_loo; r$n_obs_loo <- n_obs
-      r$p_loo_frac <- p_loo / n_obs; r$n_pareto_bad <- bad
+      # 2026-09-07 DEFECT FIX. p_loo_frac is the WORST STREAM's p_loo / n_obs, which is
+      # what bss_model_adequacy.R reports and therefore the only definition that can be
+      # read against model_adequacy.csv and against the daily baseline. The first version
+      # summed every stream and divided by the summed n_obs, which on the 2026-09-04 C2
+      # ladder printed 2.8% for a rung whose model_adequacy figure is 9.6%: two different
+      # statistics under one name, in the same run, being compared with each other.
+      w <- which.max(replace(frac, is.na(frac), -Inf))
+      r$p_loo <- p_loo; r$n_obs_loo <- n_obs; r$n_pareto_bad <- bad
+      if (is.finite(frac[w])) {
+        r$p_loo_frac <- unname(frac[w]); r$p_loo_worst_stream <- names(frac)[w]
+      }
     }
-    # --- coverage, from the SAME randomized-PIT path the aggregate PPC uses -----
+    # --- coverage ---------------------------------------------------------------
+    # This is the ppc_calibration_*.csv statistic: the exact randomized PIT computed on a
+    # 400-draw subset. NOTE it is NOT the number model_adequacy.csv reports, which prefers
+    # ppc_byobs (a different draw subset) when that file exists and can differ by a few
+    # thousandths. Compare these RUNG TO RUNG, where the statistic is identical throughout;
+    # do not read a single rung's value against model_adequacy.csv.
     ppc <- try(bss_ppc_calibration(fit, stan_data), silent = TRUE)
     if (!inherits(ppc, "try-error") && !is.null(ppc$summary)) {
       sm <- as.data.frame(ppc$summary, stringsAsFactors = FALSE)

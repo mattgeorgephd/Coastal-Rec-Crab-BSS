@@ -18,6 +18,21 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-07, The 2x2 completes: a candidate production configuration, and four defects in my own diagnostics helper (branch `OSP-boat-count-incorporation`)
+
+Harness **378 assertions**, 0 failing. Full review in `development_notes/candidate-config-review-2026-09-07.md`; summary in `PIPELINE_STATUS.md` Section 1k. 9.3 h of fitting.
+
+**THE 2x2 IS CLEAN AND THE EFFECTS ARE ADDITIVE.** daily+NB2 / weekly+NB2 / daily+ZINB / weekly+ZINB give shore all-gear 20,898 / 21,547 / 20,745 / 21,489, an interaction of **+95 crab** on a 21,500 component. The AR resolution does all the work on `p_loo` and coverage (0.352 -> 0.095; cov50 dev 0.204 -> 0.069) and the ZINB does the rest on the Pareto diagnostics (41 -> 26 at daily, 1 -> **0** at weekly). **C1 is the only fit in this project with zero Pareto k above 0.7.** Port total **72,032 [53,044, 101,212]**, +0.73% on the current authoritative 71,513.
+
+**A CORRECTION I HAD BEEN CARRYING SINCE 2026-08-31.** I repeatedly framed the shore all-gear AR as bracketed by two bad ends, daily at `coverage_50` 0.701 (+7.1 SD) and monthly at 0.035 (-16.4 SD). **The monthly figure is from the GEAR-RESOLVED model**, a different likelihood with per-gear CPUE. The pooled model's own bracket, measured by C2, is daily 0.7010 (+7.1 SD), weekly 0.5659 (+2.3), biweekly 0.5659 (+2.3), monthly 0.5788 (+2.8): **only daily is an outlier**, and the three coarse rungs span 3.6% in catch. So the evidence does not choose among them; the agreed rule does, selecting weekly, and it is defensible because weekly is adequate on every statistic rather than merely passing a gate everything passes. Separately, the catch stream is under-covered at EVERY resolution (-3.5 to -4.6 SD), which is a likelihood problem and not a resolution one.
+
+**THE ZINB, COMPARED LIKE FOR LIKE AT LAST.** C1 against L1 is same resolution, same data, one likelihood difference: the zero bin goes z +3.7 -> +2.0 and the one bin z -6.1 -> -3.3 on all-gear, and both CLOSE on the pot-closure replicate (+2.9 -> +0.7, -3.5 -> -1.2). elpd +11.6 nats at **2.30 paired SE**, down from 2.69 at daily, which is the right direction: the gain was not an artefact of the overfitted effort process. The all-gear one bin does NOT close: the data is more bimodal than a zero-inflated NB can be, and a hurdle or two-component mixture is the shape that fits it, with the remaining gain bounded at about 6% of the catch.
+
+**FOUR DEFECTS, ALL IN CODE I WROTE IN THE PREVIOUS PATCH.** (1) `bss_rung_adequacy()` reported `p_loo_frac` as the sum over streams divided by summed `n_obs` where `bss_model_adequacy.R` reports the WORST stream's fraction, so one run printed 2.8% and 9.6% for the same fit and invited the reader to compare them. (2) It called `bss_ppc_calibration()`, which reseeds, from inside the fitting loop: **C2's kept fit is bit-identical to L1's across 10,251 parameter rows and still reported gear `coverage_50` 0.5659 against 0.5595**, because a diagnostic-only toggle had shifted the RNG stream every later diagnostic drew from. `.Random.seed` is now saved and restored. (3) `verdict_L1(dirs$C2)` filed C2's rows under the `L1` label and `merge_csv_by()` de-duplicated only against the OLD file, so the verdicts carried two rows per criterion; both fixed and the committed file relabelled. (4) `DRY_RUN <- FALSE` committed for the fourth time.
+
+**RECOMMENDATION: ADOPT C1**, via `ar_max_resolution$pooled$shore$all_gear = "weekly"` and `estimate_catch_zi = TRUE`. C1 reached weekly through `ar_force`, an experiment lever that bypasses the cap; production must route it through the cap, which is one line and needs one confirming render gated on reproducing C1 bit-identically.
+
+
 ### 2026-09-06, The AR ladder measured: daily is overfitted, and the ZINB halves both the zero and the one bin (branch `OSP-boat-count-incorporation`)
 
 Harness **372 assertions**, 0 failing. Full review in `development_notes/ladder-zinb-review-2026-09-06.md`; summary in `PIPELINE_STATUS.md` Section 1j. 9.1 h of fitting.

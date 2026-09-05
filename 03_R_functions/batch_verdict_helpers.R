@@ -38,6 +38,15 @@ if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a))
 
 merge_csv_by <- function(new, path, key) {
   if (is.null(new) || !nrow(new)) return(invisible(NULL))
+  # 2026-09-07: de-duplicate WITHIN the new frame, last write wins. The old-row filter
+  # below removes stale rows whose key the new frame carries, but nothing stopped the new
+  # frame carrying a key twice; on the 2026-09-04 batch two stages wrote ladder verdicts
+  # under the same stage label and the file ended with two rows per criterion, which is
+  # exactly the ambiguity this function exists to prevent.
+  if (all(key %in% names(new))) {
+    k <- do.call(paste, c(new[key], sep = "\r"))
+    new <- new[!duplicated(k, fromLast = TRUE), , drop = FALSE]
+  }
   old <- if (file.exists(path))
     tryCatch(utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE),
              error = function(e) NULL) else NULL

@@ -59,7 +59,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                    # TRUE: desk stages run, nothing is fitted. START HERE.
+DRY_RUN <- TRUE                     # TRUE: desk stages run, nothing is fitted. START HERE.
 # 2026-09-06: L1 and Z2 have RUN (results at 20260903/pooled-CPUE-LZ-*). Their stage
 # definitions are kept so RESUME re-scores them without refitting. The work still to do is
 # C1 (the candidate production configuration: weekly AR + ZINB together, never yet run) and
@@ -466,13 +466,13 @@ run_stage <- function(sid) {
 # ---------------------------------------------------------------------------
 # VERDICTS FOR THE FITTED STAGES
 # ---------------------------------------------------------------------------
-verdict_L1 <- function(dir) {
+verdict_L1 <- function(dir, stage_id = "L1") {
   if (is.na(dir %||% NA) || !dir.exists(dir %||% "")) return(invisible(NULL))
   lg <- rd(dir, "ar_escalation_log.csv"); ad <- rd(dir, "model_adequacy.csv")
   if (is.null(lg)) return(invisible(NULL))
   sa <- lg[grepl("^shore_all_gear", lg$fit), ]
   # THE control that the 2026-09-03 batch could not run: distinct rungs.
-  V1row("L1", "the ladder produced one DISTINCT resolution per rung",
+  V1row(stage_id, "the ladder produced one DISTINCT resolution per rung",
         sprintf("%d attempts: %s; P_n: %s", nrow(sa), paste(sa$ar_resolution, collapse = ", "),
                 paste(sa$P_n, collapse = ", ")),
         "no two rungs share a resolution, and each carries its own adequacy",
@@ -499,7 +499,7 @@ verdict_L1 <- function(dir) {
     rung <- paste0(sprintf("daily (from %s): catch %s [%s, %s], PI rel %.4f, div %d | ",
                            REF$DAILY$dir, fmt(REF$DAILY$shore_ag), fmt(REF$DAILY$lo95),
                            fmt(REF$DAILY$hi95), REF$DAILY$pi_rel, REF$DAILY$divergences), rung)
-  V1row("L1", "where does the shore all-gear effort process actually belong?", rung,
+  V1row(stage_id, "where does the shore all-gear effort process actually belong?", rung,
         "finest rung that passes the gate; narrowest PI only as a tie-break",
         "READ",
         paste("THE QUESTION THIS BATCH EXISTS FOR, asked properly for the first time. Production fits",
@@ -517,7 +517,7 @@ verdict_L1 <- function(dir) {
   if (!is.null(ad)) {
     r <- ad[grepl("shore_all_gear", ad$fit), ]
     if (nrow(r))
-      V1row("L1", "adequacy of the REPORTED rung, read beside the gate and never as a gate",
+      V1row(stage_id, "adequacy of the REPORTED rung, read beside the gate and never as a gate",
             sprintf("p_loo %.1f%% of n_obs (daily was %.1f%%), Pareto k>0.7 %s (was %d), worst cov50 dev %.4f on %s, miscalibrated flag %s",
                     100 * r$p_loo_frac[1], 100 * REF$DAILY$p_loo_frac, r$n_pareto_bad[1], REF$DAILY$bad_k,
                     r$cov50_worst_dev[1], r$cov50_worst_stream[1], r$flag_miscalibrated[1]),
@@ -685,7 +685,13 @@ verdict_C1 <- function(dir) {
   }
   # the boat, untouched in every one of these runs
   fe <- fit_exactness(dir, L1d, pat = "private_boat", what = "BOAT fits vs L1",
-                      expect_delta = c("ar_force", "estimate_catch_zi", "catch_zi_populations"))
+                      # the ladder keys differ because L1 ran one and C1 does not, and the
+                      # three *_dates entries are derived date lists rather than settings.
+                      expect_delta = c("ar_force", "estimate_catch_zi", "catch_zi_populations",
+                                       "ar_escalate", "ar_escalate_ladder", "ar_escalate_stop",
+                                       "ar_escalate_select", "ar_escalate_max_attempts",
+                                       "ar_escalate_respect_cap", "ar_rung_adequacy",
+                                       "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
   V1row("C1", "the boat fits are still an untouched negative control", fe$observed,
         "bit-identical to L1", fe$verdict,
         paste("Neither change is scoped to the boat: ar_force names shore/all_gear and",
@@ -725,7 +731,10 @@ for (sid in STAGES) {
 }
 if ("L1" %in% STAGES) verdict_L1(dirs$L1)
 if ("Z2" %in% STAGES) verdict_Z2(dirs$Z2)
-if ("C2" %in% STAGES) verdict_L1(dirs$C2)   # same ladder reading, now with adequacy per rung
+# 2026-09-07: pass the STAGE ID. Without it C2's ladder rows were written under
+# stage "L1", giving the verdicts file two rows per criterion with the same key: the
+# first ladder's reading and the second's, indistinguishable to a reader.
+if ("C2" %in% STAGES) verdict_L1(dirs$C2, "C2")
 if ("C1" %in% STAGES) verdict_C1(dirs$C1)
 
 if (length(V)) {

@@ -1574,6 +1574,13 @@ local({
   # it must call loo the SAME way write_loo_diagnostics does, or its numbers are not
   # comparable with loo_summary_*.csv and model_adequacy.csv for the reported rung
   src <- readLines("03_R_functions/bss_rung_adequacy.R", warn = FALSE)
+  # 2026-09-07: the two defects the 2026-09-04 C2 run exposed.
+  chk("rung adequacy: p_loo_frac is the WORST STREAM, as bss_model_adequacy defines it",
+      any(grepl("which.max(replace(frac", readLines("03_R_functions/bss_rung_adequacy.R", warn = FALSE), fixed = TRUE)) &&
+      "p_loo_worst_stream" %in% names(bss_rung_adequacy(NULL, NULL)))
+  chk("rung adequacy: restores the RNG state, so a diagnostic toggle cannot move a diagnostic",
+      { src <- readLines("03_R_functions/bss_rung_adequacy.R", warn = FALSE)
+        any(grepl(".Random.seed", src, fixed = TRUE)) && any(grepl("on.exit(", src, fixed = TRUE)) })
   chk("rung adequacy: uses the production loo call (plain matrix, no r_eff)",
       any(grepl("loo::loo(ll)", src, fixed = TRUE)) &&
       !any(grepl("relative_eff", src, fixed = TRUE)))
@@ -1605,6 +1612,38 @@ local({
       any(grepl("^01_BSS_models/\\*\\.html", readLines(".gitignore", warn = FALSE))))
   chk("no rendered driver HTML is committed beside the .Rmd",
       !length(list.files("01_BSS_models", pattern = "\\.html$")))
+})
+
+# ---------------------------------------------------------------------------
+# 41. A verdicts file must never carry two rows for one key. merge_csv_by() dropped
+#     stale rows the new frame supersedes but never de-duplicated the NEW frame, so
+#     when the 2026-09-04 batch ran verdict_L1() for both L1 and C2 under one stage
+#     label the file ended with two rows per criterion.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/batch_verdict_helpers.R")
+  tf <- tempfile(fileext = ".csv")
+  d <- data.frame(stage = c("A", "A", "B"), criterion = c("x", "x", "y"),
+                  observed = c("first", "second", "z"), stringsAsFactors = FALSE)
+  merge_csv_by(d, tf, c("stage", "criterion"))
+  got <- utils::read.csv(tf, stringsAsFactors = FALSE)
+  chk("merge_csv_by de-duplicates within the new frame", nrow(got) == 2, sprintf("%d rows", nrow(got)))
+  chk("merge_csv_by keeps the LAST write for a duplicated key",
+      identical(got$observed[got$criterion == "x"], "second"))
+  # and the runner must label a reused verdict block with the stage that produced it
+  src <- readLines("06_diagnostics/run_ladder_zinb_2026-09-04.R", warn = FALSE)
+  src <- src[!grepl("^\\s*#", src)]
+  chk("verdict_L1 takes a stage id so a second ladder is not filed under the first",
+      any(grepl("verdict_L1 <- function(dir, stage_id", src, fixed = TRUE)) &&
+      any(grepl('verdict_L1(dirs$C2, "C2")', src, fixed = TRUE)))
+  # the committed verdicts file itself must be clean
+  vp <- "05_output/ladder_zinb_2026-09-04_verdicts.csv"
+  if (file.exists(vp)) {
+    v <- utils::read.csv(vp, stringsAsFactors = FALSE)
+    k <- paste(v$stage, v$criterion, sep = "\r")
+    chk("the committed verdicts file has one row per stage+criterion",
+        !any(duplicated(k)), paste(unique(k[duplicated(k)]), collapse = " | "))
+  }
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
