@@ -48,14 +48,20 @@ fetch_crab_data <- function(params) {
   # (historical fetch_crab_data); the gear-resolved driver sets FALSE (historical _v2).
   req_boat_gear_time <- isTRUE(params$boat_require_gear_time %||% TRUE)
 
+  # 2026-09-09: season_filter accepts a character VECTOR so a multi-season span (e.g.
+  # c("2024-25", "2025-26") with a matching est_date window) can run. A scalar behaves
+  # exactly as before. The calendar indices are already span-safe (prep_days_crab builds
+  # sequential year+week / year+month factors), and the one thing a multi-season span
+  # CANNOT yet express is more than one pot-closure window; see build_subseasons.R and
+  # NEW_SEASON_GUIDE.md.
   effort_raw <- readxl::read_excel(
       here("04_input_files", params$effort_file %||% "effort_combined.xlsx"), sheet = in_sheet) |>
-    filter(season == params$season_filter) |> mutate(date = as.Date(date))
+    filter(season %in% params$season_filter) |> mutate(date = as.Date(date))
 
   interview_raw <- readxl::read_excel(
       here("04_input_files", params$interview_file %||% "interview_combined.xlsx"), sheet = in_sheet) |>
     mutate(completed_trip = as.character(completed_trip)) |>
-    filter(season == params$season_filter)
+    filter(season %in% params$season_filter)
 
   # gear_tampered flags interviews where the crabber believes a third party
   # pulled their pots; it may be absent in older workbooks, so ensure it exists.
@@ -192,6 +198,10 @@ fetch_crab_data <- function(params) {
                   fish_count=as.integer(red_rock_kept),catch_group="Red_Rock_Kept")
     } else { tibble() }
   )
+
+  # 2026-09-09: say what the season selection captured, and stop loudly when it captured
+  # nothing. See 03_R_functions/validate_season_window.R for why this exists.
+  validate_season_window(effort_raw, gh_interview, params)
 
   return(list(
     shore_effort = shore_effort,

@@ -58,10 +58,26 @@ build_subseasons <- function(params) {
   pc_start  <- as.Date(params$pot_closure_start %||% params$est_date_start)
   pc_end    <- as.Date(params$pot_closure_end   %||% (as.Date(params$pot_open_date) - 1))
 
-  if (pc_start < est_start) pc_start <- est_start
-  if (pc_end   > est_end)   pc_end   <- est_end
+  # A genuinely inverted CONFIG is an error worth stopping on.
   if (pc_end < pc_start)
     stop("build_subseasons(): pot_closure_end is before pot_closure_start.", call. = FALSE)
+
+  # 2026-09-09: an estimation window that does not intersect the closure at all is a
+  # single all-gear sub-season, not an error. Before this fix, clamping the closure into
+  # the window inverted it and hit the stop() above, so a partial-season run that excluded
+  # the closure (a summer-only window; a winter window starting after pots opened) could
+  # not run at all. That contradicts the design goal that the model runs on ANY window the
+  # user selects, part-season included; 2024-25 full-season configs are unaffected because
+  # their closure always intersects the window.
+  if (pc_end < est_start || pc_start > est_end) {
+    return(list(list(
+      name = "all_gear", display_name = "All gear", gear_regime = "all_gear",
+      start = est_start, end = est_end, period_bss = "month",
+      gear_exclude = character(0))))
+  }
+
+  if (pc_start < est_start) pc_start <- est_start
+  if (pc_end   > est_end)   pc_end   <- est_end
 
   has_pre  <- pc_start > est_start
   has_post <- pc_end   < est_end

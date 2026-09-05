@@ -1743,5 +1743,63 @@ local({
       identical(isTRUE(is.finite(numeric(0))), FALSE))
 })
 
+# ---------------------------------------------------------------------------
+# 45. Season portability (2026-09-09). The program goal is that the model runs on ANY
+#     user-selected window: full season, part-season, multi-season span. These pin the
+#     four fixes that goal required, functionally where possible.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/build_subseasons.R")
+  base <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15",
+               pot_closure_start = "2024-09-16", pot_closure_end = "2024-11-30",
+               pot_open_date = "2024-12-01")
+  full <- build_subseasons(base)
+  chk("subseasons: the 2024-25 full-season shape is unchanged (closure + all_gear)",
+      length(full) == 2 && identical(sapply(full, `[[`, "name"), c("ring_net_only", "all_gear")))
+  summer <- build_subseasons(modifyList(base, list(est_date_start = "2025-06-01", est_date_end = "2025-08-31")))
+  chk("subseasons: a window that MISSES the closure runs as one all-gear sub-season",
+      length(summer) == 1 && identical(summer[[1]]$gear_regime, "all_gear") &&
+      identical(summer[[1]]$start, as.Date("2025-06-01")) && identical(summer[[1]]$end, as.Date("2025-08-31")))
+  winter <- build_subseasons(modifyList(base, list(est_date_start = "2024-12-15", est_date_end = "2025-03-15")))
+  chk("subseasons: a window entirely AFTER the closure runs as one all-gear sub-season",
+      length(winter) == 1 && identical(winter[[1]]$gear_regime, "all_gear"))
+  inside <- build_subseasons(modifyList(base, list(est_date_start = "2024-10-01", est_date_end = "2024-10-31")))
+  chk("subseasons: a window INSIDE the closure runs as one pot-closure sub-season",
+      length(inside) == 1 && identical(inside[[1]]$gear_regime, "pot_closure"))
+  chk("subseasons: an inverted closure CONFIG still stops",
+      inherits(try(build_subseasons(modifyList(base, list(pot_closure_start = "2024-11-30",
+                                                          pot_closure_end = "2024-09-16"))), silent = TRUE), "try-error"))
+  # the readers accept a vector season_filter; assert the source so a revert is caught
+  for (fset in list(c("03_R_functions/fetch_crab_data.R", "%in% params$season_filter", 2),
+                    c("03_R_functions/bss_day_length.R",  "%in% params$season_filter", 1),
+                    c("03_R_functions/read_crabbing_holidays.R", "%in% season", 1))) {
+    src <- paste(readLines(fset[1], warn = FALSE), collapse = "\n")
+    chk(sprintf("season_filter is vector-safe in %s", basename(fset[1])),
+        lengths(regmatches(src, gregexpr(fset[2], src, fixed = TRUE))) >= as.integer(fset[3]))
+  }
+  # the validator: stops on a captured-nothing window, passes on a good one, quiet-able
+  source("03_R_functions/validate_season_window.R")
+  eff <- data.frame(date = as.Date("2024-10-01") + 0:9, season = "2024-25")
+  int <- data.frame(event_date = as.Date("2024-10-02") + 0:9, season = "2024-25")
+  okp <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25")
+  chk("validator: a good season/window pairing passes",
+      isTRUE(suppressWarnings(validate_season_window(eff, int, okp, quiet = TRUE))))
+  badp <- modifyList(okp, list(est_date_start = "2025-10-01", est_date_end = "2026-09-15"))
+  chk("validator: a stale season_filter STOPS with the guide named in the message",
+      { e <- try(suppressWarnings(validate_season_window(eff, int, badp, quiet = TRUE)), silent = TRUE)
+        inherits(e, "try-error") && grepl("NEW_SEASON_GUIDE", attr(e, "condition")$message) })
+  chk("validator: runs inside fetch_crab_data so every driver and batch gets it",
+      any(grepl("validate_season_window(effort_raw, gh_interview, params)",
+                readLines("03_R_functions/fetch_crab_data.R", warn = FALSE), fixed = TRUE)))
+  # the guide exists and is wired in
+  chk("NEW_SEASON_GUIDE.md exists", file.exists("07_documentation/NEW_SEASON_GUIDE.md"))
+  chk("the guide is linked from README, run_config and the docs index",
+      grepl("NEW_SEASON_GUIDE", paste(readLines("README.md", warn = FALSE), collapse = "")) &&
+      grepl("NEW_SEASON_GUIDE", paste(readLines("run_config.R", warn = FALSE), collapse = "")) &&
+      grepl("NEW_SEASON_GUIDE", paste(readLines("07_documentation/README.md", warn = FALSE), collapse = "")))
+  chk("run_config tags its 2024-25-derived settings",
+      sum(grepl("SEASON-DERIVED", readLines("run_config.R", warn = FALSE))) >= 5)
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

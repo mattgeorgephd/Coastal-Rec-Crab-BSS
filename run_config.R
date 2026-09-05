@@ -22,6 +22,29 @@
 # run_config.R  --  the single control surface for a production run.
 #
 # ---------------------------------------------------------------------------
+# RUNNING A NEW SEASON OR A NEW WINDOW? Start with 07_documentation/NEW_SEASON_GUIDE.md,
+# which walks the whole workflow (naive run -> AR ladder -> read the diagnostics -> pin
+# resolutions -> production run -> gear-track cross-check). The 2024-25 season was the
+# DEVELOPMENT TEST SEASON; the architecture is built to run on any window the user
+# selects (full season, part of a season, or a multi-season span via a vector
+# season_filter). The short checklist of keys that MUST be revisited together:
+#
+#   the window       est_date_start, est_date_end
+#   the data filter  season_filter (must match the season column of the workbooks;
+#                    a stale value now stops the run with a plain message)
+#   the calendar     pot_closure_start/end + pot_open_date; census_start_date/end;
+#                    crabbing_holidays.xlsx rows; fishery_opener_dates.xlsx rows
+#   the AR caps      ar_max_resolution (2024-25-derived; RE-DERIVE with the ladder,
+#                    ar_escalate + ar_rung_adequacy, before trusting them on new data)
+#   season-derived   every key tagged "SEASON-DERIVED" below (prior centers, floors,
+#   priors/floors    the set crabbing fraction): revisit, do not assume
+#
+# One closure window per run: a span containing two pot closures (a full two-season
+# span) must be run per season and combined outside the model, or wait for the
+# closure-calendar generalization (CHANGE_REGISTER D8).
+# ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
 # WHERE THIS WORK STANDS (context, 2026-09-04). Read this before treating any
 # number in this repository as an estimate.
 #
@@ -134,6 +157,9 @@ run_config <- list(
   # --- Season window (the values you change most often) --------------------
   est_date_start    = "2024-09-16",   # first day of the estimation window
   est_date_end      = "2025-09-15",   # last day
+  # A vector runs a multi-season span (e.g. c("2024-25", "2025-26")) with a matching
+  # est window; every listed season needs rows in the workbooks and a holiday calendar.
+  # A stale value now stops the run loudly (validate_season_window.R).
   season_filter     = "2024-25",
 
   # --- Regulatory / structural dates ---------------------------------------
@@ -252,6 +278,8 @@ run_config <- list(
   # so the BSS and PE always share a unit. Set shore_effort_unit = "crabber-hours"
   # to revert shore only.
   shore_effort_unit      = "gear-deployments",  # "crabber-hours" | "gear-hours" | "gear-deployments"
+  # SEASON-DERIVED: the two turnover prior centers come from 2024-25 I/E and the OSP
+  # overlap; on a new season check them against that season's I/E before trusting them.
   tau_shore_prior_mu     = 1.7,       # shore deployment turnover (trips/gear-slot/day)
   tau_shore_prior_sigma  = 0.3,
   tau_boat_prior_mu      = 1.2,       # boat deployment turnover
@@ -307,6 +335,9 @@ run_config <- list(
   # shore from the boat; 15 sits just below 18 deliberately, to keep the boat pot closure,
   # whose tau_bar (1.873 pooled, 2.050 gear-resolved) is corroborated across tracks. Setting
   # 20 drops that component out of the feature and is worth running once as a sensitivity.
+  # SEASON-DERIVED floor: 15 makes the shared turnover boat-only on 2024-25 (130
+  # OSP-informed days vs 0 shore). A season with sparse OSP coverage can drop the boat
+  # below this floor; the run prints the informed-day count next to this decision.
   shared_tau_min_obs     = 15,
 
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it
@@ -343,6 +374,7 @@ run_config <- list(
   # model degrades to trailer-only outside them. Changes the boat effort posterior,
   # so validate by run.
   use_osp_boat_counts   = TRUE,
+  # SEASON-DERIVED from the 2024-25 OSP/trailer overlap days:
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
                                       #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;
                                       #   validation posterior kappa_OSP = 3.15, 95% [2.50, 3.91])
@@ -370,6 +402,7 @@ run_config <- list(
   # BSS both carry f. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat
   # (f = 1). PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
   use_crab_fraction         = TRUE,
+  # SEASON-DERIVED placeholder (no supporting observations; see CHANGE_REGISTER D2):
   crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
   crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
   crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
@@ -517,12 +550,22 @@ run_config <- list(
   # hundreds to spare and is not harmless at 15. NULL = reuse bss_min_interviews.
   bss_min_interviews_fitted = NULL,
 
-  # --- AR resolution experiment toggle -------------------------------------
-  # PRODUCTION VALUE IS NULL. Forces a population's AR resolution, bypassing both
-  # the data-driven selection and the per-population cap for the named population.
-  # To run the boat daily-vs-weekly experiment, set list(private_boat = "daily").
-  # To test the boat monthly-AR reconciliation (open item in the model-state
-  # review), set list(private_boat = "monthly").
+  # --- AR resolution PIN (per fit) ------------------------------------------
+  # PRODUCTION VALUE IS NULL. Sets a fit's AR resolution exactly, bypassing both the
+  # data-driven selector and ar_max_resolution. Scope it per population or per
+  # population x sub-season: list(private_boat = "monthly"),
+  # list(shore = list(all_gear = "weekly")).
+  #
+  # 2026-09-09 REFRAME. This began life as an experiment lever, and for one-off
+  # experiments it still is one. But in the NEW-SEASON workflow it is the sanctioned
+  # second half of the ladder: the ladder (ar_escalate) finds the finest resolution each
+  # fit supports, and ar_force is how the user PINS a fit to a chosen rung while deciding,
+  # including a rung FINER than the data-driven selector would pick, which the cap alone
+  # cannot express (caps only coarsen). Once a season's resolutions are settled, move them
+  # into ar_max_resolution and return this to NULL, so production reads from the cap and
+  # the config self-documents; the two routes were proven to build byte-identical Stan
+  # data on 2026-09-07. Keep the 2026-08-28 lesson in mind: a per-population entry reaches
+  # BOTH sub-seasons of that population; scope per sub-season when you mean one.
   ar_force          = NULL,
 
   # --- PE / BSS incomplete-trip arm alignment (2026-09-02) ---------------------
@@ -560,6 +603,7 @@ run_config <- list(
   # a sliver of the cross-track gap and none of a large one, but read the gap knowing it.
   estimate_catch_zi     = TRUE,
   catch_zi_populations  = c("shore"),
+  # SEASON-DERIVED prior shape (chosen from the 2024-25 zero bin; weakly informative):
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
   #
@@ -705,6 +749,11 @@ run_config <- list(
   # period_bss bypasses the cap. It is consulted only in the ar_adaptive = TRUE
   # experiment, where it now agrees with the fixed periods instead of the old
   # blanket "weekly".
+  # SEASON-DERIVED, the WHOLE MAP: every cap below was settled on 2024-25 data (the boat
+  # monthly cap by the 2026-07 reconciliation, the shore pot-closure biweekly cap by the
+  # Run 6 funnel, the shore all-gear weekly cap by the 2026-09-04 ladder). On a NEW season
+  # these are starting points, not answers: run the ladder (ar_escalate, with
+  # ar_rung_adequacy = TRUE) and re-derive them. See NEW_SEASON_GUIDE.md.
   ar_max_resolution = list(
     # 2026-09-07 ADOPTION: pooled shore all_gear "daily" -> "weekly". See Section 1k of
     # PIPELINE_STATUS.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of

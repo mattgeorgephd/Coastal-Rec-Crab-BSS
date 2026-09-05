@@ -22,6 +22,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > limitation is that more **boat interviews** are needed next season, which no amount of
 > boat counting fixes.
 >
+> **THE PROGRAM GOAL (stated by Matt, 2026-09-09).** This branch will supersede `main`.
+> The 2024-25 season was the DEVELOPMENT TEST SEASON, not the target: the model must run
+> on any season the user selects, a part of a season, or a multi-season span, and on a
+> naive new window it must hand the user the information to tune the fit (the AR ladder
+> finds the minimum resolution at which each fit passes the gate; per-rung adequacy says
+> what a finer or coarser choice gains and loses). Do not optimize for 2024-25; build and
+> document for the novel-season workflow. That workflow is
+> `07_documentation/NEW_SEASON_GUIDE.md`, and the 2024-25-derived settings are tagged
+> SEASON-DERIVED in `run_config.R`.
+>
 > **The authoritative run** and its totals live in one place:
 > `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top.
 > **Every change on this branch and its status** (ADOPTED / BUILT, INERT / OPEN /

@@ -4,7 +4,7 @@
 - **Lead:** Matt George
 - **Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module. **Nothing has been published from this pipeline.**
 
-> **Where the work stands.** The current authoritative run, its port total, and the open backlog live in the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md); every change on the active branch and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md). Several older documents quote superseded totals; those two files are the arbiters.
+> **Where the work stands.** For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). The current authoritative run, its port total, and the open backlog live in the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md); every change on the active branch and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md). Several older documents quote superseded totals; those two files are the arbiters.
 
 ---
 
@@ -145,12 +145,14 @@ Each run writes to `05_output/YYYYMMDD/<model>-<run_tag>/`. Both models produce 
 
 ## Season Structure
 
-The 2024-25 season (Sep 16, 2024 to Sep 15, 2025) is split into two independent sub-seasons at the pot-open date (Dec 1):
+The estimation window is user-selected (`est_date_start` / `est_date_end` with a matching `season_filter`) and is split into sub-seasons at the pot-closure boundary, because pots becoming legal is a structural break in effort and CPUE that one latent process should not bridge. The splitter (`build_subseasons.R`) handles the general case: a window that misses the closure is a single all-gear sub-season, a window inside the closure is a single pot-closure sub-season, and a mid-window closure yields pre/closure/post. Each sub-season gets its own BSS fit per population.
 
-- **Ring-net only** (Sep 16 to Nov 30, 76 days): ring nets, snares, foldable traps only.
+For the **2024-25 development test season** (Sep 16, 2024 to Sep 15, 2025, closure Sep 16 to Nov 30) that means two sub-seasons:
+
+- **Pot closure** (internally `ring_net_only`; 76 days): ring nets, snares, foldable traps only.
 - **All-gear** (Dec 1 to Sep 15, 289 days): all gear including pots.
 
-Each sub-season gets its own BSS fit per population. The split prevents the model from bridging the structural break in effort and CPUE when pots become legal.
+**Running a NEW season, a part-season window, or a multi-season span:** the workflow (naive run with the AR ladder, reading the per-rung adequacy, pinning resolutions, then producing) is [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). The 2024-25-derived caps, floors and prior centers are tagged `SEASON-DERIVED` in `run_config.R` and are starting points on new data, not answers.
 
 ---
 

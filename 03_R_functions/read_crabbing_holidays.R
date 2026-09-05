@@ -29,7 +29,7 @@
 # update is a spreadsheet edit and multiple seasons can coexist in one file.
 #
 # Expected columns (case-insensitive, trimmed): season, date, holiday_name.
-#   season        matches params$season_filter (e.g. "2024-25")
+#   season        matches params$season_filter (e.g. "2024-25"; a vector selects several)
 #   date          ISO yyyy-mm-dd (or any format base::as.Date parses by default)
 #   holiday_name  free text (documentation only; not read downstream)
 #
@@ -60,14 +60,20 @@ read_crabbing_holidays <- function(params) {
     stop("Crabbing-holiday workbook must have 'season' and 'date' columns; got: ",
          paste(names(hol), collapse = ", "), call. = FALSE)
 
+  # 2026-09-09: season_filter may be a VECTOR (multi-season spans). Every requested
+  # season must have holiday rows; a span missing one season's calendar still fails
+  # loudly, because a silently blank holiday set mis-types every holiday in that season.
   season <- as.character(params$season_filter)
-  if (is.null(season) || !nzchar(season))
+  if (is.null(season) || !length(season) || !any(nzchar(season)))
     stop("params$season_filter is unset; cannot select crabbing holidays.", call. = FALSE)
 
-  hol_season <- hol[trimws(as.character(hol$season)) == season, , drop = FALSE]
-  if (nrow(hol_season) == 0)
-    stop("No crabbing holidays for season '", season, "' in ", path,
-         ".\n  Add rows for this season (columns: season, date, holiday_name), ",
+  hol_season <- hol[trimws(as.character(hol$season)) %in% season, , drop = FALSE]
+  missing <- setdiff(season, unique(trimws(as.character(hol_season$season))))
+  if (nrow(hol_season) == 0 || length(missing))
+    stop("No crabbing holidays for season(s) ",
+         paste(sprintf("'%s'", if (length(missing)) missing else season), collapse = ", "),
+         " in ", path,
+         ".\n  Add rows for each season (columns: season, date, holiday_name), ",
          "or fix season_filter.", call. = FALSE)
 
   dates <- as.Date(hol_season$date)

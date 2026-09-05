@@ -8,6 +8,7 @@ For the one-paragraph project overview and quick start, see the [root README](..
 
 | File | Role |
 |---|---|
+| `NEW_SEASON_GUIDE.md` | **How to run the model on a new season, a part-season window, or a multi-season span**: the naive-run -> ladder -> pin-resolutions -> production workflow, the per-season config checklist, and the failure-mode table. The 2024-25 season was the development test season; this is the document for every season after it. |
 | `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
 
 ## Start here, part 2

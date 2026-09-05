@@ -1,6 +1,6 @@
 # Change register: the OSP boat-count branch
 
-**Last updated:** 2026-09-08
+**Last updated:** 2026-09-09
 **Branch:** `OSP-boat-count-incorporation`. **`main` is the pre-FW-creel-meeting, pre-OSP state.**
 **Authoritative run:** `05_output/20260904/pooled-CPUE-AD-A1-adopted`, port total **72,027 [53,018, 101,364]**, 4 of 4 components fitted.
 
@@ -26,6 +26,8 @@ Status vocabulary: **ADOPTED** (shipping in `run_config.R`, validated by a run) 
 | A10 | **Same-day-effort density term** `gamma_C` (`estimate_cpue_density`) | **REJECTED** | Run 4 was pathological (one chain ~17x slower, treedepth saturation); `gamma_C` indistinguishable from zero where it did fit | None |
 | A11 | **GR-7 Phase 2 Dirichlet gear shares** (`gear_share_dirichlet`) | **BUILT, INERT** | Coded 2026-07-21, parses under stanc 2.32.5, byte-identical to Phase 1 when off; sampled in stages V2/V3 | None at `G = 1` |
 | A12 | **Weather / tide covariate module** | **REJECTED and STALE** | Excluded on its own evidence; the fork is now missing ~40 data variables the production model declares | None; do not cite its boat number |
+
+| A13 | **Season portability** (2026-09-09): non-intersecting closure windows yield a single all-gear sub-season instead of an error; `season_filter` accepts a vector for multi-season spans; `validate_season_window()` stops loudly on a stale season/window pairing; SEASON-DERIVED tags + NEW SEASON CHECKLIST in `run_config.R`; `ar_force` reframed as the per-fit resolution pin in the new-season workflow | **ADOPTED** 2026-09-09 | Functional tests in the harness (window cases, vector filter, validator stop); the program goal recorded in `CLAUDE.md` and Section 1n | None on 2024-25 outputs (full-season configs unaffected); part-season windows go from ERROR to running |
 
 ## B. Diagnostics and infrastructure
 
@@ -73,4 +75,6 @@ Status vocabulary: **ADOPTED** (shipping in `run_config.R`, validated by a run) 
 | D4 | **The catch stream is under-covered at every AR resolution** (-3.5 to -4.6 SD) | **OPEN, bounded** | A hurdle or two-component NB mixture. The ZINB halved both count bins and did not close the shore all-gear one bin (still 3.3 SD). Gain bounded at ~6% of the catch |
 | D5 | **`ppc_draws_*.rds` are write-only** | **HALF-BUILT** | A recompute script. Code, no run |
 | D6 | **The ZINB is pooled-only** | **OPEN, low priority** | The two tracks now differ in the shore catch likelihood (~-0.3%). A Stan edit plus a recompile restores symmetry |
+| D8 | **One closure window per run** | **OPEN, by design for now** | A multi-season span containing two pot closures cannot be expressed; run per season and combine. Generalization = a closures table feeding `build_subseasons()` N ordered windows |
+| D9 | **New-season workflow documented** | **DONE 2026-09-09** | `07_documentation/NEW_SEASON_GUIDE.md`: naive run -> ladder -> per-rung adequacy -> pin (`ar_force`) -> cap -> production -> cross-check |
 | D7 | **Method of record is frozen at v1.0** (pooled code v7.4); the code is past v7.9 | **OPEN, documentation debt** | The two method documents carry pre-refresh 2024-25 reference numbers that have never been regenerated |
