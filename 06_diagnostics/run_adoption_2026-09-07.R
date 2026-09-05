@@ -39,7 +39,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE                   # TRUE: the desk pre-flight runs, nothing is fitted. START HERE.
+DRY_RUN <- FALSE                   # TRUE: the desk pre-flight runs, nothing is fitted. START HERE.
 STAGES  <- c("A1", "A2")
 RESUME  <- TRUE
 
