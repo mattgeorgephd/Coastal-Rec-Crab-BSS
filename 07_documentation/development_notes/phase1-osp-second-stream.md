@@ -1,5 +1,7 @@
 # Phase 1: OSP boat counts as a second boat effort stream (pooled)
 
+**Status 2026-09-08: EXECUTED and in production.** The OSP stream ships on, and since 2026-09-01 it identifies the shared boat turnover `tau_bar` (`osp_scale_is_tau = TRUE`). See `CHANGE_REGISTER.md` A2/A7.
+
 **Applies after:** the Phase 0 patch (`phase0-osp-ingest.patch`).
 **Scope:** pooled model only (`crab_bss_pooled.stan`, `prep_bss_crab_pooled.R`). The gear-resolved mirror (`crab_bss_gear_resolved.stan`, `prep_bss_crab_gear.R`) is the identical pattern and is a follow-up (Phase 1b).
 **Status:** behind `use_osp_boat_counts` (default FALSE). FALSE reproduces the pre-Phase-1 boat EXACTLY. R/Stan were not executed in the authoring environment; validate by run.

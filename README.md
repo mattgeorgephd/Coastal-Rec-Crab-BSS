@@ -53,7 +53,7 @@ Coastal-Rec-Crab-BSS/
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
 | `04_input_files/` | `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx` | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
-| `06_diagnostics/` | The regression harness (452 assertions), the dated validation batch runners, and the experimental weather-tide driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
+| `06_diagnostics/` | The regression harness, the dated validation batch runners, and the experimental weather-tide driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
 
 ### How paths work (important when moving files)
@@ -82,7 +82,7 @@ Despite the name, the pooled model is not minimal: effort is measured in **gear-
 
 ### 2. Gear-Resolved CPUE Model (production)
 
-Each gear type gets its own CPUE process with shared AR(1) dynamics, so gear-type catch estimates carry posterior uncertainty directly from the model. Also includes a separate holiday effort effect (`B2`), day-type stratified commercial/charter census expansion, an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
+The cross-check model. With `gear_resolved_G = TRUE` the SHORE fits carry a genuine per-gear CPUE process with shared AR(1) dynamics (all-gear `G = 5`, pot-closure `G = 4`; boat stays `G = 1`), so gear-type catch estimates carry posterior uncertainty directly from the model; the **default is `G = 1`**, where the gear split is apportioned from interview proportions just as in the pooled model, and the optional `gear_share_dirichlet` (sampled 2026-09-01, default off) propagates gear-share uncertainty into those per-gear intervals. Also includes a separate holiday effort effect (`B2`), day-type stratified commercial/charter census expansion, an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
 
 | File | Description |
 |---|---|
@@ -171,8 +171,8 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 
 Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently, each with its own detailed development-history document; the weather-tide module has its own version line. The table below is a one-line-per-milestone summary. See the two development-history documents for the full change log with working notes:
 
-- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.9)
-- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.6)
+- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled; v7.9 plus the dated 2026-08/09 entries)
+- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved; v5.6 plus the dated 2026-08/09 entries)
 
 For the current state and the prioritized backlog (what is done and what remains), see the single living status document: `07_documentation/development_notes/PIPELINE_STATUS.md`.
 
@@ -183,6 +183,7 @@ For the current state and the prioritized backlog (what is done and what remains
 | v5.0 to v5.5 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions; empirical `pi_gear`; divergence-aware then R-hat < 1.01 gate; boat and shore moved onto the gear-deployment effort scale (v5.5) |
 | v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
 | v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
+| 2026-07 to 2026-09 | both | The OSP branch arc, versioned by date rather than v-number: the OSP second boat-effort stream and crabbing fraction `f`; the 2026-08-25 improvement batch (shore I/E unit fix, model adequacy, opener covariates); the **shared boat turnover** `tau_bar` (adopted 2026-09-01); the gear-track boat sampler fix (2026-09-02); the AR escalation ladder and per-rung adequacy; the **weekly shore all-gear AR** and the **zero-inflated shore catch likelihood** (both adopted 2026-09-07, gate-confirmed 2026-09-08). See `CHANGE_REGISTER.md` for every item and its status |
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
 | OSP boat-count incorporation branch (2026-07-31) | pooled + gear-resolved | OSP second boat effort stream (kappa_OSP), crabbing fraction f (default 0.3), OSP-identifies-tau (osp_scale_is_tau, production ON after the trailer count was confirmed an instantaneous snapshot), non-crabbing + gear-tampered interview filters |
 

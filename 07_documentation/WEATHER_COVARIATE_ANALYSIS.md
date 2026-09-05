@@ -1,5 +1,7 @@
 # Weather and Tide Covariate Analysis: Results and Interpretation
 
+> **DECISION RECORD; numbers pre-deployment-scale (banner added 2026-09-08).** The exclusion finding stands and is the reason the production models carry no weather/tide covariates. Every magnitude below predates the gear-deployment effort unit, the shared turnover, and the 2026-09-07 adoptions, so quote the decision, not the numbers; current totals live in the `PIPELINE_STATUS.md` box.
+
 - **Date:** 2026-06-25
 - **Run:** `output/20260625/pooled-CPUE-covariates`
 - **Model:** `stan_models/crab_bss_pooled_weather_adjusted.stan`, driver `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`

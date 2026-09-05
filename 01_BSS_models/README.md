@@ -9,7 +9,7 @@ For the project-level overview (what the estimate is, the PE vs. BSS split, the 
 | File | Stan model used | Purpose |
 |---|---|---|
 | `BSS-GH-pooled-CPUE-model.Rmd` | `02_stan_models/crab_bss_pooled.stan` | Production driver with a single pooled CPUE process. Use for a headline harvest number. Gear-type catch is derived after estimation from interview proportions. |
-| `BSS-GH-gear-type-CPUE-model.Rmd` | `02_stan_models/crab_bss_gear_resolved.stan` | Production driver with a per-gear CPUE process (shared AR(1) dynamics). Use when you need gear-type catch with posterior uncertainty, the `B2` holiday effort effect, or the stratified commercial/charter census expansion. |
+| `BSS-GH-gear-type-CPUE-model.Rmd` | `02_stan_models/crab_bss_gear_resolved.stan` | The cross-check driver. Default `G = 1` (gear split apportioned from interview proportions); with `gear_resolved_G = TRUE` the shore fits carry a genuine per-gear CPUE process (shared AR(1) dynamics) and gear-type catch gets posterior uncertainty. Also carries the `B2` holiday effort effect and the stratified commercial/charter census expansion. Its shore catch likelihood is plain NB2 (no zero-inflation block), one of the two ways it now differs from the pooled track on the shore. |
 
 `06_diagnostics/` holds the regression harness, the dated batch runners that validate changes to these drivers, and the experimental weather-tide covariate driver; none of them are production estimators. **For where the model currently stands** (the authoritative run, adopted configuration, open items), read the box at the top of `07_documentation/development_notes/PIPELINE_STATUS.md` and the change register `07_documentation/development_notes/CHANGE_REGISTER.md`.
 

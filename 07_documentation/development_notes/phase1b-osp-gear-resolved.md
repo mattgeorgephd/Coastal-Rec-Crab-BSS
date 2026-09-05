@@ -1,5 +1,7 @@
 # Phase 1b: OSP boat counts as a second boat effort stream (gear-resolved)
 
+**Status 2026-09-08: EXECUTED and in production** on the gear-resolved track. See `CHANGE_REGISTER.md` A7.
+
 **Applies after:** the Phase 1 patch (`phase1-osp-second-stream.patch`), which itself applies after Phase 0.
 **Scope:** the gear-resolved track (`crab_bss_gear_resolved.stan`, `prep_bss_crab_gear.R`) plus the gear driver's diagnostic wiring. Mirrors Phase 1 (pooled) so both production models fit the boat with the OSP stream.
 **Status:** behind the same `use_osp_boat_counts` toggle (default FALSE) added in Phase 1. FALSE reproduces the pre-Phase-1b gear-resolved boat EXACTLY. R/Stan not executed in the authoring environment; validate by run.

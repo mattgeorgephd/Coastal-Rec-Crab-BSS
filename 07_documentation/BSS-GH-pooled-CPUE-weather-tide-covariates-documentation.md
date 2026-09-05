@@ -1,5 +1,7 @@
 # BSS-GH Weather & Tide Covariate Module: Technical Documentation
 
+> **STALE MODULE (recorded 2026-09-02, banner added 2026-09-08).** This documents the weather-tide covariate module as built (~pooled v6.9 parity). The module's Stan fork now lacks ~40 data variables the production pooled model declares (the shared turnover, the OSP stream, the crab-fraction block, the zero-inflation flags among them) and has not been re-run since the deployment-scale move; do not cite its boat-magnitude numbers. Its committed CONCLUSION, that weather/tide covariates are excluded, stands (`WEATHER_COVARIATE_ANALYSIS.md`). Any covariate later shown to help is to be folded into the production models directly rather than revived here.
+
 - **Author:** Matt George (WDFW), with implementation support
 - **File:** `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` + `crab_bss_pooled_weather_adjusted.stan`
 - **Version:** 0.2.3
