@@ -5,6 +5,7 @@
 - **Companion:** `PIPELINE_STATUS.md` (state and backlog), `ladder-validation-review-2026-08-27.md` (the review this plan comes from).
 - **Convention:** no em dashes.
 - **STATUS 2026-08-29:** stages A-F have RUN (`06_diagnostics/run_improvement_plan_2026-08-27.R`, ~22 h). Results and what they changed are marked per item below; the new work they generated is in the new Stage 5. Read `improvement-batch-review-2026-08-29.md` alongside this.
+- **STATUS 2026-09-08: this plan is CLOSED.** Stage 5 ran 2026-08-30 (`run_stage5_2026-08-30.R`, reviewed in `stage5-batch-review-2026-08-31.md`); everything it spawned ran through the 2026-09 batch chain and ended in the 2026-09-07 adoption (weekly shore AR + zero-inflated shore catch; authoritative run `20260904/pooled-CPUE-AD-A1-adopted`). Do not work from this document: current state is `PIPELINE_STATUS.md` (Sections 1b-1m) and `CHANGE_REGISTER.md`.
 
 This is a sequenced plan, not a wish list. Every item states what it changes, what "done" looks like as a check somebody else can run, and roughly what it costs. Items in Stage 0 are already applied on this branch; the rest are ordered so that each one's result is interpretable before the next begins.
 

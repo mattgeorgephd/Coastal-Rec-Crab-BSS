@@ -1,5 +1,7 @@
 # Improvement-batch review, 2026-08-29
 
+> **SUPERSEDED 2026-09-01.** The authoritative run this review crowns has been superseded; the current one is in the box at the top of `PIPELINE_STATUS.md` (`20260904/pooled-CPUE-AD-A1-adopted`, 72,027, as of 2026-09-08). This document is the record of what was true when written.
+
 - **Reviewed:** `06_diagnostics/run_improvement_plan_2026-08-27.R`, six stages, ~22 h, results at `b6ec3b6`.
 - **Baseline for every comparison:** 2026-08-26 ladder rung 4 (`05_output/20260826/pooled-CPUE-PV4-minint`), port total 66,237.
 - **Companions:** `PIPELINE_STATUS.md` (state), `improvement-plan-2026-08-27.md` Stage 5 (what to do next).

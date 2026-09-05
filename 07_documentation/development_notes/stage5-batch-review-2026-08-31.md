@@ -1,5 +1,7 @@
 # Stage 5 batch review: what the 2x2 settled, and what it exposed
 
+> **SUPERSEDED 2026-09-01.** The authoritative run this review crowns has been superseded; the current one is in the box at the top of `PIPELINE_STATUS.md` (`20260904/pooled-CPUE-AD-A1-adopted`, 72,027, as of 2026-09-08). This document is the record of what was true when written.
+
 - **Batch:** `06_diagnostics/run_stage5_2026-08-30.R`, six stages, branch `OSP-boat-count-incorporation`.
 - **Landed:** `bd8e298` (the patch, byte-identical to what was delivered) and `d9ed8ff` (the results).
 - **Runtime:** 24.0 h of fitting (S2 262 min, S3 28.5 min, S4a 327 min, S4b 535 min, S5 249 min) plus minutes for S1.

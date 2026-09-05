@@ -2,7 +2,9 @@
 
 - **Agency:** Washington Department of Fish and Wildlife (WDFW)
 - **Lead:** Matt George
-- **Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module.
+- **Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module. **Nothing has been published from this pipeline.**
+
+> **Where the work stands.** The current authoritative run, its port total, and the open backlog live in the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md); every change on the active branch and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md). Several older documents quote superseded totals; those two files are the arbiters.
 
 ---
 
@@ -34,7 +36,7 @@ Coastal-Rec-Crab-BSS/
 ├── 03_R_functions/     Modular R helpers, auto-sourced by every driver
 ├── 04_input_files/     Raw season inputs (effort, interviews, tally, I/E)
 ├── 05_output/          Per-run outputs, one dated folder per run (YYYYMMDD)
-├── 06_diagnostics/     Experimental / research .Rmd (weather-tide covariates)
+├── 06_diagnostics/     Regression harness, dated validation batch runners, weather module
 ├── 07_documentation/   Technical docs, change logs, equations, instructions
 ├── run_config.R        Single control surface: user toggles and per-model settings
 ├── run_estimation.R    Run orchestrator (sources run_config.R)
@@ -51,7 +53,7 @@ Coastal-Rec-Crab-BSS/
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
 | `04_input_files/` | `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx` | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
-| `06_diagnostics/` | The experimental weather-tide covariate driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
+| `06_diagnostics/` | The regression harness (452 assertions), the dated validation batch runners, and the experimental weather-tide driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
 
 ### How paths work (important when moving files)
@@ -70,7 +72,7 @@ Every file read or written by the drivers is resolved with `here::here()`, which
 
 All gear types (pots, ring nets, traps, snares) share a single CPUE process; gear-type catch breakdowns are derived after estimation by applying interview-based proportions to the total. This is the simpler of the two production models and the one to use for a single headline harvest number.
 
-Despite the name, the pooled model is not minimal: it includes adaptive AR(1) temporal resolution (daily/weekly/monthly, selected per fit from effort-data density), a weekend CPUE effect (`B1_C`), effective day length (`L_effective`) estimated as a parameter from the I/E regression, direct I/E crabber-hour integration, a data-driven `R_G` prior, and a divergence-aware convergence gate.
+Despite the name, the pooled model is not minimal: effort is measured in **gear-deployments** (catch is sub-linear in soak time, so time-denominated units fail the linearity test); AR(1) temporal resolution is selected per fit from effort-data density and capped per population (boat monthly; shore all-gear **weekly** since 2026-09-07, settled by an escalation ladder; shore pot-closure biweekly); the boat carries a **shared within-day turnover** `tau_bar` identified by the OSP daily boat counts; the shore catch likelihood is a **zero-inflated negative binomial** (2026-09-07); weekend and holiday CPUE effects (`B1_C`, `B2_C`); effective day length from the I/E regression; a data-driven `R_G` prior; a scale-aware convergence gate deciding PE-vs-BSS per fit; and model-adequacy reporting (`p_loo`, Pareto k, randomized-PIT coverage) beside the gate.
 
 | File | Description |
 |---|---|
@@ -131,7 +133,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model
 4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
 
-**Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
+**Requirements:** R 4.2+, rstan 2.32+, loo, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
 
 ---
 

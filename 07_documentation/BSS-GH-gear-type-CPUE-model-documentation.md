@@ -4,14 +4,18 @@
 >
 > **Every harvest estimate in this document is historical.** It records Method v1.0, the
 > frozen method-of-record, and the runs that supported it at the time of writing. The
-> pipeline has moved several times since, most recently by adopting a shared boat turnover
-> on 2026-09-01, which roughly doubled the private-boat component relative to the pre-OSP
-> baseline and changed the port total.
+> pipeline has moved several times since: the shared boat turnover (2026-09-01, roughly
+> doubling the private-boat component relative to the pre-OSP baseline), and then on
+> 2026-09-07 the shore all-gear AR moved from daily to WEEKLY and the shore catch
+> likelihood became a zero-inflated negative binomial. The second pair means the frozen
+> Method v1.0 now differs from the working model in a LIKELIHOOD, not only in settings:
+> Method v1.0 describes a plain NB2 catch model at a daily shore AR.
 >
 > **The current authoritative run and its totals live in ONE place:**
 > `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top of that
-> file. As of 2026-09-03 that is `05_output/20260831/pooled-CPUE-VAL-1-adopted`,
-> **port total 71,513**.
+> file. As of 2026-09-08 that is `05_output/20260904/pooled-CPUE-AD-A1-adopted`,
+> **port total 72,027 [53,018, 101,364]**. Every change on the branch and its status is
+> tabulated in `07_documentation/development_notes/CHANGE_REGISTER.md`.
 >
 > Do not quote a number from this document as current. The METHOD description (estimators,
 > likelihood, gate criteria, expansion structure) is still accurate and is what this document

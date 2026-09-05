@@ -1,5 +1,7 @@
 # Validation batch review: an adoption confirmed, a production fit that never worked, and where the daily-AR argument points next
 
+> **SUPERSEDED 2026-09-07.** The authoritative run this review crowns has been superseded; the current one is in the box at the top of `PIPELINE_STATUS.md` (`20260904/pooled-CPUE-AD-A1-adopted`, 72,027, as of 2026-09-08). This document is the record of what was true when written.
+
 - **Batch:** `06_diagnostics/run_validation_2026-09-01.R`, four desk stages and five fitted, branch `OSP-boat-count-incorporation`.
 - **Landed:** `ccf2c0e`. Code and config byte-identical to `28ef9c9`; the only difference is the `DRY_RUN <- FALSE` needed to run it.
 - **Runtime:** 14.1 h of fitting (V1 257 min, V2 26 min, V3 31 min, V4 259 min, V5 271 min) plus seconds for the desk stages.

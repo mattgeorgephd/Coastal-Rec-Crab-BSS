@@ -10,15 +10,21 @@ For the one-paragraph project overview and quick start, see the [root README](..
 |---|---|
 | `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
 
-## Current model documentation (the method of record)
+## Start here, part 2
 
-These track the live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
+| File | Role |
+|---|---|
+| `development_notes/CHANGE_REGISTER.md` | **Every change on the branch and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
+
+## Method documentation (Method v1.0, FROZEN)
+
+These record **Method v1.0**, frozen against pooled code v7.4. The method description (estimators, likelihoods, gate criteria, expansion structure) is what they are for; **every number in them is historical**, and since 2026-09-07 the working model also differs from them in a likelihood (the zero-inflated shore catch) and a resolution (the weekly shore AR). Each carries a SUPERSEDED-NUMBERS banner at the top pointing at the authoritative run. Regenerating them against the current model is open documentation debt (CHANGE_REGISTER item D7).
 
 | File | Describes |
 |---|---|
-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model (pipeline code v7.9). |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model (framework v5.6). |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (currently stale; not production). |
+| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model, as frozen (Method v1.0 / code v7.4; code is now well past v7.9). |
+| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model, as frozen (framework v5.6). |
+| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (stale; not production; its conclusion, exclusion, stands). |
 
 ## Development histories (the version-by-version change log)
 
@@ -40,9 +46,15 @@ The method documents summarize the history in one screen and point here for deta
 
 `PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
 
+The 2026-08/09 validation campaign is a CHAIN of review documents, one per batch, newest first; each supersedes parts of the one before and `PIPELINE_STATUS.md` Sections 1b-1m are the running summary:
+
 | File | Status |
 |---|---|
-| `validation-batch-review-2026-09-02.md` | Review of the 2026-09-01 validation batch: the adoption confirmed, the gear-track boat fit that had never worked, and the shore all-gear AR promoted to Tier 1. |
+| `adoption-review-2026-09-08.md` | **The current endpoint**: the adoption gate passed, `AD-A1-adopted` became the authoritative run, and the cross-track gap was shown to be a resolution difference (0.08% agreement at a common resolution). |
+| `candidate-config-review-2026-09-07.md` | The completed 2x2 (AR resolution x catch likelihood); C1 identified as the candidate; the gear-track "monthly is also bad" figure retracted as a cross-model misattribution. |
+| `ladder-zinb-review-2026-09-06.md` | The ladder's first real run (daily is overfitted; the estimate barely moves) and the ZINB re-scored under the corrected PPC. |
+| `shore-ar-zi-review-2026-09-04.md` | Review of the 2026-09-03 batch: three one-line defects, five of eleven verdicts wrong, all corrected with an audit trail. |
+| `validation-batch-review-2026-09-02.md` | Review of the 2026-09-01 validation batch: the shared-turnover adoption confirmed, the gear-track boat fit that had never worked, and the shore all-gear AR promoted to Tier 1. |
 | `stage5-batch-review-2026-08-31.md` | Review of the 2026-08-30 Stage 5 batch: the tau x AR 2x2, and the retracted trailer over-coverage item. |
 | `improvement-batch-review-2026-08-29.md` | Review of the 2026-08-27 improvement batch. |
 | `improvement-plan-2026-08-27.md` | The sequenced follow-up plan (Stages 0-5), with status marks carried forward. |

@@ -1,5 +1,7 @@
 # Plan of Attack: Using OSP Westport Boat-Launch Counts to Improve Private-Boat Effort/Catch
 
+> **STATUS 2026-09-08: EXECUTED.** The OSP stream is production (`osp_scale_is_tau = TRUE`; the dense OSP series identifies the shared boat turnover `tau_bar`, adopted 2026-09-01), and the crab-only lower-bound machinery is built and inert pending the `WestportCrabOnlyEffort` column from OSP. See `CHANGE_REGISTER.md` items A2, A7, A8 and `PIPELINE_STATUS.md`. This document is the original plan, kept as a design record.
+
 **Date:** 2026-07-28
 **Author:** analysis session (for Matt George)
 **Repo state:** `Coastal-Rec-Crab-BSS`, `main` @ `724eead` ("WBL count data")

@@ -1,8 +1,28 @@
 # Incorporate OSP boat counts: second effort stream, crabbing fraction f, OSP-informs-tau
 
 **Branch:** `OSP-boat-count-incorporation` -> `main`
-**Status:** validated by run on both models; ready for review.
 **Convention:** no em dashes.
+
+> ## STATUS 2026-09-08: this PR description covers only the FIRST wave of the branch
+>
+> It was written 2026-08-05, when the branch held the OSP integration alone, and its
+> "Confirmed harvest numbers" (67,312 pooled) are three adoptions out of date. The branch
+> has since also adopted, each validated by its own gated run: the **shared boat turnover**
+> `tau_bar` (2026-09-01; the OSP series identifies one estimated turnover, roughly doubling
+> the boat component relative to the pre-OSP baseline), the **weekly shore all-gear AR**
+> (2026-09-07; settled by an escalation ladder that showed daily was overfitted, p_loo
+> 35.2% -> 9.5% of n_obs, 41 -> 0 bad Pareto k), and the **zero-inflated shore catch
+> likelihood** (2026-09-07), plus the diagnostics and validation machinery in
+> `06_diagnostics/` (452-assertion harness, dated batch runners, per-rung ladder adequacy,
+> posterior draw persistence).
+>
+> **The branch as it stands is summarized in two places, which a reviewer should read
+> instead of this file:** `07_documentation/development_notes/CHANGE_REGISTER.md` (every
+> change, its status, evidence, and effect on the number) and
+> `07_documentation/development_notes/PIPELINE_STATUS.md` (the narrative, Sections 1b-1m,
+> with the authoritative run in the box at the top: `20260904/pooled-CPUE-AD-A1-adopted`,
+> port total 72,027 [53,018, 101,364]). The text below is kept as the record of the
+> original OSP scope and its validation.
 
 ## Summary
 

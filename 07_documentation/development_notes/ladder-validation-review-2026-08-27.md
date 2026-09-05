@@ -1,5 +1,7 @@
 # Crab BSS ladder review, 2026-08-27
 
+> **SUPERSEDED 2026-09-01.** The authoritative run this review crowns has been superseded; the current one is in the box at the top of `PIPELINE_STATUS.md` (`20260904/pooled-CPUE-AD-A1-adopted`, 72,027, as of 2026-09-08). This document is the record of what was true when written.
+
 Branch `OSP-boat-count-incorporation` @ `ec9a52d`. Six model-runs, ~15 h wall clock.
 References: `20260804/pooled-CPUE-boat-count-validation-run`, `20260805/gear-type-CPUE-model-boat-count-validation-run`.
 
