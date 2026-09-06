@@ -26,7 +26,7 @@ Everything is in `run_config.R`; the keys below must move TOGETHER. A checklist 
 
 1. **The window:** `est_date_start`, `est_date_end`. Any span; it does not need to be a whole season.
 2. **The data filter:** `season_filter`. A stale value used to produce a wall of empty fits with no explanation; it now stops the run with a plain message (`validate_season_window.R`), and every run prints what the season/window selection actually captured. A character vector selects a multi-season span.
-3. **The closure calendar:** `pot_closure_start`, `pot_closure_end`, `pot_open_date`. A window that does not intersect the closure yields a single all-gear sub-season (fixed 2026-09-09); a window inside the closure yields a single pot-closure sub-season; a mid-window closure yields three. **One closure window per run**: a span containing two closures must be run per season (see section 7).
+3. **The closure calendar:** `pot_closure_start`, `pot_closure_end`, `pot_open_date`. A window that does not intersect the closure yields a single all-gear sub-season (fixed 2026-09-09); a window inside the closure yields a single pot-closure sub-season; a mid-window closure yields three. A span containing several closures uses `pot_closures` instead, one entry per season (added 2026-09-10; see section 7).
 4. **The census window:** `census_start_date`, `census_end_date` (the commercial/charter tally span; independent of the estimation window and easy to forget).
 5. **The AR caps:** `ar_max_resolution`. These are 2024-25 answers and the subject of section 3. Treat them as starting points.
 6. **Every key tagged `SEASON-DERIVED`** in `run_config.R`: the turnover prior centers (`tau_shore_prior_mu` 1.7, `tau_boat_prior_mu` 1.2, from 2024-25 I/E and the OSP overlap), the `kappa_OSP` prior center (3.0, from the 2024-25 overlap days), the ZI prior shape (Beta(1,9), from the 2024-25 zero bin), `shared_tau_min_obs` (15; check the printed OSP-informed-day count against it), and `crab_fraction_set` (0.3, a placeholder with zero supporting observations).
@@ -87,7 +87,16 @@ Supported. What changes:
 
 ## 7. Multi-season spans
 
-`season_filter = c("2024-25", "2025-26")` with a matching window runs one model over the span. The calendar indices are span-safe (sequential year-week and year-month factors; no aliasing). **The limitation is the closure calendar: one closure window per run** (`pot_closure_start/end` are scalars), so a span containing two closures cannot yet be expressed structurally; run per season and combine, or wait for the closure-calendar generalization (CHANGE_REGISTER D8). A span is statistically one process: one shared turnover, one CPUE process bridging the between-season gap, which may or may not be what you want; per-season runs remain the interpretable default.
+Supported as of 2026-09-10 (CHANGE_REGISTER A14). A span takes four settings that must agree:
+
+1. `est_date_start` / `est_date_end` spanning the whole range, and `season_filter` as a vector, e.g. `c("2023-24", "2024-25")`.
+2. `pot_closures`: a list with one `list(season =, start =, end =)` entry per closure in the span. This outranks the scalar `pot_closure_start/end` pair and yields one pot-closure sub-season per season (`ring_net_only_<season>`, biweekly, pots excluded) with the following all-gear block as `all_gear_<season>`; a window starting before the first closure gets `all_gear_pre_<season1>`. Overlapping closures, an unlabeled entry, or end-before-start stop loudly. With zero or one in-window closure the legacy scalar path runs byte-for-byte, so single-season names, fit labels, and filenames never change.
+3. `census_windows`: a NAMED list, season to `c(start, end)`, for the commercial/charter census; the census is expanded per window and summed, and each season's own component is kept for the season table. An unnamed list stops.
+4. The data. Every season in the span needs rows in EVERY workbook of section 0: effort counts, interviews, ingress/egress, holidays, opener dates, and the tally. The validator prints per-season capture and warns hard on the asymmetric case (interviews present, zero effort counts: that season's effort would be pure imputation, not estimation); the holiday reader stops on a missing season.
+
+The report then writes `season_totals.csv` (always) and renders a season-summary table (when the span has more than one season). Monthly figures and fit diagnostics already cover the full span: month labels are year-qualified (`%Y-%m`) and the calendar indices are span-safe (sequential year-week and year-month factors; no aliasing).
+
+Two approximations remain on a span. `pot_open_date` is still a single scalar feeding the ingress/egress `L_effective` regression split, so the split is exact only for the first season (tracked in A14). And a span is statistically ONE process: one shared turnover and one CPUE process bridging the between-season gap, so season totals from a span are comparable within the run but will not equal standalone per-season runs; per-season runs remain the interpretable default, and the season table's caption says so.
 
 ## 8. Failure modes, and what each one means
 

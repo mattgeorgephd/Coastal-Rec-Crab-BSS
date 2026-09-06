@@ -32,6 +32,44 @@
 ###############################################################################
 
 estimate_comm_charter <- function(dwg, params) {
+  # -------------------------------------------------------------------------
+  # 2026-09-10: PER-SEASON CENSUS WINDOWS (multi-season spans). The commercial season is
+  # a per-season window, so a single census_start/end pair cannot describe a span, and
+  # expanding one giant window across the gap between seasons would spread sampled-day
+  # means over months with no fishery. params$census_windows, when non-NULL, is a NAMED
+  # list season -> c(start, end); the census is estimated per window through this very
+  # function (recursion with the scalar keys substituted, so the stratified expansion
+  # logic exists once), the totals are summed, and result$by_season keeps each season's
+  # own component for the season-summary table. NULL (the default) is the scalar path,
+  # unchanged.
+  # -------------------------------------------------------------------------
+  cw <- params$census_windows
+  if (!is.null(cw) && length(cw)) {
+    if (is.null(names(cw)) || any(!nzchar(names(cw))))
+      stop("estimate_comm_charter(): census_windows must be a NAMED list, season -> c(start, end).",
+           call. = FALSE)
+    per <- lapply(names(cw), function(sn) {
+      ps <- params
+      ps$census_windows   <- NULL
+      ps$census_start_date <- as.character(cw[[sn]][1])
+      ps$census_end_date   <- as.character(cw[[sn]][2])
+      r <- estimate_comm_charter(dwg, ps)
+      r$season <- sn
+      r
+    })
+    names(per) <- names(cw)
+    tot <- per[[1]]
+    if (length(per) > 1) for (k in 2:length(per)) {
+      tot$effort_total   <- (tot$effort_total   %||% 0) + (per[[k]]$effort_total   %||% 0)
+      tot$Dungeness_Kept <- (tot$Dungeness_Kept %||% 0) + (per[[k]]$Dungeness_Kept %||% 0)
+      if (!is.null(tot$Red_Rock_Kept) || !is.null(per[[k]]$Red_Rock_Kept))
+        tot$Red_Rock_Kept <- (tot$Red_Rock_Kept %||% 0) + (per[[k]]$Red_Rock_Kept %||% 0)
+    }
+    tot$season    <- NULL
+    tot$by_season <- per
+    return(tot)
+  }
+
   # Holidays from the centralized config (single source of truth).
   crabbing_holiday_dates <- params$crabbing_holiday_dates
   cat("\n--- Commercial/Charter Census Estimation (Stratified) ---\n")

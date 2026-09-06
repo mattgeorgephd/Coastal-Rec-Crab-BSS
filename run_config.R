@@ -39,9 +39,10 @@
 #   season-derived   every key tagged "SEASON-DERIVED" below (prior centers, floors,
 #   priors/floors    the set crabbing fraction): revisit, do not assume
 #
-# One closure window per run: a span containing two pot closures (a full two-season
-# span) must be run per season and combined outside the model, or wait for the
-# closure-calendar generalization (CHANGE_REGISTER D8).
+# Multi-season spans (2026-09-10, CHANGE_REGISTER A14): a span containing several pot
+# closures is expressed with `pot_closures` (one entry per season) plus `census_windows`
+# (a named per-season list); the report then adds season-level totals. See
+# 07_documentation/NEW_SEASON_GUIDE.md section 7 for the four settings that must agree.
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
@@ -143,7 +144,7 @@ run_config <- list(
   # output folder since the OSP validation era and no longer described what a default run
   # is. Purely cosmetic: run_tag names the output folder, config_delta() ignores it, and no
   # fit or estimate depends on it. Historical folders keep their old names.
-  run_tag           = "production",
+  run_tag           = "two-season-2023-25",
 
   # --- Identifiers ---------------------------------------------------------
   # These unify the two models onto one set of strings. The committed gear-
@@ -155,15 +156,41 @@ run_config <- list(
   fishery_name      = "Rec Crab Grays Harbor 2024-25",
 
   # --- Season window (the values you change most often) --------------------
-  est_date_start    = "2024-09-16",   # first day of the estimation window
+  # =========================================================================
+  # ACTIVE RUN: TWO-SEASON SPAN, 2023-24 + 2024-25 (staged 2026-09-10).
+  #
+  # DATA PREREQUISITES, checked 2026-09-10 against the shipped workbooks. The run STOPS
+  # or warns, by design, until these rows exist:
+  #   1. effort_combined.xlsx      has NO 2023-24 rows (2024-25 only). 2023-24 has 13,629
+  #      interviews but ZERO effort counts, so its effort process would be pure
+  #      imputation; the season/window check warns in exactly these words.
+  #   2. wes_commercial_tally.xlsx has NO 2023-24 rows (census component empty).
+  #   3. crabbing_holidays.xlsx    has NO 2023-24 rows (the run STOPS at the holiday
+  #      reader until they are added; deliberate, since blank holidays mis-type days).
+  #   WBL_boat_counts.xlsx covers 2024-2025 only: no OSP for 2023-24 is SURVIVABLE
+  #   (stream absent, boat trailer-only) but weakens the 2023-24 boat.
+  #
+  # SINGLE-SEASON 2024-25 ROLLBACK: swap the five values below for the ones in the
+  # commented block that follows them.
+  # =========================================================================
+  est_date_start    = "2023-09-16",   # first day of the estimation window
   est_date_end      = "2025-09-15",   # last day
   # A vector runs a multi-season span (e.g. c("2024-25", "2025-26")) with a matching
   # est window; every listed season needs rows in the workbooks and a holiday calendar.
   # A stale value now stops the run loudly (validate_season_window.R).
-  season_filter     = "2024-25",
+  season_filter     = c("2023-24", "2024-25"),
+  # -- rollback block (single-season 2024-25): --------------------------------
+  #   est_date_start = "2024-09-16",  est_date_end = "2025-09-15",
+  #   season_filter  = "2024-25",     pot_closures = NULL,
+  #   census_windows = NULL,          run_tag = "production",
+  # ---------------------------------------------------------------------------
 
   # --- Regulatory / structural dates ---------------------------------------
-  pot_open_date     = "2024-12-01",   # pots legal from this date (used for L_effective
+  # KNOWN APPROXIMATION on a multi-season span: pot_open_date is a SINGLE date feeding the
+  # L_effective I/E regression split; with two seasons it is exact for one season only.
+  # The day-length regression is seasonal by date (suncalc), so the error is confined to
+  # how a handful of closure-period I/E days are grouped. Tracked in CHANGE_REGISTER A14.
+  pot_open_date     = "2023-12-01",   # pots legal from this date (used for L_effective
                                       #   and as the default pot_closure_end + 1 day)
   # Pot-closure window: the period when pots are NOT legal (only non-pot gear, ring
   # nets/snares/traps). Given explicitly here rather than assumed to start at the
@@ -172,10 +199,27 @@ run_config <- list(
   # starts after est_date_start or ends before est_date_end, the driver adds the
   # corresponding all-gear period(s) automatically (see 03_R_functions/build_subseasons.R).
   # Keep pot_open_date = pot_closure_end + 1.
-  pot_closure_start = "2024-09-16",   # first day of the pot closure (here = season start)
-  pot_closure_end   = "2024-11-30",   # last day pots are illegal (day before pots open)
+  # MULTI-SEASON CLOSURE CALENDAR (2026-09-10). Non-NULL outranks the scalar pair below:
+  # one entry per pot closure in the span, each with its season label; the all-gear block
+  # following a closure belongs to that season, and the report rolls fits up to season
+  # totals (season_totals.csv + an HTML table on multi-season runs). Closure dates are
+  # the same rule each season: season start through Nov 30, pots legal Dec 1.
+  pot_closures = list(
+    list(season = "2023-24", start = "2023-09-16", end = "2023-11-30"),
+    list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")
+  ),
+  pot_closure_start = "2024-09-16",   # scalar fallback, used only when pot_closures is NULL
+  pot_closure_end   = "2024-11-30",   #   (here = season start .. day before pots open)
   commercial_opener = "2025-01-01",   # (was malformed "2025-01-1" in gear-resolved)
-  census_start_date = "2024-12-01",
+  # PER-SEASON CENSUS WINDOWS (2026-09-10). Non-NULL outranks the scalar pair below; a
+  # named list season -> c(start, end), one commercial/charter window per season.
+  # ASSUMPTION TO CONFIRM: the 2023-24 window below MIRRORS 2024-25 (Dec 1 to Feb 8) and
+  # was not taken from records; correct it before trusting the 2023-24 census component.
+  census_windows = list(
+    "2023-24" = c("2023-12-01", "2024-02-08"),
+    "2024-25" = c("2024-12-01", "2025-02-08")
+  ),
+  census_start_date = "2024-12-01",   # scalar fallback, used only when census_windows is NULL
   census_end_date   = "2025-02-08",
 
   # --- Catch groups --------------------------------------------------------

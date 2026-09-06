@@ -41,23 +41,41 @@ validate_season_window <- function(effort, interview, params, quiet = FALSE) {
   eff_season <- as.character(effort$season %||% rep(NA_character_, length(eff_dates)))
   int_season <- as.character(interview$season %||% rep(NA_character_, length(int_dates)))
 
-  if (!isTRUE(quiet)) {
+  # 2026-09-10: quiet gates the PRINTS only. The per-season warnings fire either way;
+  # a safety warning silenced by a verbosity flag is no safety warning at all.
+  if (!isTRUE(quiet))
     cat(sprintf("\nSeason/window check: est window %s to %s; season_filter = %s\n",
                 ws, we, paste(seasons_requested, collapse = " + ")))
-    for (sn in seasons_requested) {
-      ed <- eff_dates[eff_season == sn]; id <- int_dates[int_season == sn]
-      if (!length(ed) && !length(id)) {
-        warning(sprintf("season_filter '%s' matched NO effort and NO interview rows; check the season column spelling.", sn),
-                call. = FALSE)
-        cat(sprintf("  %-10s NO ROWS MATCHED\n", sn)); next
-      }
-      rng <- range(c(ed, id), na.rm = TRUE)
-      n_in  <- sum(ed >= ws & ed <= we, na.rm = TRUE) + sum(id >= ws & id <= we, na.rm = TRUE)
-      n_out <- length(ed) + length(id) - n_in
-      cat(sprintf("  %-10s data %s to %s | rows in window %d, outside %d%s\n",
-                  sn, rng[1], rng[2], n_in, n_out,
-                  if (n_in > 0 && n_out > n_in) "  <- most of this season is OUTSIDE the window (fine for a deliberate part-season run)" else ""))
+  for (sn in seasons_requested) {
+    ed <- eff_dates[eff_season == sn]; id <- int_dates[int_season == sn]
+    if (!length(ed) && !length(id)) {
+      warning(sprintf("season_filter '%s' matched NO effort and NO interview rows; check the season column spelling.", sn),
+              call. = FALSE)
+      if (!isTRUE(quiet)) cat(sprintf("  %-10s NO ROWS MATCHED\n", sn))
+      next
     }
+    rng <- range(c(ed, id), na.rm = TRUE)
+    ne_in <- sum(ed >= ws & ed <= we, na.rm = TRUE)
+    ni_in <- sum(id >= ws & id <= we, na.rm = TRUE)
+    n_out <- length(ed) + length(id) - ne_in - ni_in
+    if (!isTRUE(quiet))
+      cat(sprintf("  %-10s data %s to %s | in window: %d effort counts, %d interviews | outside %d%s\n",
+                  sn, rng[1], rng[2], ne_in, ni_in, n_out,
+                  if ((ne_in + ni_in) > 0 && n_out > (ne_in + ni_in)) "  <- most of this season is OUTSIDE the window (fine for a deliberate part-season run)" else ""))
+    # 2026-09-10: the asymmetric case that motivated splitting the counts. The first
+    # two-season staging found 13,629 INTERVIEWS for 2023-24 and ZERO effort counts:
+    # the interview workbook is the full export while effort_combined was trimmed to
+    # 2024-25 during development. A season with interviews but no effort counts has a
+    # CPUE and no effort scale, so every BSS effort likelihood for it is empty and the
+    # PE has nothing to expand; the season would be imputed, not estimated.
+    if (ni_in > 0 && ne_in == 0)
+      warning(sprintf(paste0("Season '%s' has %d interviews in the window but ZERO effort counts. ",
+                             "Its effort process would be pure imputation. Add the season's rows to ",
+                             "effort_combined.xlsx (and wes_commercial_tally.xlsx) before fitting."),
+                      sn, ni_in), call. = FALSE)
+    if (ne_in > 0 && ni_in == 0)
+      warning(sprintf("Season '%s' has effort counts but ZERO interviews in the window; CPUE for it has no data.", sn),
+              call. = FALSE)
   }
 
   n_eff_in <- sum(eff_dates >= ws & eff_dates <= we, na.rm = TRUE)

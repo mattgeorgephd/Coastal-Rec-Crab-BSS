@@ -145,7 +145,7 @@ Each run writes to `05_output/YYYYMMDD/<model>-<run_tag>/`. Both models produce 
 
 ## Season Structure
 
-The estimation window is user-selected (`est_date_start` / `est_date_end` with a matching `season_filter`) and is split into sub-seasons at the pot-closure boundary, because pots becoming legal is a structural break in effort and CPUE that one latent process should not bridge. The splitter (`build_subseasons.R`) handles the general case: a window that misses the closure is a single all-gear sub-season, a window inside the closure is a single pot-closure sub-season, and a mid-window closure yields pre/closure/post. Each sub-season gets its own BSS fit per population.
+The estimation window is user-selected (`est_date_start` / `est_date_end` with a matching `season_filter`) and is split into sub-seasons at the pot-closure boundary, because pots becoming legal is a structural break in effort and CPUE that one latent process should not bridge. The splitter (`build_subseasons.R`) handles the general case: a window that misses the closure is a single all-gear sub-season, a window inside the closure is a single pot-closure sub-season, and a mid-window closure yields pre/closure/post. A multi-season span lists its closures in `pot_closures` (one per season), which yields a closure and an all-gear sub-season per season, plus per-season census windows (`census_windows`) and season totals in the report (added 2026-09-10; `07_documentation/NEW_SEASON_GUIDE.md` section 7). Each sub-season gets its own BSS fit per population.
 
 For the **2024-25 development test season** (Sep 16, 2024 to Sep 15, 2025, closure Sep 16 to Nov 30) that means two sub-seasons:
 

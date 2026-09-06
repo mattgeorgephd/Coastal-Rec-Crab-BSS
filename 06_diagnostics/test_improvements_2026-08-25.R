@@ -1801,5 +1801,120 @@ local({
       sum(grepl("SEASON-DERIVED", readLines("run_config.R", warn = FALSE))) >= 5)
 })
 
+# ---------------------------------------------------------------------------
+# 46. Multi-season spans (2026-09-10). Three requirements for a 2023-24 + 2024-25 run:
+#     one pot-closure fit PER season (params$pot_closures), a census window PER season
+#     (params$census_windows), and season-level totals in the report (season_totals.csv
+#     + table). These pin the builder shapes functionally and the rest at source level,
+#     plus internal consistency of the staged two-season config itself.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/build_subseasons.R")
+  two <- list(
+    est_date_start = "2023-09-16", est_date_end = "2025-09-15",
+    season_filter  = c("2023-24", "2024-25"),
+    pot_closures = list(
+      list(season = "2023-24", start = "2023-09-16", end = "2023-11-30"),
+      list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")))
+  ss <- build_subseasons(two)
+  chk("multi-closure: the 2023-25 span builds exactly four sub-seasons",
+      length(ss) == 4)
+  chk("multi-closure: names are season-suffixed and alternate closure/all-gear",
+      identical(vapply(ss, `[[`, "", "name"),
+                c("ring_net_only_2023-24", "all_gear_2023-24",
+                  "ring_net_only_2024-25", "all_gear_2024-25")))
+  chk("multi-closure: gear regimes alternate pot_closure / all_gear",
+      identical(vapply(ss, `[[`, "", "gear_regime"),
+                c("pot_closure", "all_gear", "pot_closure", "all_gear")))
+  chk("multi-closure: every sub-season carries its season tag",
+      identical(vapply(ss, `[[`, "", "season"),
+                c("2023-24", "2023-24", "2024-25", "2024-25")))
+  chk("multi-closure: dates tile the window with no gap or overlap",
+      identical(ss[[1]]$start, as.Date("2023-09-16")) &&
+      identical(ss[[1]]$end,   as.Date("2023-11-30")) &&
+      identical(ss[[2]]$start, as.Date("2023-12-01")) &&
+      identical(ss[[2]]$end,   as.Date("2024-09-15")) &&
+      identical(ss[[3]]$start, as.Date("2024-09-16")) &&
+      identical(ss[[3]]$end,   as.Date("2024-11-30")) &&
+      identical(ss[[4]]$start, as.Date("2024-12-01")) &&
+      identical(ss[[4]]$end,   as.Date("2025-09-15")))
+  chk("multi-closure: the closure sub-seasons still exclude pots at biweekly resolution",
+      identical(ss[[1]]$gear_exclude, c("Pot")) && identical(ss[[1]]$period_bss, "biweekly") &&
+      identical(ss[[2]]$gear_exclude, character(0)) && identical(ss[[2]]$period_bss, "month"))
+  pre <- build_subseasons(modifyList(two, list(est_date_start = "2023-09-01")))
+  chk("multi-closure: a window starting before the first closure gets all_gear_pre_<season1>",
+      length(pre) == 5 && identical(pre[[1]]$name, "all_gear_pre_2023-24") &&
+      identical(pre[[1]]$end, as.Date("2023-09-15")))
+  # single closure through the LIST form falls through to the scalar path: legacy names,
+  # so every historical 2024-25 fit label and output filename is preserved.
+  one <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15",
+              season_filter = "2024-25",
+              pot_closures = list(list(season = "2024-25",
+                                       start = "2024-09-16", end = "2024-11-30")))
+  s1 <- build_subseasons(one)
+  chk("multi-closure: a single-closure LIST still yields the legacy names",
+      length(s1) == 2 && identical(vapply(s1, `[[`, "", "name"),
+                                   c("ring_net_only", "all_gear")))
+  # a listed closure entirely OUTSIDE the window is dropped, not an error
+  out <- modifyList(one, list(est_date_start = "2025-01-01", est_date_end = "2025-06-30"))
+  out$pot_closures <- list(list(season = "2024-25", start = "2024-09-16", end = "2024-11-30"))
+  s0 <- build_subseasons(out)
+  chk("multi-closure: an out-of-window closure drops to one all-gear sub-season",
+      length(s0) == 1 && identical(s0[[1]]$gear_regime, "all_gear"))
+  bad1 <- two; bad1$pot_closures[[2]]$start <- "2023-11-01"
+  chk("multi-closure: OVERLAPPING closures stop loudly",
+      inherits(try(build_subseasons(bad1), silent = TRUE), "try-error"))
+  bad2 <- two; bad2$pot_closures[[1]]$season <- NULL
+  chk("multi-closure: a closure without a season label stops loudly",
+      inherits(try(build_subseasons(bad2), silent = TRUE), "try-error"))
+
+  # census_windows: the guard fires before any data is touched, so it is testable bare
+  source("03_R_functions/estimate_comm_charter.R")
+  chk("census_windows: an UNNAMED list stops before touching data",
+      inherits(try(estimate_comm_charter(NULL, list(
+        census_windows = list(c("2024-12-01", "2025-02-08")))), silent = TRUE), "try-error"))
+  cc <- paste(readLines("03_R_functions/estimate_comm_charter.R", warn = FALSE), collapse = "\n")
+  chk("census_windows: recursion substitutes the scalar keys and keeps by_season",
+      grepl("ps$census_windows   <- NULL", cc, fixed = TRUE) &&
+      grepl("tot$by_season <- per", cc, fixed = TRUE))
+
+  # the validator warns on the exact failure two-season staging found: a season with
+  # interviews in the window but ZERO effort counts (its effort would be pure imputation)
+  source("03_R_functions/validate_season_window.R")
+  eff <- data.frame(date = as.Date("2024-10-01") + 0:9, season = "2024-25")
+  int <- data.frame(event_date = c(as.Date("2023-10-01") + 0:9, as.Date("2024-10-01") + 0:9),
+                    season = rep(c("2023-24", "2024-25"), each = 10))
+  p2 <- list(est_date_start = "2023-09-16", est_date_end = "2025-09-15",
+             season_filter = c("2023-24", "2024-25"))
+  w <- tryCatch({ validate_season_window(eff, int, p2, quiet = TRUE); NULL },
+                warning = function(w) conditionMessage(w))
+  chk("validator: zero-effort season raises the pure-imputation warning EVEN under quiet=TRUE",
+      !is.null(w) && grepl("ZERO effort counts", w))
+
+  # the report writes season totals: the chunk exists, writes the CSV unconditionally,
+  # and the table renders only on multi-season runs
+  rmd <- paste(readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
+  chk("report: the season-totals chunk writes season_totals.csv",
+      grepl("season-totals", rmd, fixed = TRUE) &&
+      grepl('"season_totals.csv"', rmd, fixed = TRUE))
+
+  # the staged two-season config is internally consistent (sourced fresh, not grepped)
+  e <- new.env(); sys.source("run_config.R", envir = e)
+  rc <- get("run_config", envir = e)
+  if (!is.null(rc$pot_closures)) {
+    cls <- vapply(rc$pot_closures, function(x) as.character(x$season), "")
+    chk("staged config: est window spans every configured closure",
+        all(vapply(rc$pot_closures, function(x)
+          as.Date(x$start) >= as.Date(rc$est_date_start) &&
+          as.Date(x$end)   <= as.Date(rc$est_date_end), logical(1))))
+    chk("staged config: season_filter matches the closures' seasons",
+        setequal(rc$season_filter, cls))
+    chk("staged config: census_windows keys match season_filter",
+        is.null(rc$census_windows) || setequal(names(rc$census_windows), rc$season_filter))
+  } else {
+    chk("staged config: single-season config needs no multi-season consistency", TRUE)
+  }
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

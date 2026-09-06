@@ -1,6 +1,6 @@
 # Change register: the OSP boat-count branch
 
-**Last updated:** 2026-09-09
+**Last updated:** 2026-09-10
 **Branch:** `OSP-boat-count-incorporation`. **`main` is the pre-FW-creel-meeting, pre-OSP state.**
 **Authoritative run:** `05_output/20260904/pooled-CPUE-AD-A1-adopted`, port total **72,027 [53,018, 101,364]**, 4 of 4 components fitted.
 
@@ -28,6 +28,8 @@ Status vocabulary: **ADOPTED** (shipping in `run_config.R`, validated by a run) 
 | A12 | **Weather / tide covariate module** | **REJECTED and STALE** | Excluded on its own evidence; the fork is now missing ~40 data variables the production model declares | None; do not cite its boat number |
 
 | A13 | **Season portability** (2026-09-09): non-intersecting closure windows yield a single all-gear sub-season instead of an error; `season_filter` accepts a vector for multi-season spans; `validate_season_window()` stops loudly on a stale season/window pairing; SEASON-DERIVED tags + NEW SEASON CHECKLIST in `run_config.R`; `ar_force` reframed as the per-fit resolution pin in the new-season workflow | **ADOPTED** 2026-09-09 | Functional tests in the harness (window cases, vector filter, validator stop); the program goal recorded in `CLAUDE.md` and Section 1n | None on 2024-25 outputs (full-season configs unaffected); part-season windows go from ERROR to running |
+
+| A14 | **Multi-season spans** (2026-09-10): `pot_closures` list gives one closure window per season (`build_subseasons()` emits `ring_net_only_<season>` / `all_gear_<season>` per closure, `all_gear_pre_<season1>` before the first; 0/1 closure falls through to the byte-identical scalar path); `census_windows` named list gives a per-season commercial census (recursive expansion, summed, `by_season` kept); the pooled report writes `season_totals.csv` always and a season table on multi-season runs; the validator warns per season on interviews-with-zero-effort ("pure imputation"), warnings no longer silenced by `quiet`. KNOWN APPROXIMATION: `pot_open_date` stays a single scalar feeding the `estimate_L_effective()` I/E regression split, exact only for the first season of a span | **BUILT, INERT** 2026-09-10 (architecture done; the two-season run is staged in `run_config.R` but BLOCKED on data, see D8) | Harness section 46 (18 assertions: exact 2023-25 four-sub-season shape, legacy fall-through incl. list form, out-of-window drop, overlap/label stops, census guard, validator warning under quiet, config self-consistency); both drivers purl-parse | None until a multi-season config is run; single-season runs byte-identical by the fall-through |
 
 ## B. Diagnostics and infrastructure
 
@@ -75,6 +77,6 @@ Status vocabulary: **ADOPTED** (shipping in `run_config.R`, validated by a run) 
 | D4 | **The catch stream is under-covered at every AR resolution** (-3.5 to -4.6 SD) | **OPEN, bounded** | A hurdle or two-component NB mixture. The ZINB halved both count bins and did not close the shore all-gear one bin (still 3.3 SD). Gain bounded at ~6% of the catch |
 | D5 | **`ppc_draws_*.rds` are write-only** | **HALF-BUILT** | A recompute script. Code, no run |
 | D6 | **The ZINB is pooled-only** | **OPEN, low priority** | The two tracks now differ in the shore catch likelihood (~-0.3%). A Stan edit plus a recompile restores symmetry |
-| D8 | **One closure window per run** | **OPEN, by design for now** | A multi-season span containing two pot closures cannot be expressed; run per season and combine. Generalization = a closures table feeding `build_subseasons()` N ordered windows |
+| D8 | **One closure window per run** | **ARCHITECTURE DONE 2026-09-10 (A14); the 2023-25 run is BLOCKED ON DATA** | The closures table exists (`pot_closures` feeding `build_subseasons()` N ordered windows) and the two-season 2023-24 + 2024-25 config is staged. What blocks the run is the workbooks: `effort_combined.xlsx`, `wes_commercial_tally.xlsx`, and `crabbing_holidays.xlsx` contain NO 2023-24 rows (13,629 interviews exist but zero effort counts, so 2023-24 effort would be pure imputation; the holiday reader stops). WBL/OSP boat counts are 2024-25-only (survivable, weaker boat stream). Also confirm the 2023-24 census window dates: the staged `census_windows` entry MIRRORS 2024-25 (Dec 1 to Feb 8), it is not from records |
 | D9 | **New-season workflow documented** | **DONE 2026-09-09** | `07_documentation/NEW_SEASON_GUIDE.md`: naive run -> ladder -> per-rung adequacy -> pin (`ar_force`) -> cap -> production -> cross-check |
 | D7 | **Method of record is frozen at v1.0** (pooled code v7.4); the code is past v7.9 | **OPEN, documentation debt** | The two method documents carry pre-refresh 2024-25 reference numbers that have never been regenerated |

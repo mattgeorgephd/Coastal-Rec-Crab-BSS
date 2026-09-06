@@ -55,6 +55,73 @@
 build_subseasons <- function(params) {
   est_start <- as.Date(params$est_date_start)
   est_end   <- as.Date(params$est_date_end)
+
+  # -------------------------------------------------------------------------
+  # 2026-09-10: MULTIPLE CLOSURE WINDOWS (multi-season spans). params$pot_closures, when
+  # non-NULL, is a list of list(season =, start =, end =), one entry per pot closure in
+  # the span, and OUTRANKS the scalar pot_closure_start/end keys. Each closure yields a
+  # pot-closure sub-season named ring_net_only_<season> and the all-gear gap FOLLOWING it
+  # is all_gear_<season> (the Dec-Sep block belongs to the season whose closure opened
+  # it); a gap BEFORE the first closure is all_gear_pre_<season1>. Every sub-season
+  # carries a `season` field so the report can roll fits up to season totals. Closures
+  # outside the window are dropped; overlapping or unordered closures stop loudly.
+  # With NULL (the default) or a single in-window closure, the SCALAR path below runs
+  # unchanged, byte-for-byte, so every historical config keeps its exact sub-season
+  # names, fit labels and output filenames.
+  # -------------------------------------------------------------------------
+  pcs <- params$pot_closures
+  if (!is.null(pcs) && length(pcs)) {
+    cl <- lapply(pcs, function(x) list(
+      season = as.character(x$season %||% NA_character_),
+      start  = as.Date(x$start), end = as.Date(x$end)))
+    if (any(vapply(cl, function(x) is.na(x$season) || !nzchar(x$season), logical(1))))
+      stop("build_subseasons(): every pot_closures entry needs a season label.", call. = FALSE)
+    if (any(vapply(cl, function(x) x$end < x$start, logical(1))))
+      stop("build_subseasons(): a pot_closures entry has end before start.", call. = FALSE)
+    cl <- cl[order(vapply(cl, function(x) as.numeric(x$start), numeric(1)))]
+    # drop closures that do not intersect the window; clamp the rest into it
+    cl <- Filter(function(x) !(x$end < est_start || x$start > est_end), cl)
+    cl <- lapply(cl, function(x) { x$start <- max(x$start, est_start)
+                                   x$end   <- min(x$end,   est_end); x })
+    if (length(cl) >= 2)
+      for (k in 2:length(cl))
+        if (cl[[k]]$start <= cl[[k - 1]]$end)
+          stop("build_subseasons(): pot_closures windows overlap.", call. = FALSE)
+    san <- function(x) gsub("[^A-Za-z0-9_-]", "_", x)
+    mk_ag <- function(nm, s, e, disp, season) list(
+      name = nm, display_name = disp, gear_regime = "all_gear", season = season,
+      start = s, end = e, period_bss = "month", gear_exclude = character(0))
+    mk_cl <- function(x) list(
+      name = paste0("ring_net_only_", san(x$season)), display_name = paste0("Pot closure ", x$season),
+      gear_regime = "pot_closure", season = x$season,
+      start = x$start, end = x$end, period_bss = "biweekly", gear_exclude = c("Pot"))
+    if (length(cl) >= 2) {
+      ss <- list()
+      if (cl[[1]]$start > est_start)
+        ss <- c(ss, list(mk_ag(paste0("all_gear_pre_", san(cl[[1]]$season)),
+                               est_start, cl[[1]]$start - 1,
+                               paste0("All gear (pre-closure ", cl[[1]]$season, ")"), cl[[1]]$season)))
+      for (k in seq_along(cl)) {
+        ss <- c(ss, list(mk_cl(cl[[k]])))
+        gap_start <- cl[[k]]$end + 1
+        gap_end   <- if (k < length(cl)) cl[[k + 1]]$start - 1 else est_end
+        if (gap_end >= gap_start)
+          ss <- c(ss, list(mk_ag(paste0("all_gear_", san(cl[[k]]$season)), gap_start, gap_end,
+                                 paste0("All gear ", cl[[k]]$season), cl[[k]]$season)))
+      }
+      return(ss)
+    }
+    # 0 or 1 in-window closure: fall through to the scalar path so names stay legacy,
+    # feeding it the one closure (or a non-intersecting sentinel for zero).
+    if (length(cl) == 1) {
+      params$pot_closure_start <- as.character(cl[[1]]$start)
+      params$pot_closure_end   <- as.character(cl[[1]]$end)
+    } else {
+      params$pot_closure_start <- as.character(est_end + 365)
+      params$pot_closure_end   <- as.character(est_end + 366)
+    }
+  }
+
   pc_start  <- as.Date(params$pot_closure_start %||% params$est_date_start)
   pc_end    <- as.Date(params$pot_closure_end   %||% (as.Date(params$pot_open_date) - 1))
 
@@ -72,6 +139,7 @@ build_subseasons <- function(params) {
   if (pc_end < est_start || pc_start > est_end) {
     return(list(list(
       name = "all_gear", display_name = "All gear", gear_regime = "all_gear",
+      season = as.character(params$season_filter %||% NA_character_)[1],
       start = est_start, end = est_end, period_bss = "month",
       gear_exclude = character(0))))
   }
@@ -82,11 +150,13 @@ build_subseasons <- function(params) {
   has_pre  <- pc_start > est_start
   has_post <- pc_end   < est_end
 
+  season_tag <- as.character(params$season_filter %||% NA_character_)[1]
   allgear <- function(nm, s, e, disp) list(
-    name = nm, display_name = disp, gear_regime = "all_gear",
+    name = nm, display_name = disp, gear_regime = "all_gear", season = season_tag,
     start = s, end = e, period_bss = "month", gear_exclude = character(0))
   closure <- list(
     name = "ring_net_only", display_name = "Pot closure", gear_regime = "pot_closure",
+    season = season_tag,
     start = pc_start, end = pc_end, period_bss = "biweekly", gear_exclude = c("Pot"))
 
   ss <- list()

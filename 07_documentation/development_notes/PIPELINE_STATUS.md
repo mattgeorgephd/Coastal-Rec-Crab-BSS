@@ -1,6 +1,6 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-09 (Section 1n: season-portability audit; NEW_SEASON_GUIDE.md). Change register: `CHANGE_REGISTER.md`
+- **Last updated:** 2026-09-10 (Section 1o: multi-season spans built; two-season 2023-25 config staged, blocked on 2023-24 data). Change register: `CHANGE_REGISTER.md`
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
 **Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
@@ -833,12 +833,33 @@ The gear track reads 71,026, **-1.39%** apart, against -0.78% for the last pair.
 
 1. **A window that missed the pot closure could not run at all.** Clamping the closure into the window inverted it and hit a stop(): a summer-only window and a winter window both ERRORED instead of yielding a single all-gear sub-season. Fixed in `build_subseasons.R` (a non-intersecting closure now yields one all-gear sub-season; a window inside the closure already worked) and covered by harness tests.
 2. **Season selection was dual-keyed with no consistency check.** The window (`est_date_start/end`) and the data filter (`season_filter`) had to agree and nothing verified it: a stale `season_filter` produced empty readers and a wall of PE fallbacks with the cause nowhere on screen. New `validate_season_window.R` runs inside `fetch_crab_data()` for every driver and batch: it prints, per season, the date range and row counts in and out of the window, STOPS when the window captures zero effort and zero interviews, and WARNS on an unmatched season label or a census window wholly outside the estimation window.
-3. **Multi-season spans could not be expressed.** `season_filter` now accepts a character vector (readers filter `%in%`; the holidays reader requires rows for EVERY listed season, loudly). The remaining structural limit is documented rather than hidden: ONE closure window per run (`pot_closure_start/end` are scalars), so a span containing two closures runs per season and combines outside the model, tracked as CHANGE_REGISTER **D8**.
+3. **Multi-season spans could not be expressed.** `season_filter` now accepts a character vector (readers filter `%in%`; the holidays reader requires rows for EVERY listed season, loudly). The remaining structural limit is documented rather than hidden: ONE closure window per run (`pot_closure_start/end` are scalars), so a span containing two closures runs per season and combines outside the model, tracked as CHANGE_REGISTER **D8**. *(Superseded 2026-09-10: the closures table exists, `pot_closures`; see Section 1o / A14.)*
 4. **The 2024-25-derived settings were not distinguishable from architecture.** Every such key in `run_config.R` is now tagged `SEASON-DERIVED` (turnover prior centers, `kappa_OSP` center, the ZI Beta(1,9), `shared_tau_min_obs`, `crab_fraction_set`, the whole `ar_max_resolution` map), the file opens with a NEW SEASON CHECKLIST, and `ar_force` is reframed from "experiment lever" to what the workflow makes it: the per-fit resolution PIN used while deciding (the only way to pin FINER than the selector, since caps only coarsen), migrated into `ar_max_resolution` once settled, exactly as the 2026-09-07 adoption did.
 
 **The deliverable is `07_documentation/NEW_SEASON_GUIDE.md`**: inputs a season needs, the config checklist, the naive-run ladder settings and their honest cost (one full fit per rung; coarsening barely reduces per-fit cost), the decision files in reading order, how to choose among rungs that all pass (the 2024-25 ladder as the labeled worked example: gate silent, adequacy decisive, interval width only breaking ties between already-adequate rungs), pinning via `ar_force` then caps, part-season behavior, multi-season limits, and a failure-mode table where every stop and fallback is explained in the user's terms.
 
 Harness at this section: build_subseasons window cases, vector season_filter, validator stop/pass, guide presence and links.
+
+---
+
+## 1o. Multi-season spans built; the 2023-25 run staged and blocked on data (2026-09-10)
+
+**The request:** run 2023-24 + 2024-25 together, with (1) a pot-closure window fit per season, (2) the whole span in the monthly figures and fit diagnostics, (3) season-level summaries in the HTML.
+
+**What was built (CHANGE_REGISTER A14; closes the D8 architecture gap):**
+
+1. **`pot_closures`** in `run_config.R`: a list of `list(season =, start =, end =)`, one per closure, outranking the scalar pair. `build_subseasons()` emits, per closure, `ring_net_only_<season>` (biweekly, pots excluded) and the following all-gear gap as `all_gear_<season>`; a window starting before the first closure gets `all_gear_pre_<season1>`. Overlaps, missing season labels, and end-before-start stop loudly. Zero or one in-window closure falls through to the scalar path BYTE-FOR-BYTE, so every single-season name, fit label, and filename is unchanged.
+2. **`census_windows`**: a NAMED list season -> `c(start, end)`. `estimate_comm_charter()` recurses per window with the scalar keys substituted (the expansion logic exists once), sums the totals, and keeps `by_season` for the report.
+3. **Season totals in the report**: a `season-totals` chunk in the pooled Rmd sums catch/effort draws per sub-season `season` tag (PE substituted where the gate failed, census from `by_season`), writes `season_totals.csv` on EVERY run, and renders the table when the span has >1 season, captioned that a span is one shared process, comparable within the run, not equal to standalone runs.
+4. **Validator sharpened**: per-season effort/interview counts split; a season with interviews but ZERO effort counts warns in the exact terms that matter ("its effort process would be pure imputation"); warnings fire even under `quiet = TRUE` (found by writing the test: the warning sat inside the print guard).
+
+Requirement (2) needed nothing: month labels are year-qualified (`%Y-%m`) and calendar indices are span-safe sequential factors since July.
+
+**The staged config** (`run_config.R` live, with a single-season rollback block): window 2023-09-16 to 2025-09-15, `season_filter = c("2023-24","2024-25")`, both closures (Sep 16 to Nov 30 each), both census windows, `run_tag = "two-season-2023-25"`.
+
+**Why the run cannot start yet (data, not code; details in D8):** `effort_combined.xlsx` has NO 2023-24 rows (13,629 interviews vs zero effort counts: pure imputation), `wes_commercial_tally.xlsx` and `crabbing_holidays.xlsx` have NO 2023-24 rows (the holiday reader STOPS by design), WBL/OSP boat counts exist only for 2024-25 (survivable; weaker boat stream). Two flagged assumptions: the 2023-24 `census_windows` dates MIRROR 2024-25 (not from records; confirm), and `pot_open_date` remains a single scalar feeding `estimate_L_effective()`, exact only for the first season (A14 known approximation).
+
+Harness section 46 (18 assertions, total 485): the exact 2023-25 four-sub-season shape, legacy fall-through including the single-closure list form, out-of-window drop, overlap and label stops, the census guard, the validator warning under quiet, and staged-config self-consistency (window spans closures; `season_filter` matches closure seasons; `census_windows` keys match).
 
 ---
 

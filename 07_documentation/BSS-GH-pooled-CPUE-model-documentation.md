@@ -122,7 +122,7 @@ The season is split into two **sub-seasons**, defined by the pot closure, and ea
 - **Pot closure** (Sep 16 to Nov 30): pots prohibited; non-pot gear (ring nets, snares, traps) allowed. Formerly labeled "ring-net only", a misnomer since gear other than ring nets is also legal during the closure. The internal key stays `ring_net_only` for output-filename continuity; the reports display "Pot closure".
 - **All-gear** (Dec 1 to Sep 15): pots allowed.
 
-The closure window is set explicitly in `run_config.R` via `pot_closure_start` and `pot_closure_end` (added 2026-07-13), so a future season whose start does not coincide with the closure start is supported. The shared builder `03_R_functions/build_subseasons.R` derives the sub-seasons from that window and adds pre/post all-gear periods automatically if the closure falls mid-season. Season plots mark the closure start and the pots-open date with vertical lines.
+The closure window is set explicitly in `run_config.R` via `pot_closure_start` and `pot_closure_end` (added 2026-07-13), so a future season whose start does not coincide with the closure start is supported. The shared builder `03_R_functions/build_subseasons.R` derives the sub-seasons from that window and adds pre/post all-gear periods automatically if the closure falls mid-season. A multi-season span instead lists one closure per season in `pot_closures`, yielding a pot-closure and an all-gear sub-season per season, with per-season commercial census windows (`census_windows`) and a season-totals table in the report (added 2026-09-10; see `NEW_SEASON_GUIDE.md` section 7). Season plots mark the closure start and the pots-open date with vertical lines.
 
 ------------------------------------------------------------------------
 

@@ -1710,6 +1710,67 @@ for(cg in bss_catch_groups) {
 
 ```
 
+```{r season-totals, echo=FALSE, results='asis'}
+# ============================================================================
+# SEASON-LEVEL TOTALS (2026-09-10). On a multi-season span every sub-season carries a
+# `season` tag from build_subseasons(), so the port-total draw assembly above can be
+# rerun PER SEASON: same draws, same PE fallbacks, same gate decisions, grouped by the
+# season each fitted sub-season belongs to. The commercial/charter census contributes
+# per season when census_windows is configured (estimate_comm_charter()$by_season);
+# with the scalar census keys its single window is attributed to the season containing
+# census_start_date, and the table says so. Written to season_totals.csv always;
+# rendered in the HTML when the run spans more than one season.
+# ============================================================================
+.seasons <- unique(na.omit(vapply(subseasons, function(x) x$season %||% NA_character_, character(1))))
+if (length(.seasons)) {
+  season_rows <- list()
+  for (cg in bss_catch_groups) for (sn in .seasons) {
+    sC <- rep(0, n_draws_max); sE <- rep(0, n_draws_max); s_pe_C <- 0; s_pe_E <- 0
+    for (pop in c("shore", "private_boat")) for (ss in subseasons) {
+      if (!identical(ss$season %||% NA_character_, sn)) next
+      label <- paste0(pop, "_", ss$name, "_", cg); pe_label <- paste0(pop, "_", ss$name)
+      b <- bss_all[[label]]
+      s_pe_C <- s_pe_C + (pe_all[[pe_label]][[cg]] %||% 0)
+      s_pe_E <- s_pe_E + (pe_all[[pe_label]]$effort_total %||% 0)
+      if (bss_use_pe_for(b)) {
+        sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)
+        sE <- sE + (pe_all[[pe_label]]$effort_total %||% 0)
+      } else {
+        idx <- rep_len(seq_along(b$C_exp_draws), n_draws_max)
+        sC <- sC + b$C_exp_draws[idx]; sE <- sE + b$E_draws[idx]
+      }
+    }
+    # census: per season when available, else attribute the scalar window's season
+    cc <- pe_all$comm_charter
+    ccs <- if (!is.null(cc$by_season)) cc$by_season[[sn]] else {
+      cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
+      one <- vapply(subseasons, function(x) identical(x$season %||% NA_character_, sn) &&
+                      !is.na(cs) && cs >= x$start && cs <= x$end, logical(1))
+      if (any(one)) cc else NULL
+    }
+    sC <- sC + (ccs[[cg]] %||% 0); sE <- sE + (ccs$effort_total %||% 0)
+    season_rows[[paste(cg, sn)]] <- tibble(
+      Catch_Group = cg, Season = sn,
+      Census = if (!is.null(ccs)) round(ccs[[cg]] %||% 0) else 0,
+      PE_catch = round(s_pe_C + (ccs[[cg]] %||% 0)),
+      BSS_median = round(median(sC)), BSS_lo95 = round(quantile(sC, 0.025)),
+      BSS_hi95 = round(quantile(sC, 0.975)),
+      Effort_median = round(median(sE)))
+  }
+  season_totals <- dplyr::bind_rows(season_rows)
+  utils::write.csv(season_totals, file.path(output_dir, "season_totals.csv"), row.names = FALSE)
+  if (length(.seasons) > 1) {
+    cat("\n### Season totals\n\n")
+    report_table(season_totals, caption = paste(
+      "Per-season totals over the multi-season span. Each season sums its own fitted",
+      "sub-seasons (same posterior draws and gate decisions as the port total above) plus",
+      "its census component. Seasons in one run share one CPUE/effort process and one set",
+      "of structural parameters; totals are comparable WITHIN the run, and a season here",
+      "need not equal a standalone single-season run of the same data."))
+  }
+}
+```
+
 ```{r port-total-show, echo=TRUE}
 report_table(final_table, 'Port total harvest estimate (expected catch with 95% credible interval), by component and combined.')
 ```

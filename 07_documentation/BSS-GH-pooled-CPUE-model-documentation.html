@@ -505,8 +505,13 @@ display “Pot closure”.</li>
 closure start is supported. The shared builder
 <code>03_R_functions/build_subseasons.R</code> derives the sub-seasons
 from that window and adds pre/post all-gear periods automatically if the
-closure falls mid-season. Season plots mark the closure start and the
-pots-open date with vertical lines.</p>
+closure falls mid-season. A multi-season span instead lists one closure
+per season in <code>pot_closures</code>, yielding a pot-closure and an
+all-gear sub-season per season, with per-season commercial census
+windows (<code>census_windows</code>) and a season-totals table in the
+report (added 2026-09-10; see <code>NEW_SEASON_GUIDE.md</code> section
+7). Season plots mark the closure start and the pots-open date with
+vertical lines.</p>
 <hr />
 <h3 id="where-this-method-is-valid">6. Where this method is valid</h3>
 <p>Method v1.0 is calibrated to the Westport / Grays Harbor fishery as
