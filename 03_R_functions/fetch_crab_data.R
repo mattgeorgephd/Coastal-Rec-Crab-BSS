@@ -131,10 +131,11 @@ fetch_crab_data <- function(params) {
     # catch and hours_fished are unreliable; drop those too. NA number_of_gear
     # (gear count not recorded) is left untouched.
     filter(is.na(number_of_gear) | number_of_gear != 0) |>
-    filter(is.na(gear_tampered_num) | gear_tampered_num != 1) |>
-    filter(!is.na(fishing_time_total), fishing_time_total >= params$min_fishing_time) |>
-    filter(!req_boat_gear_time | population != "private_boat" |
-           (!is.na(gear_time_total) & gear_time_total > 0))
+    filter(is.na(gear_tampered_num) | gear_tampered_num != 1)
+
+  # --- Fishing-time filters, UNIT-AWARE (review item 8, 2026-09-08) ----------------
+  # See apply_fishing_time_filters() below (a pure helper so the harness can test it).
+  gh_interview <- apply_fishing_time_filters(gh_interview, params, req_boat_gear_time)
 
   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
   dock_f20 <- params$shore_dock_float20 %||% "Westport Docks Float 20"
@@ -211,4 +212,71 @@ fetch_crab_data <- function(params) {
     comm_tally = comm_tally,
     ll = tibble(centroid_lat=46.904, centroid_lon=-124.105)
   ))
+}
+
+
+###############################################################################
+# apply_fishing_time_filters()  (review item 8, 2026-09-08)
+#
+# The historical reader dropped every interview with fishing_time_total below
+# params$min_fishing_time (0.5 crabber-hours) and every private-boat interview with no
+# positive gear_time_total. Both rules existed for the TIME-DENOMINATED effort units,
+# where hours are the CPUE denominator and a near-zero denominator is a division hazard.
+# Under the gear-DEPLOYMENT unit (production for shore since v7.7 and for the boat since
+# v7.6) hours play no part in the likelihood, so the threshold only discarded data: on
+# 2024-25 it removed 153 shore and 44 boat rows, most of them incomplete trips the
+# incomplete-trip filter removes anyway, but also 18 shore and 14 boat complete or
+# unlabelled trips of 0 to 0.4 h.
+#
+# The rule is now:
+#   time-denominated unit (shore on crabber-hours / gear-hours) -> the historical
+#       threshold, unchanged.
+#   gear-deployment unit (boat always; shore in production; comm/charter) -> no time
+#       threshold. ONE guard remains, params$drop_unfished_zero_catch (default TRUE): a
+#       row with NO positive time in any of hours_fished / crabber_hours / gear_hours AND
+#       zero catch is gear that was set and not yet fished (a boat "complete for today"
+#       with its pots still soaking), not a fished deployment, whatever completed_trip
+#       says. Rows with any positive time, however short, are real trips and stay.
+# boat_require_gear_time (the old private-boat gear-time rule) is INERT under the
+# deployment unit and is only reported; it fired on zero rows once the time threshold
+# had run, and the boat has been on deployments since v7.6.
+# The counts each rule removes are printed per population so a run log shows them.
+#
+# Pure: takes the classified interview frame (needs population, hours_fished,
+# crabber_hours_calc, gear_hours, fishing_time_total, dungeness_kept, red_rock_kept)
+# and returns it filtered. Effect on 2024-25 (measured 2026-09-08): shore 3,597 -> 3,739
+# rows (complete-trip CPUE 0.979 -> 0.976), boat 162 -> 184 (3.26 -> 3.17),
+# commercial/charter unchanged.
+###############################################################################
+apply_fishing_time_filters <- function(df, params, req_boat_gear_time = TRUE, quiet = FALSE) {
+  .shore_unit <- params$shore_effort_unit %||% "crabber-hours"
+  .time_units <- c("crabber-hours", "gear-hours")
+  .min_time   <- as.numeric(params$min_fishing_time %||% 0.5)
+  .zero_guard <- isTRUE(params$drop_unfished_zero_catch %||% TRUE)
+  gh <- as.numeric(suppressWarnings(as.numeric(df$gear_hours %||% rep(NA_real_, nrow(df)))))
+  df <- df |>
+    mutate(
+      .time_unit_pop = (population == "shore" & .shore_unit %in% .time_units),
+      .any_pos_time  = (!is.na(hours_fished) & hours_fished > 0) |
+                       (!is.na(crabber_hours_calc) & crabber_hours_calc > 0) |
+                       (!is.na(gh) & gh > 0),
+      .zero_catch    = (dungeness_kept <= 0) & (red_rock_kept <= 0),
+      .drop_time     = .time_unit_pop & (is.na(fishing_time_total) | fishing_time_total < .min_time),
+      .drop_unfished = !.time_unit_pop & .zero_guard & !.any_pos_time & .zero_catch
+    )
+  if (!isTRUE(quiet)) {
+    .tab <- df |>
+      group_by(population) |>
+      summarise(n = n(), time_threshold = sum(.drop_time),
+                unfished_zero_catch = sum(.drop_unfished), .groups = "drop")
+    cat(sprintf("  Fishing-time filters (unit-aware; shore unit '%s'; boat_require_gear_time %s is inert under deployments):\n",
+                .shore_unit, req_boat_gear_time))
+    for (i in seq_len(nrow(.tab)))
+      cat(sprintf("    %-13s %4d rows | dropped: time threshold %d, unfished zero-catch %d [%s]\n",
+                  .tab$population[i], .tab$n[i], .tab$time_threshold[i], .tab$unfished_zero_catch[i],
+                  if (.tab$population[i] == "shore" && .shore_unit %in% .time_units) "time unit" else "deployment unit"))
+  }
+  df |>
+    filter(!.drop_time, !.drop_unfished) |>
+    select(-.time_unit_pop, -.any_pos_time, -.zero_catch, -.drop_time, -.drop_unfished)
 }

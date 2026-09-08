@@ -244,7 +244,20 @@ run_config <- list(
   # the boat stream. Splitting Sunday out needs a shift change in the field plan, not
   # a config edit; see PIPELINE_STATUS Section 6.
   days_wkend        = c("Saturday", "Sunday"),
-  min_fishing_time  = 0.5,            # min crabber-hours to keep an interview
+  # --- Fishing-time filters (review item 8, 2026-09-08; unit-aware) ---------------
+  # min_fishing_time applies ONLY when a population's effort unit is time-denominated
+  # (shore on crabber-hours / gear-hours). Under the gear-deployment unit (production for
+  # both populations) hours are not in the likelihood, so the threshold only discarded
+  # data (153 shore and 44 boat rows on 2024-25, mostly incomplete trips but also 18
+  # shore and 14 boat complete/unlabelled trips of 0 to 0.4 h). The one guard that
+  # remains under deployments is drop_unfished_zero_catch: a row with NO positive time in
+  # hours_fished, crabber_hours or gear_hours AND zero catch is gear set and not yet
+  # fished (pots still soaking), not a fished deployment, whatever completed_trip says.
+  # Measured effect (reader, 2024-25): shore 3,597 -> 3,739 rows, complete-trip CPUE
+  # 0.979 -> 0.976; boat 162 -> 184 rows, 3.26 -> 3.17; commercial/charter unchanged.
+  # See apply_fishing_time_filters() in 03_R_functions/fetch_crab_data.R.
+  min_fishing_time  = 0.5,            # min crabber-hours to keep an interview (TIME units only)
+  drop_unfished_zero_catch = TRUE,    # deployment units: drop no-time AND zero-catch rows
   period_pe         = "week",         # PE temporal stratum
   sections          = c(1),
   # PE empty-stratum CPUE fallback (item 2, 2026-07-13). A week x day-type stratum with

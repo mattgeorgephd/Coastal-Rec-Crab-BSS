@@ -1983,5 +1983,44 @@ local({
       min(rc$tau_sensitivity_grid) < 2.7 && max(rc$tau_sensitivity_grid) > 3.0)
 })
 
+# ---------------------------------------------------------------------------
+# 48. Unit-aware fishing-time filters (review item 8, 2026-09-08). The 0.5 h threshold
+#     belongs to the time-denominated units; under gear-deployments the only guard is
+#     "no positive time AND zero catch" (gear set, not yet fished). Tested on a synthetic
+#     frame through the pure helper apply_fishing_time_filters().
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/fetch_crab_data.R")
+  fr <- tibble(
+    population         = c("shore","shore","shore","private_boat","private_boat","private_boat","comm_charter"),
+    hours_fished       = c(0.1,    0,      3,      0,             0.1,           2,             NA),
+    crabber_hours_calc = c(0.2,    0,      6,      0,             0.1,           4,             NA),
+    gear_hours         = c(0.2,    0,      6,      0,             0.3,           6,             NA),
+    fishing_time_total = c(0.2,    NA,     6,      NA,            0.1,           4,             NA),
+    dungeness_kept     = c(0,      0,      5,      0,             0,             9,             40),
+    red_rock_kept      = 0)
+  Pd <- list(shore_effort_unit = "gear-deployments", min_fishing_time = 0.5, drop_unfished_zero_catch = TRUE)
+  out <- apply_fishing_time_filters(fr, Pd, quiet = TRUE)
+  chk("deployments: a 0.1 h shore trip is KEPT (no time threshold)", 1 %in% which(fr$population == "shore") && nrow(out[out$population=="shore",]) == 2)
+  chk("deployments: a no-time zero-catch shore row is dropped (unfished)", !any(out$population == "shore" & is.na(out$fishing_time_total)))
+  chk("deployments: a no-time zero-catch BOAT row is dropped (pots still soaking)", sum(out$population == "private_boat") == 2)
+  chk("deployments: a 0.1 h zero-catch boat trip is KEPT", any(out$population == "private_boat" & out$hours_fished == 0.1))
+  chk("deployments: a commercial row with no hours but catch is KEPT", any(out$population == "comm_charter"))
+  Pt <- modifyList(Pd, list(shore_effort_unit = "crabber-hours"))
+  out_t <- apply_fishing_time_filters(fr, Pt, quiet = TRUE)
+  chk("time unit: the 0.5 h threshold still applies to shore", sum(out_t$population == "shore") == 1)
+  chk("time unit: the boat is untouched by the shore unit", sum(out_t$population == "private_boat") == 2)
+  Pg <- modifyList(Pd, list(drop_unfished_zero_catch = FALSE))
+  out_g <- apply_fishing_time_filters(fr, Pg, quiet = TRUE)
+  chk("guard off: nothing is dropped under deployments", nrow(out_g) == nrow(fr))
+  chk("helper strips its scratch columns", !any(grepl("^\\.", names(out))))
+  src <- readLines("03_R_functions/fetch_crab_data.R", warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+  chk("reader calls the helper (no inline time threshold survives)",
+      any(grepl("apply_fishing_time_filters(gh_interview", src, fixed = TRUE)) &&
+      !any(grepl("fishing_time_total >= params$min_fishing_time", src, fixed = TRUE)))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: drop_unfished_zero_catch = TRUE", identical(rc$drop_unfished_zero_catch, TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
