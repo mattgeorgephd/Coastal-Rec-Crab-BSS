@@ -126,3 +126,46 @@ fit_exactness <- function(new_dir, ref_dir, pat = NULL, what = "fits", expect_de
                           else sprintf("DIFFER in %s", paste(basename(bad), collapse = ", ")), note),
        verdict = if (!length(bad) && n > 0) "PASS" else "FAIL", unexpected_delta = extra)
 }
+
+# ---------------------------------------------------------------------------
+# fit_agreement()  (2026-09-08, review item 1B ladder)
+#
+# Posterior AGREEMENT within Monte Carlo error, for a change that alters the parameter
+# VECTOR (so bit-identity is impossible: HMC moves every coordinate jointly and a new
+# parameter changes every trajectory) but must not alter the posterior of the parameters
+# it does not touch. The 2026-09-08 dynamic crabbing fraction is the case in point: f
+# enters generated quantities only, so effort and CPUE posteriors are unchanged in
+# DISTRIBUTION, and the check is z = |mean_new - mean_ref| / sqrt(se_new^2 + se_ref^2) on
+# every shared row of the full summaries, with the rows the change DOES touch excluded
+# (`exclude`, a regex on the parameter name). rstan's se_mean is itself an estimate, so a
+# few |z| above 3 among thousands of rows are expected; PASS needs max |z| under z_max and
+# under 1% of rows above 3. Rows with a zero or missing se_mean (constants, decoupled
+# *_out quantities reporting 0.0) are skipped.
+# ---------------------------------------------------------------------------
+fit_agreement <- function(new_dir, ref_dir, pat = NULL, exclude = NULL, z_max = 5, what = "fits") {
+  if (!dir.exists(new_dir %||% "") || !dir.exists(ref_dir %||% ""))
+    return(list(observed = "run or reference folder missing", verdict = "REVIEW", z = numeric(0)))
+  fs <- list.files(new_dir, pattern = "^bss_full_summary_.*\\.csv$")
+  if (!is.null(pat)) fs <- fs[grepl(pat, fs)]
+  fs <- fs[file.exists(file.path(ref_dir, fs))]
+  z_all <- numeric(0); worst <- character(0)
+  for (f in fs) {
+    a <- tryCatch(utils::read.csv(file.path(ref_dir, f), row.names = 1, check.names = FALSE), error = function(e) NULL)
+    b <- tryCatch(utils::read.csv(file.path(new_dir, f), row.names = 1, check.names = FALSE), error = function(e) NULL)
+    if (is.null(a) || is.null(b) || !all(c("mean", "se_mean") %in% names(a)) || !all(c("mean", "se_mean") %in% names(b))) next
+    cr <- intersect(rownames(a), rownames(b))
+    if (!is.null(exclude)) cr <- cr[!grepl(exclude, cr)]
+    se <- sqrt(as.numeric(a[cr, "se_mean"])^2 + as.numeric(b[cr, "se_mean"])^2)
+    ok <- is.finite(se) & se > 0
+    z <- abs(as.numeric(b[cr, "mean"]) - as.numeric(a[cr, "mean"]))[ok] / se[ok]
+    names(z) <- paste0(sub("^bss_full_summary_", "", sub("\\.csv$", "", f)), ":", cr[ok])
+    z_all <- c(z_all, z)
+  }
+  if (!length(z_all))
+    return(list(observed = sprintf("%s: no comparable rows", what), verdict = "REVIEW", z = z_all))
+  n3 <- sum(z_all > 3); mx <- max(z_all); wi <- names(z_all)[which.max(z_all)]
+  list(observed = sprintf("%s: %d shared rows across %d summaries; max |z| %.2f (%s); %d rows above 3 (%.2f%%)",
+                          what, length(z_all), length(fs), mx, wi, n3, 100 * n3 / length(z_all)),
+       verdict = if (mx < z_max && n3 < 0.01 * length(z_all)) "PASS" else "FAIL",
+       z = z_all)
+}

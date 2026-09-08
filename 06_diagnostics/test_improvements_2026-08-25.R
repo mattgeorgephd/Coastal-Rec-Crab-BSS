@@ -2332,5 +2332,57 @@ local({
   chk("shipped: census_uncertainty = none (the census stays a constant until chosen otherwise)", identical(rc$census_uncertainty, "none"))
 })
 
+# ---------------------------------------------------------------------------
+# 54. The 2026-09-08 improvement ladder runner and the fit_agreement() helper. The
+#     runner inherits every standing runner rule (sections 30, 31: DRY_RUN TRUE, tag
+#     inside run_config, HTML moved, merge-by-key persistence); fit_agreement() is the
+#     Monte-Carlo-error comparison the dynamic-f rung needs because bit-identity is
+#     impossible once the parameter vector changes.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_improvements_2026-09-08.R"
+  chk("ladder runner present", file.exists(f)); if (!file.exists(f)) return(invisible(NULL))
+  t <- readLines(f, warn = FALSE); tt <- t[!grepl("^\\s*#", t)]; s <- paste(tt, collapse = "\n")
+  chk("ladder: the tag goes inside run_config and render() gets no output_dir",
+      any(grepl("cfg$run_tag <- st$tag", tt, fixed = TRUE)) && !any(grepl("output_dir", tt[grepl("rmarkdown::render(", tt, fixed = TRUE)], fixed = TRUE)))
+  chk("ladder: rendered HTML is moved into the run folder", any(grepl("file.copy(html", tt, fixed = TRUE)))
+  chk("ladder: verdicts and the ladder table are MERGED by key, never appended",
+      grepl('merge_csv_by(do.call(rbind, V), vp, c("stage", "criterion"))', s, fixed = TRUE) && grepl('merge_csv_by(do.call(rbind, LAD), lp, "rung")', s, fixed = TRUE))
+  chk("ladder: every verdict block is wrapped so a reading defect cannot destroy a result", grepl(".safe <- function(sid, expr) tryCatch", s, fixed = TRUE))
+  chk("ladder: the single-season window is pinned on every rung", grepl('season_filter = "2024-25"', s, fixed = TRUE) && grepl("modifyList(BASE, WINDOW, keep.null = TRUE)", s, fixed = TRUE))
+  # the deltas are cumulative and each adds one thing
+  e <- new.env()
+  e$`%||%` <- function(a, b) if (is.null(a)) b else a
+  eval(parse(text = tt[grepl("^(D_R1|D_R2|D_R3a|D_R3|D_R4) *<-|^ +(crab_fraction|tau_shore|tau_boat|shared_tau|census_uncertainty)", tt)]), envir = e)
+  chk("ladder: R1 is the pre-patch configuration (tau 1.2, sigma 0.3, flat f from the blank egress columns, legacy construction)",
+      identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$crab_fraction_strata, "none") && identical(e$D_R1$crab_fraction_source, "ie") && identical(e$D_R1$crab_fraction_dynamic, FALSE))
+  chk("ladder: R2 adds only the calibration prior", identical(e$D_R2$tau_boat_prior_mu, "calibration") && identical(e$D_R2$crab_fraction_strata, "none"))
+  chk("ladder: R3a adds only the monthly f from both sources (legacy)", identical(e$D_R3a$crab_fraction_strata, "month") && identical(e$D_R3a$crab_fraction_source, "both") && identical(e$D_R3a$crab_fraction_dynamic, FALSE))
+  chk("ladder: R3 adds only the dynamic f, and equals the shipped run_config on the moved keys",
+      identical(e$D_R3$crab_fraction_dynamic, TRUE) && identical(e$D_R3$tau_shore_prior_mu, 1.7) && {
+        rc <- new.env(); sys.source("run_config.R", envir = rc); rc <- rc$run_config
+        all(vapply(c("tau_boat_prior_mu", "tau_boat_prior_sigma", "shared_tau_sigma", "crab_fraction_strata", "crab_fraction_source",
+                     "crab_fraction_dynamic", "tau_shore_prior_mu", "census_uncertainty"),
+                   function(k) identical(e$D_R3[[k]], rc[[k]]), logical(1))) })
+  chk("ladder: R4 adds only the derived shore turnover", identical(e$D_R4$tau_shore_prior_mu, "derived") && identical(e$D_R4$crab_fraction_dynamic, TRUE))
+  # fit_agreement(): two synthetic run folders
+  source("03_R_functions/batch_verdict_helpers.R")
+  mk <- function(dir, means, se) {
+    dir.create(dir, showWarnings = FALSE)
+    utils::write.csv(data.frame(mean = means, se_mean = se, sd = se * 10, row.names = c("B1", "mu_mu_E[1]", "f_crab_out[1]", "sigma_f_out")),
+                     file.path(dir, "bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv"))
+  }
+  da <- tempfile("fa_a"); db <- tempfile("fa_b")
+  mk(da, c(0.50, 2.70, 0.30, 0.00), c(0.001, 0.02, 0.001, 0))
+  mk(db, c(0.501, 2.71, 0.90, 0.66), c(0.001, 0.02, 0.002, 0.003))
+  r <- fit_agreement(db, da, pat = "private_boat", exclude = "^(f_crab|sigma_f)")
+  chk("fit_agreement: non-excluded rows within MC error -> PASS, excluded rows ignored, zero-se rows skipped",
+      identical(r$verdict, "PASS") && length(r$z) == 2 && !any(grepl("f_crab|sigma_f", names(r$z))))
+  r2 <- fit_agreement(db, da, pat = "private_boat")
+  chk("fit_agreement: a moved parameter that is NOT excluded fails the test", identical(r2$verdict, "FAIL") && max(r2$z) > 100)
+  chk("fit_agreement: missing folder -> REVIEW, not an error", identical(fit_agreement(tempfile(), da)$verdict, "REVIEW"))
+  unlink(c(da, db), recursive = TRUE)
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

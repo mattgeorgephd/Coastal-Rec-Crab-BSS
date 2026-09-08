@@ -863,6 +863,31 @@ Harness section 46 (18 assertions, total 485): the exact 2023-25 four-sub-season
 
 ---
 
+## 1p. The 2026-09-06 review, answered: eight items, nine patches, a ladder to run (2026-09-08)
+
+**The review** (`claude/branch-review-2026-09-06.md` in the project) raised eight items; Matt's decisions and the patches (`0001`-`0009`, applied in order on `bf4be01`):
+
+| # | Item | Decision | Patch | Ships |
+|---|---|---|---|---|
+| 1 | Crabbing fraction f | use the sampler contacts (every boat approached; non-crabbing boats carry `crabbers = 0`) to update f dynamically, with OSP's crabbing-only counts when they arrive | 0006 (contacts, month strata), 0007 (dynamic f in both Stan models) | ON |
+| 2 | Shore turnover | a `time` column was added to `ingress_egress.xlsx` | 0005 (diel profile, derived prior, per-population shared-tau keys) | OFF (`tau_shore_prior_mu = 1.7`; R4 is the case) |
+| 3 | `tau_bar` prior | re-centre on the 61-day overlap calibration | 0001 | ON (`"calibration"`, 3.03 on 2024-25) |
+| 4 | Census | "should not have any error" | 0008: exact on the 47 tally days, imputed on 23; SE 426 reported, `census_uncertainty = "none"` | reported, not carried |
+| 5 | Boat PE turnover | update it | 0001 (the PE reads the resolved prior) | ON |
+| 6 | Gear-split Dirichlet on crab counts | build on interviews | 0003 (trip-level bootstrap, per sub-season) | ON |
+| 7 | Multi-season caption | correct it | 0004 | ON |
+| 8 | Hours filter | remove it if irrelevant under the deployment unit | 0002 (unit-aware filters) | ON |
+
+**Where the review pushed back, and what the data said.** (a) The census is exact on the days it was taken, but the roster left 23 of 70 days unsampled and the day-type means fill them: 3,869 of 11,753 crab, imputation SE 426 (3.6%). The number does not move; the split and the SE are now on every run (`census_daily.csv`, `census_variance.csv`) and the option to carry the SE exists. The better fix is a data request (D10). (b) The shore counts are taken at 9:00-14:00, when presence is about 0.7 of the daily peak, so the peak-based turnover 1.7 under-expands the shore by ~1.47x; the derived value is 2.48 on 40 I/E days (weekday 2.47, weekend 2.48). It is the largest single mover in the series and ships OFF until R4 shows it. (c) The contacts happen during sampler shifts; if finfish boats return later than crab boats the shift-time share overstates f in summer. Carried as a config caveat, with OSP's all-day column as the check (D11).
+
+**The dynamic f, checked on real data before shipping** (boat all-gear 2024-25, 4 chains x 1200, `adapt_delta` 0.95): f tracks the monthly contact shares (Dec 0.947 [0.87, 0.99] on 46 of 47; Feb 0.90 [0.73, 0.98] on 5 contacts, borrowed from its neighbours), `sigma_f` 0.66 [0.34, 1.38], `cfi_kappa` prior-dominated as expected (most contact days hold 1-4 boats), every non-f parameter within Monte Carlo error of the legacy Phase A control (|z| < 1.3, the factorization proof), component +17.5% against Phase A (36.5k -> 42.9k), whose kappa = 20 prior held December at 0.78 and sent Feb/Mar/Jun back to 0.30. Divergences (62 vs 44 of 2,400 at `adapt_delta` 0.95) sit in the pooled boat model's known `sigma_mu_E` funnel in both fits, not in the f block.
+
+**Two corrections to the plan as first written.** The plan's R3 criterion said "non-f parameters bit-identical to R2"; that is impossible once the parameter vector changes (HMC moves every coordinate jointly), and the correct test, agreement in distribution within Monte Carlo error, is now `fit_agreement()` (B13). The plan's census figure (~4,800 imputed of 11,821) was from the earlier run's means; the measured split is 3,869 of 11,753.
+
+**Not yet run:** `06_diagnostics/run_improvements_2026-09-08.R` (B14, D12), about 22 h: R0 desk (ran clean here), R1 filters, R2 calibration prior, R3a monthly f (legacy), R3 dynamic f (the shipped configuration), R4 derived shore turnover, R5 gear cross-check. Harness at 627 assertions.
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
