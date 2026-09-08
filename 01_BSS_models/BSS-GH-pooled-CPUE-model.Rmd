@@ -2127,87 +2127,97 @@ report_table(mode_table, 'Season catch by crabbing mode.')
 In the pooled model, gear-type catch is derived after estimation by allocating each population's total over gear types using the interview gear-catch shares. As of the 2026-07-13 change (item 3 / T2.2) this allocation propagates uncertainty from both sources: the gear shares are drawn from a Dirichlet posterior (`pi ~ Dirichlet(observed gear catch + 0.5)`) and multiplied by the population total's BSS posterior draws, so each gear carries a 95% credible interval rather than a point. It is still an allocation of the pooled total, not an independently modeled per-gear CPUE process (that is the gear-resolved model's role), but its uncertainty is now honest.
 
 ```{r catch-gear, results='hide', fig.show='hide'}
-# 7.10 CATCH BY GEAR TYPE (Dirichlet pi_gear + BSS total propagation; item 3)
+# 7.10 CATCH BY GEAR TYPE (trip-level bootstrap shares x component total draws)
 #
-# Pooled model: uses interview data to estimate the proportion of catch
-# by primary gear type, then applies to combined catch estimates.
+# Pooled model: the gear split is an apportionment of each component's catch by the
+# catch shares observed in that component's interviews. REVIEW ITEM 6 (2026-09-08)
+# replaced two things at once:
+#   (1) Dirichlet(catch counts + 0.5) -> a nonparametric TRIP-level bootstrap of the
+#       shares. The Dirichlet treated every crab as an independent multinomial draw; crab
+#       arrive in trips (one pot boat lands 25), so the effective sample size is the number
+#       of trips and the old intervals were several times too narrow.
+#   (2) one season-wide share vector per population -> shares PER population x sub-season,
+#       applied to that sub-season's own total draws. The old pooling attributed "Pot" catch
+#       to the pot-closure period, where pots are illegal.
+# The helper lives in 03_R_functions/gear_share_bootstrap.R. Comm/charter is all Pot by
+# construction (census). tryCatch falls back to a point allocation if a draw object is
+# unavailable, so the section can never break the knit.
 # ===========================================================================
 
-cat("\n", strrep("=",60), "\n CATCH BY GEAR TYPE (proportional)\n", strrep("=",60), "\n")
+cat("\n", strrep("=",60), "\n CATCH BY GEAR TYPE (bootstrap shares x totals)\n", strrep("=",60), "\n")
 
-gear_catch <- dwg$interview |>
-  filter(population %in% c("shore","private_boat"), dungeness_kept > 0) |>
-  mutate(
-    gear_primary = case_when(
-      str_detect(gear_type, "(?i)^pot|, pot|pot,") & !str_detect(gear_type, "(?i)slip ring") ~ "Pot",
-      str_detect(gear_type, "(?i)ring net")     ~ "Ring Net",
-      str_detect(gear_type, "(?i)trap|star")    ~ "Trap",
-      str_detect(gear_type, "(?i)snare")        ~ "Snare",
-      TRUE                                      ~ "Other"
-    )
-  )
+gear_levels <- gear_primary_levels
 
-gear_props <- gear_catch |>
-  group_by(population, gear_primary) |>
-  summarise(total_catch = sum(dungeness_kept), n_int = n(), .groups = "drop") |>
-  group_by(population) |>
-  mutate(prop_catch = total_catch / sum(total_catch)) |>
-  ungroup()
+gear_int <- dwg$interview |>
+  filter(population %in% c("shore","private_boat")) |>
+  mutate(gear_primary = gear_primary_class(gear_type),
+         catch = as.numeric(dungeness_kept))
 
-cat("\n  Observed catch proportions by gear type:\n")
-print(gear_props |> select(population, gear_primary, n_int, total_catch, prop_catch) |>
+# Observed (point) shares per population x sub-season, for the report and the fallback.
+gear_props <- bind_rows(lapply(subseasons, function(ss) {
+  gear_int |>
+    filter(between(event_date, ss$start, ss$end)) |>
+    group_by(population, gear_primary) |>
+    summarise(total_catch = sum(catch, na.rm = TRUE), n_int = n(), .groups = "drop") |>
+    group_by(population) |>
+    mutate(prop_catch = if (sum(total_catch) > 0) total_catch / sum(total_catch) else NA_real_,
+           subseason = ss$name) |>
+    ungroup()
+}))
+cat("\n  Observed catch proportions by gear type (per sub-season):\n")
+print(gear_props |> select(subseason, population, gear_primary, n_int, total_catch, prop_catch) |>
         mutate(prop_catch = round(prop_catch, 3)))
 
 total_shore_catch <- pe_pop_sum("shore", "Dungeness_Kept")
-total_boat_catch <- pe_pop_sum("private_boat", "Dungeness_Kept")
+total_boat_catch  <- pe_pop_sum("private_boat", "Dungeness_Kept")
 
-# --- item 3 (T2.2 / B5, 2026-07-13): propagate pi_gear + total uncertainty -------------
-# The old breakdown multiplied POINT interview gear-proportions by a POINT total (a double
-# point estimate with no interval). It now propagates BOTH sources: (a) each population's
-# gear shares as pi ~ Dirichlet(observed gear catch + 0.5), the multinomial-Dirichlet
-# posterior for catch shares; (b) the population total as its BSS posterior draws (the
-# summed C_expected draws of that population's fitted sub-seasons, plus the PE point for
-# any PE-fallback sub-season). Per-gear catch = total_draw * pi_draw, summed over the two
-# populations and the comm/charter census (all Pot), reported as median + 95% CI. NOTE:
-# the gear-resolved model has no true Dirichlet either (its pi_gear scaffolding never
-# reaches its Stan), so this R-side propagation is the correct fix for both tracks and
-# could be back-ported. tryCatch falls back to the old point allocation if a draw object
-# is unavailable, so the section can never break the knit.
-gear_levels <- c("Pot", "Ring Net", "Trap", "Snare", "Other")
-
-gear_pop_total_draws <- function(pop, n_target) {
-  labs <- paste0(pop, "_", vapply(subseasons, function(z) z$name, ""), "_Dungeness_Kept")
-  draws <- NULL; pe_add <- 0
-  for (lab in labs) {
-    b <- bss_all[[lab]]
-    if (!is.null(b) && !isTRUE(b$pe_fallback) && !is.null(b$C_exp_draws)) {
-      d <- as.numeric(b$C_exp_draws)
-      if (is.null(draws)) draws <- d
-      else { k <- min(length(draws), length(d)); draws <- draws[seq_len(k)] + d[seq_len(k)] }
-    } else {
-      pe_add <- pe_add + (pe_all[[sub("_Dungeness_Kept$", "", lab)]]$Dungeness_Kept %||% 0)
-    }
+# One component's total draws: its BSS expected-catch draws where the gate passed, the PE
+# point otherwise (recycled to n_target so the bootstrap shares can multiply it).
+gear_component_total_draws <- function(pop, ss_name, n_target) {
+  lab <- paste0(pop, "_", ss_name, "_Dungeness_Kept")
+  b   <- bss_all[[lab]]
+  if (!is.null(b) && !bss_use_pe_for(b) && !is.null(b$C_exp_draws)) {
+    d <- as.numeric(b$C_exp_draws)
+    if (length(d) >= n_target) d[seq_len(n_target)] else sample(d, n_target, replace = TRUE)
+  } else {
+    rep(pe_all[[paste0(pop, "_", ss_name)]]$Dungeness_Kept %||% 0, n_target)
   }
-  if (is.null(draws)) return(rep(pe_add, n_target))
-  draws <- draws + pe_add
-  if (length(draws) >= n_target) draws[seq_len(n_target)] else sample(draws, n_target, replace = TRUE)
 }
 
 gear_summary <- tryCatch({
-  set.seed(params$bss_seed)
   n_gd <- 4000
-  rdir <- function(n, alpha) {  # n x length(alpha) Dirichlet draws via gamma normalization
-    g <- matrix(rgamma(n * length(alpha), shape = rep(alpha, each = n), rate = 1), nrow = n)
-    g / rowSums(g)
-  }
   per_gear <- matrix(0, n_gd, length(gear_levels), dimnames = list(NULL, gear_levels))
+  gear_share_detail <- list()
   for (pop in c("shore", "private_boat")) {
-    gc <- gear_props |> dplyr::filter(population == pop)
-    counts <- setNames(rep(0, length(gear_levels)), gear_levels)
-    if (nrow(gc) > 0) counts[as.character(gc$gear_primary)] <- gc$total_catch
-    per_gear <- per_gear + rdir(n_gd, counts + 0.5) * gear_pop_total_draws(pop, n_gd)
+    for (ss in subseasons) {
+      iv <- gear_int |> filter(population == pop, between(event_date, ss$start, ss$end))
+      shares <- gear_share_bootstrap(iv, n_boot = n_gd, levels = gear_levels,
+                                     seed = params$bss_seed + match(pop, c("shore","private_boat")) * 1000 +
+                                            match(ss$name, vapply(subseasons, `[[`, "", "name")))
+      # A sub-season whose interviews carry no catch at all (or none) has undefined shares;
+      # fall back to the population's season-wide point shares, and say so.
+      if (all(is.na(shares))) {
+        fb <- gear_share_point(gear_int |> filter(population == pop), gear_levels)
+        if (all(is.na(fb))) fb <- setNames(c(1, 0, 0, 0, 0), gear_levels)
+        shares <- matrix(fb, n_gd, length(gear_levels), byrow = TRUE, dimnames = list(NULL, gear_levels))
+        cat(sprintf("  gear split: %s / %s has no catch-bearing interviews; season-wide point shares used.\n", pop, ss$name))
+      } else if (anyNA(shares)) {
+        # a rare replicate with zero total catch: replace it by the point shares
+        pt <- gear_share_point(iv, gear_levels)
+        shares[is.na(shares[, 1]), ] <- matrix(pt, sum(is.na(shares[, 1])), length(gear_levels), byrow = TRUE)
+      }
+      tot <- gear_component_total_draws(pop, ss$name, n_gd)
+      per_gear <- per_gear + shares * tot
+      gear_share_detail[[paste(pop, ss$name)]] <- tibble(
+        population = pop, subseason = ss$name, n_interviews = nrow(iv),
+        gear_primary = gear_levels,
+        share_median = apply(shares, 2, median),
+        share_lo95   = apply(shares, 2, quantile, 0.025),
+        share_hi95   = apply(shares, 2, quantile, 0.975))
+    }
   }
   per_gear[, "Pot"] <- per_gear[, "Pot"] + (pe_all$comm_charter$Dungeness_Kept %||% 0)
+  write.csv(bind_rows(gear_share_detail), file.path(output_dir, "gear_shares_bootstrap.csv"), row.names = FALSE)
   tibble(
     gear_primary = gear_levels,
     PE_Catch = round(apply(per_gear, 2, median)),
@@ -2217,8 +2227,11 @@ gear_summary <- tryCatch({
     dplyr::mutate(Proportion = round(PE_Catch / sum(PE_Catch), 3)) |>
     dplyr::arrange(dplyr::desc(PE_Catch))
 }, error = function(e) {
-  cat(sprintf("  Gear Dirichlet propagation failed (%s); using point allocation.\n", conditionMessage(e)))
+  cat(sprintf("  Gear bootstrap propagation failed (%s); using point allocation.\n", conditionMessage(e)))
   ge <- gear_props |>
+    group_by(population, gear_primary) |>
+    summarise(total_catch = sum(total_catch), .groups = "drop") |>
+    group_by(population) |> mutate(prop_catch = total_catch / sum(total_catch)) |> ungroup() |>
     mutate(pop_total = dplyr::case_when(population == "shore" ~ total_shore_catch,
                                         population == "private_boat" ~ total_boat_catch),
            est_catch = round(pop_total * prop_catch)) |>
@@ -2231,7 +2244,7 @@ gear_summary <- tryCatch({
     arrange(desc(PE_Catch))
 })
 
-cat("\n--- Catch by Gear Type (Dirichlet pi_gear + BSS-total propagation) ---\n")
+cat("\n--- Catch by Gear Type (trip-level bootstrap shares x component totals) ---\n")
 print(gear_summary)
 write.csv(gear_summary, file.path(output_dir, "catch_by_gear_type.csv"), row.names = FALSE)
 
@@ -2242,7 +2255,7 @@ p_gear <- gear_summary |>
   geom_errorbar(aes(ymin = lo95, ymax = hi95), width = 0.2, na.rm = TRUE) +
   geom_text(aes(label = sprintf("%s (%.0f%%)", format(PE_Catch, big.mark=","), Proportion*100)),
             hjust = -0.1, size = 3) +
-  labs(title = "Estimated Dungeness Catch by Gear Type (Dirichlet pi_gear + BSS total)",
+  labs(title = "Estimated Dungeness Catch by Gear Type (bootstrap shares x component totals)",
        x = "Gear Type", y = "Estimated Catch (median, 95% CI)") +
   theme_bw() + theme(legend.position = "none") + coord_flip()
 ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10, height = 6)
@@ -2251,7 +2264,7 @@ ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10,
 ```
 
 ```{r catch-gear-show, echo=TRUE, fig.height=6, fig.cap='Catch by gear type.'}
-report_table(gear_summary, 'Season catch by gear type: Dirichlet-propagated interview gear-shares times BSS population-total draws (median, 95% CI). An NA interval marks the point-allocation fallback.'); if (exists('p_gear')) print(p_gear)
+report_table(gear_summary, 'Season catch by gear type: trip-level bootstrap interview gear-shares, per population and sub-season, times each component total (BSS draws or PE point); median and 95% interval. An NA interval marks the point-allocation fallback.'); if (exists('p_gear')) print(p_gear)
 ```
 
 ## 10. Convergence report

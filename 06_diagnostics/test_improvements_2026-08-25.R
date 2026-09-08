@@ -2022,5 +2022,38 @@ local({
   chk("shipped: drop_unfished_zero_catch = TRUE", identical(rc$drop_unfished_zero_catch, TRUE))
 })
 
+# ---------------------------------------------------------------------------
+# 49. Gear split by trip-level bootstrap (review item 6, 2026-09-08). The Dirichlet on
+#     crab COUNTS treated every crab as an independent draw; crab arrive in trips, so
+#     the intervals were several times too narrow. The bootstrap resamples trips.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/gear_share_bootstrap.R")
+  chk("gear classes: the report's regex is preserved",
+      identical(gear_primary_class(c("Pot", "Ring net", "Collapsible trap or ring", "Fishing rod with snare", "Slip ring pot", "Other thing")),
+                c("Pot", "Ring Net", "Trap", "Snare", "Other", "Other")))
+  set.seed(7)
+  iv <- tibble(gear_primary = c(rep("Pot", 30), rep("Ring Net", 20), rep("Trap", 10)),
+               catch = c(rpois(30, 8), rpois(20, 3), rpois(10, 4)))
+  sh <- gear_share_bootstrap(iv, n_boot = 500, seed = 1)
+  chk("bootstrap shares: rows sum to one", all(abs(rowSums(sh) - 1) < 1e-9))
+  chk("bootstrap shares: median tracks the point share",
+      abs(median(sh[, "Pot"]) - gear_share_point(iv)[["Pot"]]) < 0.03)
+  ct <- tapply(iv$catch, factor(iv$gear_primary, levels = gear_primary_levels), sum); ct[is.na(ct)] <- 0
+  g  <- matrix(rgamma(500 * 5, shape = rep(ct + 0.5, each = 500)), 500); g <- g / rowSums(g)
+  chk("bootstrap interval is WIDER than the crab-count Dirichlet (clustering respected)",
+      diff(quantile(sh[, "Pot"], c(.025, .975))) > 1.5 * diff(quantile(g[, 1], c(.025, .975))))
+  chk("bootstrap shares: seed reproduces", identical(gear_share_bootstrap(iv, 50, seed = 3), gear_share_bootstrap(iv, 50, seed = 3)))
+  chk("no catch -> all-NA shares, no error",
+      all(is.na(gear_share_bootstrap(tibble(gear_primary = "Pot", catch = 0), 10))))
+  chk("empty frame -> all-NA shares, no error",
+      all(is.na(gear_share_bootstrap(tibble(gear_primary = character(), catch = numeric()), 10))))
+  d <- readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+  chk("pooled driver: gear split uses the bootstrap helper, per sub-season",
+      any(grepl("gear_share_bootstrap(iv", d, fixed = TRUE)) &&
+      any(grepl("gear_component_total_draws(pop, ss$name", d, fixed = TRUE)) &&
+      !any(grepl("rdir(n_gd, counts + 0.5)", d, fixed = TRUE)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
