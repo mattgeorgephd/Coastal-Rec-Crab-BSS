@@ -427,6 +427,32 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
                                      mean = lnorm_mean(.mu, .sg), sd = lnorm_sd(.mu, .sg))
     }
 
+    # 2026-09-08 (review item 1B): the dynamic f's scale parameters, when the walk is live.
+    # sigma_f ~ half-normal(0, f_walk_sd_prior) is the parameter the R3 rung exists to read
+    # (a posterior pinned near zero means the walk is flat; one at the prior scale means the
+    # ~12 strata did not identify it), and cfi_kappa ~ lognormal(log(cfi_kappa_prior_mu),
+    # 0.75) is expected to sit near its prior (most contact days hold 1-4 boats). Both are
+    # vectors of length n_f_dyn, so rstan names them with the index, like tau_bar[1].
+    .dyn_live <- identical(as.integer(sd_p$crab_fraction_dynamic %||% 0L), 1L) &&
+      identical(as.integer(sd_p$crab_fraction_estimate %||% 0L), 1L) &&
+      identical(as.integer(sd_p$apply_crab_fraction %||% 0L), 1L)
+    if (.dyn_live && has_par("sigma_f") && !is.null(sd_p$f_walk_sd_prior)) {
+      .s <- as.numeric(sd_p$f_walk_sd_prior)
+      prior_tbl$`sigma_f[1]` <- list(fam = sprintf("half-normal(0, %.2f)", .s),
+                                     mean = .s * sqrt(2 / pi), sd = .s * sqrt(1 - 2 / pi))
+    }
+    if (.dyn_live && has_par("cfi_kappa") && !is.null(sd_p$cfi_kappa_prior_mu)) {
+      .k <- as.numeric(sd_p$cfi_kappa_prior_mu)
+      prior_tbl$`cfi_kappa[1]` <- list(fam = sprintf("lognormal(log(%.1f), 0.75)", .k),
+                                       mean = lnorm_mean(.k, 0.75), sd = lnorm_sd(.k, 0.75))
+    }
+    if (.dyn_live && has_par("combo_c") && identical(as.integer(sd_p$osp_crab_lower %||% 0L), 1L) &&
+        !is.null(sd_p$combo_a) && !is.null(sd_p$combo_b)) {
+      .a <- as.numeric(sd_p$combo_a); .b <- as.numeric(sd_p$combo_b)
+      prior_tbl$`combo_c[1]` <- list(fam = sprintf("beta(%.1f, %.1f)", .a, .b),
+                                     mean = .a / (.a + .b), sd = beta_sd(.a, .b))
+    }
+
     pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]
     if (length(pars) == 0) return(NULL)
     post <- rstan::summary(fit, pars = pars)$summary

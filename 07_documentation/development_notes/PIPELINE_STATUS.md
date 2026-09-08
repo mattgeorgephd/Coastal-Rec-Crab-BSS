@@ -884,7 +884,7 @@ Harness section 46 (18 assertions, total 485): the exact 2023-25 four-sub-season
 
 **Two corrections to the plan as first written.** The plan's R3 criterion said "non-f parameters bit-identical to R2"; that is impossible once the parameter vector changes (HMC moves every coordinate jointly), and the correct test, agreement in distribution within Monte Carlo error, is now `fit_agreement()` (B13). The plan's census figure (~4,800 imputed of 11,821) was from the earlier run's means; the measured split is 3,869 of 11,753.
 
-**Not yet run:** `06_diagnostics/run_improvements_2026-09-08.R` (B14, D12), about 22 h: R0 desk (ran clean here), R1 filters, R2 calibration prior, R3a monthly f (legacy), R3 dynamic f (the shipped configuration), R4 derived shore turnover, R5 gear cross-check. Harness at 627 assertions.
+**Not yet run:** `06_diagnostics/run_improvements_2026-09-08.R` (B14, D12), about 22 h: R0 desk (ran clean here), R1 filters, R2 calibration prior, R3a monthly f (legacy), R3 dynamic f (the shipped configuration), R4 derived shore turnover, R5 gear cross-check. Harness at 628 assertions.
 
 ---
 

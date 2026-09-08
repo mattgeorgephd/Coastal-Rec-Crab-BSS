@@ -2274,6 +2274,16 @@ local({
         identical(rc$crab_fraction_combo_c_prior, c(2, 3)) && identical(rc$crab_fraction_pe_prior_kappa, 1))
 })
 
+# 52b. The prior-vs-posterior table carries the walk's scale parameters when the walk is
+#      live (the one file that says how much the data moved sigma_f), keyed with the index
+#      exactly as tau_bar[1] is, because both are length-1 vectors.
+local({
+  t <- paste(readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), collapse = "\n")
+  chk("prior_vs_posterior: sigma_f[1] / cfi_kappa[1] / combo_c[1] rows are added under a live dynamic f, index-named",
+      grepl("prior_tbl$`sigma_f[1]`", t, fixed = TRUE) && grepl("prior_tbl$`cfi_kappa[1]`", t, fixed = TRUE) &&
+        grepl("prior_tbl$`combo_c[1]`", t, fixed = TRUE) && grepl("sd_p$crab_fraction_dynamic", t, fixed = TRUE))
+})
+
 # ---------------------------------------------------------------------------
 # 53. The commercial/charter census: exact on sampled days, imputed on the rest (review
 #     item 4, 2026-09-08). Synthetic tally: a 14-day window, 10 sampled days, so the
