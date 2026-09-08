@@ -322,12 +322,34 @@ run_config <- list(
   # so the BSS and PE always share a unit. Set shore_effort_unit = "crabber-hours"
   # to revert shore only.
   shore_effort_unit      = "gear-deployments",  # "crabber-hours" | "gear-hours" | "gear-deployments"
-  # SEASON-DERIVED: the two turnover prior centers come from 2024-25 I/E and the OSP
-  # overlap; on a new season check them against that season's I/E before trusting them.
+  # SEASON-DERIVED: the shore turnover prior center comes from the 2024-25 I/E days; on
+  # a new season check it against that season's I/E before trusting it.
   tau_shore_prior_mu     = 1.7,       # shore deployment turnover (trips/gear-slot/day)
   tau_shore_prior_sigma  = 0.3,
-  tau_boat_prior_mu      = 1.2,       # boat deployment turnover
-  tau_boat_prior_sigma   = 0.3,
+  # --- BOAT TURNOVER PRIOR (review item 3, 2026-09-08) --------------------------
+  # "calibration" resolves the prior centre from THIS window's OSP/trailer overlap
+  # (03_R_functions/bss_turnover_prior.R): the implied turnover of the
+  # tau_boat_calibration_metric row of osp_trailer_overlap_calibration.csv, i.e. the
+  # OSP daily boat total divided by the trailer snapshot on the paired days. The
+  # mean-per-visit metric is the consistent choice because the Stan likelihood treats
+  # every trailer count as an observation of lambda_E / R_G_boat (so the model's trailer
+  # level is the per-visit mean) and the PE expands mean_count per day the same way.
+  # The resolved number REPLACES this key at run time, so the PE (review item 5), the
+  # shared-turnover prior and the sensitivity projection all read one value.
+  # WHY. The previous centre, 1.2 from two WBL I/E days, was shrinking the adopted
+  # tau_bar (2.60 [2.06, 3.25]) about 13% below its likelihood-only value (~2.97),
+  # and the PE still expanded on 1.2, so the boat PE-vs-BSS gap was mostly two turnovers
+  # disagreeing. A number here (e.g. 1.2) restores the historical behaviour exactly.
+  # The prior is deliberately WIDE (log-SD 0.5): the overlap days are in the likelihood
+  # too, and at 0.5 the prior carries ~6% of the posterior precision, so the double use
+  # is harmless. Do not tighten below 0.3 without removing the overlap from one side.
+  tau_boat_prior_mu      = "calibration",
+  tau_boat_prior_sigma   = 0.5,
+  tau_boat_calibration_metric = "trailer_mean_per_visit",  # | "trailer_max_per_day" | "trailer_sum_per_day"
+  # SEASON-DERIVED fallback for a window with no OSP/trailer overlap (fewer than
+  # tau_boat_calibration_min_pairs paired days): the 2024-25 max-per-day calibration.
+  tau_boat_prior_mu_fallback  = 2.7,
+  tau_boat_calibration_min_pairs = 3,
 
   # --- SHARED TURNOVER (improvement 2.1, 2026-08-27) -------------------------
   # FALSE (default) keeps the historical parameterization: L is D INDEPENDENT per-day draws,
@@ -370,7 +392,11 @@ run_config <- list(
   # A global toggle moved the SHORE all-gear component +17.9% on 4 informed days out of 289,
   # with an interval containing its own prior centre and no replication in the gear track.
   shared_tau             = TRUE,
-  shared_tau_sigma       = NULL,      # fixed day-to-day log-scale spread; NULL = half the prior SD
+  # Fixed day-to-day log-scale spread of L around tau_bar. PINNED at the value every
+  # adopted run used (0.15 = half of the old 0.3 prior SD) on 2026-09-08, because the boat
+  # prior SD moved to 0.5 (above) and the NULL default (half the prior SD) would have
+  # widened the day-to-day spread to 0.25 as a silent side effect of re-centring the prior.
+  shared_tau_sigma       = 0.15,
   # Minimum days that can INFORM L (I/E days, plus OSP days when osp_scale_is_tau = 1) before
   # a fit is allowed a shared level; below it the fit degrades to per-day draws with a printed
   # reason. Stated explicitly here rather than left to the helper default, because it is the
@@ -561,7 +587,10 @@ run_config <- list(
   # Default TRUE since the 2026-07-20 multi-refit sweep confirmed the projection
   # reproduces the exact result to ~0.2% (boat elasticity 1.00), so it is ~free.
   diagnose_tau_sensitivity = TRUE,
-  tau_sensitivity_grid     = c(0.9, 1.0, 1.2, 1.5, 1.8),  # tau_boat_prior_mu values to project
+  # 2026-09-08: grid re-centred on the overlap calibration (was 0.9 to 1.8 around the
+  # retired 1.2 centre). With shared_tau the boat turnover is data-identified, so the
+  # projection is an UPPER bound on prior sensitivity and the diagnostic says so.
+  tau_sensitivity_grid     = c(2.0, 2.4, 2.7, 3.0, 3.4),  # tau_boat_prior_mu values to project
 
   # --- BSS run-level settings (NOT per-fit tuning) -------------------------
   bss_chains        = 4,

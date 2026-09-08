@@ -105,13 +105,22 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
 
   if (!is_shore) {
     # Boat: lambda_E is already gear, so no R_G conversion. L is the deployment
-    # turnover tau_boat, identified by WBL I/E ingress counts when available.
+    # turnover tau_boat, identified by the OSP/trailer overlap (shared_tau) and by WBL
+    # I/E ingress counts when available.
+    # 2026-09-08 (review item 3): tau_boat_prior_mu may be the string "calibration" in
+    # run_config; the driver resolves it to a number through bss_resolve_tau_boat_prior()
+    # BEFORE any prep runs. Refuse an unresolved value here rather than hand Stan a string.
+    .tau_b <- params$tau_boat_prior_mu %||% 1.2
+    if (!is.numeric(.tau_b) || length(.tau_b) != 1L || !is.finite(.tau_b) || .tau_b <= 0)
+      stop("bss_effort_spec(): params$tau_boat_prior_mu is not a positive number (got ",
+           deparse(.tau_b), "). Call bss_resolve_tau_boat_prior(params, osp_overlap) first ",
+           "(the drivers do this right after the OSP overlap diagnostic).", call. = FALSE)
     return(list(
       unit              = "gear-deployments",
       h_col             = "number_of_gear",
       h_fun             = function(int_d) .num(int_d, "number_of_gear"),
       effort_scale_gear = 0L,
-      L_data            = rep(params$tau_boat_prior_mu    %||% 1.2, D),
+      L_data            = rep(.tau_b, D),
       L_prior_sigma     = rep(params$tau_boat_prior_sigma %||% 0.3, D),
       ie_obs_col        = "ie_trips",           # boat ingress count (F2)
       ie_obs_unit       = "boat trips",

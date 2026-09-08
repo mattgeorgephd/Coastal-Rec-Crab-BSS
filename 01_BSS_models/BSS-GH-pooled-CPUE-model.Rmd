@@ -505,6 +505,13 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
   cat(sprintf("  OSP crab-only rows lifted for the f lower bound: %d day(s).\n",
               nrow(params$osp_crab_rows)))
 
+# --- Review item 3 + 5 (2026-09-08): resolve the boat turnover prior centre from THIS
+# window's OSP/trailer overlap when tau_boat_prior_mu = "calibration". The resolved
+# number replaces params$tau_boat_prior_mu, so the PE (run_pe_pooled), the shared-turnover
+# prior (bss_effort_spec -> bss_shared_tau_data) and the tau-sensitivity projection all
+# expand the trailer count by one quantity. See 03_R_functions/bss_turnover_prior.R.
+params <- bss_resolve_tau_boat_prior(params, osp_overlap)
+
 # --- Fit L_effective regression ---
 L_eff_model <- NULL
 if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {

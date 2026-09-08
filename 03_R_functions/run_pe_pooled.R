@@ -82,7 +82,17 @@ run_pe_pooled <- function(summ, days, params, population_name) {
       filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
     gear_per_group <- if(nrow(ratio_data) > 0) mean(ratio_data$number_of_gear)
                       else (params$gear_per_group_default %||% 4.0)
+    # REVIEW ITEM 5 (2026-09-08): the PE expands the mean trailer count by the SAME
+    # turnover the BSS prior is centred on. Since bss_resolve_tau_boat_prior() runs in
+    # the driver before the PE, params$tau_boat_prior_mu is the OSP/trailer overlap
+    # calibration (mean-per-visit implied turnover, ~3.0 in 2024-25) rather than the
+    # retired 1.2 from two I/E days. Until this fix the boat PE-vs-BSS comparison was
+    # mostly the two turnovers disagreeing (PE effort 3,709 vs BSS 11,118), not the two
+    # estimators; the PE is meant to be the design-based cross-check and now is one.
     tau_boat_pe <- params$tau_boat_prior_mu %||% 1.2
+    if (!is.numeric(tau_boat_pe) || !is.finite(tau_boat_pe))
+      stop("run_pe_pooled(): params$tau_boat_prior_mu is unresolved (", deparse(tau_boat_pe),
+           "); the driver must call bss_resolve_tau_boat_prior() before the PE.", call. = FALSE)
     daily_effort <- daily_effort |>
       mutate(est_daily_effort = mean_count * gear_per_group * tau_boat_pe * f_crab_pe)
     effort_unit_pe <- "gear-deployments"

@@ -1916,5 +1916,72 @@ local({
   }
 })
 
+# ---------------------------------------------------------------------------
+# 47. Boat turnover prior from the OSP/trailer overlap (review items 3 and 5,
+#     2026-09-08). tau_boat_prior_mu = "calibration" must resolve to the implied
+#     turnover of the chosen metric row, fall back when there is no overlap, refuse a
+#     bad string, and every consumer must see ONE number: bss_effort_spec() refuses an
+#     unresolved string so a driver that forgets the resolver cannot hand Stan a string.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/bss_turnover_prior.R")
+  cal <- tibble(trailer_metric = c("trailer_mean_per_visit", "trailer_max_per_day", "trailer_sum_per_day"),
+                n = 61L, corr = c(0.965, 0.983, 0.899), ols_slope = 0, ols_intercept = 0,
+                origin_slope = c(0.33, 0.365, 0.498), implied_turnover = c(3.03, 2.74, 2.01))
+  ov <- list(calibration = cal)
+  Pc <- modifyList(P, list(tau_boat_prior_mu = "calibration", tau_boat_prior_sigma = 0.5,
+                           tau_boat_prior_mu_fallback = 2.7, tau_boat_calibration_min_pairs = 3))
+  r1 <- bss_resolve_tau_boat_prior(Pc, ov, quiet = TRUE)
+  chk("tau prior: calibration resolves to the mean-per-visit implied turnover",
+      isTRUE(all.equal(r1$tau_boat_prior_mu, 3.03)) && grepl("calibration", r1$tau_boat_prior_source))
+  r2 <- bss_resolve_tau_boat_prior(modifyList(Pc, list(tau_boat_calibration_metric = "trailer_max_per_day")), ov, quiet = TRUE)
+  chk("tau prior: the metric key selects its row", isTRUE(all.equal(r2$tau_boat_prior_mu, 2.74)))
+  r3 <- bss_resolve_tau_boat_prior(Pc, NULL, quiet = TRUE)
+  chk("tau prior: no overlap -> the SEASON-DERIVED fallback",
+      isTRUE(all.equal(r3$tau_boat_prior_mu, 2.7)) && grepl("fallback", r3$tau_boat_prior_source))
+  cal_thin <- cal; cal_thin$n <- 2L
+  r4 <- bss_resolve_tau_boat_prior(Pc, list(calibration = cal_thin), quiet = TRUE)
+  chk("tau prior: too few paired days -> fallback", isTRUE(all.equal(r4$tau_boat_prior_mu, 2.7)))
+  r5 <- bss_resolve_tau_boat_prior(modifyList(Pc, list(tau_boat_prior_mu = 1.2)), ov, quiet = TRUE)
+  chk("tau prior: a number passes through untouched (historical behaviour)",
+      isTRUE(all.equal(r5$tau_boat_prior_mu, 1.2)) && grepl("numeric", r5$tau_boat_prior_source))
+  chk("tau prior: a bad string errors rather than silently falling back",
+      inherits(tryCatch(bss_resolve_tau_boat_prior(modifyList(Pc, list(tau_boat_prior_mu = "guess")), ov, quiet = TRUE),
+                        error = function(e) e), "error"))
+  chk("tau prior: an unknown metric errors",
+      inherits(tryCatch(bss_resolve_tau_boat_prior(modifyList(Pc, list(tau_boat_calibration_metric = "nope")), ov, quiet = TRUE),
+                        error = function(e) e), "error"))
+  # consumers must see a number
+  chk("effort spec refuses an UNRESOLVED tau_boat_prior_mu",
+      inherits(tryCatch(bss_effort_spec(FALSE, days289, Pc), error = function(e) e), "error"))
+  sp <- bss_effort_spec(FALSE, days289, r1)
+  chk("effort spec: resolved prior centre reaches L_data",
+      isTRUE(all.equal(unique(sp$L_data), 3.03)) && isTRUE(all.equal(unique(sp$L_prior_sigma), 0.5)))
+  # both drivers resolve it, and do so after the overlap diagnostic and before the PE
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    i_res <- grep("bss_resolve_tau_boat_prior(params, osp_overlap)", d, fixed = TRUE)
+    i_ov  <- grep("diagnose_osp_trailer_overlap(osp_boat", d, fixed = TRUE)
+    i_pe  <- grep("run_pe_pooled\\(summ_ss|run_pe_gear\\(summ_ss", d)
+    chk(sprintf("%s: resolves the boat turnover prior after the overlap and before the PE", basename(drv)),
+        length(i_res) == 1 && length(i_ov) >= 1 && length(i_pe) >= 1 && i_res > min(i_ov) && i_res < min(i_pe))
+  }
+  # the PE reads the same key the BSS prior is built from (item 5)
+  for (f in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R")) {
+    src <- readLines(f, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+    chk(sprintf("%s: expands the boat on params$tau_boat_prior_mu", basename(f)),
+        any(grepl("params$tau_boat_prior_mu", src, fixed = TRUE)))
+  }
+  # shipped config
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: tau_boat_prior_mu = \"calibration\"", identical(rc$tau_boat_prior_mu, "calibration"))
+  chk("shipped: tau_boat_prior_sigma = 0.5 (wide, because the overlap is in the likelihood too)",
+      identical(rc$tau_boat_prior_sigma, 0.5))
+  chk("shipped: shared_tau_sigma pinned at 0.15 (no side effect from the wider prior)",
+      identical(rc$shared_tau_sigma, 0.15))
+  chk("shipped: tau sensitivity grid brackets the calibration",
+      min(rc$tau_sensitivity_grid) < 2.7 && max(rc$tau_sensitivity_grid) > 3.0)
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

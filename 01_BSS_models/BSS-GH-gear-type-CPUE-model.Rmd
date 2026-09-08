@@ -472,6 +472,11 @@ params$osp_crab_rows <- attr(osp_boat, "osp_crab_rows")
 
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
                         error = function(e) { message("  OSP overlap diagnostic skipped: ", conditionMessage(e)); NULL })
+# Review item 3 + 5 (2026-09-08): resolve tau_boat_prior_mu = "calibration" from THIS
+# window's overlap; the resolved number replaces the key so the PE (run_pe_gear), the
+# daily-combined series, the shared-turnover prior and the tau projection agree. Mirrors
+# the pooled driver. See 03_R_functions/bss_turnover_prior.R.
+params <- bss_resolve_tau_boat_prior(params, osp_overlap)
 
 L_eff_model <- NULL
 if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {

@@ -98,7 +98,13 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
                           label = "gear-resolved boat")$number_of_gear))
     ng_pe  <- ng_pe[!is.na(ng_pe) & ng_pe > 0]
     if(length(ng_pe) > 0) gpg_pe <- mean(ng_pe)
+    # REVIEW ITEM 5 (2026-09-08): params$tau_boat_prior_mu is resolved by the driver
+    # (bss_resolve_tau_boat_prior) to the OSP/trailer overlap calibration before the PE
+    # runs, so the PE and the BSS prior expand the trailer count by one turnover.
     tau_pe <- params$tau_boat_prior_mu %||% 1.2
+    if (!is.numeric(tau_pe) || !is.finite(tau_pe))
+      stop("run_pe_gear(): params$tau_boat_prior_mu is unresolved (", deparse(tau_pe),
+           "); the driver must call bss_resolve_tau_boat_prior() before the PE.", call. = FALSE)
     effort_unit_pe <- "gear-deployments"
     cat(sprintf("  PE boat scale: gear_per_group=%.2f, tau=%.2f, mean f=%.3f (deployments, crab-directed)\n", gpg_pe, tau_pe, mean(f_day_pe)))
     days <- days |> mutate(L_pe = tau_pe, f_crab_pe = f_day_pe)
