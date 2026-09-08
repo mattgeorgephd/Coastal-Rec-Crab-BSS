@@ -1719,10 +1719,13 @@ for(cg in bss_catch_groups) {
 
 ```{r season-totals, echo=FALSE, results='asis'}
 # ============================================================================
-# SEASON-LEVEL TOTALS (2026-09-10). On a multi-season span every sub-season carries a
-# `season` tag from build_subseasons(), so the port-total draw assembly above can be
-# rerun PER SEASON: same draws, same PE fallbacks, same gate decisions, grouped by the
-# season each fitted sub-season belongs to. The commercial/charter census contributes
+# SEASON-LEVEL TOTALS (2026-09-10; caption corrected 2026-09-08, review item 7). On a
+# multi-season span every sub-season carries a `season` tag from build_subseasons(), so
+# the port-total draw assembly above can be rerun PER SEASON: same draws, same PE
+# fallbacks, same gate decisions, grouped by the season each fitted sub-season belongs
+# to. Each sub-season is an INDEPENDENT Stan fit (the driver loops over the sub-season
+# list); a span shares nothing across seasons except the I/E day-length regression and
+# the config priors, so season totals from a span match standalone runs up to those. The commercial/charter census contributes
 # per season when census_windows is configured (estimate_comm_charter()$by_season);
 # with the scalar census keys its single window is attributed to the season containing
 # census_start_date, and the table says so. Written to season_totals.csv always;
@@ -1771,9 +1774,11 @@ if (length(.seasons)) {
     report_table(season_totals, caption = paste(
       "Per-season totals over the multi-season span. Each season sums its own fitted",
       "sub-seasons (same posterior draws and gate decisions as the port total above) plus",
-      "its census component. Seasons in one run share one CPUE/effort process and one set",
-      "of structural parameters; totals are comparable WITHIN the run, and a season here",
-      "need not equal a standalone single-season run of the same data."))
+      "its census component. Every sub-season is an INDEPENDENT fit with its own effort,",
+      "CPUE and turnover parameters; nothing is shared across seasons except the I/E",
+      "day-length regression (pooled across seasons unless ie_filter_by_season = TRUE)",
+      "and the config priors, so a season's total here equals a standalone single-season",
+      "run of the same data up to those two inputs and Monte Carlo error."))
   }
 }
 ```
