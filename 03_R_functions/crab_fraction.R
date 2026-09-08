@@ -19,7 +19,7 @@
 # if not, see <https://www.gnu.org/licenses/>.
 # -----------------------------------------------------------------------------
 ###############################################################################
-# crab_fraction.R  (Phase 2 + Phase 3 + improvement 8: directed-crabbing fraction f)
+# crab_fraction.R  (Phase 2 + Phase 3 + improvement 8 + review item 1B: directed-crabbing fraction f)
 #
 # f = the share of private boats at the port that are crabbing (vs. targeting other
 # fisheries). The effort series (trailer counts, OSP boat totals) count ALL private
@@ -96,7 +96,92 @@
 #   crab_fraction_osp_min_obs 20      (min OSP-classified boats before the bound binds)
 #   crab_fraction_combo_share 0.15    (theta's prior mean in an OSP-informed stratum)
 #   crab_fraction_combo_kappa 8
+#
+# ============================================================================
+# REVIEW ITEM 1B (2026-09-08): THE DYNAMIC f
+# ============================================================================
+# crab_fraction_dynamic = TRUE (the shipped run_config value; the FUNCTION default is FALSE
+# so every caller that omits the key gets the legacy construction bit for bit) replaces the
+# per-stratum Beta/Binomial above with a random walk on the log-odds of f across the strata
+# in chronological order, observed per DAY:
+#
+#     logit f[k] = eta[k]
+#     eta[k]     = f_level_mu + f_level_sd * z[k]                       anchored stratum
+#     eta[k]     = eta[prev(k)] + sigma_f * sqrt(gap(k)) * z[k]         otherwise
+#     z ~ N(0,1) or Student-t(crab_fraction_walk_df),  sigma_f ~ half-normal(walk_sd_prior)
+#
+#     sampler contacts, per day i:   crab_i ~ BetaBinomial(total_i, f[k(i)], kappa_I)
+#     OSP crabbing-only, per day j:  osp_crab_j ~ BetaBinomial(osp_total_j, f[k(j)] (1 - c), kappa_O)
+#     c ~ Beta(combo_a, combo_b)     the combo-trip share among crabbing boats
+#
+# For the undergraduate reader: a random walk on the log-odds says "this month's crabbing
+# share is probably close to last month's", which lets a month with five contacts borrow
+# from its neighbours instead of falling back to a guess; sigma_f is learned from how far
+# the well-sampled months actually move. Per-day beta-binomial rather than a monthly
+# Binomial matters because the boats contacted on one day are not independent trials
+# (weather and which other fisheries are open move all of them together). The two streams
+# measure different things: a combo trip is CRABBING to the sampler (crab gear seen) and
+# NOT crabbing to OSP (labelled by the other fishery), so the contacts observe f and OSP
+# observes f(1 - c); c is identified only where both streams cover the same stratum and
+# otherwise rests on its prior, which makes the OSP stream a soft lower bound on f.
+#
+# THE WALK ORDER. Strata are sorted labels; "month" labels are YYYY-MM (chronological).
+# f_walk_prev[k] is the index of the stratum k steps from (0 = anchored on the level
+# prior) and f_walk_gap[k] the number of months between them: month -> k-1;
+# month_day_type / month_opener -> the same day type's (opener class's) previous month,
+# one chain per class; day_type / opener / none -> every stratum anchored, no walk.
+#
+# WHAT DOES NOT CHANGE. f still enters generated quantities only; both likelihoods are on
+# OBSERVED boat counts. crab_fraction_min_obs is NOT applied to the contact stream under
+# the dynamic model (every day enters; the walk does the pooling); it remains the PE's
+# interpolation trigger in crab_fraction_point_day().
+#
+# CONFIG (dynamic; defaults shown)
+#   crab_fraction_dynamic             FALSE in the function, TRUE in run_config.R
+#   crab_fraction_level_sd            1.5   logit SD of the anchored-stratum prior (weak:
+#                                           the level is learned; a tight prior at 0.30
+#                                           would drag a 0.95 December down by a third)
+#   crab_fraction_walk_sd_prior       1.5   half-normal scale of sigma_f (2024-25 monthly
+#                                           logit steps have RMS ~1.5, some of it noise)
+#   crab_fraction_walk_df             4     Student-t df of the steps (<= 0: Gaussian)
+#   crab_fraction_contact_kappa_prior_mu 20 lognormal centre of kappa_I (log-SD 0.75)
+#   crab_fraction_combo_c_prior       c(2, 3)  Beta(a, b) on c (mean 0.4, 95% 0.07-0.81)
+#   crab_fraction_pe_prior_kappa      1     Beta concentration of the PE's per-stratum
+#                                           shrinkage (one pseudo-contact at the set value)
 ###############################################################################
+
+# Months between two YYYY-MM labels (b - a).
+.cf_months_between <- function(a, b) {
+  ya <- as.integer(substr(a, 1, 4)); ma <- as.integer(substr(a, 6, 7))
+  yb <- as.integer(substr(b, 1, 4)); mb <- as.integer(substr(b, 6, 7))
+  (yb - ya) * 12L + (mb - ma)
+}
+
+# The walk order for a sorted stratum vector (review item 1B). Returns list(prev, gap,
+# chain, pos): prev[k] is the predecessor index (0 = anchored), gap[k] the months to it
+# (1 when anchored, unused), chain[k] an integer chain id and pos[k] the cumulative month
+# position within the chain (both used by the PE's logit interpolation).
+crab_fraction_walk_structure <- function(strata, mode = "none") {
+  K <- length(strata)
+  prev <- rep(0L, K); gap <- rep(1, K); chain <- seq_len(K); pos <- rep(0, K)
+  if (K == 0) return(list(prev = prev, gap = gap, chain = chain, pos = pos))
+  monthly <- mode %in% c("month", "month_day_type", "month_opener")
+  if (!monthly) return(list(prev = prev, gap = gap, chain = chain, pos = pos))
+  mo  <- substr(strata, 1, 7)                                   # YYYY-MM
+  cls <- if (identical(mode, "month")) rep("all", K) else sub("^.{7}_", "", strata)
+  ids <- match(cls, unique(cls))
+  for (k in seq_len(K)) {
+    earlier <- which(ids == ids[k] & seq_len(K) < k)
+    chain[k] <- ids[k]
+    if (length(earlier)) {
+      p <- max(earlier)                                          # sorted, so the latest earlier one
+      prev[k] <- p
+      gap[k]  <- max(.cf_months_between(mo[p], mo[k]), 1L)
+      pos[k]  <- pos[p] + gap[k]
+    }
+  }
+  list(prev = as.integer(prev), gap = as.numeric(gap), chain = as.integer(chain), pos = as.numeric(pos))
+}
 
 # Per-date stratum labels, derived from the DATE + config (so the day set, the egress
 # classification rows and the OSP rows are labelled by one consistent rule).
@@ -152,25 +237,54 @@ crab_fraction_strata_labels <- function(dates, params) {
   list(n_total = n_total, n_crab = n_crab)
 }
 
-
 # Build the Stan data for the (possibly per-stratum) crabbing fraction f.
 #   is_shore : shore fits get apply_crab_fraction = 0 (f pinned to 1)
 #   days     : the fit's day set (needs event_date); drives n_f_strata + f_stratum
-#   params   : run_config, plus params$crab_fraction_rows (egress classification) and
-#              params$osp_crab_rows (OSP total + crab-only per day), both lifted by the
-#              driver from the readers' attributes.
+#   params   : run_config, plus params$crab_fraction_rows (the classification rows:
+#              sampler contacts and/or egress classification, see
+#              crab_fraction_source_rows()) and params$osp_crab_rows (OSP total +
+#              crab-only per day), both lifted by the driver from the readers.
 # n_f_strata = 1 with no OSP rows reproduces the Phase 2 scalar exactly.
+#
+# review item 1B: the returned list ALWAYS carries the dynamic-f fields (the Stan data
+# block declares them unconditionally); they are inert unless crab_fraction_dynamic = 1
+# AND f is estimated. attr(., "f_strata") is a per-stratum audit table (label, walk
+# link, contact and OSP sums) that the driver writes beside the posterior f.
 crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
   D <- nrow(days)
   .say <- function(...) if (!isTRUE(quiet)) cat(...)
   apply_cf <- as.integer(!is_shore && isTRUE(params$use_crab_fraction))
+  mode <- params$crab_fraction_strata %||% "none"
 
   labels <- crab_fraction_strata_labels(days$event_date, params)
   strata <- sort(unique(labels))
   K <- length(strata)
   f_stratum <- match(labels, strata)   # 1..K
 
-  neutral <- list(
+  .clamp <- function(x) pmin(pmax(as.numeric(x), 1e-4), 1 - 1e-4)
+  set_val <- .clamp(params$crab_fraction_set %||% 0.3)
+  kappa   <- params$crab_fraction_prior_kappa %||% 20
+  min_obs <- params$crab_fraction_min_obs     %||% 20L
+  fixed   <- params$crab_fraction_fixed
+  dyn_on  <- isTRUE(params$crab_fraction_dynamic %||% FALSE)
+
+  # The dynamic-f fields, inert-valued. Every return path carries them (Stan declares
+  # them unconditionally, and bss_assert_stan_data() refuses a list that lacks one).
+  combo_ab <- as.numeric(params$crab_fraction_combo_c_prior %||% c(2, 3))
+  if (length(combo_ab) != 2 || any(!is.finite(combo_ab)) || any(combo_ab <= 0))
+    stop("params$crab_fraction_combo_c_prior must be two positive numbers (Beta a, b)", call. = FALSE)
+  .dyn_inert <- function(K) list(
+    crab_fraction_dynamic = 0L,
+    f_walk_prev = as.array(rep(0L, K)), f_walk_gap = as.array(rep(1, K)),
+    f_level_mu = stats::qlogis(set_val),
+    f_level_sd = as.numeric(params$crab_fraction_level_sd %||% 1.5),
+    f_walk_sd_prior = as.numeric(params$crab_fraction_walk_sd_prior %||% 1.5),
+    f_walk_df = as.numeric(params$crab_fraction_walk_df %||% 4),
+    CFI_n = 0L, cfi_stratum = integer(0), cfi_total = integer(0), cfi_crab = integer(0),
+    cfi_kappa_prior_mu = as.numeric(params$crab_fraction_contact_kappa_prior_mu %||% 20),
+    combo_a = combo_ab[1], combo_b = combo_ab[2])
+
+  neutral <- c(list(
     apply_crab_fraction = 0L, crab_fraction_estimate = 0L,
     n_f_strata = 1L, f_stratum = as.array(rep(1L, D)),
     crab_fraction_value = as.array(1.0), crab_fraction_alpha0 = as.array(1.0),
@@ -179,26 +293,27 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     osp_crab_lower = 0L, osp_f_n_total = as.array(0L), osp_f_n_crab = as.array(0L),
     OSPF_n = 0L, osp_f_stratum = integer(0), osp_f_total = integer(0),
     osp_f_crab = integer(0),
-    osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20)
-  if (apply_cf == 0L) return(neutral)
-
-  .clamp <- function(x) pmin(pmax(as.numeric(x), 1e-4), 1 - 1e-4)
-  set_val <- .clamp(params$crab_fraction_set %||% 0.3)
-  kappa   <- params$crab_fraction_prior_kappa %||% 20
-  min_obs <- params$crab_fraction_min_obs     %||% 20L
-  fixed   <- params$crab_fraction_fixed
+    osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20),
+    .dyn_inert(1L))
+  if (apply_cf == 0L) {
+    attr(neutral, "f_strata") <- tibble(stratum = 1L, label = "all", walk_prev = 0L, walk_gap = 1,
+                                        contact_days = 0L, contacts = 0L, contacts_crabbing = 0L,
+                                        osp_days = 0L, osp_total = 0L, osp_crab_only = 0L)
+    return(neutral)
+  }
 
   base <- list(
     apply_crab_fraction = 1L, n_f_strata = as.integer(K),
     f_stratum = as.array(as.integer(f_stratum)))
+  walk <- crab_fraction_walk_structure(strata, mode)
 
   # Hard set value: pin f per stratum, no uncertainty (sensitivity lever). The OSP bound
-  # is meaningless against a pinned f, so it is switched off here.
+  # is meaningless against a pinned f, so it is switched off here; so is the walk.
   if (!is.null(fixed) && length(fixed) == 1L && is.finite(suppressWarnings(as.numeric(fixed)))) {
     fv <- .clamp(fixed)
     .say(sprintf("  Crab fraction f PINNED at %.3f across %d stratum/strata (%s); boat catch x %.3f.\n",
-                 fv, K, params$crab_fraction_strata %||% "none", fv))
-    return(c(base, list(
+                 fv, K, mode, fv))
+    out <- c(base, list(
       crab_fraction_estimate = 0L,
       crab_fraction_value  = as.array(rep(fv, K)),
       crab_fraction_alpha0 = as.array(rep(1.0, K)), crab_fraction_beta0 = as.array(rep(1.0, K)),
@@ -207,26 +322,57 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
       osp_f_n_total = as.array(rep(0L, K)), osp_f_n_crab = as.array(rep(0L, K)),
       OSPF_n = 0L, osp_f_stratum = integer(0), osp_f_total = integer(0),
       osp_f_crab = integer(0),
-      osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20)))
+      osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20),
+      .dyn_inert(K))
+    attr(out, "f_strata") <- tibble(stratum = seq_len(K), label = strata, walk_prev = 0L, walk_gap = 1,
+                                    contact_days = 0L, contacts = 0L, contacts_crabbing = 0L,
+                                    osp_days = 0L, osp_total = 0L, osp_crab_only = 0L)
+    return(out)
   }
 
-  # --- (A) egress classification: crab-vs-total boats, combo trips INCLUDED -----------
+  # --- (A) the classification rows: crab-vs-total boats, combo trips INCLUDED ---------
   # Both f streams are aggregated over the SAME date window (2026-08-25). Previously
   # the egress rows were pooled season-wide (indeed across seasons) while the OSP rows
   # were restricted to the fit's day set, so under crab_fraction_strata = "none" the two
   # sub-season fits saw the same egress counts but different OSP counts -- the stratum
   # theta was pinned on and the stratum f_lower was bounded by described different date
-  # sets. crab_fraction_restrict_to_fit = FALSE restores the old pooling. This is
-  # behaviour-neutral today (the egress classification columns are still blank).
+  # sets. crab_fraction_restrict_to_fit = FALSE restores the old pooling.
   .eg_window <- if (isTRUE(params$crab_fraction_restrict_to_fit %||% TRUE)) days$event_date else NULL
   eg  <- .cf_aggregate(params$crab_fraction_rows, strata, params,
                        num_col = "boats_crabbing", den_col = "boats_total",
                        restrict_to = .eg_window)
   use_eg <- eg$n_total >= min_obs
-  eg_nt  <- ifelse(use_eg, eg$n_total, 0L)
-  eg_nc  <- ifelse(use_eg, pmin(eg$n_crab, eg$n_total), 0L)
+  # Legacy: strata under the minimum contribute no Binomial. Dynamic: the per-stratum
+  # sums are reporting only (every day enters the per-day likelihood), so they are
+  # carried ungated.
+  eg_nt  <- if (dyn_on) eg$n_total else ifelse(use_eg, eg$n_total, 0L)
+  eg_nc  <- if (dyn_on) pmin(eg$n_crab, eg$n_total) else ifelse(use_eg, pmin(eg$n_crab, eg$n_total), 0L)
 
-  # --- (B) OSP crab-only counts: the LOWER bound (improvement 8) ----------------------
+  # PER-DAY contact rows for the dynamic model's beta-binomial (review item 1B). A row is
+  # one source on one day (the interview contacts and the egress classification stay
+  # separate rows when both exist: different protocols, different boats).
+  cfi <- list(stratum = integer(0), total = integer(0), crab = integer(0))
+  cfi_days <- rep(0L, K)
+  if (dyn_on) {
+    rows <- params$crab_fraction_rows
+    if (!is.null(rows) && is.data.frame(rows) && nrow(rows) &&
+        all(c("event_date", "boats_crabbing", "boats_total") %in% names(rows))) {
+      if (!is.null(.eg_window)) rows <- rows[as.Date(rows$event_date) %in% as.Date(.eg_window), , drop = FALSE]
+      if (nrow(rows)) {
+        rk <- match(crab_fraction_strata_labels(rows$event_date, params), strata)
+        tot <- suppressWarnings(as.numeric(rows$boats_total)); cr <- suppressWarnings(as.numeric(rows$boats_crabbing))
+        keep <- !is.na(rk) & is.finite(tot) & tot > 0 & is.finite(cr) & cr >= 0
+        if (any(keep)) {
+          cfi$stratum <- as.integer(rk[keep])
+          cfi$total   <- as.integer(round(tot[keep]))
+          cfi$crab    <- pmin(as.integer(round(cr[keep])), cfi$total)
+          cfi_days    <- as.integer(tabulate(cfi$stratum, nbins = K))
+        }
+      }
+    }
+  }
+
+  # --- (B) OSP crab-only counts: the LOWER bound (improvement 8) / the f(1-c) stream ---
   osp_on      <- isTRUE(params$use_osp_crab_lower) && isTRUE(params$use_osp_boat_counts)
   osp_min_obs <- params$crab_fraction_osp_min_obs %||% 20L
   osp <- if (osp_on) .cf_aggregate(params$osp_crab_rows, strata, params,
@@ -264,8 +410,9 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
       }
     }
   }
+  osp_days <- as.integer(tabulate(ospf$stratum, nbins = K))
 
-  # --- theta's prior, per stratum -----------------------------------------------------
+  # --- theta's prior, per stratum (legacy construction) --------------------------------
   # OSP-informed stratum: theta is the COMBO share (of the not-crab-labelled boats), so
   # it takes the combo prior. Otherwise f = theta and theta takes the ordinary f prior,
   # which is what makes the no-OSP path bit-identical to Phase 2/3.
@@ -274,25 +421,52 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
   a0 <- ifelse(use_osp & osp_flag == 1L, combo_mu * combo_kappa,       set_val * kappa)
   b0 <- ifelse(use_osp & osp_flag == 1L, (1 - combo_mu) * combo_kappa, (1 - set_val) * kappa)
 
-  .say(sprintf(paste0("  Crab fraction f: %d stratum/strata (%s); %d informed by egress classification",
-                      " (>= %d boats), %d bounded below by OSP crab-only (>= %d boats), rest on set value %.2f.\n"),
-               K, params$crab_fraction_strata %||% "none", sum(use_eg), min_obs,
-               sum(use_osp & osp_flag == 1L), osp_min_obs, set_val))
-  if (osp_flag == 1L) {
-    lb <- ifelse(osp_nt > 0, osp_nc / pmax(osp_nt, 1), NA_real_)
-    .say(sprintf("    OSP crab-only lower bound by stratum: %s\n",
-                 paste(sprintf("%s=%s", strata,
-                               ifelse(is.na(lb), "-", sprintf("%.2f", lb))), collapse = " ")))
-    .say(sprintf("    OSP daily observations feeding the bound: %d (beta-binomial, kappa prior centred %.0f)\n",
-                 length(ospf$stratum), params$crab_fraction_osp_kappa_prior_mu %||% 20))
-    if (sum(use_eg & use_osp) == 0)
-      .say(paste0("    NOTE: no stratum has BOTH streams, so the combo-trip share theta rests entirely",
-                  " on its prior (crab_fraction_combo_share). The OSP bound constrains f from below;",
-                  " its level does not become data-driven until egress classification covers an",
-                  " OSP-covered stratum.\n"))
+  dyn <- .dyn_inert(K)
+  if (dyn_on) {
+    dyn$crab_fraction_dynamic <- 1L
+    dyn$f_walk_prev <- as.array(walk$prev)
+    dyn$f_walk_gap  <- as.array(walk$gap)
+    dyn$CFI_n       <- length(cfi$stratum)
+    dyn$cfi_stratum <- as.integer(cfi$stratum)
+    dyn$cfi_total   <- as.integer(cfi$total)
+    dyn$cfi_crab    <- as.integer(cfi$crab)
+    n_chains <- length(unique(walk$chain))
+    .say(sprintf(paste0("  Crab fraction f (DYNAMIC, review item 1B): %d stratum/strata (%s) on %d walk chain(s);",
+                        " %d contact days (%d boats, %d crabbing) enter per day; %d OSP crabbing-only days;",
+                        " level prior logit(%.2f) +/- %.2f, sigma_f ~ half-N(%.2f), steps %s.\n"),
+                 K, mode, n_chains, dyn$CFI_n, sum(cfi$total), sum(cfi$crab), length(ospf$stratum),
+                 set_val, dyn$f_level_sd, dyn$f_walk_sd_prior,
+                 if (dyn$f_walk_df > 0) sprintf("Student-t(%g)", dyn$f_walk_df) else "Gaussian"))
+    if (K > 1) {
+      sh <- ifelse(eg$n_total > 0, sprintf("%.2f (n=%d)", eg$n_crab / pmax(eg$n_total, 1), eg$n_total), "-")
+      .say(sprintf("    contact share by stratum: %s\n", paste(sprintf("%s=%s", strata, sh), collapse = " ")))
+    }
+    if (osp_flag == 1L && sum(cfi_days > 0 & osp_days > 0) == 0)
+      .say(paste0("    NOTE: no stratum carries BOTH streams, so the combo-trip share c rests on its",
+                  " prior and the OSP stream is a soft lower bound on f only.\n"))
+    if (dyn$CFI_n == 0 && osp_flag == 0L)
+      .say("    NOTE: no classification rows in this window; f is its prior walk.\n")
+  } else {
+    .say(sprintf(paste0("  Crab fraction f: %d stratum/strata (%s); %d informed by egress classification",
+                        " (>= %d boats), %d bounded below by OSP crab-only (>= %d boats), rest on set value %.2f.\n"),
+                 K, mode, sum(use_eg), min_obs,
+                 sum(use_osp & osp_flag == 1L), osp_min_obs, set_val))
+    if (osp_flag == 1L) {
+      lb <- ifelse(osp_nt > 0, osp_nc / pmax(osp_nt, 1), NA_real_)
+      .say(sprintf("    OSP crab-only lower bound by stratum: %s\n",
+                   paste(sprintf("%s=%s", strata,
+                                 ifelse(is.na(lb), "-", sprintf("%.2f", lb))), collapse = " ")))
+      .say(sprintf("    OSP daily observations feeding the bound: %d (beta-binomial, kappa prior centred %.0f)\n",
+                   length(ospf$stratum), params$crab_fraction_osp_kappa_prior_mu %||% 20))
+      if (sum(use_eg & use_osp) == 0)
+        .say(paste0("    NOTE: no stratum has BOTH streams, so the combo-trip share theta rests entirely",
+                    " on its prior (crab_fraction_combo_share). The OSP bound constrains f from below;",
+                    " its level does not become data-driven until egress classification covers an",
+                    " OSP-covered stratum.\n"))
+    }
   }
 
-  c(base, list(
+  out <- c(base, list(
     crab_fraction_estimate = 1L,
     crab_fraction_value  = as.array(rep(set_val, K)),
     crab_fraction_alpha0 = as.array(as.numeric(a0)), crab_fraction_beta0 = as.array(as.numeric(b0)),
@@ -303,7 +477,14 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     osp_f_stratum = as.integer(ospf$stratum),
     osp_f_total   = as.integer(ospf$total),
     osp_f_crab    = as.integer(ospf$crab),
-    osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20))
+    osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20),
+    dyn)
+  attr(out, "f_strata") <- tibble(
+    stratum = seq_len(K), label = strata,
+    walk_prev = if (dyn_on) walk$prev else rep(0L, K), walk_gap = if (dyn_on) walk$gap else rep(1, K),
+    contact_days = cfi_days, contacts = as.integer(eg$n_total), contacts_crabbing = as.integer(pmin(eg$n_crab, eg$n_total)),
+    osp_days = osp_days, osp_total = as.integer(osp_nt), osp_crab_only = as.integer(osp_nc))
+  out
 }
 
 
@@ -311,8 +492,9 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
 # stratum, so the boat PE and boat BSS sit on the same crab-directed basis. Returns
 # rep(1, nrow(days)) for shore / when f is off.
 #
-# With the improvement-8 lower bound, E[f] is no longer a conjugate Beta mean, so it is
-# computed by mirroring the Stan posterior on a 1-D grid over theta:
+# LEGACY construction (crab_fraction_dynamic = FALSE). With the improvement-8 lower bound,
+# E[f] is no longer a conjugate Beta mean, so it is computed by mirroring the Stan
+# posterior on a 1-D grid over theta:
 #     f_lower_hat = (1 + osp_crab) / (2 + osp_total)          Beta(1,1) posterior mean
 #     p(theta) proportional to Beta(theta; a0, b0) x Binom(n_crab | n_total, f(theta))
 #     E[f]        = f_lower_hat + (1 - f_lower_hat) * E[theta]
@@ -320,12 +502,42 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
 # the OSP denominators run to hundreds of boats per stratum, so f_lower's own sampling
 # error is small next to theta's prior width. With no OSP rows this reduces EXACTLY to
 # the previous Beta posterior mean.
+#
+# DYNAMIC construction (review item 1B). The design-based partner of the walk, deliberately
+# without the walk's smoothing: a stratum with at least crab_fraction_min_obs classified
+# boats takes the conjugate posterior mean (n_crab + a) / (n_total + a + b) under the weak
+# Beta(set * kappa_pe, (1 - set) * kappa_pe) prior (kappa_pe = crab_fraction_pe_prior_kappa,
+# default 1, one pseudo-contact; the legacy kappa = 20 would drag a 46-of-47 December to
+# 0.78); a stratum below the minimum is interpolated on the LOGIT scale between the
+# nearest informed strata of its walk chain (end values carried outward); a chain with no
+# informed stratum takes the set value. The OSP stream does not enter the PE's f (it
+# observes f(1 - c), and c is a model quantity).
 crab_fraction_point_day <- function(is_boat, days, params) {
   D <- nrow(days)
   if (!isTRUE(is_boat) || !isTRUE(params$use_crab_fraction)) return(rep(1.0, D))
   cf <- crab_fraction_stan_data(is_shore = FALSE, days = days, params = params, quiet = TRUE)
   if (cf$crab_fraction_estimate == 0L) {
     fk <- as.numeric(cf$crab_fraction_value)                    # pinned per-stratum value
+  } else if (identical(as.integer(cf$crab_fraction_dynamic), 1L)) {
+    set_val <- pmin(pmax(as.numeric(params$crab_fraction_set %||% 0.3), 1e-4), 1 - 1e-4)
+    kpe     <- as.numeric(params$crab_fraction_pe_prior_kappa %||% 1)
+    min_obs <- as.numeric(params$crab_fraction_min_obs %||% 20L)
+    nt <- as.numeric(cf$crab_fraction_n_total); nc <- as.numeric(cf$crab_fraction_n_crab)
+    K  <- length(nt)
+    a  <- set_val * kpe; b <- (1 - set_val) * kpe
+    informed <- nt >= max(min_obs, 1)
+    fk <- ifelse(informed, (nc + a) / (nt + a + b), NA_real_)
+    walk <- crab_fraction_walk_structure(attr(cf, "f_strata")$label, params$crab_fraction_strata %||% "none")
+    for (ch in unique(walk$chain)) {
+      idx <- which(walk$chain == ch)
+      inf <- idx[informed[idx]]; un <- idx[!informed[idx]]
+      if (!length(un)) next
+      if (!length(inf)) { fk[un] <- set_val; next }
+      if (length(inf) == 1L) { fk[un] <- fk[inf]; next }
+      lg <- stats::approx(x = walk$pos[inf], y = stats::qlogis(pmin(pmax(fk[inf], 1e-4), 1 - 1e-4)),
+                          xout = walk$pos[un], rule = 2)$y
+      fk[un] <- stats::plogis(lg)
+    }
   } else {
     a0 <- as.numeric(cf$crab_fraction_alpha0); b0 <- as.numeric(cf$crab_fraction_beta0)
     nt <- as.numeric(cf$crab_fraction_n_total); nc <- as.numeric(cf$crab_fraction_n_crab)
@@ -348,7 +560,6 @@ crab_fraction_point_day <- function(is_boat, days, params) {
   }
   fk[as.integer(cf$f_stratum)]
 }
-
 
 # ---------------------------------------------------------------------------
 # crab_fraction_source_rows()  (review item 1, 2026-09-08)

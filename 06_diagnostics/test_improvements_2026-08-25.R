@@ -257,6 +257,7 @@ local({
   chk("shipped: pe_empty_effort_stratum = zero (historical)", identical(rc$pe_empty_effort_stratum, "zero"))
   chk("shipped: filter_incomplete_trips still TRUE (diagnostic only)", identical(rc$filter_incomplete_trips, TRUE))
   chk("shipped: crab_fraction_strata = month (review item 1, 2026-09-08)", identical(rc$crab_fraction_strata, "month"))
+  chk("shipped: crab_fraction_dynamic = TRUE (review item 1B, 2026-09-08)", identical(rc$crab_fraction_dynamic, TRUE))
 })
 
 
@@ -304,9 +305,12 @@ local({
   # 9c. every crab-fraction field, on every return path of crab_fraction_stan_data()
   cf_need <- intersect(bss_stan_data_names(models[["pooled"]]),
                        bss_stan_data_names(models[["gear_resolved"]]))
-  cf_need <- grep("^(apply_crab_fraction|crab_fraction_.+|n_f_strata|f_stratum|osp_crab_lower|osp_f_.+|OSPF_n)$",
+  # review item 1B (2026-09-08): the dynamic-f fields (f_walk_*, f_level_*, CFI_n, cfi_*,
+  # combo_*) join the contract; they are declared unconditionally in both models.
+  cf_need <- grep(paste0("^(apply_crab_fraction|crab_fraction_.+|n_f_strata|f_stratum|osp_crab_lower|osp_f_.+|OSPF_n|",
+                         "f_walk_.+|f_level_.+|CFI_n|cfi_.+|combo_[ab])$"),
                   cf_need, value = TRUE)
-  chk("crab-fraction contract is non-trivial", length(cf_need) >= 16, length(cf_need))
+  chk("crab-fraction contract is non-trivial", length(cf_need) >= 30, length(cf_need))
 
   paths <- list(
     `shore / feature off` = crab_fraction_stan_data(TRUE,  days289, P,  quiet = TRUE),
@@ -2171,6 +2175,103 @@ local({
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
   chk("shipped: crab_fraction_source = both", identical(rc$crab_fraction_source, "both"))
+})
+
+# ---------------------------------------------------------------------------
+# 52. The dynamic crabbing fraction (review item 1B, 2026-09-08). A logit random walk
+#     across chronological strata, observed per day by the sampler contacts and by OSP's
+#     crabbing-only column through f(1 - c). Tests: the walk order for every
+#     stratification, the per-day rows, exact legacy back-compat when the key is
+#     absent, the PE's interpolating point f, the decoupled rules, and that both Stan
+#     models and both preps carry the new fields.
+# ---------------------------------------------------------------------------
+local({
+  # walk order
+  w <- crab_fraction_walk_structure(c("2024-11", "2024-12", "2025-02"), "month")
+  chk("walk: month strata chain k -> k-1 with the month gap", identical(w$prev, c(0L, 1L, 2L)) && isTRUE(all.equal(w$gap, c(1, 1, 2))) && isTRUE(all.equal(w$pos, c(0, 1, 3))))
+  w2 <- crab_fraction_walk_structure(c("2024-12_wkdy", "2024-12_wknd", "2025-01_wkdy", "2025-01_wknd"), "month_day_type")
+  chk("walk: month x day-type walks within the day type", identical(w2$prev, c(0L, 0L, 1L, 2L)) && identical(w2$chain, c(1L, 2L, 1L, 2L)))
+  w3 <- crab_fraction_walk_structure(c("open", "shut"), "opener")
+  chk("walk: non-monthly strata are all anchored (no walk)", all(w3$prev == 0L))
+  chk("walk: predecessor always precedes (Stan rejects otherwise)", all(w2$prev < seq_along(w2$prev)) && all(w$prev < seq_along(w$prev)))
+
+  # per-day rows and the inert fields
+  Pd <- modifyList(P, list(crab_fraction_strata = "month", crab_fraction_dynamic = TRUE, use_osp_crab_lower = FALSE))
+  rows <- tibble(event_date = days289$event_date[c(1, 2, 40, 41, 100)], boats_total = c(3, 2, 5, 1, 4), boats_crabbing = c(3, 1, 4, 0, 1))
+  Pd$crab_fraction_rows <- rows
+  cfd <- crab_fraction_stan_data(FALSE, days289, Pd, quiet = TRUE)
+  chk("dynamic: flag set, one CFI row per contact day", cfd$crab_fraction_dynamic == 1L && cfd$CFI_n == 5)
+  chk("dynamic: CFI rows carry stratum, total, crab", all(cfd$cfi_stratum >= 1 & cfd$cfi_stratum <= cfd$n_f_strata) && sum(cfd$cfi_total) == 15 && sum(cfd$cfi_crab) == 9)
+  chk("dynamic: per-stratum sums are carried UNGATED (reporting), min_obs not applied", sum(cfd$crab_fraction_n_total) == 15)
+  chk("dynamic: walk fields sized K, level prior at logit(set)", length(cfd$f_walk_prev) == cfd$n_f_strata && isTRUE(all.equal(cfd$f_level_mu, qlogis(0.3))))
+  chk("dynamic: priors pass through with their defaults", cfd$f_level_sd == 1.5 && cfd$f_walk_sd_prior == 1.5 && cfd$f_walk_df == 4 && cfd$cfi_kappa_prior_mu == 20 && cfd$combo_a == 2 && cfd$combo_b == 3)
+  chk("dynamic: audit table attached with one row per stratum", is.data.frame(attr(cfd, "f_strata")) && nrow(attr(cfd, "f_strata")) == cfd$n_f_strata)
+  chk("dynamic: rows outside the fit window are excluded",
+      crab_fraction_stan_data(FALSE, days76, Pd, quiet = TRUE)$CFI_n == 0)
+  # exact legacy back-compat: without the key the legacy fields are identical and the walk is inert
+  Pl <- Pd; Pl$crab_fraction_dynamic <- NULL
+  cfl <- crab_fraction_stan_data(FALSE, days289, Pl, quiet = TRUE)
+  leg_fields <- c("crab_fraction_estimate", "n_f_strata", "f_stratum", "crab_fraction_value", "crab_fraction_alpha0", "crab_fraction_beta0", "osp_crab_lower", "OSPF_n")
+  chk("legacy (key absent): dynamic flag 0, no CFI rows, legacy fields unchanged",
+      cfl$crab_fraction_dynamic == 0L && cfl$CFI_n == 0 && identical(cfl[leg_fields], cfd[leg_fields]))
+  chk("legacy (key absent): min_obs gating still applies to the stratum Binomial", sum(cfl$crab_fraction_n_total) == 0)
+  # pinned and shore paths carry the fields, inert
+  chk("pinned f: dynamic fields present and inert",
+      crab_fraction_stan_data(FALSE, days289, modifyList(Pd, list(crab_fraction_fixed = 0.4)), quiet = TRUE)$crab_fraction_dynamic == 0L)
+  chk("shore: dynamic fields present and inert", crab_fraction_stan_data(TRUE, days289, Pd, quiet = TRUE)$CFI_n == 0)
+  # the OSP crabbing-only stream still feeds per-day rows under the walk
+  Pdo <- setp(Pd, osp_crab_rows = osp_rows, use_osp_crab_lower = TRUE)
+  cfo <- crab_fraction_stan_data(FALSE, days289, Pdo, quiet = TRUE)
+  chk("dynamic + OSP: OSP daily rows still emitted, stream flagged on", cfo$osp_crab_lower == 1L && cfo$OSPF_n == 200 && cfo$crab_fraction_dynamic == 1L)
+  # the PE point f: informed strata = shrunken share (kappa_pe 1), thin strata interpolated on the logit scale
+  Pp <- modifyList(Pd, list(crab_fraction_min_obs = 20))
+  big <- tibble(event_date = c(days289$event_date[1:10], days289$event_date[100:109]), boats_total = 5,
+                boats_crabbing = c(rep(5, 10), rep(1, 10)))   # Dec ~1.0 (50 boats), Mar ~0.2 (50 boats), Jan-Feb empty
+  Pp$crab_fraction_rows <- big
+  pd <- crab_fraction_point_day(TRUE, days289, Pp)
+  lab <- format(days289$event_date, "%Y-%m")
+  f_dec <- unique(pd[lab == "2024-12"]); f_jan <- unique(pd[lab == "2025-01"]); f_feb <- unique(pd[lab == "2025-02"]); f_mar <- unique(pd[lab == "2025-03"])
+  chk("PE point: informed stratum = (n_crab + a)/(n + 1)", isTRUE(all.equal(f_dec, (50 + 0.3) / 51)) && isTRUE(all.equal(f_mar, (10 + 0.3) / 51)))
+  chk("PE point: thin strata interpolate on the logit scale between informed neighbours",
+      f_dec > f_jan && f_jan > f_feb && f_feb > f_mar && isTRUE(all.equal(qlogis(f_jan) - qlogis(f_feb), qlogis(f_feb) - qlogis(f_mar), tolerance = 1e-6)))
+  chk("PE point: strata after the last informed one carry its value", isTRUE(all.equal(unique(pd[lab == "2025-08"]), f_mar)))
+  chk("PE point: no data at all -> the set value", isTRUE(all.equal(unique(crab_fraction_point_day(TRUE, days289, modifyList(Pd, list(crab_fraction_rows = NULL)))), 0.3)))
+  # decoupled rules
+  sd_off <- list(apply_crab_fraction = 1L, crab_fraction_estimate = 1L, crab_fraction_dynamic = 0L, CFI_n = 0L, OSPF_n = 0L, osp_crab_lower = 0L)
+  r_off <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "combo_c_out", "f_crab[1]"), sd_off)
+  chk("decoupled: walk off -> its scale parameters are 'not in the model', f_crab is not flagged", all(!is.na(r_off[1:3])) && is.na(r_off[4]))
+  sd_on <- modifyList(sd_off, list(crab_fraction_dynamic = 1L, CFI_n = 12L))
+  r_on <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "combo_c_out", "f_crab[1]"), sd_on)
+  chk("decoupled: walk live with contacts -> sigma_f and kappa_I are estimates; combo_c not in the model without OSP",
+      is.na(r_on[1]) && is.na(r_on[2]) && !is.na(r_on[3]) && is.na(r_on[4]))
+  sd_bare <- modifyList(sd_on, list(CFI_n = 0L))
+  r_bare <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "f_crab[1]"), sd_bare)
+  chk("decoupled: walk live with NO rows -> sigma_f, kappa_I and f are prior-only", all(!is.na(r_bare)))
+  # both Stan models declare the block; both preps forward it (9b covers the exact set)
+  for (m in c("02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan")) {
+    nm <- bss_stan_data_names(m)
+    chk(sprintf("%s declares the dynamic-f data block", basename(m)),
+        all(c("crab_fraction_dynamic", "f_walk_prev", "f_walk_gap", "f_level_mu", "f_level_sd", "f_walk_sd_prior", "f_walk_df",
+              "CFI_n", "cfi_stratum", "cfi_total", "cfi_crab", "cfi_kappa_prior_mu", "combo_a", "combo_b") %in% nm))
+    src <- paste(readLines(m, warn = FALSE), collapse = "\n")
+    chk(sprintf("%s keeps the legacy construction gated on crab_fraction_dynamic = 0", basename(m)),
+        grepl("n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic)", src, fixed = TRUE) &&
+          grepl("sigma_f_out", src, fixed = TRUE) && grepl("combo_c_out", src, fixed = TRUE))
+    chk(sprintf("%s: f still enters generated quantities only (no f_crab in an effort or catch likelihood)", basename(m)),
+        !grepl("neg_binomial_2\\([^;]*f_crab", src) && !grepl("lognormal\\([^;]*f_crab", src))
+  }
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: reports sigma_f_out / cfi_kappa_out / combo_c_out and writes crab_fraction_strata_*.csv", basename(drv)),
+        any(grepl("sigma_f_out", d, fixed = TRUE)) && any(grepl("combo_c_out", d, fixed = TRUE)) && any(grepl("crab_fraction_strata_", d, fixed = TRUE)))
+  }
+  chk("structural summary lists the dynamic-f reporters",
+      all(c("sigma_f_out", "cfi_kappa_out", "combo_c_out") %in% {
+        b <- body(bss_structural_summary); s <- paste(deparse(b), collapse = " "); unlist(regmatches(s, gregexpr("[a-z_]+_out", s))) }))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: the dynamic-f priors exist with the documented values",
+      identical(rc$crab_fraction_level_sd, 1.5) && identical(rc$crab_fraction_walk_sd_prior, 1.5) && identical(rc$crab_fraction_walk_df, 4) &&
+        identical(rc$crab_fraction_combo_c_prior, c(2, 3)) && identical(rc$crab_fraction_pe_prior_kappa, 1))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

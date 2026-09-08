@@ -1000,9 +1000,25 @@ for(cg in bss_catch_groups) {
       # improvement 8: the OSP crab-only lower bound alongside f itself.
       if (isTRUE(bss_data$osp_crab_lower == 1L)) .gear_pars <- c(.gear_pars, "f_lower_out")
       if (bss_data$apply_crab_fraction == 1L) .gear_pars <- c(.gear_pars, "f_crab_out")
+      # review item 1B (2026-09-08): the dynamic-f scale parameters, when the walk is live.
+      if (isTRUE(bss_data$crab_fraction_dynamic == 1L) && isTRUE(bss_data$crab_fraction_estimate == 1L)) {
+        .gear_pars <- c(.gear_pars, "sigma_f_out", "cfi_kappa_out")
+        if (isTRUE(bss_data$osp_crab_lower == 1L)) .gear_pars <- c(.gear_pars, "combo_c_out")
+      }
       bss_summ <- summary(fit, pars = .gear_pars)$summary
       message("  BSS Summary:\n"); print(bss_summ)
       write.csv(as.data.frame(bss_summ), file.path(output_dir, paste0("bss_summary_",label,".csv")))
+
+      # review item 1B: f by stratum, LABELLED and beside the data that informed it
+      # (f_crab_out[k] alone is an index). Same file as the pooled track.
+      .fs <- attr(bss_data, "f_strata")
+      if (bss_data$apply_crab_fraction == 1L && is.data.frame(.fs)) {
+        .fq <- summary(fit, pars = "f_crab_out")$summary
+        write.csv(cbind(as.data.frame(.fs),
+                        f_median = .fq[, "50%"], f_lo95 = .fq[, "2.5%"], f_hi95 = .fq[, "97.5%"],
+                        f_n_eff = round(.fq[, "n_eff"]), f_Rhat = round(.fq[, "Rhat"], 4)),
+                  file.path(output_dir, paste0("crab_fraction_strata_", label, ".csv")), row.names = FALSE)
+      }
 
       # improvement 4: map B_open_out[i] to its opener name (Stan carries only the index).
       .olab <- strsplit(bss_data$.opener_labels %||% "", ",", fixed = TRUE)[[1]]

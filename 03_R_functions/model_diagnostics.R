@@ -65,6 +65,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   tau_sw  <- g("osp_scale_is_tau", 0L);                 k_open <- g("K_open", 0L)
   apply_f <- g("apply_crab_fraction", 0L); est_f <- g("crab_fraction_estimate", 0L)
   osp_lo  <- g("osp_crab_lower", 0L);      dens  <- g("estimate_cpue_density", 0L)
+  dyn_f   <- g("crab_fraction_dynamic", 0L); cfi_n <- g("CFI_n", 0L); ospf_n <- g("OSPF_n", 0L)
   w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
   h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
 
@@ -86,6 +87,27 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "crab_fraction_estimate = 0: f is pinned at crab_fraction_value")
   if (osp_lo == 0) set(base == "f_lower",
     "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
+  # review item 1B (2026-09-08): the dynamic-f scale parameters are reported through
+  # *_out quantities that print a hard 0.0 when the walk is not in the model (the same
+  # theta_C_out hazard), and they report their PRIOR when the walk is live but no
+  # classification row reaches it.
+  dyn_live <- (apply_f == 1 && est_f == 1 && dyn_f == 1)
+  if (!dyn_live) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
+                                 "combo_c", "combo_c_out"),
+    "crab_fraction_dynamic = 0 (or f pinned/off): the dynamic f is not in the model")
+  else {
+    if (cfi_n == 0) set(base %in% c("cfi_kappa", "cfi_kappa_out"),
+      "no contact days in this fit (CFI_n = 0); the contact concentration is its prior")
+    if (cfi_n == 0 && ospf_n == 0) {
+      set(base %in% c("sigma_f", "sigma_f_out"),
+        "no classification rows in this fit (CFI_n = OSPF_n = 0); the walk SD is its prior")
+      set(base == "f_crab", "no classification rows in this fit; f is its prior walk")
+    }
+    if (osp_lo == 0) set(base %in% c("combo_c", "combo_c_out"),
+      "osp_crab_lower = 0: no OSP crabbing-only stream, combo_c is not in the model")
+    else if (ospf_n == 0) set(base %in% c("combo_c", "combo_c_out"),
+      "no OSP crabbing-only days in this fit (OSPF_n = 0); combo_c is its prior")
+  }
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
   # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
@@ -114,6 +136,9 @@ bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
             "B2_C", "gamma_C", "B_open",
             "kappa_OSP", "sigma_r_OSP", "r_OSP",
             "f_crab", "f_lower",
+            # review item 1B (2026-09-08): the dynamic-f scale parameters (always-size-1
+            # *_out copies; the parameters themselves are zero-size when the walk is off).
+            "sigma_f_out", "cfi_kappa_out", "combo_c_out",
             # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
             "tau_bar",
             # 2026-09-02: the zero-inflation probability, when the catch likelihood carries one.

@@ -107,6 +107,7 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
   use_f   <- isTRUE(.adr_param(rp, "use_crab_fraction"))
   osp_lo  <- isTRUE(.adr_param(rp, "use_osp_crab_lower"))
   shared  <- isTRUE(.adr_param(rp, "shared_tau"))
+  dyn_f   <- isTRUE(.adr_param(rp, "crab_fraction_dynamic"))   # review item 1B; absent in old runs = FALSE
   op_mode <- .adr_param(rp, "opener_covariate_mode")
 
   rows <- list()
@@ -148,7 +149,18 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
       if (!use_f) set(base == "f_crab", "use_crab_fraction = FALSE: f is pinned")
       if (!osp_lo) set(base == "f_lower",
         "use_osp_crab_lower = FALSE: the OSP lower bound is off and f_lower is pinned at 0")
+      # review item 1B: the dynamic-f scale parameters exist only under the walk, and
+      # combo_c only with the OSP crabbing-only stream. Whether a live walk actually
+      # received rows (CFI_n / OSPF_n) is window-dependent and not reconstructible here.
+      if (!use_f || !dyn_f) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
+                                             "combo_c", "combo_c_out"),
+        "crab_fraction_dynamic = FALSE (or f off): the dynamic f is not in the model")
+      else if (!osp_lo) set(base %in% c("combo_c", "combo_c_out"),
+        "use_osp_crab_lower = FALSE: no OSP crabbing-only stream, combo_c is not in the model")
     }
+    if (is_shore) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
+                                  "combo_c", "combo_c_out"),
+      "shore fit: apply_crab_fraction = 0, the dynamic f is not in the model")
     if (!dens) set(base == "gamma_C", "estimate_cpue_density = FALSE: the density term is inert")
     if (identical(op_mode, "off")) set(base == "B_open",
       "opener_covariate_mode = 'off': no opener covariate is active")
@@ -156,6 +168,10 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
       "shared_tau = FALSE: L is per-day independent draws; there is no shared turnover")
     # Window-dependent rules cannot be rebuilt from a run folder.
     unknown[base %in% c("B1", "B2", "B1_C", "B2_C")] <- is.na(reason[base %in% c("B1","B2","B1_C","B2_C")])
+    # review item 1B: a live walk's scale parameters are prior-only when no classification
+    # row fell in the fit's window (CFI_n / OSPF_n), which the folder does not record.
+    .dynp <- base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out", "combo_c", "combo_c_out")
+    unknown[.dynp] <- is.na(reason[.dynp])
 
     rows[[length(rows) + 1]] <- data.frame(
       fit = label, parameter = d$parameter,

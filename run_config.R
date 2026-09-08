@@ -506,12 +506,17 @@ run_config <- list(
   # pilot's f_hat when it lands. The PE is f-adjusted too (Phase 2b), so the boat PE and
   # BSS both carry f. Set use_crab_fraction = FALSE to reproduce the pre-Phase-2 boat
   # (f = 1). PRODUCTION DEFAULT = TRUE (adopted 2026-07-31).
+  # 2026-09-08 (review item 1): the classification data now EXIST (the sampler contacts,
+  # crab_fraction_source) and f is a month-by-month random walk observed by them
+  # (crab_fraction_dynamic, below); the set value is only the level prior's centre.
   use_crab_fraction         = TRUE,
   # SEASON-DERIVED placeholder (no supporting observations; see CHANGE_REGISTER D2):
   crab_fraction_set         = 0.3,    # set value = Beta prior mean and the thin-data fallback
   crab_fraction_prior_kappa = 20,     # Beta concentration (prior SD ~0.10 at mean 0.3)
   crab_fraction_fixed       = NA,     # a number PINS f exactly (no uncertainty; sensitivity)
   crab_fraction_min_obs     = 20,     # min classified boats before the I/E Binomial updates f
+                                      # (legacy construction; under crab_fraction_dynamic it is the
+                                      #  PE's interpolation trigger only, every day enters the BSS)
   ie_crab_col               = "boats_crabbing",  # ingress_egress column: crab-classified boats
   ie_total_col              = "boats_total",     # ingress_egress column: total classified boats
 
@@ -597,6 +602,52 @@ run_config <- list(
   # on days OSP is also in port.
   crab_fraction_combo_share = 0.15,
   crab_fraction_combo_kappa = 8,      # Beta concentration (prior SD ~0.12 at mean 0.15)
+
+  # --- The DYNAMIC crabbing fraction (review item 1B, 2026-09-08) --------------------
+  # TRUE replaces the per-stratum Beta/Binomial f above with a random walk on the log-odds
+  # of f across the month strata in chronological order, observed PER DAY by the sampler
+  # boat contacts (crab_fraction_source) and, when OSP's crabbing-only column arrives, by
+  # the OSP counts through f x (1 - c), c the combo-trip share among crabbing boats:
+  #     logit f[k] = logit f[k-1] + sigma_f * z[k],   sigma_f learned,  z ~ Student-t
+  # A month with five contacts borrows from its neighbours instead of falling back to the
+  # 0.30 placeholder; the per-day beta-binomial treats one day's contacted fleet as one
+  # correlated observation, not n independent trials. f still enters generated quantities
+  # only (effort and CPUE are untouched by construction). FALSE reproduces the legacy
+  # construction exactly (the Phase A control rung, run_improvements_2026-09-08.R R3a).
+  # The legacy path's crab_fraction_prior_kappa = 20 is why Phase A under-uses the winter
+  # contacts: Beta(6, 14) is worth twenty boats at 0.30, so a 46-of-47 December comes out
+  # near 0.78; the walk carries no such anchor beyond its first month.
+  crab_fraction_dynamic     = TRUE,
+  # Level prior of the FIRST stratum of each walk chain, on the logit scale, centred on
+  # logit(crab_fraction_set). 1.5 is deliberately weak (95% of prior mass on f in roughly
+  # 0.02-0.89); a tight prior at 0.30 would drag a near-1 winter month down by a third.
+  crab_fraction_level_sd    = 1.5,
+  # Half-normal scale of sigma_f, the SD of one month's step in logit f. The 2024-25
+  # monthly contact shares move by RMS ~1.5 logits per month, part of it sampling noise;
+  # with ~12 strata sigma_f is weakly identified and this prior matters. Read the
+  # sigma_f_out posterior against it (bss_summary_*.csv / crab_fraction_strata_*.csv).
+  crab_fraction_walk_sd_prior = 1.5,
+  # Student-t degrees of freedom of the walk steps. The two regime jumps of a season (into
+  # the winter, when the finfish fisheries close and nearly every boat out is crabbing,
+  # and out of it) are real, not noise; heavy-tailed steps let them through without
+  # loosening every quiet month. 0 (or negative) gives the Gaussian walk.
+  crab_fraction_walk_df     = 4,
+  # Beta-binomial concentration of the DAILY contact shares (lognormal centre, log-SD
+  # 0.75). Most contact days hold 1-4 boats, where beta-binomial ~ binomial and this
+  # rests on its prior; it bites on the busy days (20+ contacts).
+  crab_fraction_contact_kappa_prior_mu = 20,
+  # Beta(a, b) prior on c, the combo-trip share among CRABBING boats (what makes OSP's
+  # crabbing-only count read low). Identified only in a month both streams cover; until
+  # OSP delivers the column it is inert. Beta(2, 3): mean 0.4, 95% about 0.07-0.81. When
+  # both streams cover a summer month, c absorbing the whole difference between the
+  # shift-time contact share and OSP's all-day share is the diagnostic for the
+  # sampler-shift caveat above (c wandering above any plausible combo rate).
+  crab_fraction_combo_c_prior = c(2, 3),
+  # The PE's per-stratum shrinkage under the dynamic model: Beta(set * kappa, (1 - set) *
+  # kappa) with ONE pseudo-contact, so an informed month is essentially its observed share;
+  # months under crab_fraction_min_obs are interpolated on the logit scale from their
+  # informed neighbours (the design-based partner of the walk, without its smoothing).
+  crab_fraction_pe_prior_kappa = 1,
   # osp_scale_is_tau: makes the OSP mean use L (= tau_boat) as the within-day boat
   # turnover, so the dense OSP series (148 days) identifies tau_boat directly (closes
   # GR-12). FALSE keeps the free kappa_OSP OSP scale (Phase 1), which quarantines the

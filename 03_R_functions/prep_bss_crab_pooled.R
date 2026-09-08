@@ -396,6 +396,22 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     osp_f_total            = cf_data$osp_f_total,
     osp_f_crab             = cf_data$osp_f_crab,
     osp_f_kappa_prior_mu   = cf_data$osp_f_kappa_prior_mu,
+    # review item 1B (2026-09-08): the dynamic f. Declared unconditionally in the .stan
+    # data block, so forwarded on every path (inert-valued unless crab_fraction_dynamic).
+    crab_fraction_dynamic  = cf_data$crab_fraction_dynamic,
+    f_walk_prev            = cf_data$f_walk_prev,
+    f_walk_gap             = cf_data$f_walk_gap,
+    f_level_mu             = cf_data$f_level_mu,
+    f_level_sd             = cf_data$f_level_sd,
+    f_walk_sd_prior        = cf_data$f_walk_sd_prior,
+    f_walk_df              = cf_data$f_walk_df,
+    CFI_n                  = cf_data$CFI_n,
+    cfi_stratum            = cf_data$cfi_stratum,
+    cfi_total              = cf_data$cfi_total,
+    cfi_crab               = cf_data$cfi_crab,
+    cfi_kappa_prior_mu     = cf_data$cfi_kappa_prior_mu,
+    combo_a                = cf_data$combo_a,
+    combo_b                = cf_data$combo_b,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))
     # POOL-1: R_T_alpha / R_T_beta removed. R_G_boat carries a fixed lognormal prior
     # in the Stan model (log(4), 0.5), matching crab_bss_gear_resolved.stan.
@@ -403,6 +419,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
 
   # Store AR resolution for downstream reporting
   attr(stan_data, "ar_resolution") <- ar_resolution
+  # review item 1B: the per-stratum f audit table (label, walk link, contact and OSP
+  # sums); the driver writes it beside the posterior f so f_crab_out[k] is readable.
+  attr(stan_data, "f_strata") <- attr(cf_data, "f_strata")
   # improvement 6: the POST-FILTER interview count the CPUE likelihood actually sees, so
   # the driver can apply bss_min_interviews_fitted. The pre-existing sufficiency guard
   # counts UNFILTERED interviews and therefore reads looser than reality.
