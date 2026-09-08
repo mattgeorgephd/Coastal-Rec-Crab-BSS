@@ -96,6 +96,20 @@ fetch_crab_data <- function(params) {
   gh_interview |> count(population) |> mutate(l=sprintf("    %s: %d",population,n)) |>
     pull(l) |> walk(cat,"\n")
 
+  # --- REVIEW ITEM 1 (2026-09-08): boat CONTACTS, before the crabbers > 0 filter -------
+  # Samplers log every private boat they approach at the launch; a boat that was not
+  # crabbing is recorded with crabbers = 0 (and no gear, no catch). Those rows have always
+  # been dropped by the filter just below, but they are the crabbing-fraction classification
+  # the boat effort model needs: per day, boats contacted and boats crabbing (a boat that
+  # crabbed AND fished another fishery counts as crabbing here, because the sampler saw the
+  # crab gear; OSP's crabbing-only column labels such a boat by the other fishery). 2024-25:
+  # 422 contacts, 206 crabbing, 0.49 pooled and strongly seasonal (0.9+ Dec-Feb, 0.26
+  # Jul-Sep). Kept as dwg$boat_contacts; crab_fraction_source_rows() feeds it to f.
+  boat_contacts <- boat_contacts_from_interviews(gh_interview)
+  cat(sprintf("  Private-boat contacts for the crabbing fraction: %d boats on %d days, %d crabbing (share %.3f)\n",
+              sum(boat_contacts$boats_total), nrow(boat_contacts), sum(boat_contacts$boats_crabbing),
+              if (sum(boat_contacts$boats_total) > 0) sum(boat_contacts$boats_crabbing) / sum(boat_contacts$boats_total) else NA_real_))
+
   gh_interview <- gh_interview |>
     filter(!is.na(crabbers), as.numeric(crabbers) > 0) |>
     mutate(
@@ -215,6 +229,7 @@ fetch_crab_data <- function(params) {
     shore_effort = shore_effort,
     boat_effort = boat_effort,
     interview = gh_interview,
+    boat_contacts = boat_contacts,   # review item 1: per-day crabbing classification of contacted boats
     catch = catch,
     comm_tally = comm_tally,
     ll = tibble(centroid_lat=46.904, centroid_lon=-124.105)
@@ -286,4 +301,30 @@ apply_fishing_time_filters <- function(df, params, req_boat_gear_time = TRUE, qu
   df |>
     filter(!.drop_time, !.drop_unfished) |>
     select(-.time_unit_pop, -.any_pos_time, -.zero_catch, -.drop_time, -.drop_unfished)
+}
+
+
+###############################################################################
+# boat_contacts_from_interviews()  (review item 1, 2026-09-08)
+#
+# Per-day classification of contacted private boats, from the CLASSIFIED but UNFILTERED
+# interview frame (population assigned, crabbers still raw): boats_total = private-boat
+# rows with a recorded crabbers value, boats_crabbing = those with crabbers > 0. Rows
+# whose crabbers value is missing are unclassified and count in neither. Returns
+# tibble(event_date, boats_total, boats_crabbing), the shape crab_fraction.R consumes.
+# Pure, so the harness tests it on a synthetic frame.
+###############################################################################
+boat_contacts_from_interviews <- function(gh_interview) {
+  empty <- tibble(event_date = as.Date(character()), boats_total = integer(), boats_crabbing = integer())
+  if (is.null(gh_interview) || !nrow(gh_interview) ||
+      !all(c("population", "event_date", "crabbers") %in% names(gh_interview))) return(empty)
+  cr <- suppressWarnings(as.numeric(gh_interview$crabbers))
+  gh_interview |>
+    mutate(.cr = cr) |>
+    filter(population == "private_boat", !is.na(.cr), !is.na(event_date)) |>
+    group_by(event_date) |>
+    summarise(boats_total = n(), boats_crabbing = sum(.cr > 0), .groups = "drop") |>
+    mutate(event_date = as.Date(event_date), boats_total = as.integer(boats_total),
+           boats_crabbing = as.integer(boats_crabbing)) |>
+    arrange(event_date)
 }

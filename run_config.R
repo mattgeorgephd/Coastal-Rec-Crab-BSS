@@ -521,7 +521,18 @@ run_config <- list(
   # I/E classification counts). "none" reproduces Phase 2 exactly. Move to "month" once the
   # pilot classifies enough boats per month; a single annual f over-states the summer crab
   # share (summer is tuna/salmon-dominated), which is where the harvest is largest.
-  crab_fraction_strata      = "none",
+  # REVIEW ITEM 1 (2026-09-08): "month" (year-qualified, chronological) is now the shipped
+  # stratification, because the classification data exist (crab_fraction_source below).
+  crab_fraction_strata      = "month",
+  # Where the classification rows come from: "interviews" = the sampler contacts (every
+  # private boat approached at the launch, crabbing or not; 422 on 2024-25, share 0.49
+  # pooled, 0.9+ in Dec-Feb, 0.26 in Jul-Sep; a combo trip counts as CRABBING), "ie" = the
+  # WPT/WBL egress classification columns (blank until the pilot delivers), "both".
+  # CAVEAT carried, not hidden: contacts happen during sampler shifts, so boats returning
+  # outside the shift are not classified; if finfish boats return later than crab boats
+  # the contact share overstates f, most in summer. OSP's all-day crabbing-only column,
+  # when it arrives, is the check (crab_fraction_source_rows in crab_fraction.R).
+  crab_fraction_source      = "both",
   # Improvement 4/8 interaction: "opener" and "month_opener" stratify f by whether a
   # competing fishery was open that day (params$opener_f_dates, built by the driver from
   # opener_f_flag below). This exists because an opener EFFORT covariate and a constant f

@@ -256,7 +256,7 @@ local({
   chk("shipped: use_osp_crab_lower OFF", identical(rc$use_osp_crab_lower, FALSE))
   chk("shipped: pe_empty_effort_stratum = zero (historical)", identical(rc$pe_empty_effort_stratum, "zero"))
   chk("shipped: filter_incomplete_trips still TRUE (diagnostic only)", identical(rc$filter_incomplete_trips, TRUE))
-  chk("shipped: crab_fraction_strata unchanged", identical(rc$crab_fraction_strata, "none"))
+  chk("shipped: crab_fraction_strata = month (review item 1, 2026-09-08)", identical(rc$crab_fraction_strata, "month"))
 })
 
 
@@ -2127,6 +2127,50 @@ local({
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
   chk("shipped: tau_shore_prior_mu still 1.7 (the derived prior ships OFF pending rung R4)", identical(rc$tau_shore_prior_mu, 1.7))
   chk("shipped: the derived-prior keys exist", !is.null(rc$tau_shore_prior_sigma_floor) && !is.null(rc$tau_shore_derive_min_days))
+})
+
+# ---------------------------------------------------------------------------
+# 51. Boat contacts as the crabbing-fraction classification (review item 1A,
+#     2026-09-08). The reader dropped the 216 non-crabbing boat contacts at
+#     crabbers > 0; they are the f data. Pure helpers on synthetic frames.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/fetch_crab_data.R")
+  fr <- tibble(population = c(rep("private_boat", 6), "shore", "private_boat"),
+               event_date = as.Date(c(rep("2025-08-01", 4), rep("2025-08-02", 2), "2025-08-01", "2025-08-03")),
+               crabbers   = c(0, 2, 0, 1,   0, 0,   3, NA))
+  bc <- boat_contacts_from_interviews(fr)
+  chk("contacts: one row per day, boats_total counts every classified private boat",
+      nrow(bc) == 2 && bc$boats_total[bc$event_date == as.Date("2025-08-01")] == 4)
+  chk("contacts: boats_crabbing counts crabbers > 0", bc$boats_crabbing[bc$event_date == as.Date("2025-08-01")] == 2 &&
+        bc$boats_crabbing[bc$event_date == as.Date("2025-08-02")] == 0)
+  chk("contacts: NA crabbers is unclassified (day dropped), shore rows ignored", !as.Date("2025-08-03") %in% bc$event_date)
+  chk("contacts: empty / malformed input -> empty table, no error",
+      nrow(boat_contacts_from_interviews(NULL)) == 0 && nrow(boat_contacts_from_interviews(tibble(x = 1))) == 0)
+  # source assembly
+  dwg <- list(boat_contacts = bc)
+  ie  <- tibble(x = 1); attr(ie, "crab_fraction_rows") <- tibble(event_date = as.Date("2025-08-05"), boats_crabbing = 3, boats_total = 9)
+  r_both <- crab_fraction_source_rows(dwg, ie, list(crab_fraction_source = "both"), quiet = TRUE)
+  chk("source both: interview and egress rows are bound, tagged", nrow(r_both) == 3 && setequal(unique(r_both$source), c("interviews", "ie")))
+  chk("source interviews: egress rows excluded", all(crab_fraction_source_rows(dwg, ie, list(crab_fraction_source = "interviews"), quiet = TRUE)$source == "interviews"))
+  chk("source ie: contacts excluded", all(crab_fraction_source_rows(dwg, ie, list(crab_fraction_source = "ie"), quiet = TRUE)$source == "ie"))
+  chk("source: bad value errors", inherits(tryCatch(crab_fraction_source_rows(dwg, ie, list(crab_fraction_source = "osp"), quiet = TRUE), error = function(e) e), "error"))
+  chk("source: rows carry the columns crab_fraction.R aggregates", all(c("event_date", "boats_crabbing", "boats_total") %in% names(r_both)))
+  # the rows reach the existing Binomial machinery
+  Pm <- modifyList(P, list(crab_fraction_strata = "month", crab_fraction_min_obs = 3))
+  Pm$crab_fraction_rows <- r_both
+  cf <- crab_fraction_stan_data(FALSE, mkdays("2025-08-01", 31), Pm, quiet = TRUE)
+  chk("month strata: contact rows aggregate into the stratum Binomial", cf$crab_fraction_n_total[1] == 15 && cf$crab_fraction_n_crab[1] == 5)
+  # chronological, year-qualified labels
+  lab <- crab_fraction_strata_labels(as.Date(c("2024-12-15", "2025-01-10", "2025-09-01")), list(crab_fraction_strata = "month"))
+  chk("month strata are year-qualified and sort chronologically", identical(sort(unique(lab)), c("2024-12", "2025-01", "2025-09")))
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: crab_fraction_rows come from crab_fraction_source_rows()", basename(drv)),
+        any(grepl("crab_fraction_source_rows(dwg, ie_data, params)", d, fixed = TRUE)))
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: crab_fraction_source = both", identical(rc$crab_fraction_source, "both"))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

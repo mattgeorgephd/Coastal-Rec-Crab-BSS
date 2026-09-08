@@ -456,7 +456,10 @@ dwg <- fetch_crab_data(params)
 # L_eff_model is NULL when I/E data are absent or fewer than 3 shore days exist;
 # prep_days_crab() then falls back to civil twilight and warns.
 ie_data <- fetch_ie_data(params)
-params$crab_fraction_rows <- attr(ie_data, "crab_fraction_rows")  # Phase 2b/3: crab-fraction classification (PE + BSS)
+# Review item 1 (2026-09-08): the crabbing-fraction classification rows come from the
+# sampler contacts (dwg$boat_contacts, every private boat approached) and/or the egress
+# columns of the I/E workbook, per params$crab_fraction_source. See crab_fraction.R.
+params$crab_fraction_rows <- crab_fraction_source_rows(dwg, ie_data, params)
 # Review item 2 (2026-09-08): shore turnover at the count hours, derived every run from the
 # I/E time column and adopted only under tau_shore_prior_mu = "derived". Mirrors the pooled
 # driver; see 03_R_functions/bss_day_length.R (estimate_shore_turnover).

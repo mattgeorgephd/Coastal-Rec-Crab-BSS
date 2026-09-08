@@ -108,7 +108,10 @@ crab_fraction_strata_labels <- function(dates, params) {
   mode  <- params$crab_fraction_strata %||% "none"
   dates <- as.Date(dates)
   if (identical(mode, "none")) return(rep("all", length(dates)))
-  mo <- format(dates, "%m")
+  # 2026-09-08: year-qualified month labels, so strata sort CHRONOLOGICALLY (the dynamic f
+  # of review item 1 walks across strata in order; "%m" alone put December after September
+  # and merged the same month of two seasons on a span).
+  mo <- format(dates, "%Y-%m")
   wknd_days <- params$days_wkend %||% c("Saturday", "Sunday")
   dt <- ifelse(weekdays(dates) %in% wknd_days, "wknd", "wkdy")
   hol <- params$crabbing_holiday_dates
@@ -344,4 +347,53 @@ crab_fraction_point_day <- function(is_boat, days, params) {
     }, numeric(1))
   }
   fk[as.integer(cf$f_stratum)]
+}
+
+
+# ---------------------------------------------------------------------------
+# crab_fraction_source_rows()  (review item 1, 2026-09-08)
+#
+# Assemble the crabbing-fraction classification rows the model reads
+# (params$crab_fraction_rows: event_date, boats_crabbing, boats_total) from the sources
+# params$crab_fraction_source names:
+#   "interviews"  the sampler contacts (dwg$boat_contacts): every private boat approached
+#                 at the launch, crabbing or not. A combo trip counts as CRABBING.
+#   "ie"          the WPT/WBL egress classification columns of ingress_egress.xlsx
+#                 (attr(ie_data, "crab_fraction_rows")); blank until the pilot delivers.
+#   "both"        (default) the two bound together, one row per source per day.
+# The two protocols see different boats (contacts happen during sampler shifts; an egress
+# survey sees the whole day), so a day with both sources contributes two rows, not a merged
+# one; the per-day beta-binomial in the dynamic model absorbs the between-row spread.
+# ---------------------------------------------------------------------------
+crab_fraction_source_rows <- function(dwg, ie_data, params, quiet = FALSE) {
+  src <- tolower(params$crab_fraction_source %||% "both")
+  if (!src %in% c("interviews", "ie", "both"))
+    stop("params$crab_fraction_source must be interviews | ie | both (got '", src, "')", call. = FALSE)
+  empty <- tibble(event_date = as.Date(character()), boats_crabbing = numeric(), boats_total = numeric(), source = character())
+  from_int <- dwg$boat_contacts
+  from_ie  <- attr(ie_data, "crab_fraction_rows")
+  parts <- list()
+  if (src %in% c("interviews", "both") && !is.null(from_int) && nrow(from_int))
+    parts$interviews <- from_int |>
+      transmute(event_date = as.Date(event_date), boats_crabbing = as.numeric(boats_crabbing),
+                boats_total = as.numeric(boats_total), source = "interviews")
+  if (src %in% c("ie", "both") && !is.null(from_ie) && is.data.frame(from_ie) && nrow(from_ie))
+    parts$ie <- from_ie |>
+      transmute(event_date = as.Date(event_date), boats_crabbing = as.numeric(boats_crabbing),
+                boats_total = as.numeric(boats_total), source = "ie") |>
+      filter(is.finite(boats_total), boats_total > 0)
+  rows <- if (length(parts)) bind_rows(parts) else empty
+  if (!isTRUE(quiet)) {
+    if (nrow(rows)) {
+      by_src <- rows |> group_by(source) |>
+        summarise(days = n(), total = sum(boats_total), crab = sum(boats_crabbing), .groups = "drop")
+      cat(sprintf("  Crab-fraction classification rows (source = %s): %s\n", src,
+                  paste(sprintf("%s %d days, %.0f boats, share %.3f", by_src$source, by_src$days,
+                                by_src$total, by_src$crab / pmax(by_src$total, 1)), collapse = "; ")))
+      bm <- rows |> mutate(m = format(event_date, "%Y-%m")) |> group_by(m) |>
+        summarise(t = sum(boats_total), c = sum(boats_crabbing), .groups = "drop")
+      cat("    by month:", paste(sprintf("%s %.2f (n=%.0f)", bm$m, bm$c / pmax(bm$t, 1), bm$t), collapse = ", "), "\n")
+    } else cat(sprintf("  Crab-fraction classification rows (source = %s): none; f rests on its prior.\n", src))
+  }
+  rows
 }
