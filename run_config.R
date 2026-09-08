@@ -221,6 +221,17 @@ run_config <- list(
   ),
   census_start_date = "2024-12-01",   # scalar fallback, used only when census_windows is NULL
   census_end_date   = "2025-02-08",
+  # REVIEW ITEM 4 (2026-09-08): the commercial/charter tally is a census ON THE DAYS IT WAS
+  # TAKEN (47 of the 70 days of the 2024-25 window); the other 23 days (9 Mondays, 8
+  # Sundays, 3 Tuesdays, 2 Wednesdays, 1 Thursday: the roster, not closures) are filled
+  # with the day-type mean of the sampled days, about a third of the component (3,869 of
+  # 11,753 crab on 2024-25, imputation SE 426, 3.6%). estimate_comm_charter() now reports
+  # the observed / imputed split and the SE every run (census_daily.csv, census_variance.csv,
+  # pe_vs_bss_comparison.csv). "none" keeps the census a constant in the port interval
+  # (today's behaviour); "imputed_days" adds a normal draw with that SE. Ships "none": the
+  # number does not move until you choose, and the better fix is daily vessel counts for
+  # the unsampled days from the vessel-monitoring and charter records.
+  census_uncertainty = "none",
 
   # --- Catch groups --------------------------------------------------------
   estimate_red_rock = FALSE,          # TRUE adds Red_Rock_Kept alongside Dungeness

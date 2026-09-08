@@ -726,6 +726,12 @@ timer_stop("3_PE_estimates")
 # ---- 7.4 COMMERCIAL/CHARTER ----
 timer_start("4_commercial_charter")
 pe_all$comm_charter <- estimate_comm_charter(dwg, params)
+# Review item 4 (2026-09-08): observed / imputed per-day flags and the imputation variance
+# behind Dungeness_Kept_se (see estimate_comm_charter.R); same files as the pooled track.
+if (!is.null(pe_all$comm_charter$daily_full))
+  write.csv(pe_all$comm_charter$daily_full, file.path(output_dir, "census_daily.csv"), row.names = FALSE)
+if (!is.null(pe_all$comm_charter$variance_detail))
+  write.csv(pe_all$comm_charter$variance_detail, file.path(output_dir, "census_variance.csv"), row.names = FALSE)
 timer_stop("4_commercial_charter")
 
 
@@ -1204,7 +1210,17 @@ for(cg in bss_catch_groups) {
       }
     }
   }
-  bss_C_total <- bss_C_total + (pe_all$comm_charter[[cg]] %||% 0)
+  # Review item 4 (2026-09-08): constant under census_uncertainty = "none"; normal draws
+  # with the imputation SE under "imputed_days", clamped at the observed-exact part.
+  .cc <- pe_all$comm_charter
+  .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
+  if (identical(.cc$census_uncertainty %||% "none", "imputed_days") && cg == "Dungeness_Kept" &&
+      is.finite(.cc$Dungeness_Kept_se %||% NA) && (.cc$Dungeness_Kept_se %||% 0) > 0) {
+    .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$Dungeness_Kept_se), .cc$observed_dung %||% 0)
+    message(sprintf("  Census enters the port interval with imputation SE %s (%d unsampled days).",
+                    format(round(.cc$Dungeness_Kept_se), big.mark = ","), sum(!.cc$daily_full$observed)))
+  }
+  bss_C_total <- bss_C_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
 
   final_table <- tibble(

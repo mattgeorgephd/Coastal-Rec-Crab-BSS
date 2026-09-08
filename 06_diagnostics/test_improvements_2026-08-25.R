@@ -2274,5 +2274,63 @@ local({
         identical(rc$crab_fraction_combo_c_prior, c(2, 3)) && identical(rc$crab_fraction_pe_prior_kappa, 1))
 })
 
+# ---------------------------------------------------------------------------
+# 53. The commercial/charter census: exact on sampled days, imputed on the rest (review
+#     item 4, 2026-09-08). Synthetic tally: a 14-day window, 10 sampled days, so the
+#     observed / imputed split and the imputation variance can be checked by hand.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/estimate_comm_charter.R")
+  cal <- seq(as.Date("2025-01-06"), as.Date("2025-01-19"), by = "day")      # Mon .. Sun, two weeks
+  wk  <- weekdays(cal) %in% c("Saturday", "Sunday")
+  # sampled: 8 weekdays (of 10) and 2 weekend days (of 4); commercial tallies vary by day
+  samp <- c(cal[!wk][1:8], cal[wk][1:2])
+  tally <- tibble(date = samp, commercial_tally = c(4, 6, 5, 7, 4, 6, 5, 3, 8, 10), charter_tally = c(1, 0, 1, 1, 0, 1, 1, 0, 2, 2))
+  ints  <- tibble(population = "comm_charter", event_date = rep(samp, each = 2),
+                  boat_type_clean = rep(c("Commercial", "Charter"), 10), dungeness_kept = rep(c(40, 60), 10), red_rock_kept = 0)
+  dwg <- list(comm_tally = tally, interview = ints)
+  Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
+             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+  r <- estimate_comm_charter(dwg, Pc)
+  est_day <- tally$commercial_tally * 40 + tally$charter_tally * 60
+  wkd <- !weekdays(tally$date) %in% c("Saturday", "Sunday")
+  obs <- sum(est_day); imp <- 2 * mean(est_day[wkd]) + 2 * mean(est_day[!wkd])
+  chk("census: total = observed + imputed", isTRUE(all.equal(r$Dungeness_Kept, obs + imp)) && isTRUE(all.equal(r$observed_dung, obs)) && isTRUE(all.equal(r$imputed_dung, imp)))
+  v_exp <- 2^2 * var(est_day[wkd]) / 8 + 2^2 * var(est_day[!wkd]) / 2      # per-vessel means are exact here (zero variance)
+  chk("census: imputation variance = sum_h (N_h - n_h)^2 s_h^2 / n_h", isTRUE(all.equal(r$Dungeness_Kept_var, v_exp)) && isTRUE(all.equal(r$Dungeness_Kept_se, sqrt(v_exp))))
+  chk("census: daily table covers every calendar day, flags observed days", nrow(r$daily_full) == 14 && sum(r$daily_full$observed) == 10 && isTRUE(all.equal(sum(r$daily_full$est_dung), r$Dungeness_Kept)))
+  chk("census: imputed days carry their stratum mean",
+      isTRUE(all.equal(unique(r$daily_full$est_dung[!r$daily_full$observed & r$daily_full$day_type == "weekday"]), mean(est_day[wkd]))))
+  chk("census: default mode is 'none' (SE reported, not carried)", identical(r$census_uncertainty, "none"))
+  chk("census: mode 'imputed_days' accepted, bad value refused",
+      identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "imputed_days")))$census_uncertainty, "imputed_days") &&
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "bootstrap"))), error = function(e) e), "error"))
+  # a stratum with one sampled day borrows the pooled variance and says so
+  dwg1 <- dwg; dwg1$comm_tally <- tally[c(1:8, 9), ]; dwg1$interview <- ints |> filter(event_date %in% dwg1$comm_tally$date)
+  r1 <- estimate_comm_charter(dwg1, Pc)
+  chk("census: a one-day stratum borrows the pooled between-day variance, flagged",
+      any(grepl("pooled", r1$variance_detail$s2_source)) && is.finite(r1$Dungeness_Kept_se) && r1$Dungeness_Kept_se > 0)
+  # per-window path sums the split and the variance
+  Pw <- Pc; Pw$census_windows <- list("a" = c("2025-01-06", "2025-01-12"), "b" = c("2025-01-13", "2025-01-19"))
+  rw <- estimate_comm_charter(dwg, Pw)
+  chk("census: per-window path sums observed, imputed and variance, stacks the daily table",
+      isTRUE(all.equal(rw$observed_dung, obs)) && nrow(rw$daily_full) == 14 && rw$Dungeness_Kept_var > 0 && isTRUE(all.equal(rw$Dungeness_Kept_se, sqrt(rw$Dungeness_Kept_var))))
+  chk("census: empty window returns the zero split", isTRUE(all.equal(estimate_comm_charter(list(comm_tally = tally[0, ], interview = ints), Pc)$Dungeness_Kept_se, 0)))
+  # a day type with no sampled day no longer takes the component to NA: pooled mean, flagged
+  dwg0 <- dwg; dwg0$comm_tally <- tally[1:8, ]; dwg0$interview <- ints |> filter(event_date %in% dwg0$comm_tally$date)
+  r0 <- estimate_comm_charter(dwg0, Pc)
+  chk("census: an unsampled day type takes the pooled sampled-day mean instead of NA",
+      is.finite(r0$Dungeness_Kept) && isTRUE(all.equal(r0$Dungeness_Kept, sum(est_day[1:8]) + 2 * mean(est_day[1:8]) + 4 * mean(est_day[1:8]))) &&
+        any(grepl("none", r0$variance_detail$s2_source)) && is.finite(r0$Dungeness_Kept_se))
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: writes census_daily.csv / census_variance.csv and draws the census only under imputed_days", basename(drv)),
+        any(grepl("census_daily.csv", d, fixed = TRUE)) && any(grepl("census_variance.csv", d, fixed = TRUE)) &&
+          any(grepl("\"imputed_days\"", d, fixed = TRUE)) && any(grepl("observed_dung", d, fixed = TRUE)))
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: census_uncertainty = none (the census stays a constant until chosen otherwise)", identical(rc$census_uncertainty, "none"))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
