@@ -163,7 +163,12 @@ fetch_crab_data <- function(params) {
     f17_paired <- tibble(event_date=Date(),count_sequence=integer(),f17_gear=numeric())
   }
 
-  shore_effort <- f20 |> select(event_date,count_sequence,f20_gear=total_gear_count) |>
+  shore_effort <- f20 |>
+    # 2026-09-08 (review item 2): keep the count's clock time (decimal hour) so the shore
+    # turnover can be evaluated at the hours the counts were actually taken.
+    mutate(count_hour = as.numeric(format(count_time_posix, "%H")) +
+                        as.numeric(format(count_time_posix, "%M")) / 60) |>
+    select(event_date,count_sequence,f20_gear=total_gear_count,count_hour) |>
     left_join(f17_paired, by=c("event_date","count_sequence")) |>
     mutate(f17_gear=replace_na(f17_gear,0), count_quantity=f20_gear+f17_gear,
            section_num=1, count_type="Gear Count", population="shore")
@@ -176,8 +181,10 @@ fetch_crab_data <- function(params) {
            count_quantity = as.numeric(boat_trailer_count)) |>
     filter(!is.na(count_time_posix), !is.na(count_quantity), count_quantity >= 0) |>
     arrange(event_date,count_time_posix) |> group_by(event_date) |>
-    mutate(count_sequence=row_number()) |> ungroup() |>
-    select(event_date,count_sequence,count_quantity) |>
+    mutate(count_sequence=row_number(),
+           count_hour = as.numeric(format(count_time_posix, "%H")) +
+                        as.numeric(format(count_time_posix, "%M")) / 60) |> ungroup() |>
+    select(event_date,count_sequence,count_quantity,count_hour) |>
     mutate(section_num=1, count_type="Trailer Count", population="private_boat")
 
   # --- COMMERCIAL TALLY ---

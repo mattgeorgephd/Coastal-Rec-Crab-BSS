@@ -457,6 +457,12 @@ dwg <- fetch_crab_data(params)
 # prep_days_crab() then falls back to civil twilight and warns.
 ie_data <- fetch_ie_data(params)
 params$crab_fraction_rows <- attr(ie_data, "crab_fraction_rows")  # Phase 2b/3: crab-fraction classification (PE + BSS)
+# Review item 2 (2026-09-08): shore turnover at the count hours, derived every run from the
+# I/E time column and adopted only under tau_shore_prior_mu = "derived". Mirrors the pooled
+# driver; see 03_R_functions/bss_day_length.R (estimate_shore_turnover).
+shore_turnover <- estimate_shore_turnover(attr(ie_data, "ie_intervals"), dwg$shore_effort, params)
+write_shore_turnover(shore_turnover, output_dir)
+params <- bss_resolve_tau_shore_prior(params, shore_turnover)
 
 # --- Phase 0/1b: OSP Westport boat-count ingest + overlap calibration (diagnostic) ---
 # Mirrors the pooled driver. fetch_osp_boat_counts() + diagnose_osp_trailer_overlap()

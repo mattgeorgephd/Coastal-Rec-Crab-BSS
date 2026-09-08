@@ -486,6 +486,15 @@ dwg <- fetch_crab_data(params)
 ie_data <- fetch_ie_data(params)
 params$crab_fraction_rows <- attr(ie_data, "crab_fraction_rows")  # Phase 2b/3: crab-fraction classification (PE + BSS)
 
+# --- Review item 2 (2026-09-08): the shore turnover at the hours the counts were taken.
+# Derived from the I/E interval rows (the workbook's `time` column) and the shore count
+# hours EVERY run and written to shore_turnover_*.csv; it becomes the prior centre only
+# when run_config sets tau_shore_prior_mu = "derived" (bss_resolve_tau_shore_prior), because
+# it moves the shore component by the ratio of the two priors (about 1.47 on 2024-25).
+shore_turnover <- estimate_shore_turnover(attr(ie_data, "ie_intervals"), dwg$shore_effort, params)
+write_shore_turnover(shore_turnover, output_dir)
+params <- bss_resolve_tau_shore_prior(params, shore_turnover)
+
 # --- Phase 0: OSP Westport boat-count ingest + overlap calibration (diagnostic only) ---
 # fetch_osp_boat_counts() and diagnose_osp_trailer_overlap() live in 03_R_functions/
 # (auto-sourced). The diagnostic writes osp_trailer_overlap_calibration.csv,

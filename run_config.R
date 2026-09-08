@@ -335,10 +335,26 @@ run_config <- list(
   # so the BSS and PE always share a unit. Set shore_effort_unit = "crabber-hours"
   # to revert shore only.
   shore_effort_unit      = "gear-deployments",  # "crabber-hours" | "gear-hours" | "gear-deployments"
-  # SEASON-DERIVED: the shore turnover prior center comes from the 2024-25 I/E days; on
-  # a new season check it against that season's I/E before trusting it.
-  tau_shore_prior_mu     = 1.7,       # shore deployment turnover (trips/gear-slot/day)
-  tau_shore_prior_sigma  = 0.3,
+  # --- SHORE TURNOVER PRIOR (review item 2, 2026-09-08) ------------------------
+  # 1.7 is arrivals / PEAK presence over the WDF20 I/E days (SEASON-DERIVED, 2024-25).
+  # The Stan effort likelihood calibrates lambda_E to the gear counts AT THE HOURS THEY
+  # WERE TAKEN, and 81% of 2024-25 counts fall between 10:00 and 13:59, where presence
+  # averages 0.69 of the daily peak (40 I/E days with the `time` column added
+  # 2026-09-08). The multiplier those counts need is arrivals / presence-at-count-time,
+  # about 2.5, and the shore component is proportional to it.
+  # "derived" resolves the centre from THIS run's I/E time column and count hours
+  # (03_R_functions/bss_day_length.R, estimate_shore_turnover; written to
+  # shore_turnover_*.csv EVERY run whatever this key says), sets the log-SD to the
+  # bootstrap log-SE (floored at tau_shore_prior_sigma_floor), and waives the shore
+  # shared-turnover floor so ONE shared shore level carries the level uncertainty.
+  # SHIPS AT THE OLD VALUE because it moves the shore by ~1.47x and must be validated by
+  # run first (rung R4 of 06_diagnostics/run_improvements_2026-09-08.R). To adopt: set
+  # both keys to "derived".
+  tau_shore_prior_mu     = 1.7,       # shore deployment turnover; "derived" = from the I/E time column
+  tau_shore_prior_sigma  = 0.3,       # "derived" = bootstrap log-SE of the level, floored below
+  tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
+  tau_shore_prior_mu_fallback = 1.7,  # used by "derived" when the I/E time column is absent
+  tau_shore_derive_min_days   = 10,   # minimum I/E days behind a derived centre
   # --- BOAT TURNOVER PRIOR (review item 3, 2026-09-08) --------------------------
   # "calibration" resolves the prior centre from THIS window's OSP/trailer overlap
   # (03_R_functions/bss_turnover_prior.R): the implied turnover of the
@@ -409,6 +425,10 @@ run_config <- list(
   # adopted run used (0.15 = half of the old 0.3 prior SD) on 2026-09-08, because the boat
   # prior SD moved to 0.5 (above) and the NULL default (half the prior SD) would have
   # widened the day-to-day spread to 0.25 as a silent side effect of re-centring the prior.
+  # May be a per-population list; the shore's between-day spread of the count-hour
+  # turnover is ~0.37 (log-SD, 40 I/E days), the boat's 0.15 is the value every adopted
+  # run used. Kept as a scalar (boat-only in effect) until the derived shore prior is
+  # adopted, when list(shore = 0.35, private_boat = 0.15) is the recommended setting.
   shared_tau_sigma       = 0.15,
   # Minimum days that can INFORM L (I/E days, plus OSP days when osp_scale_is_tau = 1) before
   # a fit is allowed a shared level; below it the fit degrades to per-day draws with a printed
@@ -421,6 +441,8 @@ run_config <- list(
   # SEASON-DERIVED floor: 15 makes the shared turnover boat-only on 2024-25 (130
   # OSP-informed days vs 0 shore). A season with sparse OSP coverage can drop the boat
   # below this floor; the run prints the informed-day count next to this decision.
+  # 2026-09-08: may also be a per-population list, list(shore = 0, private_boat = 15);
+  # bss_resolve_tau_shore_prior() sets the shore entry to 0 when the shore prior is derived.
   shared_tau_min_obs     = 15,
 
   gear_per_group_default = 4.0,       # PE fallback gear-per-boat-group when no interview records it

@@ -158,16 +158,26 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
       ie_obs_unit       = "crabber-hours",
       L_unit            = "effective day length (hours)"
     ),
-    "gear-deployments" = list(
+    "gear-deployments" = {
+      # tau_shore: trips per gear-slot per day. The historical 1.7 is arrivals / PEAK
+      # presence over the WDF20 I/E days; since 2026-09-08 (review item 2) the driver can
+      # derive arrivals / presence AT THE COUNT HOURS from the I/E time column
+      # (estimate_shore_turnover, ~2.5 on 2024-25) and resolve "derived" to that number
+      # BEFORE any prep runs. Refuse an unresolved string here.
+      .tau_s <- params$tau_shore_prior_mu    %||% 1.7
+      .sd_s  <- params$tau_shore_prior_sigma %||% 0.3
+      if (!is.numeric(.tau_s) || length(.tau_s) != 1L || !is.finite(.tau_s) || .tau_s <= 0 ||
+          !is.numeric(.sd_s) || !is.finite(.sd_s) || .sd_s <= 0)
+        stop("bss_effort_spec(): params$tau_shore_prior_mu / _sigma are not resolved numbers (got ",
+             deparse(.tau_s), " / ", deparse(.sd_s), "). Call bss_resolve_tau_shore_prior() first ",
+             "(the drivers do this right after the I/E read).", call. = FALSE)
+      list(
       unit              = unit,
       h_col             = "number_of_gear",
       h_fun             = function(int_d) .num(int_d, "number_of_gear"),
       effort_scale_gear = 1L,                 # crabbers -> gear via R_G
-      # tau_shore: trips per gear-slot per day. 30 WDF20 I/E days give
-      # arrivals/peak = 1.72 (median 1.69, sd 0.45), and L_eff/tau = 3.06 h
-      # against an interview mean trip length of 3.23 h.
-      L_data            = rep(params$tau_shore_prior_mu    %||% 1.7, D),
-      L_prior_sigma     = rep(params$tau_shore_prior_sigma %||% 0.3, D),
+      L_data            = rep(.tau_s, D),
+      L_prior_sigma     = rep(.sd_s, D),
       # improvement 1/2 fix: under deployments the predicted I/E quantity is
       # lambda_E * tau_shore = crabber TRIPS, so the observation must be the crabber
       # ARRIVAL count, not crabber-hours. ie_shore_obs_unit = "crabber_hours" restores
@@ -178,8 +188,21 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
                             "crabber-hours (LEGACY, unit-mismatched under deployments)"
                           else "crabber trips",
       L_unit            = "turnover (trips per gear-slot per day)"
-    )
+    )}
   )
+}
+
+# Per-population lookup for a key that may be a scalar or a named list
+# (shared_tau_min_obs, shared_tau_sigma since 2026-09-08). A missing population in a
+# named list falls back to `default`.
+.bss_per_pop <- function(x, population_name, default) {
+  if (is.null(x)) return(default)
+  if (is.list(x)) {
+    v <- x[[population_name]]
+    if (is.null(v)) return(default)
+    return(v)
+  }
+  x
 }
 
 
@@ -211,11 +234,13 @@ bss_effort_h_candidates <- function(is_shore) {
 bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list(),
                                 population_name = "", n_informed = NA_integer_,
                                 quiet = FALSE) {
+  # 2026-09-08: shared_tau_sigma and shared_tau_min_obs may be per-population named lists
+  # (list(shore = ..., private_boat = ...)) or scalars; see .bss_per_pop().
+  .sts <- .bss_per_pop(params$shared_tau_sigma, population_name, NULL)
   off <- list(shared_tau = 0L,
               shared_tau_prior_mu    = as.numeric(stats::median(L_data)),
               shared_tau_prior_sigma = as.numeric(stats::median(L_prior_sigma)),
-              shared_tau_sigma       = as.numeric(params$shared_tau_sigma %||%
-                                                  (0.5 * stats::median(L_prior_sigma))))
+              shared_tau_sigma       = as.numeric(.sts %||% (0.5 * stats::median(L_prior_sigma))))
   if (!isTRUE(params$shared_tau)) return(off)
 
   l_unit <- eff_spec$L_unit %||% NA_character_
@@ -264,7 +289,7 @@ bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list()
   # discarding a corroborated cross-track result to buy margin on a threshold would be the
   # wrong trade. A run that wants the conservative answer sets shared_tau_min_obs = 20 and
   # loses the boat pot closure; that sensitivity is worth checking once.
-  floor_n <- params$shared_tau_min_obs %||% 15L
+  floor_n <- as.integer(.bss_per_pop(params$shared_tau_min_obs, population_name, 15L))
   if (!is.na(n_informed) && n_informed < floor_n) {
     if (!isTRUE(quiet))
       cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below ",

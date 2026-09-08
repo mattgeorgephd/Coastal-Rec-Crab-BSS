@@ -2055,5 +2055,79 @@ local({
       !any(grepl("rdir(n_gd, counts + 0.5)", d, fixed = TRUE)))
 })
 
+# ---------------------------------------------------------------------------
+# 50. Shore turnover from the I/E time column (review item 2, 2026-09-08). The peak-based
+#     1.7 assumes the gear count is taken at the daily peak; the estimator evaluates
+#     presence at the season's own count hours. Synthetic days with KNOWN curves.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/bss_day_length.R")
+  chk("ie hour parser: text HH:MM", isTRUE(all.equal(.ie_hour_of(c("07:45:00", "13:30")), c(7.75, 13.5))))
+  chk("ie hour parser: POSIXct", isTRUE(all.equal(.ie_hour_of(as.POSIXct("1899-12-31 10:15:00", tz = "UTC")), 10.25)))
+  chk("ie hour parser: garbage -> NA", is.na(.ie_hour_of("noon")))
+  # two synthetic days: presence 4 at 08-09, 8 at 10-14, 4 at 15-16; arrivals 20 and 40
+  mk <- function(d, scale, dt) tibble(event_date = as.Date(d), season = "t", day_type = dt,
+                                     hour = seq(8, 16.75, by = 0.25),
+                                     crabbers_on = c(rep(scale * 20 / 36, 36)),
+                                     crabber_flow = scale * c(rep(4, 8), rep(8, 20), rep(4, 8)))
+  ivs <- bind_rows(mk("2025-01-01", 1, "Weekday"), mk("2025-01-04", 2, "Weekend"))
+  se  <- tibble(event_date = as.Date("2025-01-01"), count_sequence = 1:3, count_hour = c(10.5, 12.25, 14.0))
+  st <- estimate_shore_turnover(ivs, se, list(bss_max_count_seq = 3), n_boot = 50, quiet = TRUE)
+  chk("turnover: counts inside the 10-14 window -> arrivals / 8 per unit (= 20/8 = 2.5)",
+      isTRUE(all.equal(st$tau, 2.5, tolerance = 1e-6)), sprintf("%.4f", st$tau))
+  chk("turnover: peak-based value reported beside it (= 2.5 here too, curve is flat at peak)",
+      isTRUE(all.equal(st$tau_peak, 2.5, tolerance = 1e-6)))
+  se2 <- tibble(event_date = as.Date("2025-01-01"), count_sequence = 1L, count_hour = 8.5)
+  st2 <- estimate_shore_turnover(ivs, se2, list(bss_max_count_seq = 3), n_boot = 50, quiet = TRUE)
+  chk("turnover: an 08:30 count sits at half the peak -> tau doubles to 5",
+      isTRUE(all.equal(st2$tau, 5, tolerance = 1e-6)), sprintf("%.4f", st2$tau))
+  chk("turnover: profile carries one row per covered hour with n_days", all(st$profile$n_days == 2) && nrow(st$profile) == 9)
+  chk("turnover: by-day-type table has both types", setequal(st$by_day_type$dt, c("weekday", "weekend")))
+  chk("turnover: NULL intervals -> unavailable, no error", identical(estimate_shore_turnover(NULL, se, quiet = TRUE)$method, "unavailable"))
+  se3 <- tibble(event_date = as.Date("2025-01-01"), count_sequence = 1L, count_hour = 22)
+  chk("turnover: count hours outside every survey -> unavailable, no error",
+      identical(estimate_shore_turnover(ivs, se3, quiet = TRUE)$method, "unavailable"))
+  # resolver
+  Pn <- list(tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, shared_tau_min_obs = 15)
+  chk("resolver: numeric config passes through", identical(bss_resolve_tau_shore_prior(Pn, st, quiet = TRUE)$tau_shore_prior_mu, 1.7))
+  Pd <- list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived", shared_tau_min_obs = 15,
+             tau_shore_prior_sigma_floor = 0.10, tau_shore_derive_min_days = 2)
+  rd <- bss_resolve_tau_shore_prior(Pd, st, quiet = TRUE)
+  chk("resolver: derived centre = the estimate", isTRUE(all.equal(rd$tau_shore_prior_mu, 2.5, tolerance = 1e-6)))
+  chk("resolver: derived log-SD is floored at 0.10", isTRUE(all.equal(rd$tau_shore_prior_sigma, 0.10)))
+  chk("resolver: derived level waives the SHORE floor only",
+      is.list(rd$shared_tau_min_obs) && rd$shared_tau_min_obs$shore == 0 && rd$shared_tau_min_obs$private_boat == 15)
+  rf <- bss_resolve_tau_shore_prior(modifyList(Pd, list(tau_shore_derive_min_days = 100, tau_shore_prior_mu_fallback = 1.7)), st, quiet = TRUE)
+  chk("resolver: too few days -> fallback centre, prior SD 0.3", identical(rf$tau_shore_prior_mu, 1.7) && identical(rf$tau_shore_prior_sigma, 0.3))
+  chk("resolver: bad string errors",
+      inherits(tryCatch(bss_resolve_tau_shore_prior(list(tau_shore_prior_mu = "guess"), st, quiet = TRUE), error = function(e) e), "error"))
+  chk("effort spec refuses an UNRESOLVED shore prior",
+      inherits(tryCatch(bss_effort_spec(TRUE, days289, modifyList(P, list(tau_shore_prior_mu = "derived"))), error = function(e) e), "error"))
+  # per-population shared-tau keys reach the guard
+  sp <- bss_effort_spec(TRUE, days289, modifyList(P, list(tau_shore_prior_mu = 2.5, tau_shore_prior_sigma = 0.1)))
+  Pl <- modifyList(P, list(shared_tau = TRUE, shared_tau_min_obs = list(shore = 0, private_boat = 15),
+                           shared_tau_sigma = list(shore = 0.35, private_boat = 0.15)))
+  on_s <- bss_shared_tau_data(sp, sp$L_data, sp$L_prior_sigma, Pl, population_name = "shore", n_informed = 4L, quiet = TRUE)
+  chk("shared tau: per-population floor lets shore share a level on 4 days when its floor is 0",
+      on_s$shared_tau == 1L && isTRUE(all.equal(on_s$shared_tau_sigma, 0.35)))
+  spb <- bss_effort_spec(FALSE, days289, P)
+  off_b <- bss_shared_tau_data(spb, spb$L_data, spb$L_prior_sigma, Pl, population_name = "private_boat", n_informed = 4L, quiet = TRUE)
+  chk("shared tau: the boat keeps its own floor and spread", off_b$shared_tau == 0L && isTRUE(all.equal(off_b$shared_tau_sigma, 0.15)))
+  # drivers derive, write, resolve, in that order, before the PE
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    i_est <- grep("estimate_shore_turnover(attr(ie_data", d, fixed = TRUE)
+    i_res <- grep("bss_resolve_tau_shore_prior(params, shore_turnover)", d, fixed = TRUE)
+    i_pe  <- grep("run_pe_pooled\\(summ_ss|run_pe_gear\\(summ_ss", d)
+    chk(sprintf("%s: derives and resolves the shore turnover before the PE", basename(drv)),
+        length(i_est) == 1 && length(i_res) == 1 && i_est < i_res && i_res < min(i_pe))
+  }
+  src <- readLines("03_R_functions/fetch_crab_data.R", warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+  chk("reader keeps count_hour on the shore and boat effort tables", sum(grepl("count_hour", src)) >= 2)
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: tau_shore_prior_mu still 1.7 (the derived prior ships OFF pending rung R4)", identical(rc$tau_shore_prior_mu, 1.7))
+  chk("shipped: the derived-prior keys exist", !is.null(rc$tau_shore_prior_sigma_floor) && !is.null(rc$tau_shore_derive_min_days))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
