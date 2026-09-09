@@ -221,16 +221,21 @@ run_config <- list(
   ),
   census_start_date = "2024-12-01",   # scalar fallback, used only when census_windows is NULL
   census_end_date   = "2025-02-08",
-  # REVIEW ITEM 4 (2026-09-08): the commercial/charter tally is a census ON THE DAYS IT WAS
-  # TAKEN (47 of the 70 days of the 2024-25 window); the other 23 days (9 Mondays, 8
-  # Sundays, 3 Tuesdays, 2 Wednesdays, 1 Thursday: the roster, not closures) are filled
-  # with the day-type mean of the sampled days, about a third of the component (3,869 of
-  # 11,753 crab on 2024-25, imputation SE 426, 3.6%). estimate_comm_charter() now reports
-  # the observed / imputed split and the SE every run (census_daily.csv, census_variance.csv,
-  # pe_vs_bss_comparison.csv). "none" keeps the census a constant in the port interval
-  # (today's behaviour); "imputed_days" adds a normal draw with that SE. Ships "none": the
-  # number does not move until you choose, and the better fix is daily vessel counts for
-  # the unsampled days from the vessel-monitoring and charter records.
+  # REVIEW ITEM 4 (2026-09-08, settled 2026-09-09): the commercial/charter tally is a census
+  # on the days it was taken (47 of the 70 days of the 2024-25 window), and the samplers
+  # are scheduled on the days the charter companies and the commercial vessels (fishing
+  # as recreational) are confirmed to be operating, so the 23 days without a tally are
+  # days with NO operation, not missed counts. census_expansion = "none" (shipped) makes
+  # the component the exact sum over the tally days (7,884 crab on 2024-25) with the
+  # unsampled days at zero; "day_type" is the 2026-09-08 expansion (unsampled days filled
+  # with the sampled days' day-type mean, 11,753 on 2024-25, imputation SE 426), kept for
+  # reproduction and for a season whose roster did not track operations.
+  census_expansion = "none",
+  # What is left after that is the per-vessel catch mean, a near-census sample mean
+  # (161 interviews on 187 vessel-trips, finite-population corrected): reported every run
+  # (census_variance.csv, pe_vs_bss_comparison.csv). "none" keeps the census a constant in
+  # the port interval; "sampling" adds a normal draw with that SE (the 2026-09-08 name
+  # "imputed_days" is still accepted).
   census_uncertainty = "none",
 
   # --- Catch groups --------------------------------------------------------

@@ -1038,7 +1038,7 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
 
 The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
 
-**What is exact and what is imputed (2026-09-08).** The vessel count on a tally day is a census (charter coordination, vessel monitoring for the commercial fleet) and carries no error. The tally covers only the days a sampler was in port, and the unsampled days of the window are filled with the day-type mean of the sampled days: that part is an estimate. `census_daily.csv` flags every calendar day as observed or imputed and `census_variance.csv` carries the per-stratum imputation variance behind the reported SE; `census_uncertainty` in `run_config.R` decides whether that SE enters the port interval (`"none"`, the shipped value, keeps the census a constant). Daily vessel counts for the unsampled days from the vessel-monitoring and charter records would remove the imputed part altogether.
+**Why the census is exact (2026-09-09).** The vessel count on a tally day is a census (charter coordination, vessel monitoring for the commercial fleet), and the samplers are scheduled on the days those vessels are confirmed to be operating, so a day of the window without a tally row is a day with no commercial or charter fishing. Under `census_expansion = "none"` (the shipped value) the component is the sum over the tally days, with the unsampled days contributing zero; `census_daily.csv` lists every calendar day as observed or no-operation, and the only variance left, the near-census per-vessel catch mean, is reported in `census_variance.csv` and stays out of the port interval unless `census_uncertainty = "sampling"`. The 2026-09-08 day-type expansion (unsampled days filled with the sampled days' mean) remains available as `census_expansion = "day_type"` for a season whose roster did not track operations.
 
 ```{r pe-comm, results='hide'}
 # ---- 7.4 COMMERCIAL/CHARTER ----
@@ -1751,16 +1751,17 @@ for(cg in bss_catch_groups) {
       }
     }
   }
-  # Review item 4 (2026-09-08): the census enters as a constant under census_uncertainty =
-  # "none"; under "imputed_days" it enters as normal draws with the imputation SE (the
-  # unsampled days' day-type means), clamped so no draw falls below the observed-exact part.
+  # Review item 4 (2026-09-08/09): the census enters as a constant under census_uncertainty =
+  # "none"; under "sampling" it enters as normal draws with its SE (the per-vessel catch
+  # mean, plus the imputed days when census_expansion = "day_type"), clamped so no draw
+  # falls below the observed-exact part.
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
-  if (identical(.cc$census_uncertainty %||% "none", "imputed_days") && cg == "Dungeness_Kept" &&
+  if (identical(.cc$census_uncertainty %||% "none", "sampling") && cg == "Dungeness_Kept" &&
       is.finite(.cc$Dungeness_Kept_se %||% NA) && (.cc$Dungeness_Kept_se %||% 0) > 0) {
     .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$Dungeness_Kept_se), .cc$observed_dung %||% 0)
-    cat(sprintf("  Census enters the port interval with imputation SE %s (%d unsampled days).\n",
-                format(round(.cc$Dungeness_Kept_se), big.mark = ","), sum(!.cc$daily_full$observed)))
+    cat(sprintf("  Census enters the port interval with SE %s (census_expansion = '%s', %d unsampled calendar days).\n",
+                format(round(.cc$Dungeness_Kept_se), big.mark = ","), .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
   }
   bss_C_total <- bss_C_total + .cc_draws
   bss_C_pred_total <- bss_C_pred_total + .cc_draws
@@ -2823,14 +2824,16 @@ comparison[[length(comparison)+1]] <- tibble(
   component = "comm_charter (census)",
   PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, catch_diff_pct = NA,
-  # Review item 4 (2026-09-08): say what was observed and what was imputed.
-  method_selected = sprintf("Census (day-type stratified; %s observed on %d tally days, %s imputed on %d, SE %s, %s)",
+  # Review item 4 (2026-09-08/09): say what was observed and what the unsampled days are.
+  method_selected = sprintf("Census (%s; %s observed on %d tally days; %d unsampled days %s; SE %s, %s)",
+                            if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "exact sum over the tally days" else "day-type stratified",
                             format(round(pe_all$comm_charter$observed_dung %||% NA), big.mark = ","),
                             sum(pe_all$comm_charter$daily_full$observed %||% NA),
-                            format(round(pe_all$comm_charter$imputed_dung %||% NA), big.mark = ","),
                             sum(!(pe_all$comm_charter$daily_full$observed %||% NA)),
+                            if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "= no operation"
+                            else sprintf("imputed at %s", format(round(pe_all$comm_charter$imputed_dung %||% NA), big.mark = ",")),
                             format(round(pe_all$comm_charter$Dungeness_Kept_se %||% NA), big.mark = ","),
-                            if (identical(pe_all$comm_charter$census_uncertainty %||% "none", "imputed_days")) "in the port interval" else "not in the port interval")
+                            if (identical(pe_all$comm_charter$census_uncertainty %||% "none", "sampling")) "in the port interval" else "not in the port interval")
 )
 comparison_df <- bind_rows(comparison)
 # 2026-08-30: say explicitly whether the BSS column was USED.

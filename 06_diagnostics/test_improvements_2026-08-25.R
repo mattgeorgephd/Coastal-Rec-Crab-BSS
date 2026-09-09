@@ -2297,9 +2297,11 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 53. The commercial/charter census: exact on sampled days, imputed on the rest (review
-#     item 4, 2026-09-08). Synthetic tally: a 14-day window, 10 sampled days, so the
-#     observed / imputed split and the imputation variance can be checked by hand.
+# 53. The commercial/charter census (review item 4; 2026-09-08 expansion, 2026-09-09 the
+#     exact sum). Synthetic tally: a 14-day window, 10 sampled days, so the observed /
+#     imputed split and the variances can be checked by hand. The shipped
+#     census_expansion = "none" treats the 4 unsampled days as days with no operation;
+#     "day_type" is the 2026-09-08 expansion and must reproduce its arithmetic.
 # ---------------------------------------------------------------------------
 local({
   source("03_R_functions/estimate_comm_charter.R")
@@ -2311,22 +2313,36 @@ local({
   ints  <- tibble(population = "comm_charter", event_date = rep(samp, each = 2),
                   boat_type_clean = rep(c("Commercial", "Charter"), 10), dungeness_kept = rep(c(40, 60), 10), red_rock_kept = 0)
   dwg <- list(comm_tally = tally, interview = ints)
-  Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
-             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
-  r <- estimate_comm_charter(dwg, Pc)
+  Pc0 <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
+              crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
   est_day <- tally$commercial_tally * 40 + tally$charter_tally * 60
   wkd <- !weekdays(tally$date) %in% c("Saturday", "Sunday")
   obs <- sum(est_day); imp <- 2 * mean(est_day[wkd]) + 2 * mean(est_day[!wkd])
-  chk("census: total = observed + imputed", isTRUE(all.equal(r$Dungeness_Kept, obs + imp)) && isTRUE(all.equal(r$observed_dung, obs)) && isTRUE(all.equal(r$imputed_dung, imp)))
+  # --- the shipped expansion: exact over the tally days ---
+  rx <- estimate_comm_charter(dwg, Pc0)
+  chk("census (none): default expansion is 'none' and the total is the exact sum over the tally days",
+      identical(rx$census_expansion, "none") && isTRUE(all.equal(rx$Dungeness_Kept, obs)) && isTRUE(all.equal(rx$imputed_dung, 0)) && rx$n_unsampled_days == 4)
+  chk("census (none): unsampled days carry zero and are labelled no-operation; the daily table still covers the calendar",
+      nrow(rx$daily_full) == 14 && all(rx$daily_full$est_dung[!rx$daily_full$observed] == 0) &&
+        all(grepl("no operation", rx$daily_full$source[!rx$daily_full$observed])) && isTRUE(all.equal(sum(rx$daily_full$est_dung), obs)))
+  chk("census (none): no imputation variance; the per-vessel-mean term alone (zero here: constant catches)",
+      isTRUE(all.equal(sum(rx$variance_detail$var_imputed), 0)) && isTRUE(all.equal(rx$Dungeness_Kept_var, 0)))
+  chk("census (none): effort_total is the tally vessels", isTRUE(all.equal(rx$effort_total, sum(tally$commercial_tally + tally$charter_tally))))
+  # --- the 2026-09-08 day-type expansion, kept as an option ---
+  Pc <- modifyList(Pc0, list(census_expansion = "day_type"))
+  r <- estimate_comm_charter(dwg, Pc)
+  chk("census (day_type): total = observed + imputed", isTRUE(all.equal(r$Dungeness_Kept, obs + imp)) && isTRUE(all.equal(r$observed_dung, obs)) && isTRUE(all.equal(r$imputed_dung, imp)))
   v_exp <- 2^2 * var(est_day[wkd]) / 8 + 2^2 * var(est_day[!wkd]) / 2      # per-vessel means are exact here (zero variance)
-  chk("census: imputation variance = sum_h (N_h - n_h)^2 s_h^2 / n_h", isTRUE(all.equal(r$Dungeness_Kept_var, v_exp)) && isTRUE(all.equal(r$Dungeness_Kept_se, sqrt(v_exp))))
-  chk("census: daily table covers every calendar day, flags observed days", nrow(r$daily_full) == 14 && sum(r$daily_full$observed) == 10 && isTRUE(all.equal(sum(r$daily_full$est_dung), r$Dungeness_Kept)))
-  chk("census: imputed days carry their stratum mean",
+  chk("census (day_type): imputation variance = sum_h (N_h - n_h)^2 s_h^2 / n_h", isTRUE(all.equal(r$Dungeness_Kept_var, v_exp)) && isTRUE(all.equal(r$Dungeness_Kept_se, sqrt(v_exp))))
+  chk("census (day_type): daily table covers every calendar day, flags observed days", nrow(r$daily_full) == 14 && sum(r$daily_full$observed) == 10 && isTRUE(all.equal(sum(r$daily_full$est_dung), r$Dungeness_Kept)))
+  chk("census (day_type): imputed days carry their stratum mean",
       isTRUE(all.equal(unique(r$daily_full$est_dung[!r$daily_full$observed & r$daily_full$day_type == "weekday"]), mean(est_day[wkd]))))
-  chk("census: default mode is 'none' (SE reported, not carried)", identical(r$census_uncertainty, "none"))
-  chk("census: mode 'imputed_days' accepted, bad value refused",
-      identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "imputed_days")))$census_uncertainty, "imputed_days") &&
-        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "bootstrap"))), error = function(e) e), "error"))
+  chk("census: default uncertainty mode is 'none' (SE reported, not carried)", identical(r$census_uncertainty, "none"))
+  chk("census: mode 'sampling' accepted ('imputed_days' as its 2026-09-08 alias), bad values refused",
+      identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling")))$census_uncertainty, "sampling") &&
+        identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "imputed_days")))$census_uncertainty, "sampling") &&
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "bootstrap"))), error = function(e) e), "error") &&
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_expansion = "week"))), error = function(e) e), "error"))
   # a stratum with one sampled day borrows the pooled variance and says so
   dwg1 <- dwg; dwg1$comm_tally <- tally[c(1:8, 9), ]; dwg1$interview <- ints |> filter(event_date %in% dwg1$comm_tally$date)
   r1 <- estimate_comm_charter(dwg1, Pc)
@@ -2346,12 +2362,13 @@ local({
         any(grepl("none", r0$variance_detail$s2_source)) && is.finite(r0$Dungeness_Kept_se))
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
     d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
-    chk(sprintf("%s: writes census_daily.csv / census_variance.csv and draws the census only under imputed_days", basename(drv)),
+    chk(sprintf("%s: writes census_daily.csv / census_variance.csv and draws the census only under 'sampling'", basename(drv)),
         any(grepl("census_daily.csv", d, fixed = TRUE)) && any(grepl("census_variance.csv", d, fixed = TRUE)) &&
-          any(grepl("\"imputed_days\"", d, fixed = TRUE)) && any(grepl("observed_dung", d, fixed = TRUE)))
+          any(grepl("\"sampling\"", d, fixed = TRUE)) && !any(grepl("\"imputed_days\"", d, fixed = TRUE)) && any(grepl("observed_dung", d, fixed = TRUE)))
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
   chk("shipped: census_uncertainty = none (the census stays a constant until chosen otherwise)", identical(rc$census_uncertainty, "none"))
+  chk("shipped: census_expansion = none (2026-09-09: unsampled days had no operation; the census is exact)", identical(rc$census_expansion, "none"))
 })
 
 # ---------------------------------------------------------------------------

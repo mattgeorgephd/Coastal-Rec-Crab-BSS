@@ -46,12 +46,21 @@
 # the second term is the (near-census, hence tiny) sampling variance of the per-vessel
 # catch means applied to the expanded vessel counts V_class. A stratum with one sampled
 # day borrows the pooled between-day variance and is flagged.
-# params$census_uncertainty: "none" (default, today's behaviour: Dungeness_Kept_se is
-# reported but the port total treats the census as a constant) | "imputed_days" (the
-# driver adds a normal draw with this SE to the port interval, clamped so the total never
-# falls below the observed-exact part). The better fix is a data request: daily vessel
-# counts for the unsampled days from the vessel-monitoring / charter records would make
-# the tally a true 70-day census and bypass the expansion entirely.
+# params$census_uncertainty: "none" (default: Dungeness_Kept_se is reported but the port
+# total treats the census as a constant) | "sampling" (the driver adds a normal draw with
+# this SE to the port interval, clamped so the total never falls below the observed part;
+# "imputed_days" is accepted as the 2026-09-08 name).
+#
+# 2026-09-09: THE UNSAMPLED DAYS ARE DAYS WITH NO OPERATION. The samplers are scheduled on
+# the days the charter companies and the commercial vessels (fishing as recreational) are
+# confirmed to be operating, so a day of the window with no tally row is a day on which
+# no commercial or charter vessel fished, not a day the count was missed. Under
+# params$census_expansion = "none" (the shipped default) the census is therefore the SUM
+# OVER THE TALLY DAYS, exact, with the 23 unsampled 2024-25 days contributing zero, and
+# the only variance left is the near-census per-vessel catch mean (reported, 1-2%).
+# "day_type" keeps the 2026-09-08 day-type expansion (unsampled days filled with the
+# sampled days' day-type mean, imputation variance carried), for reproduction of earlier
+# runs and for a season in which the roster did NOT track operations.
 ###############################################################################
 
 estimate_comm_charter <- function(dwg, params) {
@@ -92,6 +101,7 @@ estimate_comm_charter <- function(dwg, params) {
       tot$observed_dung  <- (tot$observed_dung  %||% 0) + (per[[k]]$observed_dung  %||% 0)
       tot$imputed_dung   <- (tot$imputed_dung   %||% 0) + (per[[k]]$imputed_dung   %||% 0)
       tot$Dungeness_Kept_var <- (tot$Dungeness_Kept_var %||% 0) + (per[[k]]$Dungeness_Kept_var %||% 0)
+      tot$n_unsampled_days <- (tot$n_unsampled_days %||% 0L) + (per[[k]]$n_unsampled_days %||% 0L)
       if (!is.null(tot$daily_full) && !is.null(per[[k]]$daily_full))
         tot$daily_full <- dplyr::bind_rows(tot$daily_full, per[[k]]$daily_full)
       if (!is.null(tot$variance_detail) && !is.null(per[[k]]$variance_detail))
@@ -121,7 +131,8 @@ estimate_comm_charter <- function(dwg, params) {
     cat("  No commercial/charter data available.\n")
     result <- list(effort_total=0, Dungeness_Kept=0,
                    observed_dung = 0, imputed_dung = 0, Dungeness_Kept_var = 0, Dungeness_Kept_se = 0,
-                   census_uncertainty = tolower(params$census_uncertainty %||% "none"))
+                   census_uncertainty = tolower(params$census_uncertainty %||% "none"),
+                   census_expansion = tolower(params$census_expansion %||% "none"), n_unsampled_days = 0L)
     if(params$estimate_red_rock) result$Red_Rock_Kept <- 0
     return(result)
   }
@@ -221,17 +232,27 @@ estimate_comm_charter <- function(dwg, params) {
     cat(sprintf("  NOTE: no sampled day in the %s stratum; its %d days take the pooled sampled-day mean.\n",
                 paste(strat$day_type[.no_sample], collapse = "/"), sum(strat$n_total_days[.no_sample])))
   }
+  # 2026-09-09: census_expansion. "none" (default): the window's unsampled days had no
+  # operation, so the expansion target is the tally days themselves (n_expand_days =
+  # n_sampled_days) and the total is the exact sum of the tally-day estimates. "day_type":
+  # the calendar days (the 2026-09-08 behaviour).
+  census_expansion <- tolower(params$census_expansion %||% "none")
+  if (!census_expansion %in% c("none", "day_type"))
+    stop("params$census_expansion must be 'none' or 'day_type' (got '", census_expansion, "')", call. = FALSE)
   strat <- strat |>
     mutate(
-      est_total_dung = mean_daily_dung * n_total_days,
-      est_total_vessels = mean_daily_vessels * n_total_days
+      n_calendar_days = n_total_days,
+      n_expand_days   = if (census_expansion == "none") n_sampled_days else n_total_days,
+      est_total_dung = mean_daily_dung * n_expand_days,
+      est_total_vessels = mean_daily_vessels * n_expand_days
     )
 
-  cat("\n  Stratified expansion by day type:\n")
-  cat(sprintf("    %-10s  Sampled  Total  Mean/day  Expanded\n", "Day Type"))
+  cat(sprintf("\n  Stratified expansion by day type (census_expansion = '%s'%s):\n", census_expansion,
+              if (census_expansion == "none") "; unsampled days = no operation, so Total = Sampled" else ""))
+  cat(sprintf("    %-10s  Sampled  Calendar  Expanded-to  Mean/day  Expanded\n", "Day Type"))
   for(i in 1:nrow(strat)) {
-    cat(sprintf("    %-10s  %5d    %5d  %7.1f   %8.0f\n",
-                strat$day_type[i], strat$n_sampled_days[i], strat$n_total_days[i],
+    cat(sprintf("    %-10s  %5d    %6d    %8d    %7.1f   %8.0f\n",
+                strat$day_type[i], strat$n_sampled_days[i], strat$n_calendar_days[i], strat$n_expand_days[i],
                 strat$mean_daily_dung[i], strat$est_total_dung[i]))
   }
 
@@ -258,19 +279,21 @@ estimate_comm_charter <- function(dwg, params) {
   # what the expansion does. A stratum with a single sampled day cannot estimate s_h^2 and
   # borrows the pooled between-day variance (flagged in variance_detail).
   census_mode <- tolower(params$census_uncertainty %||% "none")
-  if (!census_mode %in% c("none", "imputed_days"))
-    stop("params$census_uncertainty must be 'none' or 'imputed_days' (got '", census_mode, "')", call. = FALSE)
+  if (identical(census_mode, "imputed_days")) census_mode <- "sampling"   # the 2026-09-08 name
+  if (!census_mode %in% c("none", "sampling"))
+    stop("params$census_uncertainty must be 'none' or 'sampling' (got '", census_mode, "')", call. = FALSE)
   s2_pooled <- if (nrow(daily_est) > 1) stats::var(daily_est$est_dung) else 0
   var_by_type <- daily_est |>
     group_by(day_type) |>
     summarise(n_sampled_days = n(), s2_day = if (n() > 1) stats::var(est_dung) else NA_real_, .groups = "drop")
   variance_detail <- strat |>
-    select(day_type, n_total_days, n_sampled_days, mean_daily_dung) |>
+    select(day_type, n_total_days, n_calendar_days, n_expand_days, n_sampled_days, mean_daily_dung) |>
     left_join(var_by_type |> select(day_type, s2_day), by = "day_type") |>
     mutate(
       s2_source     = ifelse(is.na(s2_day) & n_sampled_days > 0, "pooled (1 sampled day)", ifelse(n_sampled_days == 0, "none (no sampled day)", "stratum")),
       s2_day        = ifelse(is.na(s2_day), s2_pooled, s2_day),
-      n_imputed_days = n_total_days - n_sampled_days,
+      n_unsampled_days = n_calendar_days - n_sampled_days,     # calendar days without a tally
+      n_imputed_days = n_expand_days - n_sampled_days,         # of which the expansion fills (0 under "none")
       imputed_dung  = mean_daily_dung * n_imputed_days,
       observed_dung = mean_daily_dung * n_sampled_days,
       var_imputed   = ifelse(n_sampled_days > 0, n_imputed_days^2 * s2_day / n_sampled_days,
@@ -285,9 +308,9 @@ estimate_comm_charter <- function(dwg, params) {
     fpc <- if (is.finite(N) && N > n) (1 - n / N) else 0
     stats::var(x) / n * fpc
   }
-  V_comm <- sum((strat$n_total_days / pmax(strat$n_sampled_days, 1)) *
+  V_comm <- sum((strat$n_expand_days / pmax(strat$n_sampled_days, 1)) *
                   vapply(strat$day_type, function(dt) sum(daily_est$commercial_tally[daily_est$day_type == dt], na.rm = TRUE), numeric(1)))
-  V_char <- sum((strat$n_total_days / pmax(strat$n_sampled_days, 1)) *
+  V_char <- sum((strat$n_expand_days / pmax(strat$n_sampled_days, 1)) *
                   vapply(strat$day_type, function(dt) sum(daily_est$charter_tally[daily_est$day_type == dt], na.rm = TRUE), numeric(1)))
   var_means <- V_comm^2 * .mean_var("Commercial", "dungeness_kept") + V_char^2 * .mean_var("Charter", "dungeness_kept")
   var_total <- sum(variance_detail$var_imputed) + var_means
@@ -298,15 +321,20 @@ estimate_comm_charter <- function(dwg, params) {
     left_join(daily_est |> select(date, commercial_tally, charter_tally, total_comm_charter, est_dung), by = "date") |>
     left_join(strat |> select(day_type, mean_daily_dung, mean_daily_vessels), by = "day_type") |>
     mutate(observed = !is.na(est_dung),
-           est_dung = ifelse(observed, est_dung, mean_daily_dung),
-           est_vessels = ifelse(observed, total_comm_charter, mean_daily_vessels),
-           source = ifelse(observed, "tally (census)", "imputed (day-type mean)")) |>
+           est_dung = ifelse(observed, est_dung, if (census_expansion == "none") 0 else mean_daily_dung),
+           est_vessels = ifelse(observed, total_comm_charter, if (census_expansion == "none") 0 else mean_daily_vessels),
+           source = ifelse(observed, "tally (census)",
+                           if (census_expansion == "none") "no operation (unsampled day)" else "imputed (day-type mean)")) |>
     select(date, day_type, observed, source, commercial_tally, charter_tally, est_vessels, est_dung)
-  cat(sprintf(paste0("  Observed exactly on %d sampled days: %s crab; imputed on %d unsampled days: %s crab;",
-                     " imputation SE %s (%.1f%% of the total); census_uncertainty = '%s'%s\n"),
+  cat(sprintf(paste0("  Observed exactly on %d sampled days: %s crab; %d unsampled calendar days %s; SE %s (%.1f%% of the total,",
+                     " %s); census_uncertainty = '%s'%s\n"),
               sum(strat$n_sampled_days), format(round(observed_dung), big.mark = ","),
-              sum(variance_detail$n_imputed_days), format(round(imputed_dung), big.mark = ","),
-              format(round(sqrt(var_total)), big.mark = ","), 100 * sqrt(var_total) / max(total_dung, 1), census_mode,
+              sum(variance_detail$n_unsampled_days),
+              if (census_expansion == "none") "treated as no operation (0 crab)"
+              else sprintf("imputed at the day-type mean: %s crab", format(round(imputed_dung), big.mark = ",")),
+              format(round(sqrt(var_total)), big.mark = ","), 100 * sqrt(var_total) / max(total_dung, 1),
+              if (census_expansion == "none") "the per-vessel catch mean only" else "imputation plus the per-vessel mean",
+              census_mode,
               if (census_mode == "none") " (reported, not carried into the port interval)" else " (carried into the port interval)"))
   if (any(variance_detail$s2_source != "stratum"))
     cat("    NOTE: ", paste(sprintf("%s stratum: %s", variance_detail$day_type[variance_detail$s2_source != "stratum"],
@@ -324,13 +352,15 @@ estimate_comm_charter <- function(dwg, params) {
     Dungeness_Kept_var = var_total,
     Dungeness_Kept_se = sqrt(var_total),
     census_uncertainty = census_mode,
+    census_expansion = census_expansion,
+    n_unsampled_days = sum(variance_detail$n_unsampled_days),
     daily_full = daily_full,
     variance_detail = variance_detail
   )
 
   if(params$estimate_red_rock) {
     strat <- strat |>
-      mutate(est_total_rr = mean_daily_rr * n_total_days)   # mean_daily_rr joined above (pooled fallback applied)
+      mutate(est_total_rr = mean_daily_rr * n_expand_days)   # mean_daily_rr joined above (pooled fallback applied)
     result$Red_Rock_Kept <- sum(strat$est_total_rr)
   }
 

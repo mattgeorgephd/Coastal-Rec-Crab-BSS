@@ -1228,15 +1228,15 @@ for(cg in bss_catch_groups) {
       }
     }
   }
-  # Review item 4 (2026-09-08): constant under census_uncertainty = "none"; normal draws
-  # with the imputation SE under "imputed_days", clamped at the observed-exact part.
+  # Review item 4 (2026-09-08/09): constant under census_uncertainty = "none"; normal draws
+  # with the census SE under "sampling", clamped at the observed-exact part.
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
-  if (identical(.cc$census_uncertainty %||% "none", "imputed_days") && cg == "Dungeness_Kept" &&
+  if (identical(.cc$census_uncertainty %||% "none", "sampling") && cg == "Dungeness_Kept" &&
       is.finite(.cc$Dungeness_Kept_se %||% NA) && (.cc$Dungeness_Kept_se %||% 0) > 0) {
     .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$Dungeness_Kept_se), .cc$observed_dung %||% 0)
-    message(sprintf("  Census enters the port interval with imputation SE %s (%d unsampled days).",
-                    format(round(.cc$Dungeness_Kept_se), big.mark = ","), sum(!.cc$daily_full$observed)))
+    message(sprintf("  Census enters the port interval with SE %s (census_expansion = '%s', %d unsampled calendar days).",
+                    format(round(.cc$Dungeness_Kept_se), big.mark = ","), .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
   }
   bss_C_total <- bss_C_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
