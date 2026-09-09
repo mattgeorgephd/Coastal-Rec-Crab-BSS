@@ -363,11 +363,13 @@ run_config <- list(
   # shore_turnover_*.csv EVERY run whatever this key says), sets the log-SD to the
   # bootstrap log-SE (floored at tau_shore_prior_sigma_floor), and waives the shore
   # shared-turnover floor so ONE shared shore level carries the level uncertainty.
-  # SHIPS AT THE OLD VALUE because it moves the shore by ~1.47x and must be validated by
-  # run first (rung R4 of 06_diagnostics/run_improvements_2026-09-08.R). To adopt: set
-  # both keys to "derived".
-  tau_shore_prior_mu     = 1.7,       # shore deployment turnover; "derived" = from the I/E time column
-  tau_shore_prior_sigma  = 0.3,       # "derived" = bootstrap log-SE of the level, floored below
+  # ADOPTED 2026-09-09 (Matt): the count hours were not in the I/E workbook when 1.7 was
+  # derived, so the old turnover was the wrong quantity, not a competing estimate; both
+  # keys ship "derived". Rung R4 of 06_diagnostics/run_improvements_2026-09-08.R still
+  # isolates the change (R3 pins 1.7) so its size on the shore is on the record. To hold
+  # the old value: set tau_shore_prior_mu = 1.7 and tau_shore_prior_sigma = 0.3.
+  tau_shore_prior_mu     = "derived", # shore deployment turnover from the I/E time column (2.48 on 2024-25)
+  tau_shore_prior_sigma  = "derived", # bootstrap log-SE of the level, floored below
   tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
   tau_shore_prior_mu_fallback = 1.7,  # used by "derived" when the I/E time column is absent
   tau_shore_derive_min_days   = 10,   # minimum I/E days behind a derived centre

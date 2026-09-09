@@ -37,8 +37,16 @@
 #   R2   + item 3: tau_boat prior from the OSP/trailer calibration (shared_tau_sigma 0.15)
 #   R3a  + item 1A: monthly f from the sampler contacts, LEGACY per-stratum construction
 #   R3   + item 1B: the dynamic f (the shipped configuration)
-#   R4   + item 2: tau_shore_prior_mu = "derived" (ships OFF; this rung is the case for it)
+#   R4   + item 2: tau_shore_prior_mu = "derived" (ADOPTED 2026-09-09: the shipped configuration)
 #   R5   the gear-resolved cross-check on the configuration GEAR_FOLLOWS names
+#
+# 2026-09-09 (after the patches were applied): the census is exact over the tally days
+# (census_expansion = "none", every rung), the contacts carry trip types and the combo
+# share c has its own walk (R3a onward read the rebuilt interview workbook), and the
+# derived shore turnover is adopted, so R4 is now the shipped configuration and R5
+# follows it by default. R1 and R2 therefore compare to the baseline with the census
+# 3,869 crab lower by design (11,821 -> 7,884 on 2024-25) and the tampered-gear filter
+# live (13 Grays Harbor interviews of 2024-25); read the R1 verdict with that in mind.
 #
 # WHAT EACH RUNG MUST SHOW (verdict rows, written to 05_output/improvements_2026-09-08_verdicts.csv)
 #   R1   shore fits within a few percent of the baseline (item 8 adds ~140 shore rows),
@@ -68,7 +76,7 @@
 DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
 STAGES  <- c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
 RESUME  <- TRUE                    # skip a rung whose output folder already exists
-GEAR_FOLLOWS <- "R3"               # the pooled rung whose configuration R5 fits: "R3" (shipped) | "R4"
+GEAR_FOLLOWS <- "R4"               # the pooled rung whose configuration R5 fits: "R4" (shipped) | "R3"
 
 # =========================================================================== #
 
@@ -162,11 +170,11 @@ WINDOW <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", seaso
                pot_closures = NULL, census_windows = NULL, run_weather = FALSE)
 D_R1  <- list(tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3, shared_tau_sigma = NULL,
               crab_fraction_strata = "none", crab_fraction_source = "ie", crab_fraction_dynamic = FALSE,
-              tau_shore_prior_mu = 1.7, census_uncertainty = "none")
+              tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, census_uncertainty = "none")
 D_R2  <- modifyList(D_R1,  list(tau_boat_prior_mu = "calibration", tau_boat_prior_sigma = 0.5, shared_tau_sigma = 0.15))
 D_R3a <- modifyList(D_R2,  list(crab_fraction_strata = "month", crab_fraction_source = "both"))
 D_R3  <- modifyList(D_R3a, list(crab_fraction_dynamic = TRUE))
-D_R4  <- modifyList(D_R3,  list(tau_shore_prior_mu = "derived"))
+D_R4  <- modifyList(D_R3,  list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived"))
 
 STAGE_DEFS <- list(
   R0  = list(id = "R0",  model = "desk",   tag = "IMP-R0-desk",        delta = D_R3,
@@ -180,7 +188,7 @@ STAGE_DEFS <- list(
   R3  = list(id = "R3",  model = "pooled", tag = "IMP-R3-f-dynamic",   delta = D_R3,
              headline = "+ item 1B: the dynamic f (the shipped configuration)"),
   R4  = list(id = "R4",  model = "pooled", tag = "IMP-R4-shore-tau",   delta = D_R4,
-             headline = "+ item 2: shore turnover derived from the I/E time column"),
+             headline = "+ item 2: shore turnover derived from the I/E time column (the shipped configuration)"),
   R5  = list(id = "R5",  model = "gear_resolved", tag = "IMP-R5-gear-crosscheck",
              delta = if (identical(GEAR_FOLLOWS, "R4")) D_R4 else D_R3,
              headline = sprintf("gear-resolved cross-check on the %s configuration", GEAR_FOLLOWS)))
@@ -213,10 +221,11 @@ preflight <- function() {
     if (!ok) fails <<- c(fails, msg)
   }
   say(identical(BASE$tau_boat_prior_mu, "calibration") && identical(BASE$crab_fraction_dynamic, TRUE) &&
-        identical(BASE$crab_fraction_strata, "month") && identical(BASE$crab_fraction_source, "both"),
-      "run_config ships the R3 configuration (calibration turnover, dynamic monthly f from both sources)")
-  say(identical(BASE$tau_shore_prior_mu, 1.7) && identical(BASE$census_uncertainty, "none"),
-      "the two OFF items ship off (tau_shore_prior_mu 1.7, census_uncertainty none)")
+        identical(BASE$crab_fraction_strata, "month") && identical(BASE$crab_fraction_source, "both") &&
+        identical(BASE$tau_shore_prior_mu, "derived"),
+      "run_config ships the R4 configuration (calibration turnover, dynamic monthly f from both sources, derived shore turnover)")
+  say(identical(BASE$census_uncertainty, "none") && identical(BASE$census_expansion, "none"),
+      "the census is exact over the tally days and stays a constant (census_expansion none, census_uncertainty none)")
   say(is.null(BASE$ar_force) && !isTRUE(BASE$ar_escalate),
       "no experiment lever is active: ar_force NULL and ar_escalate off")
   for (m in c("crab_bss_pooled.stan", "crab_bss_gear_resolved.stan")) {
@@ -310,15 +319,71 @@ desk_R0 <- function() {
     cc <- q(estimate_comm_charter(dwg, p))
     utils::write.csv(cc$daily_full, file.path(out, "census_daily.csv"), row.names = FALSE)
     utils::write.csv(cc$variance_detail, file.path(out, "census_variance.csv"), row.names = FALSE)
-    V1row("R0", "the census is exact on the sampled days and imputed on the rest (item 4)",
-          sprintf("%s crab observed on %d tally days; %s imputed on %d unsampled days; SE %s (%.1f%%); total %s (baseline %s)",
-                  fmt(cc$observed_dung, 0), sum(cc$daily_full$observed), fmt(cc$imputed_dung, 0),
-                  sum(!cc$daily_full$observed), fmt(cc$Dungeness_Kept_se, 0),
-                  100 * cc$Dungeness_Kept_se / max(cc$Dungeness_Kept, 1), fmt(cc$Dungeness_Kept, 0), fmt(REF$A1$census, 0)),
-          "the split is stated; the SE stays out of the port interval under census_uncertainty = none", "INFO",
-          paste("The number moves from the baseline only through item 8 (one commercial interview the",
-                "hours filter had dropped now counts). Whether the imputation SE enters the port interval",
-                "is a config choice; the better fix is daily vessel counts for the unsampled days."))
+    V1row("R0", "the census is the exact sum over the tally days; unsampled days had no operation (item 4, settled 2026-09-09)",
+          sprintf("census_expansion = '%s': %s crab observed on %d tally days; %d unsampled calendar days %s; SE %s (%.1f%%, the per-vessel mean); total %s (baseline %s under the day-type expansion)",
+                  cc$census_expansion %||% "none", fmt(cc$observed_dung, 0), sum(cc$daily_full$observed),
+                  sum(!cc$daily_full$observed), if (identical(cc$census_expansion, "none")) "at zero" else sprintf("imputed at %s", fmt(cc$imputed_dung, 0)),
+                  fmt(cc$Dungeness_Kept_se, 0), 100 * cc$Dungeness_Kept_se / max(cc$Dungeness_Kept, 1), fmt(cc$Dungeness_Kept, 0), fmt(REF$A1$census, 0)),
+          "the total is the tally-day sum; the SE stays out of the port interval under census_uncertainty = none",
+          if (identical(cc$census_expansion, "none") && isTRUE(all.equal(cc$imputed_dung, 0))) "PASS" else "REVIEW",
+          paste("Samplers are scheduled on the days the charter and commercial (recreational) vessels are",
+                "confirmed to be operating, so a window day without a tally is a day with no fishing, not a",
+                "missed count. The 2026-09-08 day-type expansion (11,753 on 2024-25) filled those days with",
+                "the sampled days' mean and is kept as census_expansion = 'day_type' for reproduction only."))
+    # 2026-09-09: the combo-trip share from the trip types, and the shift coverage
+    fs0 <- attr(crab_fraction_stan_data(FALSE, tibble(event_date = seq(as.Date(p$est_date_start), as.Date(p$est_date_end), by = "day")), p, quiet = TRUE), "f_strata")
+    V1row("R0", "the combo-trip share c is observed from the contacts' trip types (item 1, 2026-09-09)",
+          sprintf("%d typed crabbing boats, %d combos (%.2f); by month: %s", sum(fs0$typed_crabbing), sum(fs0$typed_combo),
+                  sum(fs0$typed_combo) / max(sum(fs0$typed_crabbing), 1),
+                  paste(sprintf("%s %s", fs0$label, ifelse(fs0$typed_crabbing > 0, sprintf("%.2f (n=%d)", fs0$typed_combo / pmax(fs0$typed_crabbing, 1), fs0$typed_crabbing), "-")), collapse = ", ")),
+          "none in Dec-Feb, half or more in the salmon and bottomfish months", if (sum(fs0$typed_crabbing) > 100) "PASS" else "REVIEW",
+          paste("c does not move the boat total (f does); it is what OSP's crabbing-only count reads low by,",
+                "so f(1 - c) is the prediction of that column and the comparison, when OSP delivers it, is the",
+                "check of the shift-time contacts against an all-day count. In summer more than half the",
+                "crabbing boats are combos, which is why OSP's column could never have identified f alone."))
+    # which interviews are the classification: the launches (shipped), the launches plus the
+    # docks, or every private-boat interview. The choice moves the summer f, so it is on
+    # the record here until the protocol question (are dock-interviewed private boats
+    # trailered or moored?) is answered.
+    .area_sets <- list(launches = p$boat_launch_areas %||% c("Westport Boat Launch", "Ocean Shores Boat Launch"),
+                       launches_and_docks = c(p$boat_launch_areas %||% c("Westport Boat Launch", "Ocean Shores Boat Launch"),
+                                              p$shore_dock_float20 %||% "Westport Docks Float 20", p$shore_dock_float17 %||% "Westport Docks Float 17-21"),
+                       all = "all")
+    .gh_int <- tryCatch(q({ pp <- p; pp$crab_fraction_contact_areas <- "all"; fetch_crab_data(pp)$boat_contacts }), error = function(e) NULL)
+    if (!is.null(.gh_int)) {
+      .sens <- do.call(rbind, lapply(names(.area_sets), function(nm) {
+        pp <- p; pp$crab_fraction_contact_areas <- .area_sets[[nm]]
+        b <- q(fetch_crab_data(pp)$boat_contacts) |> mutate(m = format(event_date, "%Y-%m")) |> group_by(m) |>
+          summarise(t = sum(boats_total), c = sum(boats_crabbing), .groups = "drop")
+        data.frame(area_set = nm, month = b$m, contacts = b$t, crabbing_share = round(b$c / pmax(b$t, 1), 3))
+      }))
+      utils::write.csv(.sens, file.path(out, "contact_area_sensitivity.csv"), row.names = FALSE)
+      .w <- tidyr::pivot_wider(.sens |> select(area_set, month, crabbing_share), names_from = area_set, values_from = crabbing_share)
+      V1row("R0", "which interviews are the f classification: launch sites (shipped) vs launches + docks vs all",
+            paste(sprintf("%s %s", .w$month, apply(.w[, -1], 1, function(r) paste(sprintf("%.2f", r), collapse = "/"))), collapse = "; "),
+            "the summer months differ (docks are finfish-heavy, the marina is crab-only moorage); the protocol decides", "READ",
+            paste("Order in each triple: launches / launches+docks / all. The trailer and OSP counts measure boats",
+                  "launched at the ramp. A private boat interviewed at the docks is either a trailered boat that",
+                  "stopped to unload (then it belongs in the classification and excluding it biases f up in",
+                  "summer) or a moored boat (then it is outside the counted population). The marina rows are",
+                  "crab-only moorage boats either way. crab_fraction_contact_areas selects the set."))
+    }
+    sh <- tryCatch(q(fetch_sampler_shifts(p)), error = function(e) NULL)
+    sc <- tryCatch(q(diagnose_shift_coverage(sh, ie, dwg$boat_contacts_detail, p, output_dir = out)), error = function(e) NULL)
+    if (!is.null(sc)) {
+      cb <- sc$crabbing_by_hour
+      V1row("R0", "sampler shift coverage of the day's boat returns (item 1, shift times)",
+            sprintf("%d shift days; in port %s to %s (medians), %.1f h; %.0f%% of a day's boat returns inside the shift (%s), %.0f%% after the last check-out; crabbing share of typed contacts by hour: %s",
+                    sc$summary$n_shift_days, .hhmm_of(sc$summary$median_first_check_in), .hhmm_of(sc$summary$median_last_check_out),
+                    sc$summary$median_hours_in_port, 100 * sc$summary$median_return_share_covered, sc$summary$return_profile_source,
+                    100 * sc$summary$returns_after_last_check_out,
+                    if (is.null(cb)) "n/a" else paste(sprintf("%s %.2f (n=%d)", cb$hour_bin, cb$crabbing_share, cb$contacts), collapse = ", ")),
+            "flat crabbing share across the hours inside the shift; the share of returns outside it is the exposure", "INFO",
+            paste("The contacts classify the boats returning during the shift. Inside it the trip-type mix does",
+                  "not drift with the hour (2024-25), which is the evidence available today; the returns outside",
+                  "the shift are unclassified and only OSP's all-day count can say whether their mix differs.",
+                  "shift_coverage_*.csv and contact_hour_by_trip_type.csv carry the detail."))
+    }
     # item 6: the gear bootstrap on the boat all-gear interviews
     sub <- build_subseasons(p)
     ss  <- sub[[which(vapply(sub, function(x) x$gear_regime == "all_gear", logical(1)))]]
@@ -408,18 +473,20 @@ verdict_R1 <- function(dir) {
   base <- .here("05_output", REF$A1$dir)
   sa <- .comp(dir, "shore (All gear)"); sp <- .comp(dir, "shore (Pot closure)")
   ba <- .comp(dir, "private_boat (All gear)"); bp <- .comp(dir, "private_boat (Pot closure)")
-  V1row("R1", "item 8 alone: the components against the baseline",
-        sprintf("shore pc %s (%+.1f%%), shore ag %s (%+.1f%%), boat pc %s (%+.1f%%), boat ag %s (%+.1f%%), census %s (%+.1f%%)",
+  V1row("R1", "item 8 alone (plus the 2026-09-09 workbook): the fitted components against the baseline",
+        sprintf("shore pc %s (%+.1f%%), shore ag %s (%+.1f%%), boat pc %s (%+.1f%%), boat ag %s (%+.1f%%); census %s (baseline %s: exact over the tally days by design)",
                 fmt(sp, 0), .pct(sp, REF$A1$shore_pc), fmt(sa, 0), .pct(sa, REF$A1$shore_ag),
                 fmt(bp, 0), .pct(bp, REF$A1$boat_pc), fmt(ba, 0), .pct(ba, REF$A1$boat_ag),
-                fmt(.comp(dir, "comm_charter (census)", "PE_catch"), 0), .pct(.comp(dir, "comm_charter (census)", "PE_catch"), REF$A1$census)),
-        "every component within a few percent; the boat a few percent LOWER (zero-catch trips restored)",
+                fmt(.comp(dir, "comm_charter (census)", "PE_catch"), 0), fmt(REF$A1$census, 0)),
+        "every fitted component within a few percent; the boat a few percent LOWER (zero-catch trips restored)",
         if (all(abs(c(.pct(sp, REF$A1$shore_pc), .pct(sa, REF$A1$shore_ag))) < 5, na.rm = TRUE) &&
               isTRUE(.pct(ba, REF$A1$boat_ag) < 2)) "PASS" else "REVIEW",
         paste("The hours filter dropped 22 boat trips (14 with recorded catch) and ~140 shore rows whose",
               "time field was blank or under 0.5 h; under the deployment unit a set pot with zero time",
               "is real effort with real catch. Restoring them lowers the boat CPUE slightly (more zeros)",
-              "and barely moves the shore. Anything larger than a few percent here is not item 8."))
+              "and barely moves the shore. The rebuilt workbook (2026-09-09) also applies the tampered-gear",
+              "filter (13 Grays Harbor interviews in 2024-25) and a few source corrections. The census is",
+              "not compared: it is now the exact sum over the tally days (-3,869 by design)."))
   b <- .full_row(dir, "private_boat_all_gear", "tau_bar_out")
   V1row("R1", "the boat turnover under the pre-patch prior (the R2 control)",
         sprintf("tau_bar %s (baseline %s)", fmt(.num1(b$mean), 4), fmt(REF$A1$tau_bar, 4)),

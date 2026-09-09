@@ -2129,7 +2129,8 @@ local({
   src <- readLines("03_R_functions/fetch_crab_data.R", warn = FALSE); src <- src[!grepl("^\\s*#", src)]
   chk("reader keeps count_hour on the shore and boat effort tables", sum(grepl("count_hour", src)) >= 2)
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("shipped: tau_shore_prior_mu still 1.7 (the derived prior ships OFF pending rung R4)", identical(rc$tau_shore_prior_mu, 1.7))
+  chk("shipped: tau_shore_prior_mu = derived (adopted 2026-09-09; the pre-time-column 1.7 was the wrong quantity)",
+      identical(rc$tau_shore_prior_mu, "derived") && identical(rc$tau_shore_prior_sigma, "derived"))
   chk("shipped: the derived-prior keys exist", !is.null(rc$tau_shore_prior_sigma_floor) && !is.null(rc$tau_shore_derive_min_days))
 })
 
@@ -2397,13 +2398,15 @@ local({
       identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$crab_fraction_strata, "none") && identical(e$D_R1$crab_fraction_source, "ie") && identical(e$D_R1$crab_fraction_dynamic, FALSE))
   chk("ladder: R2 adds only the calibration prior", identical(e$D_R2$tau_boat_prior_mu, "calibration") && identical(e$D_R2$crab_fraction_strata, "none"))
   chk("ladder: R3a adds only the monthly f from both sources (legacy)", identical(e$D_R3a$crab_fraction_strata, "month") && identical(e$D_R3a$crab_fraction_source, "both") && identical(e$D_R3a$crab_fraction_dynamic, FALSE))
-  chk("ladder: R3 adds only the dynamic f, and equals the shipped run_config on the moved keys",
-      identical(e$D_R3$crab_fraction_dynamic, TRUE) && identical(e$D_R3$tau_shore_prior_mu, 1.7) && {
+  chk("ladder: R3 adds only the dynamic f and still pins the pre-adoption shore turnover (1.7 / 0.3)",
+      identical(e$D_R3$crab_fraction_dynamic, TRUE) && identical(e$D_R3$tau_shore_prior_mu, 1.7) && identical(e$D_R3$tau_shore_prior_sigma, 0.3))
+  chk("ladder: R4 adds only the derived shore turnover, and equals the shipped run_config on the moved keys",
+      identical(e$D_R4$tau_shore_prior_mu, "derived") && identical(e$D_R4$crab_fraction_dynamic, TRUE) && {
         rc <- new.env(); sys.source("run_config.R", envir = rc); rc <- rc$run_config
         all(vapply(c("tau_boat_prior_mu", "tau_boat_prior_sigma", "shared_tau_sigma", "crab_fraction_strata", "crab_fraction_source",
-                     "crab_fraction_dynamic", "tau_shore_prior_mu", "census_uncertainty"),
-                   function(k) identical(e$D_R3[[k]], rc[[k]]), logical(1))) })
-  chk("ladder: R4 adds only the derived shore turnover", identical(e$D_R4$tau_shore_prior_mu, "derived") && identical(e$D_R4$crab_fraction_dynamic, TRUE))
+                     "crab_fraction_dynamic", "tau_shore_prior_mu", "tau_shore_prior_sigma", "census_uncertainty"),
+                   function(k) identical(e$D_R4[[k]], rc[[k]]), logical(1))) })
+  chk("ladder: the gear cross-check follows the shipped rung", any(grepl('^GEAR_FOLLOWS <- "R4"', t)))
   # fit_agreement(): two synthetic run folders
   source("03_R_functions/batch_verdict_helpers.R")
   mk <- function(dir, means, se) {
