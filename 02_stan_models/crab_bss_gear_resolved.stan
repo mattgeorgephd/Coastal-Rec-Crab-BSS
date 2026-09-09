@@ -377,10 +377,13 @@ data {
   // SD sigma_f is half-normal(f_walk_sd_prior); f_walk_df > 0 gives Student-t steps),
   // observed per DAY by the sampler boat contacts (cfi_*: every private boat approached,
   // crabbing or not, combo trips counted as crabbing; beta-binomial with concentration
-  // kappa_I) and by OSP's crabbing-only column through f x (1 - combo_c), combo_c the
-  // combo-trip share among crabbing boats with a Beta(combo_a, combo_b) prior. Both
-  // denominators are observed boat counts, so f stays out of the effort and CPUE
-  // likelihoods. The Phase 3 / improvement 8 construction above stays as the control.
+  // kappa_I) and by OSP's crabbing-only column through f x (1 - c[k]), c the combo-trip
+  // share among crabbing boats. 2026-09-09: c is OBSERVED from the contacts' trip types
+  // (combo of the typed crabbing boats per day, cfc_*) and carries its own per-stratum
+  // logit walk (same order and innovations as f, its own step SD sigma_c), live when
+  // combo_dynamic = 1. Both denominators are observed boat counts, so f stays out of the
+  // effort and CPUE likelihoods. The Phase 3 / improvement 8 construction above stays as
+  // the control.
   int<lower=0,upper=1> crab_fraction_dynamic;
   int<lower=0> f_walk_prev[n_f_strata];     // predecessor stratum (must be < k); 0 = anchored
   vector<lower=0>[n_f_strata] f_walk_gap;   // months to the predecessor (1 = adjacent)
@@ -393,8 +396,16 @@ data {
   int<lower=0> cfi_total[CFI_n];
   int<lower=0> cfi_crab[CFI_n];
   real<lower=0> cfi_kappa_prior_mu;         // lognormal centre of kappa_I
-  real<lower=0> combo_a;                    // Beta prior on combo_c
-  real<lower=0> combo_b;
+  // the combo-trip share c (2026-09-09): a per-stratum logit walk when combo_dynamic = 1
+  int<lower=0,upper=1> combo_dynamic;
+  real c_level_mu;                          // logit-scale prior mean of an anchored stratum's c
+  real<lower=0> c_level_sd;
+  real<lower=0> c_walk_sd_prior;            // half-normal scale of sigma_c
+  int<lower=0> CFC_n;                       // contact days with typed crabbing boats
+  int<lower=1,upper=n_f_strata> cfc_stratum[CFC_n];
+  int<lower=0> cfc_crab[CFC_n];             // typed crabbing boats that day
+  int<lower=0> cfc_combo[CFC_n];            // of which combo trips
+  real<lower=0> cfc_kappa_prior_mu;         // lognormal centre of kappa_C
   // Phase 3: OSP-informs-tau toggle. 0 (default) keeps the free kappa_OSP scale (Phase 1);
   // 1 makes the OSP mean use L (= tau_boat) as the turnover, so the dense OSP series
   // identifies the boat turnover. See the dev note for the kappa_OSP (~2.7) vs
@@ -427,6 +438,7 @@ transformed data {
   // unchanged (the fixed-seed reproduction test of behaviour-neutrality).
   int n_f_dyn = crab_fraction_estimate * crab_fraction_dynamic;
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
+  int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
   for (k in 1:K_open)
     for (d in 1:D)
       X_open[d, k] = X_open_flat[(k - 1) * D + d];
@@ -485,7 +497,10 @@ parameters {
   vector[n_f_strata * n_f_dyn] z_f;
   vector<lower=0>[n_f_dyn] sigma_f;
   vector<lower=0>[n_f_dyn] cfi_kappa;
-  vector<lower=0,upper=1>[n_f_dyn * osp_crab_lower] combo_c;
+  // 2026-09-09: the combo-share walk (per stratum), its step SD and its concentration.
+  vector[n_f_strata * n_c_dyn] z_c;
+  vector<lower=0>[n_c_dyn] sigma_c;
+  vector<lower=0>[n_c_dyn] cfc_kappa;
   // Beta-binomial concentration for the DAILY OSP crab-only shares. Declared with
   // SIZE ZERO when the bound is off, not as an unconditional scalar. The house pattern
   // (kappa_OSP, R_G_boat, sigma_IE) is "proper prior unconditionally", but that pattern
@@ -532,6 +547,8 @@ transformed parameters {
   vector<lower=0,upper=1>[n_f_strata] f_crab;   // Phase 3: per-stratum crabbing fraction
   vector<lower=0,upper=1>[n_f_strata] f_lower;  // improvement 8: OSP crab-only lower bound
   vector[n_f_strata] eta_f;                     // review item 1B: logit f under the walk (0 otherwise)
+  vector[n_f_strata] eta_c;                     // 2026-09-09: logit c under its walk (0 otherwise)
+  vector<lower=0,upper=1>[n_f_strata] combo_c;  // 2026-09-09: the combo-trip share per stratum (0 when off)
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;        // B1.3: scaled from omega_C_0_raw below
   matrix<lower=0>[D,G] lambda_C_S[S];
@@ -549,6 +566,18 @@ transformed parameters {
         eta_f[k] = eta_f[f_walk_prev[k]] + sigma_f[1] * sqrt(f_walk_gap[k]) * z_f[k];
     }
   }
+  // 2026-09-09: the combo share's walk, same order and chains as f's.
+  eta_c = rep_vector(0.0, n_f_strata);
+  combo_c = rep_vector(0.0, n_f_strata);
+  if (n_c_dyn == 1) {
+    for (k in 1:n_f_strata) {
+      if (f_walk_prev[k] == 0)
+        eta_c[k] = c_level_mu + c_level_sd * z_c[k];
+      else
+        eta_c[k] = eta_c[f_walk_prev[k]] + sigma_c[1] * sqrt(f_walk_gap[k]) * z_c[k];
+      combo_c[k] = 1e-6 + (1 - 2e-6) * inv_logit(eta_c[k]);
+    }
+  }
 
   // Phase 3 + improvement 8 + review item 1B: resolve per-stratum f_crab. Dynamic:
   // f = inv_logit(eta_f), kept 1e-6 inside (0, 1) so the beta-binomial shapes stay
@@ -560,7 +589,8 @@ transformed parameters {
   for (k in 1:n_f_strata) {
     if (n_f_dyn == 1) {
       f_crab[k]  = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[k]);
-      f_lower[k] = (osp_crab_lower == 1) ? f_crab[k] * (1 - combo_c[1]) : 0.0;
+      // the IMPLIED crab-only share f(1 - c): what OSP's crabbing-only column should read
+      f_lower[k] = (n_c_dyn == 1) ? f_crab[k] * (1 - combo_c[k]) : 0.0;
     } else {
       if (osp_crab_lower == 1 && crab_fraction_dynamic == 0 && osp_f_n_total[k] > 0)
         f_lower[k] = f_lower_param[k];
@@ -770,16 +800,27 @@ model {
                                   f_crab[cfi_stratum[i]] * cfi_kappa[1],
                                   (1 - f_crab[cfi_stratum[i]]) * cfi_kappa[1]);
   }
+  // 2026-09-09: the combo share's walk and its per-day observation (combo of the typed
+  // crabbing boats); proper priors unconditionally within the branch.
+  if (n_c_dyn == 1) {
+    if (f_walk_df > 0) z_c ~ student_t(f_walk_df, 0, 1);
+    else               z_c ~ std_normal();
+    sigma_c[1]   ~ normal(0, c_walk_sd_prior);
+    cfc_kappa[1] ~ lognormal(log(cfc_kappa_prior_mu), 0.75);
+    for (i in 1:CFC_n)
+      cfc_combo[i] ~ beta_binomial(cfc_crab[i],
+                                   combo_c[cfc_stratum[i]] * cfc_kappa[1],
+                                   (1 - combo_c[cfc_stratum[i]]) * cfc_kappa[1]);
+  }
   // improvement 8: OSP crab-only stream. Binomial on the OBSERVED OSP daily totals, so f
   // stays out of the effort/CPUE likelihoods and the boat remains exactly linear in f.
   if (osp_crab_lower == 1) {
     osp_f_kappa[1] ~ lognormal(log(osp_f_kappa_prior_mu), 0.75);
     if (n_f_dyn == 1) {
-      // review item 1B: OSP sees f x (1 - combo_c); combo_c is identified only where the
-      // contact stream covers the same stratum, elsewhere the OSP share is a soft bound.
-      combo_c[1] ~ beta(combo_a, combo_b);
+      // review item 1B / 2026-09-09: OSP sees f x (1 - c[k]); the R side switches
+      // combo_dynamic on whenever this stream is on, so combo_c is live here.
       for (i in 1:OSPF_n) {
-        real p_osp = f_crab[osp_f_stratum[i]] * (1 - combo_c[1]);
+        real p_osp = f_crab[osp_f_stratum[i]] * (1 - combo_c[osp_f_stratum[i]]);
         osp_f_crab[i] ~ beta_binomial(osp_f_total[i], p_osp * osp_f_kappa[1],
                                       (1 - p_osp) * osp_f_kappa[1]);
       }
@@ -890,7 +931,9 @@ generated quantities {
   real osp_f_kappa_out;        // improvement 8: daily-share overdispersion of the OSP bound
   real sigma_f_out;            // review item 1B: step SD of the logit-f walk (0 when the dynamic f is off)
   real cfi_kappa_out;          // review item 1B: contact-stream concentration (0 when off)
-  real combo_c_out;            // review item 1B: combo-trip share among crabbing boats (0 when the OSP stream is off)
+  vector[n_f_strata] combo_c_out;   // 2026-09-09: the combo-trip share per stratum (0 when its walk is off)
+  real sigma_c_out;                 // 2026-09-09: step SD of the logit-c walk (0 when off)
+  real cfc_kappa_out;               // 2026-09-09: combo-stream concentration (0 when off)
   vector[K_open] B_open_out;       // improvement 4 (labels travel out of band; see the driver)
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
@@ -933,7 +976,9 @@ generated quantities {
   osp_f_kappa_out = (osp_crab_lower == 1) ? osp_f_kappa[1] : 0.0;       // improvement 8
   sigma_f_out   = (n_f_dyn == 1) ? sigma_f[1]   : 0.0;                  // review item 1B
   cfi_kappa_out = (n_f_dyn == 1) ? cfi_kappa[1] : 0.0;
-  combo_c_out   = (n_f_dyn == 1 && osp_crab_lower == 1) ? combo_c[1] : 0.0;
+  combo_c_out   = combo_c;                                                // 2026-09-09 (zeros when off)
+  sigma_c_out   = (n_c_dyn == 1) ? sigma_c[1]   : 0.0;
+  cfc_kappa_out = (n_c_dyn == 1) ? cfc_kappa[1] : 0.0;
   B_open_out = B_open;         // improvement 4
   sigma_IE_out = sigma_IE;
   L_out = L;

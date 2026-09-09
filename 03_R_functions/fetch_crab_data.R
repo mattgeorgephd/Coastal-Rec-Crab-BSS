@@ -102,13 +102,25 @@ fetch_crab_data <- function(params) {
   # been dropped by the filter just below, but they are the crabbing-fraction classification
   # the boat effort model needs: per day, boats contacted and boats crabbing (a boat that
   # crabbed AND fished another fishery counts as crabbing here, because the sampler saw the
-  # crab gear; OSP's crabbing-only column labels such a boat by the other fishery). 2024-25:
-  # 422 contacts, 206 crabbing, 0.49 pooled and strongly seasonal (0.9+ Dec-Feb, 0.26
-  # Jul-Sep). Kept as dwg$boat_contacts; crab_fraction_source_rows() feeds it to f.
-  boat_contacts <- boat_contacts_from_interviews(gh_interview)
-  cat(sprintf("  Private-boat contacts for the crabbing fraction: %d boats on %d days, %d crabbing (share %.3f)\n",
+  # crab gear; OSP's crabbing-only column labels such a boat by the other fishery).
+  # 2026-09-09: the workbook now carries the TRIP TYPE (crab_only / combo / other_fishery /
+  # non_fishing) and the interview's creel_area, so the classification reads the trip type
+  # where it exists and is restricted to the launch sites the trailer and OSP counts
+  # measure (crab_fraction_contact_areas); the combo count per day is the observation of
+  # the combo-trip share c. 2024-25 at the launches: 300 contacts, 143 crabbing (43 of them
+  # combos), 50 non-fishing launches. Kept as dwg$boat_contacts; crab_fraction_source_rows()
+  # feeds it to f and c.
+  boat_contacts <- boat_contacts_from_interviews(gh_interview, params)
+  # 2026-09-09: the per-contact detail (site, trip type, clock time, survey id) behind the
+  # daily table, for the sampler-shift coverage diagnostic (sampler_shifts.R).
+  boat_contacts_detail <- boat_contact_detail(gh_interview)
+  cat(sprintf(paste0("  Private-boat contacts for the crabbing fraction (%s): %d boats on %d days, %d crabbing",
+                     " (share %.3f); trip type on %d, of which %d crab-only, %d combo, %d other fishery, %d non-fishing\n"),
+              attr(boat_contacts, "areas_label") %||% "all areas",
               sum(boat_contacts$boats_total), nrow(boat_contacts), sum(boat_contacts$boats_crabbing),
-              if (sum(boat_contacts$boats_total) > 0) sum(boat_contacts$boats_crabbing) / sum(boat_contacts$boats_total) else NA_real_))
+              if (sum(boat_contacts$boats_total) > 0) sum(boat_contacts$boats_crabbing) / sum(boat_contacts$boats_total) else NA_real_,
+              sum(boat_contacts$boats_typed), sum(boat_contacts$boats_crab_only), sum(boat_contacts$boats_combo),
+              sum(boat_contacts$boats_other), sum(boat_contacts$boats_nonfishing)))
 
   gh_interview <- gh_interview |>
     filter(!is.na(crabbers), as.numeric(crabbers) > 0) |>
@@ -230,6 +242,7 @@ fetch_crab_data <- function(params) {
     boat_effort = boat_effort,
     interview = gh_interview,
     boat_contacts = boat_contacts,   # review item 1: per-day crabbing classification of contacted boats
+    boat_contacts_detail = boat_contacts_detail,   # 2026-09-09: one row per contacted private boat
     catch = catch,
     comm_tally = comm_tally,
     ll = tibble(centroid_lat=46.904, centroid_lon=-124.105)
@@ -305,26 +318,89 @@ apply_fishing_time_filters <- function(df, params, req_boat_gear_time = TRUE, qu
 
 
 ###############################################################################
-# boat_contacts_from_interviews()  (review item 1, 2026-09-08)
+# boat_contacts_from_interviews()  (review item 1, 2026-09-08; trip types 2026-09-09)
 #
 # Per-day classification of contacted private boats, from the CLASSIFIED but UNFILTERED
-# interview frame (population assigned, crabbers still raw): boats_total = private-boat
-# rows with a recorded crabbers value, boats_crabbing = those with crabbers > 0. Rows
-# whose crabbers value is missing are unclassified and count in neither. Returns
-# tibble(event_date, boats_total, boats_crabbing), the shape crab_fraction.R consumes.
+# interview frame (population assigned, crabbers still raw). Returns
+# tibble(event_date, boats_total, boats_crabbing, boats_typed, boats_crab_only, boats_combo,
+#        boats_other, boats_nonfishing), the shape crab_fraction.R consumes.
+#
+# CLASSIFICATION RULE, per row:
+#   trip_type_class present (2026-09-09 workbook): crabbing = crab_only | combo;
+#       not crabbing = other_fishery | non_fishing (a launch with no fishing is still a
+#       boat in the trailer and OSP totals, so it is a not-crabbing boat to f).
+#   trip_type_class absent (older rows): crabbing = crabbers > 0, combo unknown.
+#   A row with neither a trip type nor a crabbers value is unclassified and counts nowhere.
+# boats_typed / boats_crab_only / boats_combo count TYPED rows only; they are the data for
+# the combo-trip share c (combo of crabbing, per day).
+#
+# SITE RESTRICTION. The trailer count and the OSP total measure boats launched at the
+# ramp; a private boat interviewed at the marina or the docks is moored, not trailered,
+# and belongs to neither count. params$crab_fraction_contact_areas (default: the
+# boat_launch_areas, "all" for no restriction) selects the interviews by creel_area when
+# the workbook carries that column. 2024-25: 300 contacts at the launches against 422
+# everywhere (34 marina rows, all crab-only; 88 dock rows).
+#
 # Pure, so the harness tests it on a synthetic frame.
 ###############################################################################
-boat_contacts_from_interviews <- function(gh_interview) {
-  empty <- tibble(event_date = as.Date(character()), boats_total = integer(), boats_crabbing = integer())
+boat_contacts_from_interviews <- function(gh_interview, params = list()) {
+  empty <- tibble(event_date = as.Date(character()), boats_total = integer(), boats_crabbing = integer(),
+                  boats_typed = integer(), boats_crab_only = integer(), boats_combo = integer(),
+                  boats_other = integer(), boats_nonfishing = integer())
   if (is.null(gh_interview) || !nrow(gh_interview) ||
-      !all(c("population", "event_date", "crabbers") %in% names(gh_interview))) return(empty)
-  cr <- suppressWarnings(as.numeric(gh_interview$crabbers))
-  gh_interview |>
-    mutate(.cr = cr) |>
-    filter(population == "private_boat", !is.na(.cr), !is.na(event_date)) |>
+      !all(c("population", "event_date") %in% names(gh_interview)) ||
+      !any(c("crabbers", "trip_type_class") %in% names(gh_interview))) return(empty)
+  d <- gh_interview |> filter(population == "private_boat", !is.na(event_date))
+  areas <- params$crab_fraction_contact_areas %||% params$boat_launch_areas %||%
+    c("Westport Boat Launch", "Ocean Shores Boat Launch")
+  areas_label <- "all areas"
+  if ("creel_area" %in% names(d) && !identical(tolower(areas[1]), "all")) {
+    d <- d |> filter(creel_area %in% areas)
+    areas_label <- paste(areas, collapse = " + ")
+  }
+  cr <- if ("crabbers" %in% names(d)) suppressWarnings(as.numeric(d$crabbers)) else rep(NA_real_, nrow(d))
+  tt <- if ("trip_type_class" %in% names(d)) as.character(d$trip_type_class) else rep(NA_character_, nrow(d))
+  tt[!tt %in% c("crab_only", "combo", "other_fishery", "non_fishing")] <- NA_character_
+  d$.typed <- !is.na(tt)
+  d$.crab  <- ifelse(d$.typed, tt %in% c("crab_only", "combo"), !is.na(cr) & cr > 0)
+  d$.class <- ifelse(d$.typed | !is.na(cr), TRUE, FALSE)      # classifiable at all
+  d$.tt <- tt
+  out <- d |>
+    filter(.class) |>
     group_by(event_date) |>
-    summarise(boats_total = n(), boats_crabbing = sum(.cr > 0), .groups = "drop") |>
-    mutate(event_date = as.Date(event_date), boats_total = as.integer(boats_total),
-           boats_crabbing = as.integer(boats_crabbing)) |>
+    summarise(boats_total = n(), boats_crabbing = sum(.crab),
+              boats_typed = sum(.typed),
+              boats_crab_only = sum(.tt %in% "crab_only"), boats_combo = sum(.tt %in% "combo"),
+              boats_other = sum(.tt %in% "other_fishery"), boats_nonfishing = sum(.tt %in% "non_fishing"),
+              .groups = "drop") |>
+    mutate(event_date = as.Date(event_date), across(-event_date, as.integer)) |>
     arrange(event_date)
+  attr(out, "areas_label") <- areas_label
+  out
+}
+
+
+###############################################################################
+# boat_contact_detail()  (2026-09-09)
+#
+# One row per contacted PRIVATE boat (every area, before any filter): the date, the
+# creel_area, the survey id (the link to sampler_shifts.xlsx), the trip-type class, the
+# crabbers value, and the contact clock time as a decimal hour (from interview_time,
+# "HH:MM"). Feeds the shift-coverage diagnostic; NULL columns degrade to NA.
+###############################################################################
+boat_contact_detail <- function(gh_interview) {
+  empty <- tibble(event_date = as.Date(character()), creel_area = character(), survey_id = character(),
+                  trip_type_class = character(), crabbers = numeric(), contact_hour = numeric())
+  if (is.null(gh_interview) || !nrow(gh_interview) || !all(c("population", "event_date") %in% names(gh_interview))) return(empty)
+  d <- gh_interview |> filter(population == "private_boat", !is.na(event_date))
+  if (!nrow(d)) return(empty)
+  .col <- function(nm, cast) if (nm %in% names(d)) cast(d[[nm]]) else rep(cast(NA), nrow(d))
+  it <- .col("interview_time", as.character)
+  hr <- suppressWarnings(as.numeric(sub(":.*$", "", it)) + as.numeric(sub("^[^:]*:", "", it)) / 60)
+  tibble(event_date = as.Date(d$event_date),
+         creel_area = .col("creel_area", as.character),
+         survey_id  = .col("survey_id", as.character),
+         trip_type_class = .col("trip_type_class", as.character),
+         crabbers   = suppressWarnings(.col("crabbers", as.numeric)),
+         contact_hour = ifelse(is.finite(hr) & hr >= 0 & hr < 24, hr, NA_real_))
 }

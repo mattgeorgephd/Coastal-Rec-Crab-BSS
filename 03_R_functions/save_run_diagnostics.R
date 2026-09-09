@@ -446,11 +446,17 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$`cfi_kappa[1]` <- list(fam = sprintf("lognormal(log(%.1f), 0.75)", .k),
                                        mean = lnorm_mean(.k, 0.75), sd = lnorm_sd(.k, 0.75))
     }
-    if (.dyn_live && has_par("combo_c") && identical(as.integer(sd_p$osp_crab_lower %||% 0L), 1L) &&
-        !is.null(sd_p$combo_a) && !is.null(sd_p$combo_b)) {
-      .a <- as.numeric(sd_p$combo_a); .b <- as.numeric(sd_p$combo_b)
-      prior_tbl$`combo_c[1]` <- list(fam = sprintf("beta(%.1f, %.1f)", .a, .b),
-                                     mean = .a / (.a + .b), sd = beta_sd(.a, .b))
+    # 2026-09-09: the combo-trip share's walk, when it is live (typed contacts or OSP).
+    .c_live <- .dyn_live && identical(as.integer(sd_p$combo_dynamic %||% 0L), 1L)
+    if (.c_live && has_par("sigma_c") && !is.null(sd_p$c_walk_sd_prior)) {
+      .s <- as.numeric(sd_p$c_walk_sd_prior)
+      prior_tbl$`sigma_c[1]` <- list(fam = sprintf("half-normal(0, %.2f)", .s),
+                                     mean = .s * sqrt(2 / pi), sd = .s * sqrt(1 - 2 / pi))
+    }
+    if (.c_live && has_par("cfc_kappa") && !is.null(sd_p$cfc_kappa_prior_mu)) {
+      .k <- as.numeric(sd_p$cfc_kappa_prior_mu)
+      prior_tbl$`cfc_kappa[1]` <- list(fam = sprintf("lognormal(log(%.1f), 0.75)", .k),
+                                       mean = lnorm_mean(.k, 0.75), sd = lnorm_sd(.k, 0.75))
     }
 
     pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]

@@ -647,13 +647,36 @@ run_config <- list(
   # 0.75). Most contact days hold 1-4 boats, where beta-binomial ~ binomial and this
   # rests on its prior; it bites on the busy days (20+ contacts).
   crab_fraction_contact_kappa_prior_mu = 20,
-  # Beta(a, b) prior on c, the combo-trip share among CRABBING boats (what makes OSP's
-  # crabbing-only count read low). Identified only in a month both streams cover; until
-  # OSP delivers the column it is inert. Beta(2, 3): mean 0.4, 95% about 0.07-0.81. When
-  # both streams cover a summer month, c absorbing the whole difference between the
-  # shift-time contact share and OSP's all-day share is the diagnostic for the
-  # sampler-shift caveat above (c wandering above any plausible combo rate).
-  crab_fraction_combo_c_prior = c(2, 3),
+  # THE COMBO-TRIP SHARE c (2026-09-09). The interview workbook now carries every contacted
+  # boat's TRIP TYPE (crab only / <fishery> & crab / finfish only / non fishing), so c, the
+  # share of crabbing boats that also fished another fishery, is OBSERVED per day and gets
+  # the same per-stratum logit walk as f (its own step SD). 2024-25 at the launches: 43
+  # combos of 143 crabbing boats, none in Dec-Feb, half or more in the salmon and
+  # bottomfish months. c does not move the boat total (f does); it is what OSP's
+  # crabbing-only count reads low by, so f(1 - c) (f_lower_out) is the prediction of that
+  # column, and when OSP delivers it the comparison is the check on the shift-time
+  # contacts against an all-day count. The keys below are the walk's priors.
+  crab_fraction_combo_level = 0.3,       # level prior centre (an anchored stratum's c)
+  crab_fraction_combo_level_sd = 1.5,    # its logit SD (weak; the level is learned)
+  crab_fraction_combo_walk_sd_prior = 1.5,  # half-normal scale of sigma_c
+  crab_fraction_combo_kappa_prior_mu = 20,  # beta-binomial concentration of the daily combo shares
+  # Which interviews are the f classification: the boats the trailer and OSP counts
+  # measure are those launched at the ramp, and a private boat interviewed at the marina
+  # or the docks is moored, not trailered (2024-25: 300 contacts at the launches, 34 at the
+  # marina, all crab-only, 88 at the docks). NULL = boat_launch_areas; "all" = every
+  # private-boat interview (the 2026-09-08 behaviour).
+  crab_fraction_contact_areas = NULL,
+  # SAMPLER SHIFTS (2026-09-09): 04_input_files/sampler_shifts.xlsx (built from the survey
+  # export by build_sampler_shifts.R): check-in / check-out per survey. Read for the
+  # shift-coverage diagnostic (shift_coverage_*.csv, contact_hour_by_trip_type.csv): what
+  # share of a day's boat returns the shift covers and whether the trip-type mix drifts
+  # with the hour inside it. crab_fraction_shift_weighting is the hook for a return-time
+  # weighting of the classification once an all-day return profile exists (OSP); "none"
+  # is the only implemented value (see sampler_shifts.R for why).
+  sampler_shifts_file  = "sampler_shifts.xlsx",
+  sampler_shifts_sheet = "data",
+  shift_coverage_ie_min_days = 10,     # boat-I/E days the WBL series needs before it is used alone
+  crab_fraction_shift_weighting = "none",
   # The PE's per-stratum shrinkage under the dynamic model: Beta(set * kappa, (1 - set) *
   # kappa) with ONE pseudo-contact, so an informed month is essentially its observed share;
   # months under crab_fraction_min_obs are interpolated on the logit scale from their

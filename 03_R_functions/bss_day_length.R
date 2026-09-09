@@ -198,6 +198,22 @@ fetch_ie_data <- function(params) {
       arrange(event_date, hour)
   }
   attr(ie_all, "ie_intervals") <- ie_int
+  # 2026-09-09: keep the BOAT interval rows of every boat-I/E site too (arrivals and
+  # returns by clock time), for the sampler-shift coverage diagnostic
+  # (03_R_functions/sampler_shifts.R): what share of a day's boat returns falls inside the
+  # hours a sampler was in port to classify them.
+  ie_boat_int <- NULL
+  if ("time" %in% names(ie_raw) && all(c("boats_in", "boats_out") %in% names(ie_raw))) {
+    ie_boat_int <- ie_raw |>
+      filter(!is.na(boats_in) | !is.na(boats_out)) |>
+      mutate(hour = .ie_hour_of(time),
+             boats_in  = replace_na(as.numeric(boats_in), 0),
+             boats_out = replace_na(as.numeric(boats_out), 0)) |>
+      filter(is.finite(hour)) |>
+      select(event_date, season, day_type, location_name, hour, boats_in, boats_out) |>
+      arrange(location_name, event_date, hour)
+  }
+  attr(ie_all, "ie_boat_intervals") <- ie_boat_int
 
   cat(sprintf("  I/E survey days: %d shore (WDF20), %d boat (WBL)\n",
               sum(ie_all$population == "shore"),

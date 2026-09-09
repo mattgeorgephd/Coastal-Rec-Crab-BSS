@@ -672,8 +672,16 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     cfi_total              = cf_data$cfi_total,
     cfi_crab               = cf_data$cfi_crab,
     cfi_kappa_prior_mu     = cf_data$cfi_kappa_prior_mu,
-    combo_a                = cf_data$combo_a,
-    combo_b                = cf_data$combo_b,
+    # 2026-09-09: the combo-trip share c, observed from the contacts' trip types
+    combo_dynamic          = cf_data$combo_dynamic,
+    c_level_mu             = cf_data$c_level_mu,
+    c_level_sd             = cf_data$c_level_sd,
+    c_walk_sd_prior        = cf_data$c_walk_sd_prior,
+    CFC_n                  = cf_data$CFC_n,
+    cfc_stratum            = cf_data$cfc_stratum,
+    cfc_crab               = cf_data$cfc_crab,
+    cfc_combo              = cf_data$cfc_combo,
+    cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
 
     # Metadata for output (not passed to Stan)

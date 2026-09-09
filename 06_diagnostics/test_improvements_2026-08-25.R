@@ -308,9 +308,9 @@ local({
   # review item 1B (2026-09-08): the dynamic-f fields (f_walk_*, f_level_*, CFI_n, cfi_*,
   # combo_*) join the contract; they are declared unconditionally in both models.
   cf_need <- grep(paste0("^(apply_crab_fraction|crab_fraction_.+|n_f_strata|f_stratum|osp_crab_lower|osp_f_.+|OSPF_n|",
-                         "f_walk_.+|f_level_.+|CFI_n|cfi_.+|combo_[ab])$"),
+                         "f_walk_.+|f_level_.+|CFI_n|cfi_.+|combo_dynamic|c_level_.+|c_walk_.+|CFC_n|cfc_.+)$"),
                   cf_need, value = TRUE)
-  chk("crab-fraction contract is non-trivial", length(cf_need) >= 30, length(cf_need))
+  chk("crab-fraction contract is non-trivial", length(cf_need) >= 38, length(cf_need))
 
   paths <- list(
     `shore / feature off` = crab_fraction_stan_data(TRUE,  days289, P,  quiet = TRUE),
@@ -2204,7 +2204,9 @@ local({
   chk("dynamic: CFI rows carry stratum, total, crab", all(cfd$cfi_stratum >= 1 & cfd$cfi_stratum <= cfd$n_f_strata) && sum(cfd$cfi_total) == 15 && sum(cfd$cfi_crab) == 9)
   chk("dynamic: per-stratum sums are carried UNGATED (reporting), min_obs not applied", sum(cfd$crab_fraction_n_total) == 15)
   chk("dynamic: walk fields sized K, level prior at logit(set)", length(cfd$f_walk_prev) == cfd$n_f_strata && isTRUE(all.equal(cfd$f_level_mu, qlogis(0.3))))
-  chk("dynamic: priors pass through with their defaults", cfd$f_level_sd == 1.5 && cfd$f_walk_sd_prior == 1.5 && cfd$f_walk_df == 4 && cfd$cfi_kappa_prior_mu == 20 && cfd$combo_a == 2 && cfd$combo_b == 3)
+  chk("dynamic: priors pass through with their defaults", cfd$f_level_sd == 1.5 && cfd$f_walk_sd_prior == 1.5 && cfd$f_walk_df == 4 && cfd$cfi_kappa_prior_mu == 20 &&
+        isTRUE(all.equal(cfd$c_level_mu, qlogis(0.3))) && cfd$c_level_sd == 1.5 && cfd$c_walk_sd_prior == 1.5 && cfd$cfc_kappa_prior_mu == 20)
+  chk("dynamic: without typed contacts or OSP the combo walk is off (combo_dynamic = 0, CFC_n = 0)", cfd$combo_dynamic == 0L && cfd$CFC_n == 0)
   chk("dynamic: audit table attached with one row per stratum", is.data.frame(attr(cfd, "f_strata")) && nrow(attr(cfd, "f_strata")) == cfd$n_f_strata)
   chk("dynamic: rows outside the fit window are excluded",
       crab_fraction_stan_data(FALSE, days76, Pd, quiet = TRUE)$CFI_n == 0)
@@ -2237,13 +2239,19 @@ local({
   chk("PE point: strata after the last informed one carry its value", isTRUE(all.equal(unique(pd[lab == "2025-08"]), f_mar)))
   chk("PE point: no data at all -> the set value", isTRUE(all.equal(unique(crab_fraction_point_day(TRUE, days289, modifyList(Pd, list(crab_fraction_rows = NULL)))), 0.3)))
   # decoupled rules
-  sd_off <- list(apply_crab_fraction = 1L, crab_fraction_estimate = 1L, crab_fraction_dynamic = 0L, CFI_n = 0L, OSPF_n = 0L, osp_crab_lower = 0L)
+  sd_off <- list(apply_crab_fraction = 1L, crab_fraction_estimate = 1L, crab_fraction_dynamic = 0L, CFI_n = 0L, OSPF_n = 0L, osp_crab_lower = 0L, combo_dynamic = 0L, CFC_n = 0L)
   r_off <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "combo_c_out", "f_crab[1]"), sd_off)
   chk("decoupled: walk off -> its scale parameters are 'not in the model', f_crab is not flagged", all(!is.na(r_off[1:3])) && is.na(r_off[4]))
   sd_on <- modifyList(sd_off, list(crab_fraction_dynamic = 1L, CFI_n = 12L))
   r_on <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "combo_c_out", "f_crab[1]"), sd_on)
-  chk("decoupled: walk live with contacts -> sigma_f and kappa_I are estimates; combo_c not in the model without OSP",
+  chk("decoupled: walk live with contacts -> sigma_f and kappa_I are estimates; combo_c not in the model without typed contacts or OSP",
       is.na(r_on[1]) && is.na(r_on[2]) && !is.na(r_on[3]) && is.na(r_on[4]))
+  sd_c <- modifyList(sd_on, list(combo_dynamic = 1L, CFC_n = 9L))
+  r_c <- bss_decoupled_reasons(c("combo_c_out[1]", "sigma_c_out", "cfc_kappa_out", "f_lower[1]"), sd_c)
+  chk("decoupled: combo walk live with typed contacts -> c, sigma_c, kappa_C and f_lower are estimates", all(is.na(r_c)))
+  sd_c0 <- modifyList(sd_on, list(combo_dynamic = 1L, CFC_n = 0L, osp_crab_lower = 1L, OSPF_n = 0L))
+  chk("decoupled: combo walk live with no typed day and no OSP day -> prior only",
+      all(!is.na(bss_decoupled_reasons(c("combo_c_out[1]", "sigma_c_out", "f_lower[1]"), sd_c0))))
   sd_bare <- modifyList(sd_on, list(CFI_n = 0L))
   r_bare <- bss_decoupled_reasons(c("sigma_f_out", "cfi_kappa_out", "f_crab[1]"), sd_bare)
   chk("decoupled: walk live with NO rows -> sigma_f, kappa_I and f are prior-only", all(!is.na(r_bare)))
@@ -2252,11 +2260,13 @@ local({
     nm <- bss_stan_data_names(m)
     chk(sprintf("%s declares the dynamic-f data block", basename(m)),
         all(c("crab_fraction_dynamic", "f_walk_prev", "f_walk_gap", "f_level_mu", "f_level_sd", "f_walk_sd_prior", "f_walk_df",
-              "CFI_n", "cfi_stratum", "cfi_total", "cfi_crab", "cfi_kappa_prior_mu", "combo_a", "combo_b") %in% nm))
+              "CFI_n", "cfi_stratum", "cfi_total", "cfi_crab", "cfi_kappa_prior_mu",
+              "combo_dynamic", "c_level_mu", "c_level_sd", "c_walk_sd_prior", "CFC_n", "cfc_stratum", "cfc_crab", "cfc_combo", "cfc_kappa_prior_mu") %in% nm))
     src <- paste(readLines(m, warn = FALSE), collapse = "\n")
     chk(sprintf("%s keeps the legacy construction gated on crab_fraction_dynamic = 0", basename(m)),
         grepl("n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic)", src, fixed = TRUE) &&
-          grepl("sigma_f_out", src, fixed = TRUE) && grepl("combo_c_out", src, fixed = TRUE))
+          grepl("sigma_f_out", src, fixed = TRUE) && grepl("combo_c_out", src, fixed = TRUE) &&
+          grepl("int n_c_dyn = n_f_dyn * combo_dynamic", src, fixed = TRUE) && grepl("sigma_c_out", src, fixed = TRUE))
     chk(sprintf("%s: f still enters generated quantities only (no f_crab in an effort or catch likelihood)", basename(m)),
         !grepl("neg_binomial_2\\([^;]*f_crab", src) && !grepl("lognormal\\([^;]*f_crab", src))
   }
@@ -2266,12 +2276,13 @@ local({
         any(grepl("sigma_f_out", d, fixed = TRUE)) && any(grepl("combo_c_out", d, fixed = TRUE)) && any(grepl("crab_fraction_strata_", d, fixed = TRUE)))
   }
   chk("structural summary lists the dynamic-f reporters",
-      all(c("sigma_f_out", "cfi_kappa_out", "combo_c_out") %in% {
+      all(c("sigma_f_out", "cfi_kappa_out", "combo_c_out", "sigma_c_out", "cfc_kappa_out") %in% {
         b <- body(bss_structural_summary); s <- paste(deparse(b), collapse = " "); unlist(regmatches(s, gregexpr("[a-z_]+_out", s))) }))
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
   chk("shipped: the dynamic-f priors exist with the documented values",
       identical(rc$crab_fraction_level_sd, 1.5) && identical(rc$crab_fraction_walk_sd_prior, 1.5) && identical(rc$crab_fraction_walk_df, 4) &&
-        identical(rc$crab_fraction_combo_c_prior, c(2, 3)) && identical(rc$crab_fraction_pe_prior_kappa, 1))
+        identical(rc$crab_fraction_combo_level, 0.3) && identical(rc$crab_fraction_combo_level_sd, 1.5) &&
+        identical(rc$crab_fraction_combo_walk_sd_prior, 1.5) && identical(rc$crab_fraction_pe_prior_kappa, 1))
 })
 
 # 52b. The prior-vs-posterior table carries the walk's scale parameters when the walk is
@@ -2279,9 +2290,10 @@ local({
 #      exactly as tau_bar[1] is, because both are length-1 vectors.
 local({
   t <- paste(readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE), collapse = "\n")
-  chk("prior_vs_posterior: sigma_f[1] / cfi_kappa[1] / combo_c[1] rows are added under a live dynamic f, index-named",
+  chk("prior_vs_posterior: sigma_f[1] / cfi_kappa[1] / sigma_c[1] / cfc_kappa[1] rows are added under a live walk, index-named",
       grepl("prior_tbl$`sigma_f[1]`", t, fixed = TRUE) && grepl("prior_tbl$`cfi_kappa[1]`", t, fixed = TRUE) &&
-        grepl("prior_tbl$`combo_c[1]`", t, fixed = TRUE) && grepl("sd_p$crab_fraction_dynamic", t, fixed = TRUE))
+        grepl("prior_tbl$`sigma_c[1]`", t, fixed = TRUE) && grepl("prior_tbl$`cfc_kappa[1]`", t, fixed = TRUE) &&
+        grepl("sd_p$crab_fraction_dynamic", t, fixed = TRUE) && grepl("sd_p$combo_dynamic", t, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------
@@ -2392,6 +2404,126 @@ local({
   chk("fit_agreement: a moved parameter that is NOT excluded fails the test", identical(r2$verdict, "FAIL") && max(r2$z) > 100)
   chk("fit_agreement: missing folder -> REVIEW, not an error", identical(fit_agreement(tempfile(), da)$verdict, "REVIEW"))
   unlink(c(da, db), recursive = TRUE)
+})
+
+# ---------------------------------------------------------------------------
+# 55. Trip types (2026-09-09). The interview workbook is rebuilt from the raw export by
+#     04_input_files/build_interview_combined.R and carries trip_type / trip_type_class /
+#     creel_area / interview_time; the contact builder reads the trip type where it
+#     exists (falls back to crabbers > 0), restricts to the launch sites, and counts the
+#     combos that observe the combo-trip share c; the Stan data carry the per-day combo
+#     rows and the c walk's priors.
+# ---------------------------------------------------------------------------
+local({
+  # the builder's classifier, pure
+  e <- new.env()
+  src <- readLines("04_input_files/build_interview_combined.R", warn = FALSE)
+  i1 <- grep("^trip_type_class <- function", src)[1]; i2 <- i1 + which(src[i1:length(src)] == "}")[1] - 1L
+  eval(parse(text = src[i1:i2]), envir = e)
+  cls <- e$trip_type_class(c("Crab Only", "Salmon & Crab", "Bottomfish & Crab", "Halibut & Crab", "Tuna & Crab", "Finfish Only", "Non Fishing Trip", NA, "", "Kayak"))
+  chk("trip types: the export labels map to crab_only / combo / other_fishery / non_fishing, blanks to NA, unknowns flagged",
+      identical(cls, c("crab_only", "combo", "combo", "combo", "combo", "other_fishery", "non_fishing", NA, NA, "unclassified")))
+  # the rebuilt workbook
+  wb <- "04_input_files/interview_combined.xlsx"
+  chk("workbook: interview_combined.xlsx carries the 17 legacy columns plus trip_type, trip_type_class, creel_area, interview_time", {
+    nm <- names(readxl::read_excel(wb, sheet = "data", n_max = 2))
+    all(c("season","creel_location","date","survey_id","interview_num","crabbing_mode","boat_type","crabbers","gear_type","number_of_gear",
+          "dungeness_kept","red_rock_kept","hours_fished","crabber_hours","gear_hours","completed_trip","gear_tampered",
+          "trip_type","trip_type_class","creel_area","interview_time") %in% nm) })
+  chk("workbook: the raw export and both builders are in the repository",
+      file.exists("04_input_files/raw/interviewdata20222026.xlsx") && file.exists("04_input_files/raw/surveydata20222026.xlsx") &&
+        file.exists("04_input_files/build_interview_combined.R") && file.exists("04_input_files/build_sampler_shifts.R"))
+  # the contact builder on a synthetic frame with trip types and areas
+  source("03_R_functions/fetch_crab_data.R")
+  fr <- tibble(population = rep("private_boat", 8),
+               event_date = as.Date(c(rep("2025-08-01", 5), rep("2025-08-02", 3))),
+               creel_area = c(rep("Westport Boat Launch", 4), "Westport Marina", rep("Westport Boat Launch", 3)),
+               crabbers   = c(2, 0, 3, 0, 2,   1, 0, NA),
+               trip_type_class = c("combo", "other_fishery", "crab_only", "non_fishing", "crab_only",   "crab_only", "non_fishing", NA),
+               interview_time = c("10:30", "11:00", "11:15", "12:00", "12:30", "09:50", "10:10", "13:00"),
+               survey_id = "S1")
+  Pa <- list(boat_launch_areas = c("Westport Boat Launch", "Ocean Shores Boat Launch"))
+  bc <- boat_contacts_from_interviews(fr, Pa)
+  d1 <- bc[bc$event_date == as.Date("2025-08-01"), ]; d2 <- bc[bc$event_date == as.Date("2025-08-02"), ]
+  chk("contacts: the marina row is excluded by default (launch sites only), crabbing = crab_only + combo, combos counted",
+      d1$boats_total == 4 && d1$boats_crabbing == 2 && d1$boats_combo == 1 && d1$boats_crab_only == 1 && d1$boats_other == 1 && d1$boats_nonfishing == 1 && d1$boats_typed == 4)
+  chk("contacts: an untyped row with NA crabbers is unclassified and counts nowhere", d2$boats_total == 2 && d2$boats_crabbing == 1 && d2$boats_typed == 2)
+  chk("contacts: crab_fraction_contact_areas = 'all' keeps every private-boat row", boat_contacts_from_interviews(fr, list(crab_fraction_contact_areas = "all"))$boats_total[1] == 5)
+  chk("contacts: without a trip-type column the crabbers > 0 rule applies and combos are unknown (0 typed)",
+      { b0 <- boat_contacts_from_interviews(fr |> select(-trip_type_class), Pa); b0$boats_crabbing[1] == 2 && b0$boats_typed[1] == 0 })
+  det <- boat_contact_detail(fr)
+  chk("contact detail: one row per private boat with the contact hour parsed", nrow(det) == 8 && isTRUE(all.equal(det$contact_hour[1], 10.5)))
+  # the combo rows reach the Stan data and the c walk switches on
+  dwg <- list(boat_contacts = bc)
+  rows <- crab_fraction_source_rows(dwg, tibble(x = 1), list(crab_fraction_source = "interviews"), quiet = TRUE)
+  chk("source rows carry the typed counts", all(c("boats_typed", "boats_crab_only", "boats_combo") %in% names(rows)) && sum(rows$boats_combo) == 1)
+  Pd <- modifyList(P, list(crab_fraction_strata = "month", crab_fraction_dynamic = TRUE, use_osp_crab_lower = FALSE))
+  Pd$crab_fraction_rows <- rows
+  cf <- crab_fraction_stan_data(FALSE, mkdays("2025-08-01", 31), Pd, quiet = TRUE)
+  chk("dynamic + typed contacts: combo_dynamic = 1, one CFC row per day with crabbing boats, combo <= crabbing",
+      cf$combo_dynamic == 1L && cf$CFC_n == 2 && sum(cf$cfc_crab) == 3 && sum(cf$cfc_combo) == 1 && all(cf$cfc_combo <= cf$cfc_crab))
+  chk("dynamic + typed contacts: the audit table carries the typed counts", all(c("typed_days", "typed_crabbing", "typed_combo") %in% names(attr(cf, "f_strata"))) && attr(cf, "f_strata")$typed_combo[1] == 1)
+  chk("dynamic + typed contacts: a day with typed boats but no crabbing boat carries no combo row",
+      { r2 <- rows; r2$boats_crab_only <- 0; r2$boats_combo <- 0; Pd2 <- Pd; Pd2$crab_fraction_rows <- r2
+        crab_fraction_stan_data(FALSE, mkdays("2025-08-01", 31), Pd2, quiet = TRUE)$CFC_n == 0 })
+  chk("legacy (key absent): the combo fields are present and inert", crab_fraction_stan_data(FALSE, mkdays("2025-08-01", 31), modifyList(Pd, list(crab_fraction_dynamic = NULL)), quiet = TRUE)$combo_dynamic == 0L)
+  for (m in c("02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan")) {
+    src <- paste(readLines(m, warn = FALSE), collapse = "\n")
+    chk(sprintf("%s: the OSP stream reads f x (1 - c[k]) and the combo rows are beta-binomial on the typed crabbing boats", basename(m)),
+        grepl("f_crab[osp_f_stratum[i]] * (1 - combo_c[osp_f_stratum[i]])", src, fixed = TRUE) &&
+          grepl("cfc_combo[i] ~ beta_binomial(cfc_crab[i]", src, fixed = TRUE) && !grepl("combo_a", src, fixed = TRUE))
+  }
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: reports the combo walk and writes c and f(1-c) into the strata file; runs the shift diagnostic", basename(drv)),
+        any(grepl("sigma_c_out", d, fixed = TRUE)) && any(grepl("crab_only_share_median", d, fixed = TRUE)) &&
+          any(grepl("diagnose_shift_coverage(sampler_shifts, ie_data, dwg$boat_contacts_detail", d, fixed = TRUE)))
+  }
+  e2 <- new.env(); sys.source("run_config.R", envir = e2); rc <- e2$run_config
+  chk("shipped: the combo walk priors and the launch-site restriction exist; no shift weighting yet",
+      identical(rc$crab_fraction_combo_level, 0.3) && is.null(rc$crab_fraction_contact_areas) && identical(rc$crab_fraction_shift_weighting, "none"))
+})
+
+# ---------------------------------------------------------------------------
+# 56. Sampler shifts (2026-09-09): the formatted workbook, its reader, and the shift
+#     coverage diagnostic on synthetic inputs.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/sampler_shifts.R")
+  wb <- "04_input_files/sampler_shifts.xlsx"
+  chk("shifts workbook: present with the documented columns", file.exists(wb) && {
+    nm <- names(readxl::read_excel(wb, sheet = "data", n_max = 2))
+    all(c("survey_id","survey_num","season","date","day_of_week","holiday","creel_location","samplers","special_conditions",
+          "check_in","check_out","check_in_hour","check_out_hour","shift_hours","qc_flag","notes") %in% nm) })
+  sh <- readxl::read_excel(wb, sheet = "data")
+  chk("shifts workbook: survey ids link to the interview workbook's survey_id ('S<n>'), dates are ISO text, flagged rows keep NA hours",
+      all(grepl("^S[0-9]+$", sh$survey_id[!is.na(sh$survey_id)])) && all(grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", sh$date)) &&
+        all(is.na(sh$shift_hours[nzchar(sh$qc_flag) & !is.na(sh$qc_flag)])))
+  # the reader's window filter and the union / coverage arithmetic
+  Ps <- list(gh_creel_location = "Grays Harbor", season_filter = "2024-25", est_date_start = "2024-09-16", est_date_end = "2025-09-15")
+  got <- fetch_sampler_shifts(Ps, quiet = TRUE)
+  chk("shifts reader: Grays Harbor 2024-25 window has ~200 shift days at about 09:45-15:50",
+      n_distinct(got$event_date) >= 150 && abs(median(got$check_in_hour, na.rm = TRUE) - 9.75) < 0.5 && abs(median(got$check_out_hour, na.rm = TRUE) - 15.8) < 0.5)
+  u <- .shift_union(c(9, 12, 15), c(11, 13, 16))
+  chk("shift union: overlapping windows merge, disjoint ones stay separate", nrow(u) == 3 && isTRUE(all.equal(.hours_covered(u), 2 + 1 + 1)))
+  u2 <- .shift_union(c(9, 10), c(12, 14))
+  chk("shift union: nested / overlapping windows form one interval", nrow(u2) == 1 && isTRUE(all.equal(u2[1, ], c(9, 14))))
+  chk("share inside: a return profile is apportioned by the windows", isTRUE(all.equal(.share_inside(c(8, 10, 13, 17), c(1, 1, 1, 1), u2), 0.5)))
+  # a synthetic diagnostic run
+  ie <- tibble(x = 1)
+  attr(ie, "ie_boat_intervals") <- tibble(event_date = as.Date("2025-05-01"), season = "2024-25", day_type = "weekday", location_name = "WBL",
+                                          hour = c(8, 10, 12, 14, 16, 18), boats_in = c(5, 3, 1, 0, 0, 0), boats_out = c(0, 1, 3, 3, 2, 1))
+  shifts <- tibble(survey_id = c("S1", "S2"), event_date = as.Date(c("2025-05-01", "2025-05-02")), check_in_hour = c(9.5, 9.75),
+                   check_out_hour = c(15.5, 16), shift_hours = c(6, 6.25), qc_flag = c("", ""), creel_location = "Grays Harbor")
+  det <- tibble(event_date = as.Date(c("2025-05-01", "2025-05-01", "2025-05-02")), creel_area = "Westport Boat Launch", survey_id = c("S1", "S1", "S2"),
+                trip_type_class = c("crab_only", "other_fishery", "combo"), crabbers = c(2, 0, 3), contact_hour = c(10, 14, 17))
+  sc <- diagnose_shift_coverage(shifts, ie, det, list(ie_boat_location = "WBL", shift_coverage_ie_min_days = 1), output_dir = NULL, quiet = TRUE)
+  chk("shift coverage: per-day rows, the return share inside the shift, and the contact-hour table",
+      nrow(sc$by_day) == 2 && isTRUE(all.equal(sc$by_day$return_share_covered[1], (1 + 3 + 3) / 10)) &&
+        !is.null(sc$contact_hours) && sum(sc$contact_hours$contacts) == 3 && sum(sc$contact_hours$inside_shift) == 2)
+  chk("shift coverage: falls back to pooled sites when the WBL series is thin, and says so",
+      grepl("pooled", diagnose_shift_coverage(shifts, ie, det, list(ie_boat_location = "WBL", shift_coverage_ie_min_days = 5), quiet = TRUE)$summary$return_profile_source))
+  chk("shift coverage: no shifts -> NULL, no error", is.null(diagnose_shift_coverage(NULL, ie, det, list(), quiet = TRUE)))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

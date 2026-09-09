@@ -111,8 +111,10 @@
 #     z ~ N(0,1) or Student-t(crab_fraction_walk_df),  sigma_f ~ half-normal(walk_sd_prior)
 #
 #     sampler contacts, per day i:   crab_i ~ BetaBinomial(total_i, f[k(i)], kappa_I)
-#     OSP crabbing-only, per day j:  osp_crab_j ~ BetaBinomial(osp_total_j, f[k(j)] (1 - c), kappa_O)
-#     c ~ Beta(combo_a, combo_b)     the combo-trip share among crabbing boats
+#     typed contacts, per day i:     combo_i ~ BetaBinomial(crabbing_i, c[k(i)], kappa_C)   (2026-09-09)
+#     OSP crabbing-only, per day j:  osp_crab_j ~ BetaBinomial(osp_total_j, f[k(j)] (1 - c[k(j)]), kappa_O)
+#     logit c[k]: the same random walk as f (own step SD sigma_c), the combo-trip share
+#                 among crabbing boats, per stratum
 #
 # For the undergraduate reader: a random walk on the log-odds says "this month's crabbing
 # share is probably close to last month's", which lets a month with five contacts borrow
@@ -122,8 +124,10 @@
 # (weather and which other fisheries are open move all of them together). The two streams
 # measure different things: a combo trip is CRABBING to the sampler (crab gear seen) and
 # NOT crabbing to OSP (labelled by the other fishery), so the contacts observe f and OSP
-# observes f(1 - c); c is identified only where both streams cover the same stratum and
-# otherwise rests on its prior, which makes the OSP stream a soft lower bound on f.
+# observes f(1 - c). 2026-09-09: the contacts now carry each boat's TRIP TYPE, so c is
+# observed directly (combo of the typed crabbing boats, per day) and gets its own walk;
+# OSP's column, when it arrives, becomes a check of the shift-time contacts against an
+# all-day count rather than the only thing that could identify anything.
 #
 # THE WALK ORDER. Strata are sorted labels; "month" labels are YYYY-MM (chronological).
 # f_walk_prev[k] is the index of the stratum k steps from (0 = anchored on the level
@@ -145,7 +149,12 @@
 #                                           logit steps have RMS ~1.5, some of it noise)
 #   crab_fraction_walk_df             4     Student-t df of the steps (<= 0: Gaussian)
 #   crab_fraction_contact_kappa_prior_mu 20 lognormal centre of kappa_I (log-SD 0.75)
-#   crab_fraction_combo_c_prior       c(2, 3)  Beta(a, b) on c (mean 0.4, 95% 0.07-0.81)
+#   crab_fraction_combo_level         0.3   centre of the level prior on an anchored stratum's c
+#   crab_fraction_combo_level_sd      1.5   its logit SD (weak)
+#   crab_fraction_combo_walk_sd_prior 1.5   half-normal scale of sigma_c
+#   crab_fraction_combo_kappa_prior_mu 20   lognormal centre of kappa_C (log-SD 0.75)
+#   crab_fraction_contact_areas       NULL  = boat_launch_areas; "all" for every private-boat
+#                                           interview (the reader applies it, fetch_crab_data.R)
 #   crab_fraction_pe_prior_kappa      1     Beta concentration of the PE's per-stratum
 #                                           shrinkage (one pseudo-contact at the set value)
 ###############################################################################
@@ -270,9 +279,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
 
   # The dynamic-f fields, inert-valued. Every return path carries them (Stan declares
   # them unconditionally, and bss_assert_stan_data() refuses a list that lacks one).
-  combo_ab <- as.numeric(params$crab_fraction_combo_c_prior %||% c(2, 3))
-  if (length(combo_ab) != 2 || any(!is.finite(combo_ab)) || any(combo_ab <= 0))
-    stop("params$crab_fraction_combo_c_prior must be two positive numbers (Beta a, b)", call. = FALSE)
+  c_level <- .clamp(params$crab_fraction_combo_level %||% 0.3)
   .dyn_inert <- function(K) list(
     crab_fraction_dynamic = 0L,
     f_walk_prev = as.array(rep(0L, K)), f_walk_gap = as.array(rep(1, K)),
@@ -282,7 +289,13 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     f_walk_df = as.numeric(params$crab_fraction_walk_df %||% 4),
     CFI_n = 0L, cfi_stratum = integer(0), cfi_total = integer(0), cfi_crab = integer(0),
     cfi_kappa_prior_mu = as.numeric(params$crab_fraction_contact_kappa_prior_mu %||% 20),
-    combo_a = combo_ab[1], combo_b = combo_ab[2])
+    # 2026-09-09: the combo-trip share c, a per-stratum walk observed from the trip types
+    combo_dynamic = 0L,
+    c_level_mu = stats::qlogis(c_level),
+    c_level_sd = as.numeric(params$crab_fraction_combo_level_sd %||% 1.5),
+    c_walk_sd_prior = as.numeric(params$crab_fraction_combo_walk_sd_prior %||% 1.5),
+    CFC_n = 0L, cfc_stratum = integer(0), cfc_crab = integer(0), cfc_combo = integer(0),
+    cfc_kappa_prior_mu = as.numeric(params$crab_fraction_combo_kappa_prior_mu %||% 20))
 
   neutral <- c(list(
     apply_crab_fraction = 0L, crab_fraction_estimate = 0L,
@@ -298,6 +311,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
   if (apply_cf == 0L) {
     attr(neutral, "f_strata") <- tibble(stratum = 1L, label = "all", walk_prev = 0L, walk_gap = 1,
                                         contact_days = 0L, contacts = 0L, contacts_crabbing = 0L,
+                                        typed_days = 0L, typed_crabbing = 0L, typed_combo = 0L,
                                         osp_days = 0L, osp_total = 0L, osp_crab_only = 0L)
     return(neutral)
   }
@@ -326,6 +340,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
       .dyn_inert(K))
     attr(out, "f_strata") <- tibble(stratum = seq_len(K), label = strata, walk_prev = 0L, walk_gap = 1,
                                     contact_days = 0L, contacts = 0L, contacts_crabbing = 0L,
+                                    typed_days = 0L, typed_crabbing = 0L, typed_combo = 0L,
                                     osp_days = 0L, osp_total = 0L, osp_crab_only = 0L)
     return(out)
   }
@@ -353,6 +368,11 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
   # separate rows when both exist: different protocols, different boats).
   cfi <- list(stratum = integer(0), total = integer(0), crab = integer(0))
   cfi_days <- rep(0L, K)
+  # 2026-09-09: PER-DAY combo rows for the combo-trip share c: the typed crabbing boats of
+  # a day and how many of them were combos (trip_type_class from the interview workbook).
+  # A day with typed contacts but no crabbing boat carries no information about c.
+  cfc <- list(stratum = integer(0), crab = integer(0), combo = integer(0))
+  cfc_days <- rep(0L, K); cfc_crab_k <- rep(0L, K); cfc_combo_k <- rep(0L, K)
   if (dyn_on) {
     rows <- params$crab_fraction_rows
     if (!is.null(rows) && is.data.frame(rows) && nrow(rows) &&
@@ -367,6 +387,19 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
           cfi$total   <- as.integer(round(tot[keep]))
           cfi$crab    <- pmin(as.integer(round(cr[keep])), cfi$total)
           cfi_days    <- as.integer(tabulate(cfi$stratum, nbins = K))
+        }
+        if (all(c("boats_crab_only", "boats_combo") %in% names(rows))) {
+          co  <- suppressWarnings(as.numeric(rows$boats_crab_only)); cb <- suppressWarnings(as.numeric(rows$boats_combo))
+          tc  <- co + cb
+          keepc <- !is.na(rk) & is.finite(tc) & tc > 0 & is.finite(cb) & cb >= 0
+          if (any(keepc)) {
+            cfc$stratum <- as.integer(rk[keepc])
+            cfc$crab    <- as.integer(round(tc[keepc]))
+            cfc$combo   <- pmin(as.integer(round(cb[keepc])), cfc$crab)
+            cfc_days    <- as.integer(tabulate(cfc$stratum, nbins = K))
+            cfc_crab_k  <- as.integer(vapply(seq_len(K), function(k) sum(cfc$crab[cfc$stratum == k]), numeric(1)))
+            cfc_combo_k <- as.integer(vapply(seq_len(K), function(k) sum(cfc$combo[cfc$stratum == k]), numeric(1)))
+          }
         }
       }
     }
@@ -430,6 +463,13 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     dyn$cfi_stratum <- as.integer(cfi$stratum)
     dyn$cfi_total   <- as.integer(cfi$total)
     dyn$cfi_crab    <- as.integer(cfi$crab)
+    # the combo-share walk is live whenever something observes c or f(1 - c): typed
+    # contacts, or the OSP crabbing-only stream (where c is then the soft bound's width)
+    dyn$combo_dynamic <- as.integer(length(cfc$stratum) > 0 || osp_flag == 1L)
+    dyn$CFC_n       <- length(cfc$stratum)
+    dyn$cfc_stratum <- as.integer(cfc$stratum)
+    dyn$cfc_crab    <- as.integer(cfc$crab)
+    dyn$cfc_combo   <- as.integer(cfc$combo)
     n_chains <- length(unique(walk$chain))
     .say(sprintf(paste0("  Crab fraction f (DYNAMIC, review item 1B): %d stratum/strata (%s) on %d walk chain(s);",
                         " %d contact days (%d boats, %d crabbing) enter per day; %d OSP crabbing-only days;",
@@ -441,9 +481,16 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
       sh <- ifelse(eg$n_total > 0, sprintf("%.2f (n=%d)", eg$n_crab / pmax(eg$n_total, 1), eg$n_total), "-")
       .say(sprintf("    contact share by stratum: %s\n", paste(sprintf("%s=%s", strata, sh), collapse = " ")))
     }
-    if (osp_flag == 1L && sum(cfi_days > 0 & osp_days > 0) == 0)
-      .say(paste0("    NOTE: no stratum carries BOTH streams, so the combo-trip share c rests on its",
-                  " prior and the OSP stream is a soft lower bound on f only.\n"))
+    if (dyn$CFC_n > 0) {
+      cs <- ifelse(cfc_crab_k > 0, sprintf("%.2f (n=%d)", cfc_combo_k / pmax(cfc_crab_k, 1), cfc_crab_k), "-")
+      .say(sprintf(paste0("    combo-trip share c (2026-09-09): %d typed contact days, %d crabbing boats, %d combos;",
+                          " per-stratum walk, level prior logit(%.2f) +/- %.2f, sigma_c ~ half-N(%.2f); by stratum: %s\n"),
+                   dyn$CFC_n, sum(cfc$crab), sum(cfc$combo), c_level, dyn$c_level_sd, dyn$c_walk_sd_prior,
+                   paste(sprintf("%s=%s", strata, cs), collapse = " ")))
+    } else if (osp_flag == 1L) {
+      .say(paste0("    NOTE: no typed contacts in this window, so the combo-trip share c rests on its",
+                  " walk prior and the OSP stream is a soft lower bound on f only.\n"))
+    }
     if (dyn$CFI_n == 0 && osp_flag == 0L)
       .say("    NOTE: no classification rows in this window; f is its prior walk.\n")
   } else {
@@ -483,6 +530,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     stratum = seq_len(K), label = strata,
     walk_prev = if (dyn_on) walk$prev else rep(0L, K), walk_gap = if (dyn_on) walk$gap else rep(1, K),
     contact_days = cfi_days, contacts = as.integer(eg$n_total), contacts_crabbing = as.integer(pmin(eg$n_crab, eg$n_total)),
+    typed_days = cfc_days, typed_crabbing = cfc_crab_k, typed_combo = cfc_combo_k,
     osp_days = osp_days, osp_total = as.integer(osp_nt), osp_crab_only = as.integer(osp_nc))
   out
 }
@@ -580,18 +628,24 @@ crab_fraction_source_rows <- function(dwg, ie_data, params, quiet = FALSE) {
   src <- tolower(params$crab_fraction_source %||% "both")
   if (!src %in% c("interviews", "ie", "both"))
     stop("params$crab_fraction_source must be interviews | ie | both (got '", src, "')", call. = FALSE)
-  empty <- tibble(event_date = as.Date(character()), boats_crabbing = numeric(), boats_total = numeric(), source = character())
+  empty <- tibble(event_date = as.Date(character()), boats_crabbing = numeric(), boats_total = numeric(), source = character(),
+                  boats_typed = numeric(), boats_crab_only = numeric(), boats_combo = numeric())
   from_int <- dwg$boat_contacts
   from_ie  <- attr(ie_data, "crab_fraction_rows")
+  .col <- function(df, nm) if (nm %in% names(df)) as.numeric(df[[nm]]) else rep(NA_real_, nrow(df))
   parts <- list()
   if (src %in% c("interviews", "both") && !is.null(from_int) && nrow(from_int))
     parts$interviews <- from_int |>
       transmute(event_date = as.Date(event_date), boats_crabbing = as.numeric(boats_crabbing),
-                boats_total = as.numeric(boats_total), source = "interviews")
+                boats_total = as.numeric(boats_total), source = "interviews",
+                # 2026-09-09: the trip-type counts behind the combo-trip share c (typed rows only)
+                boats_typed = .col(from_int, "boats_typed"), boats_crab_only = .col(from_int, "boats_crab_only"),
+                boats_combo = .col(from_int, "boats_combo"))
   if (src %in% c("ie", "both") && !is.null(from_ie) && is.data.frame(from_ie) && nrow(from_ie))
     parts$ie <- from_ie |>
       transmute(event_date = as.Date(event_date), boats_crabbing = as.numeric(boats_crabbing),
-                boats_total = as.numeric(boats_total), source = "ie") |>
+                boats_total = as.numeric(boats_total), source = "ie",
+                boats_typed = NA_real_, boats_crab_only = NA_real_, boats_combo = NA_real_) |>
       filter(is.finite(boats_total), boats_total > 0)
   rows <- if (length(parts)) bind_rows(parts) else empty
   if (!isTRUE(quiet)) {
@@ -601,6 +655,12 @@ crab_fraction_source_rows <- function(dwg, ie_data, params, quiet = FALSE) {
       cat(sprintf("  Crab-fraction classification rows (source = %s): %s\n", src,
                   paste(sprintf("%s %d days, %.0f boats, share %.3f", by_src$source, by_src$days,
                                 by_src$total, by_src$crab / pmax(by_src$total, 1)), collapse = "; ")))
+      if (any(is.finite(rows$boats_typed)) && sum(rows$boats_typed, na.rm = TRUE) > 0) {
+        bc <- rows |> filter(is.finite(boats_typed), boats_typed > 0) |> mutate(m = format(event_date, "%Y-%m")) |>
+          group_by(m) |> summarise(cr = sum(boats_crab_only + boats_combo), co = sum(boats_combo), .groups = "drop")
+        cat(sprintf("    combo share of crabbing boats (typed contacts): %d combo of %d crabbing; by month: %s\n",
+                    sum(bc$co), sum(bc$cr), paste(sprintf("%s %s", bc$m, ifelse(bc$cr > 0, sprintf("%.2f (n=%d)", bc$co / bc$cr, bc$cr), "-")), collapse = ", ")))
+      }
       bm <- rows |> mutate(m = format(event_date, "%Y-%m")) |> group_by(m) |>
         summarise(t = sum(boats_total), c = sum(boats_crabbing), .groups = "drop")
       cat("    by month:", paste(sprintf("%s %.2f (n=%.0f)", bm$m, bm$c / pmax(bm$t, 1), bm$t), collapse = ", "), "\n")

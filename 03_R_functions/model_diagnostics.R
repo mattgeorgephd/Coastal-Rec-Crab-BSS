@@ -66,6 +66,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   apply_f <- g("apply_crab_fraction", 0L); est_f <- g("crab_fraction_estimate", 0L)
   osp_lo  <- g("osp_crab_lower", 0L);      dens  <- g("estimate_cpue_density", 0L)
   dyn_f   <- g("crab_fraction_dynamic", 0L); cfi_n <- g("CFI_n", 0L); ospf_n <- g("OSPF_n", 0L)
+  combo_d <- g("combo_dynamic", 0L);         cfc_n <- g("CFC_n", 0L)
   w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
   h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
 
@@ -85,15 +86,18 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "apply_crab_fraction = 0 (shore, or the feature is off): f is pinned at 1")
   else if (est_f == 0) set(base == "f_crab",
     "crab_fraction_estimate = 0: f is pinned at crab_fraction_value")
-  if (osp_lo == 0) set(base == "f_lower",
+  # 2026-09-09: under a live combo-share walk f_lower is the IMPLIED crab-only share
+  # f(1 - c), an estimate whether or not OSP is in the model; the pinned-at-0 rule is for
+  # the legacy construction and for a dynamic f with no c.
+  if (osp_lo == 0 && !(apply_f == 1 && est_f == 1 && dyn_f == 1 && combo_d == 1)) set(base == "f_lower",
     "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
   # review item 1B (2026-09-08): the dynamic-f scale parameters are reported through
   # *_out quantities that print a hard 0.0 when the walk is not in the model (the same
   # theta_C_out hazard), and they report their PRIOR when the walk is live but no
   # classification row reaches it.
   dyn_live <- (apply_f == 1 && est_f == 1 && dyn_f == 1)
-  if (!dyn_live) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
-                                 "combo_c", "combo_c_out"),
+  c_pars <- c("combo_c", "combo_c_out", "sigma_c", "sigma_c_out", "cfc_kappa", "cfc_kappa_out")
+  if (!dyn_live) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out", c_pars),
     "crab_fraction_dynamic = 0 (or f pinned/off): the dynamic f is not in the model")
   else {
     if (cfi_n == 0) set(base %in% c("cfi_kappa", "cfi_kappa_out"),
@@ -103,10 +107,15 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
         "no classification rows in this fit (CFI_n = OSPF_n = 0); the walk SD is its prior")
       set(base == "f_crab", "no classification rows in this fit; f is its prior walk")
     }
-    if (osp_lo == 0) set(base %in% c("combo_c", "combo_c_out"),
-      "osp_crab_lower = 0: no OSP crabbing-only stream, combo_c is not in the model")
-    else if (ospf_n == 0) set(base %in% c("combo_c", "combo_c_out"),
-      "no OSP crabbing-only days in this fit (OSPF_n = 0); combo_c is its prior")
+    # 2026-09-09: the combo-trip share walk. Not in the model unless typed contacts or an
+    # OSP stream feed it; prior-only when it is live but no typed day reached it (the
+    # OSP-only case, where c is the soft bound's width) and f_lower is then prior-shaped.
+    if (combo_d == 0) set(base %in% c(c_pars, "f_lower"),
+      "combo_dynamic = 0: no typed contacts and no OSP stream, the combo-trip share is not in the model (f_lower reports 0)")
+    else if (cfc_n == 0) {
+      set(base %in% c_pars, "no typed contact days in this fit (CFC_n = 0); the combo-trip share is its walk prior")
+      if (ospf_n == 0) set(base == "f_lower", "no typed contacts and no OSP days: f(1 - c) rests on c's prior")
+    }
   }
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
@@ -138,7 +147,7 @@ bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
             "f_crab", "f_lower",
             # review item 1B (2026-09-08): the dynamic-f scale parameters (always-size-1
             # *_out copies; the parameters themselves are zero-size when the walk is off).
-            "sigma_f_out", "cfi_kappa_out", "combo_c_out",
+            "sigma_f_out", "cfi_kappa_out", "combo_c_out", "sigma_c_out", "cfc_kappa_out",
             # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
             "tau_bar",
             # 2026-09-02: the zero-inflation probability, when the catch likelihood carries one.

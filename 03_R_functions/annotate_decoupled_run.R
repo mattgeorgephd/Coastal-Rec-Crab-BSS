@@ -153,13 +153,13 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
       # combo_c only with the OSP crabbing-only stream. Whether a live walk actually
       # received rows (CFI_n / OSPF_n) is window-dependent and not reconstructible here.
       if (!use_f || !dyn_f) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
-                                             "combo_c", "combo_c_out"),
+                                             "combo_c", "combo_c_out", "sigma_c", "sigma_c_out", "cfc_kappa", "cfc_kappa_out"),
         "crab_fraction_dynamic = FALSE (or f off): the dynamic f is not in the model")
-      else if (!osp_lo) set(base %in% c("combo_c", "combo_c_out"),
-        "use_osp_crab_lower = FALSE: no OSP crabbing-only stream, combo_c is not in the model")
+      # 2026-09-09: whether the combo-trip share walk was live (typed contacts or an OSP
+      # stream in the window) is window-dependent and not reconstructible here.
     }
     if (is_shore) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out",
-                                  "combo_c", "combo_c_out"),
+                                  "combo_c", "combo_c_out", "sigma_c", "sigma_c_out", "cfc_kappa", "cfc_kappa_out"),
       "shore fit: apply_crab_fraction = 0, the dynamic f is not in the model")
     if (!dens) set(base == "gamma_C", "estimate_cpue_density = FALSE: the density term is inert")
     if (identical(op_mode, "off")) set(base == "B_open",
@@ -170,7 +170,8 @@ annotate_decoupled_run <- function(dir, overwrite = FALSE, quiet = FALSE) {
     unknown[base %in% c("B1", "B2", "B1_C", "B2_C")] <- is.na(reason[base %in% c("B1","B2","B1_C","B2_C")])
     # review item 1B: a live walk's scale parameters are prior-only when no classification
     # row fell in the fit's window (CFI_n / OSPF_n), which the folder does not record.
-    .dynp <- base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out", "combo_c", "combo_c_out")
+    .dynp <- base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out", "combo_c", "combo_c_out",
+                         "sigma_c", "sigma_c_out", "cfc_kappa", "cfc_kappa_out")
     unknown[.dynp] <- is.na(reason[.dynp])
 
     rows[[length(rows) + 1]] <- data.frame(
