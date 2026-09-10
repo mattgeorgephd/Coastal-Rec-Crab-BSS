@@ -48,6 +48,13 @@
 # 3,869 crab lower by design (11,821 -> 7,884 on 2024-25) and the tampered-gear filter
 # live (13 Grays Harbor interviews of 2024-25); read the R1 verdict with that in mind.
 #
+# 2026-09-11: the census component is now a commercial CENSUS plus a charter EXPANSION
+# (R1 and R2 keep the pre-patch tally frame, R4 the shipped roster frame: 7,884 -> 8,538
+# on 2024-25), and the crabbing-holiday calendar gained Thanksgiving Day, Veterans Day
+# (observed) and Juneteenth, which re-types three days of every season. Neither is a
+# fitted-component change, but both move the PE, so R0 records them and the R1 verdict
+# compares the FITTED components only.
+#
 # WHAT EACH RUNG MUST SHOW (verdict rows, written to 05_output/improvements_2026-09-08_verdicts.csv)
 #   R1   shore fits within a few percent of the baseline (item 8 adds ~140 shore rows),
 #        boat CPUE a few percent lower (22 zero-catch trips restored); nothing else moved.
@@ -179,15 +186,25 @@ WINDOW <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", seaso
                pot_closures = NULL, census_windows = NULL, run_weather = FALSE)
 D_R1  <- list(tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3, shared_tau_sigma = NULL,
               crab_fraction_strata = "none", crab_fraction_source = "ie", crab_fraction_dynamic = FALSE,
-              tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, census_uncertainty = "none")
+              tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, census_uncertainty = "none",
+              # the pre-patch census: the whole component on the tally frame, nothing carried
+              charter_frame = "tally", charter_expansion = "pooled")
 D_R2  <- modifyList(D_R1,  list(tau_boat_prior_mu = "calibration", tau_boat_prior_sigma = 0.5, shared_tau_sigma = 0.15))
 D_R3a <- modifyList(D_R2,  list(crab_fraction_strata = "month", crab_fraction_source = "both"))
 D_R3  <- modifyList(D_R3a, list(crab_fraction_dynamic = TRUE))
-D_R4  <- modifyList(D_R3,  list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived"))
+# R4 is the shipped configuration: the derived shore turnover AND the 2026-09-11 census
+# split (the commercial census exact, the charter expanded over the roster trip frame with
+# its variance carried). The census is a PE-side quantity, so it does not disturb the
+# fitted comparison between R3 and R4; it is here so R4 == run_config.
+D_R4  <- modifyList(D_R3,  list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived",
+                                census_uncertainty = "charter", charter_frame = "roster", charter_expansion = "vessel"))
 
 STAGE_DEFS <- list(
-  R0  = list(id = "R0",  model = "desk",   tag = "IMP-R0-desk",        delta = D_R3,
-             headline = "desk: PE on the calibration turnover, gear bootstrap, census split, the f data"),
+  # R0 reads the SHIPPED configuration (D_R4) so the desk rows describe what production
+  # does, not what the R3 rung did: since 2026-09-11 that includes the census split (the
+  # commercial census plus the charter expansion over the roster trip frame).
+  R0  = list(id = "R0",  model = "desk",   tag = "IMP-R0-desk",        delta = D_R4,
+             headline = "desk: PE on the calibration turnover, gear bootstrap, the census split, the f data, the holidays"),
   R1  = list(id = "R1",  model = "pooled", tag = "IMP-R1-filters",     delta = D_R1,
              headline = "pre-patch configuration + item 8 (unit-aware fishing-time filters)"),
   R2  = list(id = "R2",  model = "pooled", tag = "IMP-R2-tau-calib",   delta = D_R2,
@@ -233,8 +250,11 @@ preflight <- function() {
         identical(BASE$crab_fraction_strata, "month") && identical(BASE$crab_fraction_source, "both") &&
         identical(BASE$tau_shore_prior_mu, "derived"),
       "run_config ships the R4 configuration (calibration turnover, dynamic monthly f from both sources, derived shore turnover)")
-  say(identical(BASE$census_uncertainty, "none") && identical(BASE$census_expansion, "none"),
-      "the census is exact over the tally days and stays a constant (census_expansion none, census_uncertainty none)")
+  say(identical(BASE$census_expansion, "none") && identical(BASE$census_uncertainty, "charter") &&
+        identical(BASE$charter_frame, "roster") && identical(BASE$charter_expansion, "vessel"),
+      paste("the commercial census is exact over the tally days and carries no error, and the charter part is an",
+            "expansion whose SE enters the port interval (census_expansion none, census_uncertainty charter,",
+            "charter_frame roster, charter_expansion vessel)"))
   say(is.null(BASE$ar_force) && !isTRUE(BASE$ar_escalate),
       "no experiment lever is active: ar_force NULL and ar_escalate off")
   for (m in c("crab_bss_pooled.stan", "crab_bss_gear_resolved.stan")) {
@@ -328,20 +348,44 @@ desk_R0 <- function() {
     cc <- q(estimate_comm_charter(dwg, p))
     utils::write.csv(cc$daily_full, file.path(out, "census_daily.csv"), row.names = FALSE)
     utils::write.csv(cc$variance_detail, file.path(out, "census_variance.csv"), row.names = FALSE)
-    cc_tally <- q(estimate_comm_charter(dwg, modifyList(p, list(charter_frame = "tally"))))
-    V1row("R0", "the census is the exact sum over the tally days; unsampled days had no operation (item 4, settled 2026-09-09); the charter roster is the charter frame (2026-09-10)",
-          sprintf(paste0("census_expansion = '%s': %s crab observed on %d tally days; %d unsampled calendar days %s; SE %s (%.1f%%, the per-vessel mean); ",
-                         "total %s with charter_frame = '%s' (%s crab on %d charter-roster days without a tally; %s under the tally frame; baseline %s under the day-type expansion)"),
-                  cc$census_expansion %||% "none", fmt(cc$observed_dung, 0), sum(cc$daily_full$observed),
-                  sum(!cc$daily_full$observed), if (identical(cc$census_expansion, "none")) "at zero" else sprintf("imputed at %s", fmt(cc$imputed_dung, 0)),
-                  fmt(cc$Dungeness_Kept_se, 0), 100 * cc$Dungeness_Kept_se / max(cc$Dungeness_Kept, 1), fmt(cc$Dungeness_Kept, 0),
-                  cc$charter_frame %||% "tally", fmt(cc$charter_roster_dung %||% 0, 0), cc$n_roster_only_days %||% 0L, fmt(cc_tally$Dungeness_Kept, 0), fmt(REF$A1$census, 0)),
-          "the total is the tally-day sum; the SE stays out of the port interval under census_uncertainty = none",
-          if (identical(cc$census_expansion, "none") && isTRUE(all.equal(cc$imputed_dung, 0))) "PASS" else "REVIEW",
-          paste("Samplers are scheduled on the days the charter and commercial (recreational) vessels are",
-                "confirmed to be operating, so a window day without a tally is a day with no fishing, not a",
-                "missed count. The 2026-09-08 day-type expansion (11,753 on 2024-25) filled those days with",
-                "the sampled days' mean and is kept as census_expansion = 'day_type' for reproduction only."))
+    cc_tally <- q(estimate_comm_charter(dwg, modifyList(p, list(charter_frame = "tally", charter_expansion = "pooled"))))
+    cc_pool  <- q(estimate_comm_charter(dwg, modifyList(p, list(charter_expansion = "pooled"))))
+    V1row("R0", "the commercial CENSUS and the charter EXPANSION, separated (item 4, settled 2026-09-09; the charter corrected 2026-09-11)",
+          sprintf(paste0("total %s = commercial %s (census, census_expansion = '%s': %.0f vessel-trips on %d tally days, %d unsampled calendar days %s; ",
+                         "per-vessel mean over %d interviews, SE %s = %.1f%%, not carried) + charter %s (expansion over the %s trip frame, %s: %.0f trips, ",
+                         "%d interviewed = %.0f%%, %s crab observed, SE %s = %.1f%%, CARRIED). Charter alternatives: %s pooled, %s on the tally frame. ",
+                         "Baseline %s under the 2026-09-08 day-type expansion of the whole component."),
+                  fmt(cc$Dungeness_Kept, 0), fmt(cc$commercial_dung, 0), cc$census_expansion %||% "none", cc$commercial_vessels,
+                  sum(cc$daily_full$observed), sum(!cc$daily_full$observed),
+                  if (identical(cc$census_expansion, "none")) "at zero" else sprintf("imputed at %s", fmt(cc$imputed_dung, 0)),
+                  cc$commercial_interviews %||% NA_integer_,
+                  fmt(cc$commercial_se, 0), 100 * cc$commercial_se / max(cc$commercial_dung, 1),
+                  fmt(cc$charter_dung, 0), cc$charter_frame %||% "tally", cc$charter_expansion %||% "pooled", cc$charter_trips,
+                  cc$charter_interviews, 100 * (cc$charter_sampled_frac %||% NA_real_), fmt(cc$charter_observed_dung, 0),
+                  fmt(cc$charter_se, 0), 100 * cc$charter_se / max(cc$charter_dung, 1),
+                  fmt(cc_pool$charter_dung, 0), fmt(cc_tally$charter_dung, 0), fmt(REF$A1$census, 0)),
+          "the commercial part is the tally-day sum with no carried error; the charter part is an expansion whose SE enters the port interval",
+          if (identical(cc$census_expansion, "none") && isTRUE(all.equal(cc$imputed_dung, 0)) &&
+              identical(cc$census_uncertainty, "charter") && (cc$charter_se %||% 0) > 0) "PASS" else "REVIEW",
+          paste("Matt 2026-09-09: samplers are scheduled on the days the commercial (recreational) vessels are",
+                "confirmed to be operating, so a window day without a tally is a day with no commercial fishing.",
+                "Matt 2026-09-11: that census-without-error statement applies to the COMMERCIAL boats only; the",
+                "charter vessels are not 100% sampled and need expansion. The charter trip roster is the frame,",
+                "and on 2024-25 a quarter of its sailed trips fell on days the tally never saw."))
+    .cal <- seq(as.Date(p$est_date_start), as.Date(p$est_date_end), by = "day")
+    .hol <- .cal %in% p$crabbing_holiday_dates
+    .wke <- weekdays(.cal) %in% p$days_wkend
+    V1row("R0", "the crabbing-holiday calendar gained Thanksgiving Day, Veterans Day (observed) and Juneteenth (2026-09-11)",
+          sprintf("%d holiday(s) in the window, %d of them on a weekday (so they re-type a day); day types: %d weekday, %d weekend, %d holiday of %d",
+                  sum(.hol), sum(.hol & !.wke), sum(!.hol & !.wke), sum(!.hol & .wke), sum(.hol), length(.cal)),
+          "three more days per season carry the weekend + holiday effort effects (B1 + B2) in the BSS",
+          "READ",
+          paste("The three were added on the samplers' own Holiday? flag and the Float 20 gear count against the",
+                "same month's weekday mean (Thanksgiving 2.4x, Veterans Day observed 2.3x, Juneteenth 1.7-2.3x).",
+                "In the PE, an unsampled holiday in a week with no other sampled holiday lands in an EMPTY",
+                "(week x day-type) stratum, which the shipped pe_empty_effort_stratum = 'zero' expands at ZERO",
+                "effort: that is why the 2024-25 PE port total falls 0.5% when the three are added. The BSS",
+                "imputes those days from B1 + B2 and does not have the problem. See CHANGE_REGISTER D19."))
     # 2026-09-09: the combo-trip share from the trip types, and the shift coverage
     fs0 <- attr(crab_fraction_stan_data(FALSE, tibble(event_date = seq(as.Date(p$est_date_start), as.Date(p$est_date_end), by = "day")), p, quiet = TRUE), "f_strata")
     V1row("R0", "the combo-trip share c is observed from the contacts' trip types (item 1, 2026-09-09)",

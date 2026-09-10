@@ -1881,8 +1881,7 @@ local({
         census_windows = list(c("2024-12-01", "2025-02-08")))), silent = TRUE), "try-error"))
   cc <- paste(readLines("03_R_functions/estimate_comm_charter.R", warn = FALSE), collapse = "\n")
   chk("census_windows: recursion substitutes the scalar keys and keeps by_season",
-      grepl("ps$census_windows   <- NULL", cc, fixed = TRUE) &&
-      grepl("tot$by_season <- per", cc, fixed = TRUE))
+      grepl("ps\\$census_windows\\s+<- NULL", cc) && grepl("tot$by_season <- per", cc, fixed = TRUE))
 
   # the validator warns on the exact failure two-season staging found: a season with
   # interviews in the window but ZERO effort counts (its effort would be pure imputation)
@@ -2334,18 +2333,32 @@ local({
   # --- the 2026-09-08 day-type expansion, kept as an option ---
   Pc <- modifyList(Pc0, list(census_expansion = "day_type"))
   r <- estimate_comm_charter(dwg, Pc)
-  chk("census (day_type): total = observed + imputed", isTRUE(all.equal(r$Dungeness_Kept, obs + imp)) && isTRUE(all.equal(r$observed_dung, obs)) && isTRUE(all.equal(r$imputed_dung, imp)))
+  # 2026-09-11: observed_dung is now the DRAW FLOOR -- the commercial census on the tally
+  # days plus the charter crab actually observed on the interviewed trips -- not the joint
+  # tally-day estimate. The total and the imputed part are unchanged, and the total still
+  # splits exactly into the two components.
+  chk("census (day_type): total = observed + imputed; observed_dung is the commercial census + the observed charter crab",
+      isTRUE(all.equal(r$Dungeness_Kept, obs + imp)) && isTRUE(all.equal(r$imputed_dung, imp)) &&
+        isTRUE(all.equal(r$observed_dung, sum(tally$commercial_tally) * 40 + r$charter_observed_dung)) &&
+        isTRUE(all.equal(r$commercial_dung + r$charter_dung, r$Dungeness_Kept)))
   v_exp <- 2^2 * var(est_day[wkd]) / 8 + 2^2 * var(est_day[!wkd]) / 2      # per-vessel means are exact here (zero variance)
   chk("census (day_type): imputation variance = sum_h (N_h - n_h)^2 s_h^2 / n_h", isTRUE(all.equal(r$Dungeness_Kept_var, v_exp)) && isTRUE(all.equal(r$Dungeness_Kept_se, sqrt(v_exp))))
   chk("census (day_type): daily table covers every calendar day, flags observed days", nrow(r$daily_full) == 14 && sum(r$daily_full$observed) == 10 && isTRUE(all.equal(sum(r$daily_full$est_dung), r$Dungeness_Kept)))
   chk("census (day_type): imputed days carry their stratum mean",
       isTRUE(all.equal(unique(r$daily_full$est_dung[!r$daily_full$observed & r$daily_full$day_type == "weekday"]), mean(est_day[wkd]))))
-  chk("census: default uncertainty mode is 'none' (SE reported, not carried)", identical(r$census_uncertainty, "none"))
-  chk("census: mode 'sampling' accepted ('imputed_days' as its 2026-09-08 alias), bad values refused",
-      identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling")))$census_uncertainty, "sampling") &&
+  # 2026-09-11: the default mode is "charter" (the charter expansion variance is carried,
+  # the commercial census is not); "none" and "sampling" still work, "imputed_days" is the
+  # 2026-09-08 alias for "sampling", and carried_var is what the drivers draw with.
+  chk("census: default uncertainty mode is 'charter' (the charter expansion is carried, the commercial census is not)",
+      identical(r$census_uncertainty, "charter") && isTRUE(all.equal(r$carried_var, r$charter_var)))
+  chk("census: mode 'none' carries nothing, 'sampling' carries everything ('imputed_days' as its 2026-09-08 alias), bad values refused",
+      isTRUE(all.equal(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "none")))$carried_var, 0)) &&
+        { rs <- estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling")))
+          identical(rs$census_uncertainty, "sampling") && isTRUE(all.equal(rs$carried_var, rs$Dungeness_Kept_var)) } &&
         identical(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "imputed_days")))$census_uncertainty, "sampling") &&
         inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "bootstrap"))), error = function(e) e), "error") &&
-        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_expansion = "week"))), error = function(e) e), "error"))
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(census_expansion = "week"))), error = function(e) e), "error") &&
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(charter_expansion = "median"))), error = function(e) e), "error"))
   # a stratum with one sampled day borrows the pooled variance and says so
   dwg1 <- dwg; dwg1$comm_tally <- tally[c(1:8, 9), ]; dwg1$interview <- ints |> filter(event_date %in% dwg1$comm_tally$date)
   r1 <- estimate_comm_charter(dwg1, Pc)
@@ -2354,8 +2367,10 @@ local({
   # per-window path sums the split and the variance
   Pw <- Pc; Pw$census_windows <- list("a" = c("2025-01-06", "2025-01-12"), "b" = c("2025-01-13", "2025-01-19"))
   rw <- estimate_comm_charter(dwg, Pw)
-  chk("census: per-window path sums observed, imputed and variance, stacks the daily table",
-      isTRUE(all.equal(rw$observed_dung, obs)) && nrow(rw$daily_full) == 14 && rw$Dungeness_Kept_var > 0 && isTRUE(all.equal(rw$Dungeness_Kept_se, sqrt(rw$Dungeness_Kept_var))))
+  chk("census: per-window path sums the two components, the variances and the daily table",
+      isTRUE(all.equal(rw$commercial_dung + rw$charter_dung, rw$Dungeness_Kept)) && nrow(rw$daily_full) == 14 &&
+        rw$Dungeness_Kept_var > 0 && isTRUE(all.equal(rw$Dungeness_Kept_se, sqrt(rw$Dungeness_Kept_var))) &&
+        isTRUE(all.equal(sum(rw$daily_full$est_dung), rw$Dungeness_Kept)))
   chk("census: empty window returns the zero split", isTRUE(all.equal(estimate_comm_charter(list(comm_tally = tally[0, ], interview = ints), Pc)$Dungeness_Kept_se, 0)))
   # a day type with no sampled day no longer takes the component to NA: pooled mean, flagged
   dwg0 <- dwg; dwg0$comm_tally <- tally[1:8, ]; dwg0$interview <- ints |> filter(event_date %in% dwg0$comm_tally$date)
@@ -2365,12 +2380,17 @@ local({
         any(grepl("none", r0$variance_detail$s2_source)) && is.finite(r0$Dungeness_Kept_se))
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
     d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
-    chk(sprintf("%s: writes census_daily.csv / census_variance.csv and draws the census only under 'sampling'", basename(drv)),
+    # 2026-09-11: the drivers draw on carried_se (census_uncertainty decides what is in it),
+    # clamped at observed_dung, and report the two components separately.
+    chk(sprintf("%s: writes census_daily.csv / census_variance.csv and draws the census on carried_se, clamped at observed_dung", basename(drv)),
         any(grepl("census_daily.csv", d, fixed = TRUE)) && any(grepl("census_variance.csv", d, fixed = TRUE)) &&
-          any(grepl("\"sampling\"", d, fixed = TRUE)) && !any(grepl("\"imputed_days\"", d, fixed = TRUE)) && any(grepl("observed_dung", d, fixed = TRUE)))
+          any(grepl("carried_se", d, fixed = TRUE)) && !any(grepl("\"imputed_days\"", d, fixed = TRUE)) &&
+          any(grepl("observed_dung", d, fixed = TRUE)) && any(grepl("charter_se", d, fixed = TRUE)) &&
+          any(grepl("commercial_dung", d, fixed = TRUE)))
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("shipped: census_uncertainty = none (the census stays a constant until chosen otherwise)", identical(rc$census_uncertainty, "none"))
+  chk("shipped: census_uncertainty = charter (2026-09-11: the charter expansion variance is carried, the commercial census is not)",
+      identical(rc$census_uncertainty, "charter") && identical(rc$charter_expansion, "vessel"))
   chk("shipped: census_expansion = none (2026-09-09: unsampled days had no operation; the census is exact)", identical(rc$census_expansion, "none"))
 })
 
@@ -2395,7 +2415,18 @@ local({
   # the deltas are cumulative and each adds one thing
   e <- new.env()
   e$`%||%` <- function(a, b) if (is.null(a)) b else a
-  eval(parse(text = tt[grepl("^(D_R1|D_R2|D_R3a|D_R3|D_R4) *<-|^ +(crab_fraction|tau_shore|tau_boat|shared_tau|census_uncertainty)", tt)]), envir = e)
+  # 2026-09-11: take the WHOLE contiguous D_R1..D_R4 block and extend it until it parses,
+  # instead of grepping for lines that look like delta keys. The grep broke the moment a
+  # delta gained a comment line or a key outside its list, which is the harness-fragility
+  # failure mode section 43 exists to prevent.
+  .i1 <- grep("^D_R1 *<-", tt)[1]; .i2 <- grep("^D_R4 *<-", tt)[1]
+  stopifnot(is.finite(.i1), is.finite(.i2), .i2 > .i1)
+  .parsed <- FALSE
+  for (.end in .i2:min(.i2 + 12L, length(tt))) {
+    .txt <- paste(tt[.i1:.end], collapse = "\n")
+    if (!inherits(try(parse(text = .txt), silent = TRUE), "try-error")) { eval(parse(text = .txt), envir = e); .parsed <- TRUE; break }
+  }
+  chk("ladder: the D_R1..D_R4 delta block parses as written", .parsed)
   chk("ladder: R1 is the pre-patch configuration (tau 1.2, sigma 0.3, flat f from the blank egress columns, legacy construction)",
       identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$crab_fraction_strata, "none") && identical(e$D_R1$crab_fraction_source, "ie") && identical(e$D_R1$crab_fraction_dynamic, FALSE))
   chk("ladder: R2 adds only the calibration prior", identical(e$D_R2$tau_boat_prior_mu, "calibration") && identical(e$D_R2$crab_fraction_strata, "none"))
@@ -2700,9 +2731,12 @@ local({
       identical(rt$charter_frame, "tally") && isTRUE(all.equal(rt$Dungeness_Kept, obs)) &&
         identical(rr$charter_frame, "roster") && isTRUE(all.equal(rr$Dungeness_Kept, obs + extra)) &&
         isTRUE(all.equal(rr$charter_roster_dung, 3 * 60)) && rr$n_roster_only_days == 2 && rr$n_roster_trips == 6)
-  chk("census roster frame: the daily table sums to the total, labels the roster-only days, and observed = total under 'none'",
+  # 2026-09-11: observed_dung is the draw floor (the commercial census plus the charter crab
+  # actually observed), so it sits BELOW the total exactly by the unobserved charter trips.
+  chk("census roster frame: the daily table sums to the total, labels the roster-only days, and observed_dung is the floor",
       isTRUE(all.equal(sum(rr$daily_full$est_dung), rr$Dungeness_Kept)) && sum(grepl("charter roster \\(no tally\\)$", rr$daily_full$source)) == 2 &&
-        isTRUE(all.equal(rr$observed_dung, rr$Dungeness_Kept)) && nrow(rr$roster_reconciliation) == 9 && nrow(rr$daily_est) == 12)
+        isTRUE(all.equal(rr$observed_dung, rr$commercial_dung + rr$charter_observed_dung)) && rr$observed_dung < rr$Dungeness_Kept &&
+        nrow(rr$roster_reconciliation) == 9 && nrow(rr$daily_est) >= 12)
   rd <- estimate_comm_charter(dwg, modifyList(Pc, list(census_expansion = "day_type")))
   chk("census roster frame + day_type: only the commercial part is expanded; the charter part is exact; the daily table still sums to the total",
       isTRUE(all.equal(rd$Dungeness_Kept, sum(tally$commercial_tally * 40) + 2 * mean((tally$commercial_tally * 40)[!weekdays(tally$date) %in% c("Saturday", "Sunday")]) +
@@ -2731,6 +2765,99 @@ local({
   rd_files <- c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE))
   direct <- vapply(rd_files, function(f) any(grepl("readxl::read_excel\\(", readLines(f, warn = FALSE))) && !grepl("read_input_workbook.R", f), logical(1))
   chk("readers: no function in 03_R_functions reads an input workbook with readxl directly (all go through read_input_workbook)", !any(direct))
+})
+
+# ---------------------------------------------------------------------------
+# 58. The charter EXPANSION and the commercial CENSUS, separated (2026-09-11, Matt's
+#     correction: "a complete census without error applies to the commercial boats; the
+#     charter vessels are not 100% sampled and need expansion"). The commercial part stays
+#     the exact sum over the tally days; the charter part becomes N x (mean catch per
+#     interviewed trip) over the charter TRIP frame, stratified by vessel, with the
+#     finite-population-corrected variance N^2 (1 - n/N) s^2 / n. Also: the three holidays
+#     added to the calendar, and the PE empty-effort-stratum fill options that day-typing
+#     interacts with.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/estimate_comm_charter.R")
+  # a window of 10 days, 6 with a tally; two charter vessels with different catch rates and
+  # a third day-set of trips the roster has but the tally does not, so every branch is live.
+  cal  <- seq(as.Date("2025-01-06"), as.Date("2025-01-15"), by = "day")
+  samp <- cal[c(1, 2, 3, 6, 7, 8)]
+  tally <- tibble(date = samp, commercial_tally = c(4, 6, 5, 3, 8, 10), charter_tally = c(1, 0, 1, 0, 1, 1))
+  # charter interviews: vessel A on 3 trips (60, 60, 90 -> mean 70), vessel B on 2 (20, 40 -> 30)
+  ci <- tibble(population = "comm_charter", event_date = c(samp[1], samp[3], samp[5], samp[6], samp[6]),
+               boat_type_clean = "Charter", boat_name = c("A", "A", "A", "B", "B"),
+               dungeness_kept = c(60, 60, 90, 20, 40), red_rock_kept = 0)
+  comm <- tibble(population = "comm_charter", event_date = rep(samp, each = 3), boat_type_clean = "Commercial",
+                 boat_name = NA_character_, dungeness_kept = rep(c(30, 40, 50), 6), red_rock_kept = 0)
+  ints <- bind_rows(comm, ci)
+  # the roster: A sails 6 trips (3 interviewed), B sails 3 (2 interviewed), one B trip on a
+  # day with no tally; one canceled trip that must not count.
+  roster <- tibble(season = "2024-25", port = "Westport", vessel = c(rep("A", 6), rep("B", 3), "A"),
+                   date = c(samp[1], samp[2], samp[3], samp[4], samp[5], samp[6], samp[5], samp[6], cal[10], samp[2]),
+                   status = c(rep("interviewed", 3), rep("missed", 3), "interviewed", "interviewed", "missed", "canceled"),
+                   contact = NA, notes = NA)
+  Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-15", days_wkend = c("Saturday", "Sunday"),
+             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+  dwg <- list(comm_tally = tally, interview = ints, charter_roster = roster)
+  md_comm <- 40; mA <- 70; mB <- 30; mPool <- mean(ci$dungeness_kept)          # 54
+  r <- estimate_comm_charter(dwg, Pc)
+  chk("charter expansion: the commercial census is the exact tally-day sum and is reported on its own",
+      isTRUE(all.equal(r$commercial_vessels, sum(tally$commercial_tally))) &&
+        isTRUE(all.equal(r$commercial_dung, sum(tally$commercial_tally) * md_comm)) &&
+        isTRUE(all.equal(r$commercial_dung + r$charter_dung, r$Dungeness_Kept)))
+  # the frame: A 6 trips, B 3 trips, plus the tally surplus on days the roster does not cover
+  su <- sum(pmax(0, tally$charter_tally - c(1, 1, 1, 0, 2, 2)))                # surplus per tally day
+  chk("charter expansion: the trip frame is the roster unioned per day with the tally's charter column",
+      isTRUE(all.equal(r$charter_trips, 6 + 3 + su)) && r$n_roster_trips == 9 && r$n_roster_only_days == 1 &&
+        isTRUE(all.equal(r$charter_observed_dung, sum(ci$dungeness_kept))))
+  chk("charter expansion: stratified by vessel, est = sum_v N_v m_v (+ the unattributed surplus at the pooled mean)",
+      identical(r$charter_expansion, "vessel") &&
+        isTRUE(all.equal(r$charter_dung, 6 * mA + 3 * mB + su * mPool)))
+  # the FPC variance, by hand
+  sA <- sd(c(60, 60, 90)); sB <- sd(c(20, 40)); sP <- sd(ci$dungeness_kept)
+  vA <- 6^2 * (1 - 3 / 6) * sA^2 / 3; vB <- 3^2 * (1 - 2 / 3) * sB^2 / 2
+  vS <- if (su > 0) su^2 * max(0, 1 - 5 / max(su, 5)) * sP^2 / 5 else 0
+  chk("charter expansion: the variance is the SRS-with-FPC sum over strata, N^2 (1 - n/N) s^2 / n",
+      isTRUE(all.equal(r$charter_var, vA + vB + vS)) && isTRUE(all.equal(r$charter_se, sqrt(vA + vB + vS))) &&
+        isTRUE(all.equal(r$charter_sampled_frac, 5 / r$charter_trips)))
+  chk("charter expansion: a vessel with one interview borrows the pooled SD and says so",
+      { r1 <- estimate_comm_charter(list(comm_tally = tally, interview = bind_rows(comm, ci[1:4, ]), charter_roster = roster), Pc)
+        any(grepl("1 interview; pooled SD", r1$charter_detail$mean_source)) && all(is.finite(r1$charter_detail$var)) })
+  rp <- estimate_comm_charter(dwg, modifyList(Pc, list(charter_expansion = "pooled")))
+  chk("charter expansion: 'pooled' is ONE stratum at the pooled mean (not the vessel strata with a pooled n)",
+      identical(rp$charter_expansion, "pooled") && nrow(rp$charter_detail) == 1 &&
+        isTRUE(all.equal(rp$charter_dung, rp$charter_trips * mPool)) &&
+        isTRUE(all.equal(rp$charter_var, rp$charter_trips^2 * (1 - 5 / rp$charter_trips) * sP^2 / 5)))
+  chk("charter expansion: 'tally' frame drops the roster-only trips and says the frame is incomplete",
+      { rt <- estimate_comm_charter(dwg, modifyList(Pc, list(charter_frame = "tally")))
+        identical(rt$charter_frame, "tally") && isTRUE(all.equal(rt$charter_trips, sum(tally$charter_tally))) &&
+          rt$n_roster_only_days == 0L && rt$charter_dung < r$charter_dung })
+  chk("charter expansion: observed_dung is the draw floor and sits below the total by the unobserved trips",
+      isTRUE(all.equal(r$observed_dung, r$commercial_dung + r$charter_observed_dung)) && r$observed_dung < r$Dungeness_Kept)
+  # the daily table reconciles in every frame x expansion combination
+  chk("charter expansion: census_daily.csv sums to the component in all four frame x expansion combinations",
+      all(vapply(list(list(), list(census_expansion = "day_type"), list(charter_frame = "tally"),
+                      list(charter_frame = "tally", census_expansion = "day_type")),
+                 function(o) { z <- estimate_comm_charter(dwg, modifyList(Pc, o))
+                               isTRUE(all.equal(sum(z$daily_full$est_dung), z$Dungeness_Kept)) &&
+                                 isTRUE(all.equal(z$commercial_dung + z$charter_dung, z$Dungeness_Kept)) }, logical(1))))
+  chk("charter expansion: carried_var follows census_uncertainty and the drivers use carried_se",
+      isTRUE(all.equal(r$carried_var, r$charter_var)) &&
+        isTRUE(all.equal(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "none")))$carried_var, 0)) &&
+        { z <- estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling"))); isTRUE(all.equal(z$carried_var, z$Dungeness_Kept_var)) })
+  # the PE empty-effort-stratum fill: the option set, and that the local one is month-scoped
+  for (pf in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R")) {
+    src <- paste(readLines(pf, warn = FALSE), collapse = "\n")
+    chk(sprintf("%s: offers zero / day_type / local_day_type, and the local fill is scoped to the month", basename(pf)),
+        grepl('c("day_type", "local_day_type")', src, fixed = TRUE) && grepl("md_mean_daily", src, fixed = TRUE) &&
+          grepl("group_by(.m, day_type)", src, fixed = TRUE) && grepl('local_day_type', src, fixed = TRUE))
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: the PE empty-effort fill stays 'zero' (the 2026-09-11 measurement is in the change register, the choice is not made here)",
+      identical(rc$pe_empty_effort_stratum, "zero"))
+  chk("shipped: the census keys are the 2026-09-11 set", identical(rc$census_expansion, "none") && identical(rc$charter_frame, "roster") &&
+        identical(rc$charter_expansion, "vessel") && identical(rc$census_uncertainty, "charter"))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

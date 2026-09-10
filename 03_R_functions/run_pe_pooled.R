@@ -139,21 +139,39 @@ run_pe_pooled <- function(summ, days, params, population_name) {
   n_empty_days   <- sum(effort_strat$n_total_days[effort_strat$empty_effort_stratum], na.rm = TRUE)
   n_cal_days     <- sum(effort_strat$n_total_days, na.rm = TRUE)
 
-  if (identical(params$pe_empty_effort_stratum %||% "zero", "day_type") && n_empty_strata > 0) {
-    # Fill with this sub-season's mean daily effort for the SAME day type (weekend days
-    # run 1.7 to 2.3x weekdays, so a day-type-blind fill would be worse than the zero it
-    # replaces), falling back to the overall sub-season mean when that day type is
-    # unsampled everywhere.
-    dt_mean <- daily_effort |>
-      group_by(day_type) |>
-      summarise(dt_mean_daily = mean(est_daily_effort, na.rm = TRUE), .groups = "drop")
-    all_mean <- mean(daily_effort$est_daily_effort, na.rm = TRUE)
-    effort_strat <- effort_strat |>
-      left_join(dt_mean, by = "day_type") |>
-      mutate(mean_daily = if_else(empty_effort_stratum,
-                                  coalesce(dt_mean_daily, all_mean), mean_daily),
-             sd_daily   = if_else(empty_effort_stratum, NA_real_, sd_daily)) |>
-      select(-dt_mean_daily)
+  .fill <- params$pe_empty_effort_stratum %||% "zero"
+  if (.fill %in% c("day_type", "local_day_type") && n_empty_strata > 0) {
+    # Fill with a mean daily effort for the SAME day type (weekend and holiday days run
+    # 1.7 to 2.3x weekdays, so a day-type-blind fill would be worse than the zero it
+    # replaces).
+    #   "day_type"       the sub-season's day-type mean. Simple, but a sub-season spans a
+    #                    20-fold seasonal swing in effort, so it grossly OVERFILLS a thin
+    #                    week: on 2024-25 it raises the PE port total by 17%, well above
+    #                    the BSS, which imputes the same days from their neighbours.
+    #   "local_day_type" (2026-09-11) the same day type in the same MONTH, falling back to
+    #                    the sub-season day type and then to the sub-season mean. Local, so
+    #                    a February cell is filled at February rates.
+    de <- daily_effort |> left_join(days |> select(event_date, .m = month), by = "event_date")
+    dt_mean  <- de |> group_by(day_type) |> summarise(dt_mean_daily = mean(est_daily_effort, na.rm = TRUE), .groups = "drop")
+    all_mean <- mean(de$est_daily_effort, na.rm = TRUE)
+    effort_strat <- effort_strat |> left_join(dt_mean, by = "day_type")
+    if (.fill == "local_day_type") {
+      md_mean <- de |> group_by(.m, day_type) |> summarise(md_mean_daily = mean(est_daily_effort, na.rm = TRUE), .groups = "drop")
+      # each (period x day_type) cell's month: the modal month of its calendar days
+      cell_m <- days |> group_by(period, day_type) |>
+        summarise(.m = as.numeric(names(sort(table(month), decreasing = TRUE))[1]), .groups = "drop")
+      effort_strat <- effort_strat |>
+        left_join(cell_m, by = c("period", "day_type")) |>
+        left_join(md_mean, by = c(".m", "day_type")) |>
+        mutate(mean_daily = if_else(empty_effort_stratum, coalesce(md_mean_daily, dt_mean_daily, all_mean), mean_daily),
+               sd_daily   = if_else(empty_effort_stratum, NA_real_, sd_daily)) |>
+        select(-.m, -md_mean_daily, -dt_mean_daily)
+    } else {
+      effort_strat <- effort_strat |>
+        mutate(mean_daily = if_else(empty_effort_stratum, coalesce(dt_mean_daily, all_mean), mean_daily),
+               sd_daily   = if_else(empty_effort_stratum, NA_real_, sd_daily)) |>
+        select(-dt_mean_daily)
+    }
   } else {
     effort_strat <- effort_strat |>
       mutate(mean_daily = if_else(empty_effort_stratum, 0, mean_daily))
@@ -180,12 +198,14 @@ run_pe_pooled <- function(summ, days, params, population_name) {
                     100 * n_empty_days / max(n_cal_days, 1),
                     params$pe_empty_effort_stratum %||% "zero")
     cat(.msg)
-    if (n_empty_days / max(n_cal_days, 1) > 0.05 &&
-        identical(params$pe_empty_effort_stratum %||% "zero", "zero"))
+    if (n_empty_days / max(n_cal_days, 1) > 0.05 && identical(.fill, "zero"))
       cat(paste0("  *** WARNING: more than 5% of this component's days sit in an unsampled ",
                  "stratum and are being expanded at ZERO effort. That biases this PE DOWN, and ",
                  "the missing days are disproportionately weekend/holiday days, which carry ",
-                 "1.7-2.3x weekday effort. Consider pe_empty_effort_stratum = \"day_type\". ***\n"))
+                 "1.7-2.3x weekday effort. Consider pe_empty_effort_stratum = \"local_day_type\" ",
+                 "(the same day type in the same month) or \"day_type\" (the sub-season day-type ",
+                 "mean, which overfills thin weeks). This affects the PE only; the BSS imputes ",
+                 "every day from its neighbours. ***\n"))
   }
 
   results$effort_total <- sum(effort_strat$est_total, na.rm=TRUE)

@@ -252,12 +252,28 @@ run_config <- list(
   # with the sampled days' day-type mean, 11,753 on 2024-25, imputation SE 426), kept for
   # reproduction and for a season whose roster did not track operations.
   census_expansion = "none",
-  # What is left after that is the per-vessel catch mean, a near-census sample mean
-  # (161 interviews on 187 vessel-trips, finite-population corrected): reported every run
-  # (census_variance.csv, pe_vs_bss_comparison.csv). "none" keeps the census a constant in
-  # the port interval; "sampling" adds a normal draw with that SE (the 2026-09-08 name
-  # "imputed_days" is still accepted).
-  census_uncertainty = "none",
+  # 2026-09-11 (Matt): the census-without-error statement applies to the COMMERCIAL boats.
+  # The CHARTER vessels are not 100% sampled and need expansion, so the two populations now
+  # have two estimators (03_R_functions/estimate_comm_charter.R):
+  #   commercial  the tally is a census of the vessels; the component is the exact sum over
+  #               the tally days. What is left is the per-vessel catch MEAN, a near-census
+  #               sample mean (2024-25: 141 interviews on 164 vessel-trips, 86%, SE 123 =
+  #               1.9%; 2025-26: 44 on 67, 66%, SE 146 = 5.5%), reported not carried.
+  #   charter     an expansion over the charter TRIP frame (charter_frame below): trips x
+  #               mean catch per interviewed trip, stratified by vessel, with the
+  #               finite-population-corrected variance N^2 (1 - n/N) s^2 / n. 2024-25:
+  #               34 trips, 20 interviewed (59%), 2,133 crab, SE 73 (3.4%).
+  # census_uncertainty says which of those variances enters the port interval:
+  #   "charter"  (shipped) the charter expansion only -- the commercial census is a constant
+  #   "none"     neither (both reported in census_variance.csv)
+  #   "sampling" all of it: the charter expansion, the commercial per-vessel mean, and the
+  #              day-type imputation when census_expansion = "day_type" ("imputed_days" is
+  #              still accepted as the 2026-09-08 name)
+  census_uncertainty = "charter",
+  # How the charter trips expand: "vessel" (shipped) strata by vessel, which matters because
+  # the vessels differ (2024-25 Westport: Ultimate 70.2 crab/trip on 17 interviews, Outta
+  # Line 30.7 on 3); "pooled" uses one charter mean for every trip (2,186, SE 118).
+  charter_expansion = "vessel",
 
   # --- Catch groups --------------------------------------------------------
   estimate_red_rock = FALSE,          # TRUE adds Red_Rock_Kept alongside Dungeness
@@ -311,17 +327,30 @@ run_config <- list(
   #   "zero"     (default) the historical behaviour.
   #   "day_type" fill the cell with that sub-season's mean daily effort for the same
   #              day type, falling back to the overall sub-season mean.
+  #   "local_day_type" (2026-09-11) the same day type in the same MONTH, falling back to the
+  #              sub-season day type and then to the sub-season mean. Local, so a February
+  #              cell is filled at February rates rather than at a mean the summer dominates.
   # WHY THIS IS SURFACED NOW. Moving Friday out of the weekend stratum (improvement 3)
   # changes which cells are populated, and it makes thin components worse: on the 2024-25
   # data the boat POT CLOSURE goes from 4 of 76 days zeroed to 9 of 76, all of them
   # weekend or holiday days, which carry roughly 1.7-2.3x weekday effort. That biases its
   # PE DOWN, and it is the same component improvement 6 promotes to a BSS attempt and the
-  # one most likely to fall back to PE. The absolute size is small (boat pot closure is a
-  # few hundred crab against a ~67,000 port total), which is why the default stays at the
-  # historical "zero" rather than changing a second thing in the same run -- but the count
-  # of zeroed days is now reported per component every run so the issue is visible rather
-  # than silent. Revisit after the weekend-change validation run.
-  pe_empty_effort_stratum = "zero",   # "zero" | "day_type"
+  # one most likely to fall back to PE.
+  #
+  # MEASURED 2026-09-11, and BIGGER THAN THE 2026-08-25 NOTE ASSUMED. On the rebuilt
+  # 2024-25 inputs the shipped "zero" fill zeroes 45 of 289 shore all-gear days (15.6%) and
+  # 48 of 289 boat all-gear days, three times the 5% threshold that prints the warning. The
+  # PE port total is 72,224 under "zero", 85,243 under "day_type" (+18%) and 90,861 under
+  # "local_day_type" (+26%): the empty cells sit in the HIGH months, so a local fill is
+  # larger than a sub-season one, not smaller. Which is right cannot be settled against the
+  # current BSS reference, because 20260904/pooled-CPUE-AD-A1-adopted predates the derived
+  # shore turnover and the boat turnover recentring; on that stale reference the shipped
+  # "zero" PE happens to sit closest to the BSS (boat all-gear PE 10,482 vs BSS 11,118;
+  # shore all-gear 27,345 vs 25,539). So the default stays "zero" and the choice belongs in
+  # the ladder, against the post-ladder BSS (CHANGE_REGISTER D19). This affects the PE only:
+  # the BSS gives every day a weekend (B1) and holiday (B2) effort effect and imputes the
+  # unsampled ones from its AR, so it never zeroes a day.
+  pe_empty_effort_stratum = "zero",   # "zero" | "day_type" | "local_day_type"
 
   # --- Incomplete-trip filter (both models) --------------------------------
   # Incomplete trips (soak-time gear not yet retrieved) read systematically low
@@ -1118,12 +1147,13 @@ run_config <- list(
   # columns blank). The effort workbook carries a qc_flag; rows with a flag in this vector
   # are held out of the counts (build_effort_combined.R lists the flags and their counts):
   effort_qc_drop    = "gear_count_from_interviews",   # Feb 2024 PFD stand-down: day totals recorded as counts; "none" keeps every row
-  # The charter trip roster (charter_trips.xlsx, 2024-25 on): the trip-level census frame
-  # for the charter part of the commercial/charter census. charter_frame = "roster" (default)
-  # counts, per day, the larger of the roster's trips and the tally's charter column, on
-  # every day of the window (the roster does not depend on a sampler being in port: 8 of the
-  # 31 sailed Westport charter trips of 2024-25 fell on days without a tally); "tally"
-  # reproduces the 2026-09-09 arithmetic (7,884 on 2024-25). See estimate_comm_charter.R.
+  # The charter trip roster (charter_trips.xlsx, 2024-25 on): the TRIP FRAME the charter
+  # expansion runs on. charter_frame = "roster" (default) takes, per day, the larger of the
+  # roster's sailed trips and the tally's charter column (the roster does not depend on a
+  # sampler being in port: 8 of the 31 sailed Westport charter trips of 2024-25 fell on days
+  # without a tally); "tally" uses the tally column alone, which reproduces the 2026-09-09
+  # arithmetic (7,884 on 2024-25) and leaves the frame incomplete by construction. See
+  # estimate_comm_charter.R.
   charter_frame       = "roster",
   charter_trips_file  = "charter_trips.xlsx",
   charter_trips_sheet = "data",

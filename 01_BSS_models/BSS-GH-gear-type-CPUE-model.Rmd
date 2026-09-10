@@ -1228,15 +1228,19 @@ for(cg in bss_catch_groups) {
       }
     }
   }
-  # Review item 4 (2026-09-08/09): constant under census_uncertainty = "none"; normal draws
-  # with the census SE under "sampling", clamped at the observed-exact part.
+  # Review item 4 (2026-09-08/09), split in two on 2026-09-11: the commercial part is a
+  # census (a constant), the charter part an expansion. carried_se is what enters the port
+  # interval; census_uncertainty selects it ("charter" ships). Draws are clamped at
+  # observed_dung (the commercial census plus the charter crab actually observed).
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
-  if (identical(.cc$census_uncertainty %||% "none", "sampling") && cg == "Dungeness_Kept" &&
-      is.finite(.cc$Dungeness_Kept_se %||% NA) && (.cc$Dungeness_Kept_se %||% 0) > 0) {
-    .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$Dungeness_Kept_se), .cc$observed_dung %||% 0)
-    message(sprintf("  Census enters the port interval with SE %s (census_expansion = '%s', %d unsampled calendar days).",
-                    format(round(.cc$Dungeness_Kept_se), big.mark = ","), .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
+  if (cg == "Dungeness_Kept" && is.finite(.cc$carried_se %||% NA) && (.cc$carried_se %||% 0) > 0) {
+    .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se), .cc$observed_dung %||% 0)
+    message(sprintf(paste0("  Census enters the port interval with SE %s under census_uncertainty = '%s' (total SE %s: charter expansion %s, ",
+                           "commercial per-vessel mean %s; census_expansion = '%s', %d unsampled calendar days)."),
+                    format(round(.cc$carried_se), big.mark = ","), .cc$census_uncertainty %||% "charter",
+                    format(round(.cc$Dungeness_Kept_se %||% 0), big.mark = ","), format(round(.cc$charter_se %||% 0), big.mark = ","),
+                    format(round(.cc$commercial_se %||% 0), big.mark = ","), .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
   }
   bss_C_total <- bss_C_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
@@ -2228,15 +2232,14 @@ comparison[[length(comparison)+1]] <- tibble(
   BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept),
   BSS_catch = NA, catch_diff_pct = NA,
-  # 2026-09-10: say which expansion and which charter frame produced the number
-  method_selected = sprintf("Census (%s; charter frame %s%s; SE %s, %s)",
-                            if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "exact sum over the tally days" else "day-type stratified",
-                            pe_all$comm_charter$charter_frame %||% "tally",
-                            if ((pe_all$comm_charter$n_roster_only_days %||% 0L) > 0)
-                              sprintf(", %s crab on %d roster-only days", format(round(pe_all$comm_charter$charter_roster_dung %||% 0), big.mark = ","),
-                                      pe_all$comm_charter$n_roster_only_days) else "",
-                            format(round(pe_all$comm_charter$Dungeness_Kept_se %||% NA), big.mark = ","),
-                            if (identical(pe_all$comm_charter$census_uncertainty %||% "none", "sampling")) "in the port interval" else "not in the port interval")
+  # 2026-09-11: the two populations, two estimators
+  method_selected = local({ .c <- pe_all$comm_charter; sprintf(
+    "Commercial CENSUS %s (%s crab) + Charter EXPANSION (%s frame, %s; %.0f trips, %d interviewed, %s crab, SE %s); carried SE %s ('%s')",
+    if (identical(.c$census_expansion %||% "none", "none")) "(exact over the tally days)" else "(day-type stratified)",
+    format(round(.c$commercial_dung %||% NA), big.mark = ","), .c$charter_frame %||% "tally", .c$charter_expansion %||% "pooled",
+    .c$charter_trips %||% NA, .c$charter_interviews %||% NA, format(round(.c$charter_dung %||% NA), big.mark = ","),
+    format(round(.c$charter_se %||% NA), big.mark = ","), format(round(.c$carried_se %||% 0), big.mark = ","),
+    .c$census_uncertainty %||% "charter") })
 )
 
 comparison_df <- bind_rows(comparison)
