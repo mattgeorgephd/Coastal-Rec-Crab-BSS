@@ -946,6 +946,60 @@ Matt's corrections after the 2026-09-10 rebuild, and one thing they exposed.
 
 ---
 
+## 1t. Set up for the full ladder run: the PE's thin cells, and proving the rungs comparable (2026-09-12)
+
+Matt: *"Set up the files for a full ladder rung run. Ship with local_day_type option on. Review all files involved; make improvements. Set levers to support the full ladder rung run and promote comparability of the results. The full ladder rung run will only be for the 2024-25 season and will use the new method for estimating f."*
+
+### The PE's unsampled cells: shipping the fill exposed two more defects behind it
+
+The instruction was one lever. Shipping it honestly took three, because **`local_day_type` alone would have imputed 29% more shore effort at zero variance and then multiplied it by a season-average catch rate.**
+
+**The CPUE half (B19).** The effort of an unsampled cell could be filled month-locally while its CPUE was always the sub-season-wide ratio-of-sums, so the seasonal gradient was counted once in the effort and again in the rate. The imputed BOAT cells are in the summer and the pooled boat CPUE is dominated by the high-CPUE winter: boat all-gear PE catch 42,841 under `"pooled"` against 37,018 under `"local"`, **-13.6%**. The shore is almost unmoved (29,705 to 29,737), so this is a boat correction. **This corrects the +26% figure in the 2026-09-11 D19 note to +17.8%**, and the decomposition is worth keeping because it is the shape of the error:
+
+| effort fill | CPUE fill | PE port catch | PE port effort |
+|---|---|---|---|
+| `zero` | `pooled` | 72,224 | 45,175 |
+| `local_day_type` | `pooled` | 90,861 | 56,793 |
+| `day_type` | `local` | 81,160 | 53,846 |
+| **`local_day_type`** | **`local`** (shipped) | **85,076** | **56,793** |
+
+`"zero"` was omitting a fifth of the season's effort.
+
+**The variance half (B20, D21), and this is the larger finding.** The stratum SE was `sqrt(N^2 sd^2 / max(n, 1))` with `sd` from the cell's own sampled days, and **`sd()` of one observation is NA, which the code replaced with 0.** With weekly strata and roughly 50% day coverage that is not a corner case:
+
+| component | cells | unsampled | singleton | effort with NO variance | SE as reported |
+|---|---|---|---|---|---|
+| shore all-gear | 93 | 21 (45 days) | 37 (82 days) | 54% | 410 on 27,345 = **1.5%** |
+| boat all-gear | 93 | 23 (48 days) | 34 (77 days) | 49% | 573 on 10,482 = 5.5% |
+| shore pot-closure | 24 | 1 (1 day) | 10 (19 days) | 41% | 238 on 6,751 = 3.5% |
+| boat pot-closure | 24 | 6 (11 days) | 7 (14 days) | 29% | 29 on 398 = 7.2% |
+
+A 1.5% SE on a design whose within-cell CV runs 0.2 to 0.7 is not a measurement of anything. And imputed cells were treated the same way, so **the shore all-gear effort SE was bit-identical at 410 whether the fill added 0, 6,240 or 7,947 effort units.** Under `pe_variance = "impute_aware"` a singleton cell borrows its donor's spread with the divisor still 1 (the collapsed-stratum estimator standard for one-per-stratum designs: Hansen, Hurwitz & Madow 1953; Cochran, *Sampling Techniques* 3rd ed. 1977 sec. 5A.12; Wolter, *Introduction to Variance Estimation* 2nd ed. 2007 ch. 2) and an imputed cell carries the donor mean's sampling variance plus a between-cell surrogate, `s^2 (1/n_donor + 1)`. The point estimate does not move; the 2024-25 effort SEs go 410 to 1,379 (shore all-gear), 573 to 1,310 (boat all-gear), 238 to 550 and 29 to 79. **Note which half is bigger**: fixing the singletons alone takes the shore SE to 1,099 even under the retired `"zero"` fill, so most of the understatement was never about imputation. `"sampled_only"` restores the old arithmetic exactly, and every run reports `effort_se_sampled_only` beside `effort_se` whatever the setting.
+
+**And it is not PE-only, contrary to what D19 said.** A component whose convergence gate fails reports its PE point in the port total, as a **constant with no interval** (section 7.7 of either driver). The thin boat pot closure is the component most likely to fall back, `bss_min_interviews` was lowered to 15 specifically to let it attempt a fit, and the honest expectation recorded at the time was that it may fail the gate anyway. So these levers can reach the headline, and calling them PE-only was wrong.
+
+All three now live in **one** implementation (`03_R_functions/pe_effort_strata.R`, B21). Both PE runners had carried their own copy of the stratification, the fill and the SE formula, so every defect above existed in two places; on 2024-25 the pooled and gear tracks' PEs are now numerically identical component by component, which they were not before.
+
+**What is still open (D22), both deliberately.** The PE applies **no finite-population correction** anywhere, although `estimate_comm_charter()` does, so the two estimators are inconsistent on that point; adding it would reduce the SE and would have mixed an opposite-signed change into B20. And the **PE catch has no SE at all** -- only effort does -- so the PE side of `pe_vs_bss_comparison.csv` is a point against a posterior interval, and a gate-failed component enters the port total with no uncertainty. The honest version is a ratio-estimator variance, a larger piece of work than everything in this patch.
+
+### The ladder: comparability proven before the MCMC, not after
+
+Four changes, none of them a new rung (B22).
+
+**1. `F_METHOD`.** The ladder as designed fits R1 and R2 on the RETIRED f (one scalar at 0.30) precisely so R3a and R3 can attribute the f change. The instruction says the run uses the new f. Both readings are defensible and they cost differently, so it is a switch: `"new_throughout"` (shipped) gives R0, R1, R2, R4, R5 -- three pooled fits and one gear fit, about 12 to 14 h, with every rung's port total citable and the rung-to-rung deltas isolating the TURNOVER levers on a common f. What it costs is the f attribution and the factorization proof, and the optional `R2f` rung buys the proof back for one extra fit: R2 with the f block rolled back is the same R3-vs-R3a test, at half the cost and against the current turnover prior rather than the retired one. `"ladder"` restores the original seven-rung design. The mode is in every `run_tag` and every output filename, so the two can never land in the same verdicts file.
+
+**2. The window pin was incomplete.** `WINDOW` pinned five keys and left four per-season keys to be inherited from the shipped two-season config, so **every 2024-25 rung would have run with `pot_open_date = 2023-12-01`.** That one turns out to be cosmetic, for a reason worth recording: `estimate_L_effective()` took `pot_open_date` as an argument and never referenced it, so the "I/E regression split" that `run_config` and CHANGE_REGISTER A14 both credited it with feeding **never existed**. The dead argument is removed, A14 is corrected, and the real multi-season approximation (the regression pools every season's I/E days into one `yday -> L` curve) is now documented at the function. `pot_closure_start`/`end` were right only by luck and are not cosmetic: `build_subseasons()` splits the season on them. All nine per-season keys are pinned, and `validate_season_window()` now warns when any of them falls outside the estimation window.
+
+**3. The PE levers are pinned too**, for the reason above: they can reach the port total of any rung whose gate fails, and `run_config`'s defaults changed today.
+
+**4. Comparability is now a preflight, not a post-mortem.** The runner resolves every rung's configuration before anything runs and fails if any non-delta key differs between rungs, if a rung differs from its comparison rung in a key it did not declare, or if a pinned key drifts; it writes `improvements_2026-09-08_manifest*.csv` with every rung's resolved levers and a config digest. Previously the only check was `config_delta()` reading `run_parameters.txt` **after** the fits, when the MCMC had already been spent. And `RESUME` now requires a matching digest (`IMP_STAGE.txt`) rather than reusing any folder with the right name and a `run_parameters.txt`; since this file's deltas changed on 2026-09-11 and again today, a partially-run ladder would otherwise have been silently completed with a mix of configurations.
+
+**R0 now runs the PE.** The desk rung was called "the PE and reporting changes" and never ran the PE. It now runs all four unsampled-cell arms (a minute each) and reports the singleton shares and both SEs, so the D19 choice can be made against R4's own BSS instead of against the stale 2026-09-04 reference, at no MCMC cost.
+
+**Verification:** harness **789** assertions (new section 59 recomputes the fill, the collapsed-stratum variance, the between-cell term and the CPUE fill by hand on a four-cell fixture, and asserts `"sampled_only"` reproduces the old arithmetic exactly); the legacy settings reproduce the pre-2026-09-12 PE to the digit (72,224 catch, 45,175 effort, SEs 410/573/238/29); both drivers purl-parse; the gear track's PE now matches the pooled track's exactly; the dry run is clean under `F_METHOD` = `"new_throughout"`, `"ladder"` and with `R2f` added.
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
