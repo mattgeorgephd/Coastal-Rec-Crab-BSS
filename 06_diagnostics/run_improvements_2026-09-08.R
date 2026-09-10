@@ -145,11 +145,33 @@
 
 DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
 F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- see note 1 above
+
+# THE TWO-PASS PLAN (Matt 2026-09-13: "run the 4-rung version now and then follow up with
+# the new R2f control rung"). Change ONE number between passes:
+#
+#   LADDER_PASS <- 1   R0, R1, R2, R4, R5.  Three pooled fits + one gear fit, ~12-14 h.
+#                      These are the four rungs whose port totals are citable, so the
+#                      answer you can act on arrives first.
+#   LADDER_PASS <- 2   the same set PLUS R2f, the factorization control. Re-run with
+#                      RESUME = TRUE and only R2f fits (~4 h): the pass-1 rungs are matched
+#                      by their IMP_STAGE.txt config digest and skipped, and every verdict
+#                      is recomputed from the folders already on disk.
+#
+# Verified before shipping: adding R2f does NOT change any other rung's digest, so pass 2
+# reuses exactly the four pass-1 fits. WHAT TO WATCH: the digest covers the CONFIGURATION,
+# not the code. If a Stan model, a driver or an R function changes between the two passes,
+# R2f is fitted by different code than the R2 it is measured against; that is now detected
+# (IMP_STAGE.txt records a code fingerprint), reported at the rung, and any cross-rung
+# verdict resting on it is downgraded from PASS to REVIEW. So do not apply another patch
+# between the two passes unless you mean to, and if you do, delete the affected rung
+# folders so they re-fit.
+LADDER_PASS <- 1                   # 1 = the four citable rungs; 2 = adds R2f. See above.
+
 STAGES  <- if (identical(F_METHOD, "ladder")) {
              c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
+           } else if (LADDER_PASS >= 2) {
+             c("R0", "R1", "R2", "R2f", "R4", "R5")
            } else {
-             # append "R2f" to recover the factorization proof for one extra fit:
-             #   c("R0", "R1", "R2", "R2f", "R4", "R5")
              c("R0", "R1", "R2", "R4", "R5")
            }
 RESUME  <- TRUE                    # reuse a rung ONLY when its IMP_STAGE.txt digest matches
@@ -221,11 +243,58 @@ rd <- function(dir, f) {
   if (is.null(x) || !par %in% rownames(x)) return(NULL)
   as.list(x[par, , drop = FALSE])
 }
+# THE f/c EXCLUSION LIST for fit_agreement(), in ONE place (2026-09-13).
+#
+# WHY IT IS A NAMED CONSTANT, AND WHAT IT ACTUALLY BUYS. The list was typed by hand in two
+# places, and when the combo-share walk arrived on 2026-09-09 its parameters (z_c, sigma_c,
+# cfc_kappa, and the generated sigma_c_out / cfc_kappa_out) were never added to either
+# copy. crab_bss_pooled.stan declares sigma_f_out, cfi_kappa_out, sigma_c_out and
+# cfc_kappa_out UNCONDITIONALLY and sets each to exactly 0.0 when its walk is off (lines
+# 931-935, 966-970), so on an R2-vs-R2f or R3-vs-R3a comparison one side holds a real
+# posterior and the other a hard zero.
+#
+# MEASURED, AND IT CORRECTS A STRONGER CLAIM MADE EARLIER THE SAME DAY. A 2-chain
+# 300-iteration fit of the boat all-gear component under the R2f configuration reports
+# those quantities as sd = 0 and therefore se_mean = NaN (n_eff and Rhat NaN too), NOT
+# se_mean = 0. fit_agreement() skips any row whose combined se is not finite, so those
+# rows are skipped whether or not this list names them. The rows that WOULD have been
+# compared and would have produced an enormous z -- f_crab_out[*] (a real posterior on
+# BOTH sides: 0.307 under R2f against the winter monthly values under R2), plus E_sum and
+# C_expected_sum -- were already in the list before today.
+#
+# So closing the gap is DEFENSIVE HARDENING, not the bug first claimed: the masking rests
+# on rstan::summary() reporting NaN rather than 0 for a zero-variance parameter, which is
+# an implementation detail and not a property of the design. Worth more than the three
+# added names is that harness section 60 now asserts the regex covers every f/c quantity
+# BOTH Stan models report, does NOT cover the parameters the proof must actually compare,
+# and pins the NaN-skip behaviour the analysis above rests on. The list maintains itself
+# the next time an f output is added, and a future rstan that reports 0 instead of NaN
+# cannot turn this into the spurious FAIL it currently is not.
+#
+# Covered: every f and c quantity (parameters, transformed parameters and generated
+# quantities), plus the reported TOTALS the f multiplies (E, C, C_expected, lambda_Ctot),
+# plus log_lik and lp__.
+F_EXCLUDE <- paste0("^(f_crab|f_lower|f_theta|f_lower_param|z_f|sigma_f|cfi_kappa|",
+                    "combo_c|z_c|sigma_c|cfc_kappa|eta_f|osp_f_kappa|",
+                    "E\\[|E_sum|C\\[|C_sum|C_expected|lambda_Ctot|log_lik|lp__)")
+
 V <- list()
 V1row <- function(stage, criterion, observed, threshold, verdict, why)
   V[[length(V) + 1]] <<- data.frame(stage = stage, criterion = criterion, observed = observed,
                                     threshold = threshold, verdict = verdict, why = why,
                                     stringsAsFactors = FALSE)
+# 2026-09-13: a cross-rung claim (bit-identity, or agreement within Monte Carlo error) is
+# only meaningful if the two folders were produced by the same code. In the two-pass plan
+# they need not have been. This wraps such a row: it keeps the observation, appends what
+# differs, and refuses to report PASS on a comparison whose premise is broken.
+V1cross <- function(stage, criterion, observed, threshold, verdict, why, dir_a, dir_b) {
+  note <- .comparability_note(dir_a, dir_b)
+  if (nzchar(note) && identical(verdict, "PASS")) verdict <- "REVIEW"
+  V1row(stage, criterion, paste0(observed, note), threshold, verdict,
+        paste0(why, if (nzchar(note)) paste0("  COMPARABILITY: this claim assumes both rungs were fitted by the same",
+                                             " code and the same rstan;", note, ". A PASS is downgraded to REVIEW",
+                                             " because the premise, not the result, is what failed.") else ""))
+}
 
 # ---------------------------------------------------------------------------
 # BASELINE, named beside each value: the 2026-09-04 authoritative render.
@@ -362,19 +431,83 @@ stage_digest <- function(sid) {
   sprintf("%s|%s|%08x", sid, F_METHOD,
           as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
 }
+# THE CODE FINGERPRINT (2026-09-13). The config digest above says a folder was built
+# from this rung's CONFIGURATION. It says nothing about the CODE. That gap matters for the
+# two-pass plan Matt asked for -- fit R0/R1/R2/R4/R5 now, then come back and add R2f --
+# because R2f's whole purpose is to be compared to R2, and if a Stan model, a driver or an
+# R function changes between the two passes then R2f is fitted under different code than
+# the R2 it is measured against, with nothing to flag it. Demonstrated before this was
+# written: appending a line to crab_bss_pooled.stan left every digest unchanged and RESUME
+# still reused R2.
+#
+# The fingerprint is three position-weighted byte sums, over the Stan models, the drivers
+# and 03_R_functions, so a mismatch says WHICH layer moved. It is recorded, not enforced:
+# re-fitting 12 h because a comment changed in an R function would be worse than the
+# problem. What it does is (1) print the mismatch in the RESUME table and at the rung,
+# (2) record a verdict row, and (3) make the cross-rung verdicts that depend on shared
+# code (R2f's factorization proof, and every fit_exactness bit-identity claim) report
+# REVIEW instead of PASS when the two folders disagree.
+.code_group <- function(dir_rel, pattern) {
+  fs <- sort(list.files(.here(dir_rel), pattern = pattern, full.names = TRUE))
+  if (!length(fs)) return("none")
+  txt <- paste(vapply(fs, function(f) paste(readLines(f, warn = FALSE), collapse = "\n"), character(1)),
+               collapse = "\n--\n")
+  b <- as.integer(charToRaw(txt))
+  sprintf("%08x", as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
+}
+code_fingerprint <- function() {
+  paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),
+        sprintf("drivers:%s", .code_group("01_BSS_models", "\\.Rmd$")),
+        sprintf("fns:%s", .code_group("03_R_functions", "\\.R$")), sep = " ")
+}
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid), sprintf("F_METHOD: %s", F_METHOD),
                sprintf("digest: %s", stage_digest(sid)),
+               sprintf("code: %s", code_fingerprint()),
+               sprintf("rstan: %s / StanHeaders %s", utils::packageVersion("rstan"),
+                       tryCatch(as.character(utils::packageVersion("StanHeaders")), error = function(e) "?")),
                sprintf("written: %s", format(Sys.time())),
                "", "# run_improvements_2026-09-08.R writes this after a rung renders. RESUME",
-               "# reuses a folder ONLY when the digest matches the stage it is resolving now."),
+               "# reuses a folder ONLY when the `digest` line matches the stage it is resolving",
+               "# now. The `code` line is NOT enforced: a mismatch is reported at the rung and in",
+               "# the verdicts, and downgrades any cross-rung bit-identity or agreement claim that",
+               "# rests on the two folders having been fitted by the same code."),
              file.path(dir, "IMP_STAGE.txt"))
 }
-.stage_digest_of <- function(dir) {
+.stamp_field <- function(dir, key) {
   p <- file.path(dir %||% "", "IMP_STAGE.txt")
   if (!file.exists(p)) return(NA_character_)
-  l <- grep("^digest: ", readLines(p, warn = FALSE), value = TRUE)
-  if (!length(l)) NA_character_ else sub("^digest: ", "", l[1])
+  l <- grep(paste0("^", key, ": "), readLines(p, warn = FALSE), value = TRUE)
+  if (!length(l)) NA_character_ else sub(paste0("^", key, ": "), "", l[1])
+}
+.stage_digest_of <- function(dir) .stamp_field(dir, "digest")
+.stage_code_of   <- function(dir) .stamp_field(dir, "code")
+# Which layer(s) differ between a recorded fingerprint and another (or the current one).
+.code_delta <- function(a, b = code_fingerprint()) {
+  if (is.na(a %||% NA) || is.na(b %||% NA)) return(NA_character_)
+  pa <- strsplit(a, " ")[[1]]; pb <- strsplit(b, " ")[[1]]
+  ka <- sub(":.*$", "", pa); kb <- sub(":.*$", "", pb)
+  ks <- union(ka, kb)
+  d <- ks[vapply(ks, function(k) !identical(pa[match(k, ka)], pb[match(k, kb)]), logical(1))]
+  if (!length(d)) "" else paste(d, collapse = ", ")
+}
+# The one cross-pass risk the fingerprint cannot see: a package upgrade between passes.
+# The driver already writes session_info.txt; this reads the one line that matters.
+.stan_versions_of <- function(dir) {
+  p <- file.path(dir %||% "", "session_info.txt")
+  if (!file.exists(p)) return(NA_character_)
+  l <- grep("^rstan .*StanHeaders", readLines(p, warn = FALSE), value = TRUE)
+  if (!length(l)) NA_character_ else trimws(sub(";.*bss_seed.*$", "", l[1]))
+}
+# Used by every verdict that claims two folders are comparable. Returns "" when they are.
+.comparability_note <- function(a, b) {
+  cd <- .code_delta(.stage_code_of(a), .stage_code_of(b))
+  vs <- if (!is.na(.stan_versions_of(a)) && !is.na(.stan_versions_of(b)) &&
+            !identical(.stan_versions_of(a), .stan_versions_of(b)))
+    sprintf("; rstan/StanHeaders differ (%s vs %s)", .stan_versions_of(a), .stan_versions_of(b)) else ""
+  cc <- if (is.na(cd %||% NA)) "; one folder records no code fingerprint (pre-2026-09-13 run)"
+        else if (nzchar(cd)) sprintf("; CODE DIFFERS between the two runs (%s)", cd) else ""
+  paste0(cc, vs)
 }
 
 find_outdir <- function(model, run_tag) {
@@ -510,16 +643,27 @@ preflight <- function() {
                   "f_strata", "f_dynamic", "census_uncertainty", "pe_effort_fill", "digest")], row.names = FALSE)
     # what an existing folder would do under RESUME
     if (isTRUE(RESUME)) {
+      .reuse <- 0L
       for (sid in .fit_stages) {
         ex <- find_outdir(STAGE_DEFS[[sid]]$model, STAGE_DEFS[[sid]]$tag)
         if (!is.na(ex)) {
-          dg <- .stage_digest_of(ex)
-          cat(sprintf("  RESUME: %s has an existing folder %s -- digest %s (%s)\n", sid, basename(ex),
+          dg <- .stage_digest_of(ex); keep <- identical(dg, stage_digest(sid))
+          if (keep) .reuse <- .reuse + 1L
+          cd <- if (keep) .code_delta(.stage_code_of(ex)) else NA_character_
+          cat(sprintf("  RESUME: %s has an existing folder %s -- digest %s (%s)%s\n", sid, basename(ex),
                       if (is.na(dg)) "ABSENT" else dg,
-                      if (identical(dg, stage_digest(sid))) "matches: the fit will be SKIPPED"
-                      else "does NOT match this stage's config: it will be RE-RUN"))
+                      if (keep) "matches: the fit will be SKIPPED"
+                      else "does NOT match this stage's config: it will be RE-RUN",
+                      if (!keep) "" else if (is.na(cd %||% NA)) "  [no code fingerprint recorded: pre-2026-09-13 run]"
+                      else if (nzchar(cd)) sprintf("  *** CODE HAS CHANGED SINCE THAT FIT (%s): it is being REUSED anyway, and any cross-rung claim against it is downgraded ***", cd)
+                      else "  [code fingerprint matches]"))
         }
       }
+      if (.reuse > 0L)
+        cat(sprintf("  RESUME will reuse %d of %d fitted rung(s); %s will be fitted.\n", .reuse, length(.fit_stages),
+                    paste(setdiff(.fit_stages, .fit_stages[vapply(.fit_stages, function(sid) {
+                      ex <- find_outdir(STAGE_DEFS[[sid]]$model, STAGE_DEFS[[sid]]$tag)
+                      !is.na(ex) && identical(.stage_digest_of(ex), stage_digest(sid)) }, logical(1))]), collapse = ", ")))
     }
   }
   .self <- .here("06_diagnostics", "run_improvements_2026-09-08.R")
@@ -833,7 +977,23 @@ run_stage <- function(sid) {
     # so its presence is the completion marker.
     dg <- .stage_digest_of(existing)
     if (identical(dg, stage_digest(sid))) {
+      .cd <- .code_delta(.stage_code_of(existing))
       cat("  RESUME: output present at", basename(existing), "with a MATCHING config digest - skipping the fit.\n")
+      if (is.na(.cd %||% NA))
+        cat("          (no code fingerprint recorded in that folder: it predates 2026-09-13.)\n")
+      else if (nzchar(.cd)) {
+        cat(sprintf(paste0("          *** THE CODE HAS CHANGED SINCE THAT FIT (%s). The folder is REUSED, because\n",
+                           "          re-fitting hours of MCMC over a code edit that may be a comment is worse than\n",
+                           "          the problem, but any verdict comparing this rung to another is downgraded. ***\n"), .cd))
+        V1row(sid, "reused fit was produced by DIFFERENT code than this run",
+              sprintf("folder %s; layer(s) changed: %s", basename(existing), .cd),
+              "the reused folder's code fingerprint matches the current tree", "REVIEW",
+              paste("RESUME matched this rung's CONFIG digest and reused the fit. The code fingerprint",
+                    "(Stan models / drivers / 03_R_functions) does not match, so this rung was fitted by",
+                    "a different version of the pipeline than the rungs fitted in this pass. Cross-rung",
+                    "bit-identity and agreement claims involving it are not interpretable; either accept",
+                    "them as indicative or delete the folder and re-fit."))
+      }
       return(existing)
     }
     cat(sprintf(paste0("  RESUME: output present at %s but its config digest %s does not match this stage (%s).\n",
@@ -930,9 +1090,10 @@ verdict_R2 <- function(dir, prev) {
                       expect_delta = c("tau_boat_prior_mu", "tau_boat_prior_sigma", "shared_tau_sigma", "run_tag", "model",
                                        "tau_boat_prior_source", "tau_boat_prior_calibration_table", "crabbing_holiday_dates",
                                        "opener_f_dates", "razor_dig_dates", "tau_sensitivity_grid"))
-  V1row("R2", "the shore did not move (the boat prior cannot reach it)", fe$observed,
+  V1cross("R2", "the shore did not move (the boat prior cannot reach it)", fe$observed,
         "shore fits bit-identical to R1", fe$verdict,
-        "A FAIL means the turnover prior leaked into the shore fits, which it has no path to do.")
+        "A FAIL means the turnover prior leaked into the shore fits, which it has no path to do.",
+        dir, prev %||% "")
   tb <- .full_row(dir, "private_boat_all_gear", "tau_bar_out")
   ba <- .comp(dir, "private_boat (All gear)"); ba0 <- .comp(prev %||% "", "private_boat (All gear)")
   V1row("R2", "tau_bar lands on the calibration and the boat rises with it",
@@ -970,18 +1131,20 @@ verdict_R2f <- function(dir, ref) {
                       expect_delta = c("crab_fraction_strata", "crab_fraction_source", "crab_fraction_dynamic",
                                        "crab_fraction_rows", "run_tag", "model",
                                        "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
-  V1row("R2f", "the shore did not move when f was rolled back (f is boat-only)", fe$observed,
+  V1cross("R2f", "the shore did not move when f was rolled back (f is boat-only)", fe$observed,
         "shore fits bit-identical to R2", fe$verdict,
-        "crab_fraction_stan_data() sets apply_crab_fraction = 0 for shore; a FAIL means an f term reached the shore.")
+        "crab_fraction_stan_data() sets apply_crab_fraction = 0 for shore; a FAIL means an f term reached the shore.",
+        dir, ref)
   fa <- fit_agreement(dir, ref, pat = "private_boat",
-                      exclude = "^(f_crab|f_lower|f_theta|f_lower_param|z_f|sigma_f|cfi_kappa|combo_c|eta_f|osp_f_kappa|E\\[|E_sum|C\\[|C_sum|C_expected|lambda_Ctot|log_lik|lp__)",
+                      exclude = F_EXCLUDE,
                       what = "boat non-f parameters, R2f vs R2")
-  V1row("R2f", "the f block leaves effort and CPUE untouched (factorization)", fa$observed,
+  V1cross("R2f", "the f block leaves effort and CPUE untouched (factorization)", fa$observed,
         "max |z| under 5 and under 1% of rows above 3", fa$verdict,
         paste("This is the R3-vs-R3a test of the 2026-09-08 design, run as a single control rung",
               "against the CURRENT turnover prior instead of the retired one. A FAIL means an f term",
               "reached an effort or CPUE likelihood, which would make every boat number in the ladder",
-              "attributable to two things at once."))
+              "attributable to two things at once."),
+        dir, ref)
   ba <- .comp(dir, "private_boat (All gear)"); ba1 <- .comp(ref, "private_boat (All gear)")
   V1row("R2f", "what the new f is worth on the boat, at a fixed turnover",
         sprintf("boat all-gear with the new f %s vs the retired f %s (%+.1f%%); shore unchanged",
@@ -997,8 +1160,8 @@ verdict_R3a <- function(dir, prev) {
   fe <- fit_exactness(dir, prev %||% "", pat = "shore", what = "shore fits vs the previous rung",
                       expect_delta = c("crab_fraction_strata", "crab_fraction_source", "crab_fraction_rows", "run_tag", "model",
                                        "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
-  V1row("R3a", "the shore did not move (f is boat-only)", fe$observed, "shore fits bit-identical", fe$verdict,
-        "f enters the boat generated quantities only; the shore has no f.")
+  V1cross("R3a", "the shore did not move (f is boat-only)", fe$observed, "shore fits bit-identical", fe$verdict,
+        "f enters the boat generated quantities only; the shore has no f.", dir, prev %||% "")
   fs <- rd(dir, "crab_fraction_strata_private_boat_all_gear_Dungeness_Kept.csv")
   if (!is.null(fs)) {
     sh <- fs$contacts_crabbing / pmax(fs$contacts, 1); inf <- fs$contacts >= 20
@@ -1021,17 +1184,18 @@ verdict_R3 <- function(dir, prev) {
   fe <- fit_exactness(dir, prev %||% "", pat = "shore", what = "shore fits vs the previous rung",
                       expect_delta = c("crab_fraction_dynamic", "crab_fraction_strata", "crab_fraction_source", "crab_fraction_rows",
                                        "run_tag", "model", "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
-  V1row("R3", "the shore did not move (f is boat-only)", fe$observed, "shore fits bit-identical", fe$verdict,
-        "f enters the boat generated quantities only; the shore has no f.")
+  V1cross("R3", "the shore did not move (f is boat-only)", fe$observed, "shore fits bit-identical", fe$verdict,
+        "f enters the boat generated quantities only; the shore has no f.", dir, prev %||% "")
   # THE FACTORIZATION PROOF, numerically: every non-f boat parameter within MC error.
   fa <- fit_agreement(dir, prev %||% "", pat = "private_boat",
-                      exclude = "^(f_crab|f_lower|f_theta|f_lower_param|z_f|sigma_f|cfi_kappa|combo_c|eta_f|osp_f_kappa|E\\[|E_sum|C\\[|C_sum|C_expected|lambda_Ctot|log_lik|lp__)",
+                      exclude = F_EXCLUDE,
                       what = "boat non-f parameters vs the previous rung")
-  V1row("R3", "the dynamic f leaves effort and CPUE untouched (factorization)", fa$observed,
+  V1cross("R3", "the dynamic f leaves effort and CPUE untouched (factorization)", fa$observed,
         "max |z| under 5 and under 1% of rows above 3", fa$verdict,
         paste("Bit-identity is impossible here: the parameter vector changed (z_f, sigma_f, cfi_kappa),",
               "so every HMC trajectory differs. What the design guarantees is agreement in DISTRIBUTION,",
-              "and this is that test. A FAIL means an f term reached an effort or CPUE likelihood."))
+              "and this is that test. A FAIL means an f term reached an effort or CPUE likelihood."),
+        dir, prev %||% "")
   fs <- rd(dir, "crab_fraction_strata_private_boat_all_gear_Dungeness_Kept.csv")
   fa_prev <- rd(prev %||% "", "crab_fraction_strata_private_boat_all_gear_Dungeness_Kept.csv")
   if (!is.null(fs)) {
@@ -1070,8 +1234,10 @@ verdict_R4 <- function(dir, prev) {
   fe <- fit_exactness(dir, prev %||% "", pat = "private_boat", what = "boat fits vs R3",
                       expect_delta = c("tau_shore_prior_mu", "tau_shore_prior_sigma", "tau_shore_prior_source", "shared_tau_min_obs",
                                        "run_tag", "model", "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
-  V1row("R4", "the boat did not move (the shore prior cannot reach it)", fe$observed, "boat fits bit-identical to R3", fe$verdict,
-        "A FAIL means the shore turnover leaked into the boat fits, which it has no path to do.")
+  V1cross("R4", "the boat did not move (the shore prior cannot reach it)", fe$observed,
+        "boat fits bit-identical to the previous rung", fe$verdict,
+        "A FAIL means the shore turnover leaked into the boat fits, which it has no path to do.",
+        dir, prev %||% "")
   sa <- .comp(dir, "shore (All gear)"); sa0 <- .comp(prev %||% "", "shore (All gear)")
   sp <- .comp(dir, "shore (Pot closure)"); sp0 <- .comp(prev %||% "", "shore (Pot closure)")
   ea <- .comp(dir, "shore (All gear)", "BSS_effort"); ea0 <- .comp(prev %||% "", "shore (All gear)", "BSS_effort")
@@ -1125,8 +1291,35 @@ banner(sprintf("IMPROVEMENT LADDER  2026-09-08   DRY_RUN=%s  F_METHOD=%s  stages
                DRY_RUN, F_METHOD, paste(STAGES, collapse = ", "), GEAR_FOLLOWS))
 preflight()
 
-dirs <- list()
-for (sid in STAGES) dirs[[sid]] <- run_stage(sid)
+# A FAILED RUNG MUST NOT DESTROY THE OTHERS (2026-09-13). This was a bare
+#   for (sid in STAGES) dirs[[sid]] <- run_stage(sid)
+# so an error inside any render -- a Stan failure, a full disk, one bad interview row --
+# propagated out of the loop and killed the script before a single verdict was written.
+# On a 12-to-14 h overnight run that means a failure in the last rung throws away the
+# hours the earlier ones cost. The rungs are independent RENDERS (R4 does not read R2's
+# output; only the VERDICTS compare folders), so the right behaviour is to record the
+# failure, keep going, and let every verdict that can still be computed be computed.
+dirs <- list(); .failed <- character(0); .t_all <- Sys.time()
+for (sid in STAGES) {
+  dirs[[sid]] <- tryCatch(run_stage(sid), error = function(e) {
+    .failed <<- c(.failed, sid)
+    cat(sprintf("\n  *** RUNG %s FAILED: %s\n", sid, conditionMessage(e)))
+    cat("      Continuing with the remaining rungs. Every rung that finished keeps its\n")
+    cat("      output and its verdicts; re-run with RESUME = TRUE to retry this one.\n")
+    V1row(sid, "the rung did not complete", conditionMessage(e), "the render runs to completion", "ERROR",
+          paste("The render errored. Nothing about the other rungs is affected: they are separate",
+                "renders and only the verdict blocks read across folders. Re-running the script with",
+                "RESUME = TRUE will reuse every completed rung by its config digest and retry only",
+                "this one. Look in the rung's stan_console_*.log first if it is a sampler failure."))
+    NA_character_
+  })
+  if (!isTRUE(DRY_RUN) && !identical(STAGE_DEFS[[sid]]$model, "desk"))
+    cat(sprintf("  [elapsed %.1f h of the ladder so far]\n",
+                as.numeric(difftime(Sys.time(), .t_all, units = "hours"))))
+}
+if (length(.failed))
+  cat(sprintf("\n  %d rung(s) failed: %s. The verdicts below cover the rest.\n",
+              length(.failed), paste(.failed, collapse = ", ")))
 
 .safe <- function(sid, expr) tryCatch(force(expr), error = function(e) {
   cat(sprintf("\n  *** VERDICT BLOCK %s FAILED: %s\n", sid, conditionMessage(e)))
@@ -1152,6 +1345,41 @@ if (length(LAD)) {
   print(do.call(rbind, LAD), row.names = FALSE)
   cat("\n  written to", lp, "\n")
 }
+# ---------------------------------------------------------------------------
+# WHAT TO DO NEXT. Printed at the end of every non-dry run so the two-pass plan does not
+# have to be remembered, and so a pass that ended early says so.
+# ---------------------------------------------------------------------------
+if (!isTRUE(DRY_RUN)) {
+  .fitted <- setdiff(STAGES, "R0")
+  .have <- vapply(.fitted, function(sid) !is.na(.dir_of(sid) %||% NA), logical(1))
+  banner("NEXT")
+  if (!all(.have)) {
+    cat(sprintf("  %d of %d fitted rung(s) produced no output folder: %s%s\n", sum(!.have), length(.fitted),
+                paste(.fitted[!.have], collapse = ", "),
+                if (length(.failed)) sprintf("  (errored: %s)", paste(.failed, collapse = ", ")) else ""))
+    cat("  Re-run this script as-is: RESUME = TRUE reuses everything that finished and re-fits the rest.\n")
+  } else if (identical(F_METHOD, "ladder")) {
+    cat("  The full 'ladder' set is on disk. Read the verdicts file, then the ladder table.\n")
+  } else if (LADDER_PASS < 2) {
+    cat(paste0("  PASS 1 COMPLETE: R1, R2, R4 and R5 are on disk and every rung's port total is citable.\n",
+               "  To add the factorization control (R2f: R2 with the f block rolled back, ~4 h), set\n",
+               "        LADDER_PASS <- 2\n",
+               "  in the control block and re-run this script. RESUME will match the four fits above by\n",
+               "  their config digest, skip them, fit R2f only, and recompute every verdict from disk.\n",
+               "  Do not apply an unrelated patch in between: the digest covers the config, not the code,\n",
+               "  and R2f is only interpretable against an R2 fitted by the same code (the run will say so\n",
+               "  if they differ, and downgrade the affected verdicts).\n"))
+  } else {
+    cat(paste0("  PASS 2 COMPLETE: R2f is on disk. The rows to read are the two R2f verdicts -- the shore\n",
+               "  must be bit-identical to R2 (f is boat-only) and every boat parameter that is not an f\n",
+               "  term must agree within Monte Carlo error (the factorization proof). If either says\n",
+               "  REVIEW for a COMPARABILITY reason, the fits came from different code or a different\n",
+               "  rstan, not from a modelling failure.\n"))
+  }
+  cat(sprintf("  D19 is decidable now: compare the four PE arms in the R0 desk folder\n%s\n",
+              "  (pe_unsampled_cell_arms.csv) against R4's BSS in pe_vs_bss_comparison.csv."))
+}
+
 if (length(V)) {
   vp <- .here("05_output", sprintf("improvements_2026-09-08_verdicts%s.csv", .sfx))
   merge_csv_by(do.call(rbind, V), vp, c("stage", "criterion"))

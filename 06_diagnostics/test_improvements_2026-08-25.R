@@ -3142,5 +3142,170 @@ local({
         !any(grepl("pot_open_date", w)) })
 })
 
+# ---------------------------------------------------------------------------
+# 60. THE TWO-PASS LADDER RUN (2026-09-13). Matt: "run the 4-rung version now and then
+#     follow up with the new R2f control rung." Three things have to hold for that to be
+#     safe, and none of them held when the plan was proposed:
+#       (a) adding R2f must not change any other rung's config digest, or pass 2 re-fits
+#           12 h of MCMC it was supposed to reuse;
+#       (b) the f/c exclusion list used by the factorization verdict must cover every
+#           f/c quantity the Stan model REPORTS -- sigma_c_out and cfc_kappa_out are
+#           declared unconditionally and set to exactly 0.0 when the walk is off, so a
+#           missing name means a z in the tens and a spurious FAIL after four hours;
+#       (c) a code change between the two passes must be detected, because the digest
+#           covers the configuration and R2f is only interpretable against an R2 fitted
+#           by the same code.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_improvements_2026-09-08.R"
+  chk("two-pass: ladder runner present", file.exists(f)); if (!file.exists(f)) return(invisible(NULL))
+  t <- readLines(f, warn = FALSE); tt <- t[!grepl("^\\s*#", t)]; s <- paste(tt, collapse = "\n")
+
+  # ---- the control block -------------------------------------------------
+  chk("two-pass: LADDER_PASS exists and ships pass 1 (the four citable rungs first)",
+      any(grepl("^LADDER_PASS <- 1", t)) && grepl("LADDER_PASS >= 2", s, fixed = TRUE))
+  chk("two-pass: pass 1 is R0/R1/R2/R4/R5 and pass 2 adds R2f in that position",
+      grepl('c("R0", "R1", "R2", "R4", "R5")', s, fixed = TRUE) &&
+      grepl('c("R0", "R1", "R2", "R2f", "R4", "R5")', s, fixed = TRUE))
+  chk("two-pass: the run prints what to do next, so the plan is not carried in someone's head",
+      grepl("PASS 1 COMPLETE", s, fixed = TRUE) && grepl("PASS 2 COMPLETE", s, fixed = TRUE) &&
+      grepl("LADDER_PASS <- 2", s, fixed = TRUE))
+
+  # ---- (a) the digests are stable across the two passes ------------------
+  # Evaluate the runner's head twice, once per STAGES setting, and compare.
+  .head <- t[seq_len(grep("^# PRE-FLIGHT", t)[1] - 1)]
+  .dig <- function(pass) {
+    h <- sub("^LADDER_PASS <- 1", paste0("LADDER_PASS <- ", pass), .head)
+    e <- new.env(parent = globalenv())
+    eval(parse(text = paste(h, collapse = "\n")), envir = e)
+    st <- setdiff(get("STAGES", envir = e), "R0")
+    setNames(vapply(st, get("stage_digest", envir = e), character(1)), st)
+  }
+  d1 <- tryCatch(.dig(1), error = function(e) NULL)
+  d2 <- tryCatch(.dig(2), error = function(e) NULL)
+  chk("two-pass: both passes resolve their rungs without error", !is.null(d1) && !is.null(d2))
+  if (!is.null(d1) && !is.null(d2)) {
+    sh <- intersect(names(d1), names(d2))
+    chk("two-pass: pass 2 adds R2f and nothing else",
+        setequal(setdiff(names(d2), names(d1)), "R2f") && length(setdiff(names(d1), names(d2))) == 0)
+    chk("two-pass: EVERY shared rung's config digest is identical across the passes (so pass 2 refits only R2f)",
+        length(sh) == 4L && all(d1[sh] == d2[sh]))
+    chk("two-pass: R2f's digest is distinct from R2's", !identical(d2[["R2f"]], d2[["R2"]]))
+    chk("two-pass: the digest names its stage and the f mode, so a folder cannot be misread",
+        all(grepl("^R[0-9a-z]+\\|new_throughout\\|[0-9a-f]{8}$", d2)))
+  }
+
+  # ---- (b) the f/c exclusion list covers what Stan reports ---------------
+  .i <- grep("^F_EXCLUDE <- paste0", t)[1]
+  chk("two-pass: the f/c exclusion list is defined ONCE and reused", is.finite(.i) &&
+      sum(grepl("exclude = F_EXCLUDE", tt, fixed = TRUE)) >= 2 &&
+      !any(grepl('exclude = "\\^\\(f_crab', tt)))
+  if (is.finite(.i)) {
+    .j <- .i; while (!grepl("\\)\\s*$", t[.j])) .j <- .j + 1L
+    FEX <- eval(parse(text = paste(t[.i:.j], collapse = "\n")))
+    for (mf in c("crab_bss_pooled.stan", "crab_bss_gear_resolved.stan")) {
+      st <- readLines(file.path("02_stan_models", mf), warn = FALSE)
+      i_gq <- grep("^generated quantities", st)[1]; i_pr <- grep("^parameters", st)[1]
+      i_tp <- grep("^transformed parameters", st)[1]
+      decl <- c(if (is.finite(i_gq)) st[seq(i_gq, length(st))],
+                if (is.finite(i_pr) && is.finite(i_tp)) st[seq(i_pr, i_tp)])
+      nm <- unique(unlist(regmatches(decl, gregexpr("(?<=\\s)[A-Za-z_][A-Za-z0-9_]*(?=\\s*[;=])", decl, perl = TRUE))))
+      # the f and c quantities, excluding the integer sizes (n_f_dyn etc, never reported)
+      fc <- sort(nm[grepl("^(f_|z_f|z_c|sigma_f|sigma_c|cfi|cfc|combo|osp_f|eta_f)", nm)])
+      fc <- fc[!grepl("^n_", fc)]
+      miss <- fc[!grepl(FEX, fc)]
+      chk(sprintf("two-pass: F_EXCLUDE covers every f/c quantity %s reports (%d checked)", mf, length(fc)),
+          length(fc) > 0 && !length(miss))
+      if (length(miss)) cat("      NOT COVERED:", paste(miss, collapse = ", "), "\n")
+    }
+    # THE MECHANISM THE ANALYSIS RESTS ON, pinned. A 2026-09-13 smoke fit of the boat
+    # all-gear component under the R2f configuration showed the switched-off f/c outputs
+    # reporting sd = 0 and therefore se_mean = NaN, NOT 0 -- and fit_agreement() skips any
+    # row whose combined se is not finite, which is why the missing names above are
+    # currently MASKED rather than fatal. That masking is an rstan::summary()
+    # implementation detail, so pin it: if it ever changes, this says so instead of a
+    # four-hour verdict saying it.
+    source("03_R_functions/batch_verdict_helpers.R")
+    .mk2 <- function(dir, means, ses) {
+      dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+      utils::write.csv(data.frame(mean = means, se_mean = ses, sd = ses * 10,
+                                  row.names = c("B1", "zz_nan_side", "zz_zero_side", "zz_finite")),
+                       file.path(dir, "bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv"))
+    }
+    .da <- tempfile("fx_a"); .db <- tempfile("fx_b")
+    # ref: real posteriors; new: NaN on one row (the R2f case), 0 on another, finite on a third
+    .mk2(.da, c(1.0, 0.30, 0.30, 1.00), c(0.01, 0.02, 0.02, 0.01))
+    .mk2(.db, c(1.0, 0.00, 0.00, 2.00), c(0.01, NaN,  0.00, 0.01))
+    .fa <- fit_agreement(.db, .da, pat = "private_boat", exclude = NULL, what = "fixture")
+    chk("two-pass: fit_agreement SKIPS a row whose se_mean is NaN on one side (why the missing names were masked, not fatal)",
+        grepl("zz_finite", .fa$observed) && !grepl("zz_nan_side", .fa$observed))
+    chk("two-pass: fit_agreement COMPARES a row whose se_mean is 0 on one side, so a future rstan reporting 0 would bite",
+        { z <- .fa$z; any(grepl("zz_zero_side$", names(z))) })
+    chk("two-pass: fit_agreement still catches a genuine disagreement in the fixture",
+        identical(.fa$verdict, "FAIL") && isTRUE(max(.fa$z, na.rm = TRUE) > 5))
+    unlink(c(.da, .db), recursive = TRUE)
+
+    # the specific two that were missing, named so a regression is unmistakable
+    chk("two-pass: sigma_c_out and cfc_kappa_out are excluded (declared unconditionally, 0.0 when the c walk is off)",
+        grepl(FEX, "sigma_c_out") && grepl(FEX, "cfc_kappa_out") &&
+        grepl(FEX, "sigma_f_out") && grepl(FEX, "cfi_kappa_out") && grepl(FEX, "combo_c_out"))
+    chk("two-pass: F_EXCLUDE does NOT swallow the parameters the factorization proof must actually compare",
+        !grepl(FEX, "B1") && !grepl(FEX, "B2") && !grepl(FEX, "tau_bar_out") && !grepl(FEX, "R_G_boat_out") &&
+        !grepl(FEX, "mu_mu_E[1]") && !grepl(FEX, "sigma_eps_C") && !grepl(FEX, "sigma_IE_out") &&
+        !grepl(FEX, "sigma_mu_C") && !grepl(FEX, "sigma_r_C"))
+  }
+
+  # ---- a failed rung must not destroy the others -------------------------
+  chk("two-pass: a rung that errors is recorded and the remaining rungs still run",
+      grepl("dirs[[sid]] <- tryCatch(run_stage(sid), error = function(e)", s, fixed = TRUE) &&
+      grepl("RUNG %s FAILED", s, fixed = TRUE) &&
+      grepl('V1row(sid, "the rung did not complete"', s, fixed = TRUE) &&
+      !grepl("for (sid in STAGES) dirs[[sid]] <- run_stage(sid)", s, fixed = TRUE))
+  chk("two-pass: the run reports its elapsed time per fitted rung",
+      grepl("elapsed %.1f h of the ladder so far", s, fixed = TRUE))
+
+  # ---- (c) the code fingerprint ------------------------------------------
+  chk("two-pass: IMP_STAGE.txt records a code fingerprint over the Stan models, the drivers and 03_R_functions",
+      grepl("code_fingerprint <- function", s, fixed = TRUE) &&
+      grepl('sprintf("code: %s", code_fingerprint())', s, fixed = TRUE) &&
+      grepl('.code_group("02_stan_models"', s, fixed = TRUE) &&
+      grepl('.code_group("01_BSS_models"', s, fixed = TRUE) &&
+      grepl('.code_group("03_R_functions"', s, fixed = TRUE))
+  chk("two-pass: a reused folder whose code has changed is REPORTED, not silently trusted",
+      grepl("THE CODE HAS CHANGED SINCE THAT FIT", s, fixed = TRUE) &&
+      grepl("reused fit was produced by DIFFERENT code than this run", s, fixed = TRUE))
+  chk("two-pass: code drift does NOT force a refit (a comment change must not cost 12 h)",
+      grepl("return(existing)", s, fixed = TRUE))
+  chk("two-pass: every cross-rung claim goes through V1cross, which downgrades PASS when the premise is broken",
+      grepl("V1cross <- function", s, fixed = TRUE) &&
+      grepl('if (nzchar(note) && identical(verdict, "PASS")) verdict <- "REVIEW"', s, fixed = TRUE) &&
+      sum(grepl("V1cross(", tt, fixed = TRUE)) >= 7)
+  chk("two-pass: the bit-identity and agreement verdicts are the ones wrapped",
+      grepl('V1cross("R2", "the shore did not move', s, fixed = TRUE) &&
+      grepl('V1cross("R2f", "the f block leaves effort and CPUE untouched', s, fixed = TRUE) &&
+      grepl('V1cross("R4", "the boat did not move', s, fixed = TRUE))
+  chk("two-pass: the comparability note also checks rstan/StanHeaders, which a code hash cannot see",
+      grepl(".stan_versions_of <- function", s, fixed = TRUE) &&
+      grepl("rstan/StanHeaders differ", s, fixed = TRUE))
+
+  # the fingerprint itself: deterministic, and it changes when a watched file changes
+  .head2 <- t[seq_len(grep("^# PRE-FLIGHT", t)[1] - 1)]
+  e2 <- new.env(parent = globalenv())
+  ev <- tryCatch({ eval(parse(text = paste(.head2, collapse = "\n")), envir = e2); TRUE }, error = function(e) FALSE)
+  chk("two-pass: the runner head evaluates so the fingerprint can be exercised", ev)
+  if (ev) {
+    cf <- get("code_fingerprint", envir = e2)
+    a <- cf(); b <- cf()
+    chk("two-pass: the code fingerprint is deterministic and names all three layers",
+        identical(a, b) && grepl("^stan:[0-9a-f]{8} drivers:[0-9a-f]{8} fns:[0-9a-f]{8}$", a))
+    cd <- get(".code_delta", envir = e2)
+    chk("two-pass: .code_delta reports NO difference against itself and names the layer that moved",
+        identical(cd(a), "") &&
+        identical(cd(sub("^stan:[0-9a-f]{8}", "stan:deadbeef", a)), "stan") &&
+        identical(cd(sub("fns:[0-9a-f]{8}$", "fns:deadbeef", a)), "fns") &&
+        is.na(cd(NA_character_)))
+  }
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
