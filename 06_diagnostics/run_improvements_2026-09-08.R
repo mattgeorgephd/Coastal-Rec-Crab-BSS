@@ -84,14 +84,75 @@
 # trip roster is now the charter frame (charter_frame = "roster"), which counts the 8
 # sailed charter trips that fell on days without a tally, 7,884 -> 8,592 on 2024-25. The
 # R0 row states both numbers; charter_frame = "tally" reproduces 7,884.
+#
+# =============================================================================
+# 2026-09-12: SET UP FOR THE FULL RUN. Four changes, all of them about making the
+# rungs comparable to each other rather than about adding a rung.
+#
+# 1. F_METHOD (new control). Matt 2026-09-12: "The full ladder rung run will only be for
+#    the 2024-25 season and will use the new method for estimating f." The ladder as
+#    designed does the opposite: R1 and R2 fit the RETIRED f (one scalar, Beta(6,14) at
+#    0.30) precisely so that R3a and R3 can attribute the f change. Both readings are
+#    defensible and they cost different amounts, so this is a switch and not a decision
+#    taken here:
+#      "new_throughout" (SHIPPED, per the instruction) every fitted rung carries the
+#            dynamic monthly f. STAGES becomes R0, R1, R2, R4, R5: three pooled fits and
+#            one gear fit, about 12 to 14 h. Every rung's port total is then a number that
+#            could be cited, and the rung-to-rung deltas isolate the TURNOVER levers on a
+#            common f. WHAT IT COSTS: the f change itself is never attributed by a fit,
+#            and the factorization proof (that f touches generated quantities only, so
+#            effort and CPUE posteriors are unchanged in distribution) is never run. Add
+#            "R2f" to STAGES to recover the proof for one extra fit: R2f is R2 with the
+#            f block rolled back, so R2-vs-R2f is the same test R3-vs-R3a was, at half
+#            the cost and against the CURRENT turnover prior.
+#      "ladder" the original design: R0, R1, R2, R3a, R3, R4, R5. Five pooled fits, about
+#            20 to 25 h, and the f change is attributed twice over (legacy monthly, then
+#            the walk). Two of the five rungs are then fitted on a retired f.
+#    The mode is in every run_tag and every output filename, so the two cannot be mixed
+#    in one verdicts file.
+#
+# 2. THE WINDOW PIN WAS INCOMPLETE. WINDOW pinned est_date_start, est_date_end,
+#    season_filter, pot_closures and census_windows. It did NOT pin pot_open_date,
+#    pot_closure_start/end, census_start_date/end or commercial_opener, all of which are
+#    per-season and all of which the shipped two-season config sets for 2023-24. Every
+#    rung would have run 2024-25 with pot_open_date = 2023-12-01. That one is cosmetic
+#    (see run_config.R: plot markers and a NULL fallback, never a model term, and the
+#    "L_effective regression split" it was documented as feeding never existed), but
+#    pot_closure_start/end drive build_subseasons() and were right only by luck. All of
+#    them are pinned below and validate_season_window() now warns if any is left behind.
+#
+# 3. THE PE's UNSAMPLED-CELL LEVERS ARE PINNED, and this is not cosmetic. A component
+#    whose convergence gate FAILS reports its PE point in the port total as a constant,
+#    so pe_empty_effort_stratum / pe_empty_stratum / pe_variance can reach the headline
+#    of any rung where the thin boat pot closure falls back. run_config's defaults changed
+#    on 2026-09-12 (zero -> local_day_type, pooled -> local, new impute_aware variance),
+#    which moves the 2024-25 PE port total 72,224 -> 85,076. Pinning them in WINDOW means
+#    a later edit to run_config cannot silently make one rung incomparable to the rest,
+#    and the preflight now PROVES every rung resolved to the same values.
+#
+# 4. RESUME CANNOT REUSE A FOLDER BUILT UNDER A DIFFERENT CONFIG. It skipped any rung
+#    whose output folder existed and contained run_parameters.txt, with no check that the
+#    folder was built from the same delta. Since this file's deltas changed on 2026-09-11
+#    and again today, that was a live hazard: a partially-run ladder would have been
+#    silently completed with a mix of old and new rungs. Each finished rung now writes
+#    IMP_STAGE.txt with a digest of its resolved configuration, and RESUME reuses a folder
+#    only when the digest matches. A folder with no digest, or a stale one, is re-run.
+# =============================================================================
 ###############################################################################
 
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
 DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
-STAGES  <- c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
-RESUME  <- TRUE                    # skip a rung whose output folder already exists
+F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- see note 1 above
+STAGES  <- if (identical(F_METHOD, "ladder")) {
+             c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
+           } else {
+             # append "R2f" to recover the factorization proof for one extra fit:
+             #   c("R0", "R1", "R2", "R2f", "R4", "R5")
+             c("R0", "R1", "R2", "R4", "R5")
+           }
+RESUME  <- TRUE                    # reuse a rung ONLY when its IMP_STAGE.txt digest matches
 GEAR_FOLLOWS <- "R4"               # the pooled rung whose configuration R5 fits: "R4" (shipped) | "R3"
 
 # =========================================================================== #
@@ -182,14 +243,43 @@ REF <- list(
 # previous rung's plus one change. Keys set to NULL (shared_tau_sigma at R1) are kept
 # as NULL by resolve_cfg(), which is what the pre-patch config had.
 # ---------------------------------------------------------------------------
-WINDOW <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25",
-               pot_closures = NULL, census_windows = NULL, run_weather = FALSE)
-D_R1  <- list(tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3, shared_tau_sigma = NULL,
-              crab_fraction_strata = "none", crab_fraction_source = "ie", crab_fraction_dynamic = FALSE,
-              tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, census_uncertainty = "none",
-              # the pre-patch census: the whole component on the tally frame, nothing carried
-              charter_frame = "tally", charter_expansion = "pooled")
+# WINDOW: the COMPLETE single-season 2024-25 pin plus the levers that must not differ
+# between rungs. Everything here is applied to every rung, so a run_config edit between
+# rungs cannot make one of them incomparable; the preflight proves it rung by rung.
+WINDOW <- list(
+  # -- the season, all nine per-season keys (2026-09-12: four of them were missing) ----
+  est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25",
+  pot_closures = NULL, census_windows = NULL,
+  pot_closure_start = "2024-09-16", pot_closure_end = "2024-11-30",
+  pot_open_date = "2024-12-01",              # was inherited as 2023-12-01 from the 2-season config
+  census_start_date = "2024-12-01", census_end_date = "2025-02-08",
+  commercial_opener = "2025-02-11",          # the 2024-25 coastal commercial opener
+  # -- the PE's unsampled-cell levers, PINNED (note 3) ------------------------------
+  # These reach the port total of any rung whose gate fails, so they are held at the
+  # 2026-09-12 shipped values rather than read from whatever run_config says at run time.
+  pe_empty_effort_stratum = "local_day_type", pe_empty_stratum = "local",
+  pe_variance = "impute_aware",
+  # -- run-level, held fixed so no rung differs in a way nobody declared -------------
+  run_weather = FALSE, bss_seed = 20260619, bss_chains = 4, bss_cores = 4,
+  bss_sampler_override = NULL, ar_force = NULL, ar_escalate = FALSE,
+  estimate_red_rock = FALSE)
+
+# THE F BLOCK, named once so both modes read the same definition.
+F_NEW <- list(crab_fraction_strata = "month", crab_fraction_source = "both", crab_fraction_dynamic = TRUE)
+F_OLD <- list(crab_fraction_strata = "none",  crab_fraction_source = "ie",   crab_fraction_dynamic = FALSE)
+
+D_R1  <- c(list(tau_boat_prior_mu = 1.2, tau_boat_prior_sigma = 0.3, shared_tau_sigma = NULL,
+                tau_shore_prior_mu = 1.7, tau_shore_prior_sigma = 0.3, census_uncertainty = "none",
+                # the pre-patch census: the whole component on the tally frame, nothing carried
+                charter_frame = "tally", charter_expansion = "pooled"),
+           if (identical(F_METHOD, "ladder")) F_OLD else F_NEW)
 D_R2  <- modifyList(D_R1,  list(tau_boat_prior_mu = "calibration", tau_boat_prior_sigma = 0.5, shared_tau_sigma = 0.15))
+# R2f (new_throughout only): R2 with the f block ROLLED BACK. R2-vs-R2f is the
+# factorization proof -- the f terms enter generated quantities only, so every boat
+# parameter that is not an f term must agree within Monte Carlo error and the shore must
+# be bit-identical. It replaces the R3a/R3 pair at half the cost, and against the
+# CURRENT turnover prior rather than the retired one.
+D_R2f <- modifyList(D_R2,  F_OLD)
 D_R3a <- modifyList(D_R2,  list(crab_fraction_strata = "month", crab_fraction_source = "both"))
 D_R3  <- modifyList(D_R3a, list(crab_fraction_dynamic = TRUE))
 # R4 is the shipped configuration: the derived shore turnover AND the 2026-09-11 census
@@ -199,39 +289,105 @@ D_R3  <- modifyList(D_R3a, list(crab_fraction_dynamic = TRUE))
 D_R4  <- modifyList(D_R3,  list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived",
                                 census_uncertainty = "charter", charter_frame = "roster", charter_expansion = "vessel"))
 
+# The mode is in every tag and every output filename, so a "ladder" rung and a
+# "new_throughout" rung can never land in the same folder or the same verdicts file.
+.sfx <- if (identical(F_METHOD, "ladder")) "" else "-newf"
+.tag <- function(x) paste0("IMP-", x, .sfx)
 STAGE_DEFS <- list(
   # R0 reads the SHIPPED configuration (D_R4) so the desk rows describe what production
   # does, not what the R3 rung did: since 2026-09-11 that includes the census split (the
-  # commercial census plus the charter expansion over the roster trip frame).
-  R0  = list(id = "R0",  model = "desk",   tag = "IMP-R0-desk",        delta = D_R4,
-             headline = "desk: PE on the calibration turnover, gear bootstrap, the census split, the f data, the holidays"),
-  R1  = list(id = "R1",  model = "pooled", tag = "IMP-R1-filters",     delta = D_R1,
-             headline = "pre-patch configuration + item 8 (unit-aware fishing-time filters)"),
-  R2  = list(id = "R2",  model = "pooled", tag = "IMP-R2-tau-calib",   delta = D_R2,
+  # commercial census plus the charter expansion over the roster trip frame), and since
+  # 2026-09-12 the PE's unsampled-cell levers.
+  R0  = list(id = "R0",  model = "desk",   tag = .tag("R0-desk"),        delta = D_R4,
+             headline = "desk: the PE fills and variance, the calibration turnover, the gear bootstrap, the census split, the f data, the holidays"),
+  R1  = list(id = "R1",  model = "pooled", tag = .tag("R1-filters"),     delta = D_R1,
+             headline = if (identical(F_METHOD, "ladder"))
+               "pre-patch turnover priors + item 8 (unit-aware fishing-time filters)"
+             else "pre-patch turnover priors + item 8 (filters) + the NEW f (dynamic monthly)"),
+  R2  = list(id = "R2",  model = "pooled", tag = .tag("R2-tau-calib"),   delta = D_R2,
              headline = "+ item 3: boat turnover prior from the OSP/trailer calibration"),
-  R3a = list(id = "R3a", model = "pooled", tag = "IMP-R3a-f-monthly",  delta = D_R3a,
+  R2f = list(id = "R2f", model = "pooled", tag = .tag("R2f-legacy-f"),   delta = D_R2f,
+             headline = "control: R2 with the f block rolled back (the factorization proof)"),
+  R3a = list(id = "R3a", model = "pooled", tag = .tag("R3a-f-monthly"),  delta = D_R3a,
              headline = "+ item 1A: monthly f from the sampler contacts (legacy construction)"),
-  R3  = list(id = "R3",  model = "pooled", tag = "IMP-R3-f-dynamic",   delta = D_R3,
-             headline = "+ item 1B: the dynamic f (the shipped configuration)"),
-  R4  = list(id = "R4",  model = "pooled", tag = "IMP-R4-shore-tau",   delta = D_R4,
+  R3  = list(id = "R3",  model = "pooled", tag = .tag("R3-f-dynamic"),   delta = D_R3,
+             headline = "+ item 1B: the dynamic f"),
+  R4  = list(id = "R4",  model = "pooled", tag = .tag("R4-shore-tau"),   delta = D_R4,
              headline = "+ item 2: shore turnover derived from the I/E time column (the shipped configuration)"),
-  R5  = list(id = "R5",  model = "gear_resolved", tag = "IMP-R5-gear-crosscheck",
+  R5  = list(id = "R5",  model = "gear_resolved", tag = .tag("R5-gear-crosscheck"),
              delta = if (identical(GEAR_FOLLOWS, "R4")) D_R4 else D_R3,
              headline = sprintf("gear-resolved cross-check on the %s configuration", GEAR_FOLLOWS)))
+if (!all(STAGES %in% names(STAGE_DEFS)))
+  stop("STAGES names a stage that does not exist: ", paste(setdiff(STAGES, names(STAGE_DEFS)), collapse = ", "))
+if (identical(F_METHOD, "ladder") && "R2f" %in% STAGES)
+  stop("R2f is the new_throughout factorization control; under F_METHOD = 'ladder' that role is R3a vs R3.")
+if (!identical(F_METHOD, "ladder") && any(c("R3a", "R3") %in% STAGES))
+  stop("R3a / R3 are the 'ladder' f rungs; under F_METHOD = 'new_throughout' every rung already carries the new f (use R2f for the factorization proof).")
+
 resolve_cfg <- function(sid) {
   cfg <- modifyList(BASE, WINDOW, keep.null = TRUE)
   modifyList(cfg, STAGE_DEFS[[sid]]$delta %||% list(), keep.null = TRUE)
 }
+# The KEYS any rung is allowed to differ in. Anything else differing between two rungs is
+# a configuration leak, and the preflight fails on it rather than producing a comparison
+# nobody can attribute.
+DELTA_KEYS <- sort(unique(c(names(D_R1), names(D_R2), names(D_R2f), names(D_R3a), names(D_R3), names(D_R4),
+                            "run_tag", "model", "tau_boat_prior_source", "tau_boat_prior_calibration_table",
+                            "tau_shore_prior_source", "crab_fraction_rows", "osp_crab_rows",
+                            "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates",
+                            "ar_max_resolution", "shared_tau_min_obs", "tau_sensitivity_grid")))
+
+# A digest of the resolved configuration, so RESUME can tell a folder built from THIS
+# rung's config from one built before the deltas changed. Only the keys that can differ
+# between rungs are hashed, plus the window, and the values are deparsed so a NULL and an
+# absent key are distinguishable.
+.cfg_fingerprint <- function(sid) {
+  cfg <- resolve_cfg(sid)
+  ks  <- sort(unique(c(DELTA_KEYS, names(WINDOW))))
+  # DATA, not configuration: these are frames and date vectors read from the workbooks, so
+  # they are identical across rungs by construction and would only make the digest depend
+  # on row order.
+  ks  <- setdiff(ks, c("crab_fraction_rows", "osp_crab_rows", "crabbing_holiday_dates",
+                       "tau_boat_prior_calibration_table"))
+  paste(c(paste0("model=", STAGE_DEFS[[sid]]$model %||% "?"),
+          vapply(ks, function(k)
+            paste0(k, "=", if (k %in% names(cfg)) paste(deparse(cfg[[k]]), collapse = " ") else "<absent>"),
+            character(1))), collapse = "|")
+}
+# A plain position-weighted byte sum. No digest package is assumed (renv does not carry
+# one) and cryptographic strength is not the point: the job is to notice that a folder was
+# built from a DIFFERENT delta, and any collision-prone checksum does that.
+stage_digest <- function(sid) {
+  b <- as.integer(charToRaw(.cfg_fingerprint(sid)))
+  sprintf("%s|%s|%08x", sid, F_METHOD,
+          as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
+}
+.stage_stamp <- function(dir, sid) {
+  writeLines(c(sprintf("stage: %s", sid), sprintf("F_METHOD: %s", F_METHOD),
+               sprintf("digest: %s", stage_digest(sid)),
+               sprintf("written: %s", format(Sys.time())),
+               "", "# run_improvements_2026-09-08.R writes this after a rung renders. RESUME",
+               "# reuses a folder ONLY when the digest matches the stage it is resolving now."),
+             file.path(dir, "IMP_STAGE.txt"))
+}
+.stage_digest_of <- function(dir) {
+  p <- file.path(dir %||% "", "IMP_STAGE.txt")
+  if (!file.exists(p)) return(NA_character_)
+  l <- grep("^digest: ", readLines(p, warn = FALSE), value = TRUE)
+  if (!length(l)) NA_character_ else sub("^digest: ", "", l[1])
+}
+
 find_outdir <- function(model, run_tag) {
   hits <- list.dirs(.here("05_output"), recursive = TRUE)
   hits <- hits[basename(hits) == paste0(prefix[[model]], run_tag)]
   if (length(hits)) hits[order(file.mtime(hits), decreasing = TRUE)][1] else NA_character_
 }
 prev_pooled <- function(sid) {
-  # the pooled rung this one is compared to (R3a is optional, so R3 falls back to R2)
-  order <- c("R1", "R2", "R3a", "R3", "R4")
+  # the pooled rung this one is compared to; every optional rung is skipped when absent,
+  # so R4 falls back to R2 under new_throughout and R3 falls back to R2 under "ladder".
+  order <- c("R1", "R2", "R2f", "R3a", "R3", "R4")
   i <- match(sid, order); if (is.na(i) || i == 1) return(NA_character_)
-  for (p in rev(order[seq_len(i - 1)])) if (p %in% STAGES) return(p)
+  for (p in rev(order[seq_len(i - 1)])) if (p %in% STAGES && !identical(p, "R2f")) return(p)
   NA_character_
 }
 
@@ -268,6 +424,104 @@ preflight <- function() {
   say(exists("fit_agreement") && exists("fit_exactness") && exists("merge_csv_by"),
       "the shared verdict helpers are sourced (batch_verdict_helpers.R)")
   say(GEAR_FOLLOWS %in% c("R3", "R4"), "GEAR_FOLLOWS names a pooled rung", GEAR_FOLLOWS)
+  # The window is DELIBERATELY not run_config's. run_config ships the two-season span
+  # (2023-24 + 2024-25); this ladder fits the single 2024-25 season so the rungs compare to
+  # the 2026-09-04 A1 baseline and to each other, per Matt 2026-09-12. Said out loud here
+  # so nobody reads "R4 == run_config" as including the window.
+  say(!identical(BASE$season_filter, WINDOW$season_filter) || length(BASE$season_filter) == 1L,
+      "the window is the ladder's pin, not run_config's",
+      sprintf("ladder %s (%s to %s); run_config %s", paste(WINDOW$season_filter, collapse = "+"),
+              WINDOW$est_date_start, WINDOW$est_date_end, paste(BASE$season_filter, collapse = "+")))
+  say(identical(BASE$pe_empty_effort_stratum, "local_day_type") &&
+        identical(BASE$pe_empty_stratum, "local") && identical(BASE$pe_variance, "impute_aware"),
+      paste("run_config ships the 2026-09-12 PE unsampled-cell settings (local_day_type effort fill,",
+            "local CPUE fill, impute_aware variance)"),
+      sprintf("%s / %s / %s", BASE$pe_empty_effort_stratum %||% "?", BASE$pe_empty_stratum %||% "?",
+              BASE$pe_variance %||% "?"))
+  say(!identical(F_METHOD, "ladder") ||
+        (identical(D_R1$crab_fraction_dynamic, FALSE) && identical(D_R1$crab_fraction_strata, "none")),
+      "F_METHOD is consistent with D_R1's f block", sprintf("%s: R1 f = %s / %s / %s", F_METHOD,
+        D_R1$crab_fraction_strata, D_R1$crab_fraction_source, D_R1$crab_fraction_dynamic))
+
+  # ---- COMPARABILITY. Every rung must resolve to the SAME value for every key that is
+  # not a declared delta, and each rung must differ from the previous one in the keys it
+  # says it does and no others. This is the check the ladder's whole design rests on, and
+  # until 2026-09-12 nothing verified it: WINDOW was applied to every rung and then each
+  # rung's own values were compared only AFTER the fits, from run_parameters.txt, when the
+  # MCMC had already been spent.
+  .fit_stages <- setdiff(STAGES, "R0")
+  if (length(.fit_stages) >= 2) {
+    cfgs <- lapply(.fit_stages, resolve_cfg); names(cfgs) <- .fit_stages
+    allk <- sort(unique(unlist(lapply(cfgs, names))))
+    .same <- function(k) {
+      v <- lapply(cfgs, function(c) c[[k]])
+      all(vapply(v[-1], function(x) identical(x, v[[1]]), logical(1)))
+    }
+    leaked <- setdiff(allk[!vapply(allk, .same, logical(1))], DELTA_KEYS)
+    say(!length(leaked),
+        sprintf("no configuration leak: every non-delta key is identical across the %d fitted rungs", length(.fit_stages)),
+        if (length(leaked)) paste("LEAKED:", paste(leaked, collapse = ", ")) else
+          sprintf("%d keys compared", length(allk)))
+    # the pins that reach the port total of a gate-failed component
+    for (k in c("pe_empty_effort_stratum", "pe_empty_stratum", "pe_variance", "bss_seed",
+                "est_date_start", "est_date_end", "season_filter", "pot_closure_start",
+                "pot_closure_end", "pot_open_date", "census_start_date", "census_end_date"))
+      say(.same(k), sprintf("pinned across every rung: %s", k),
+          paste(deparse(cfgs[[1]][[k]]), collapse = " "))
+    # Each rung differs from THE RUNG ITS VERDICT COMPARES IT TO, and only in declared
+    # keys. The chain follows prev_pooled(), which skips the optional control rungs, so
+    # R4-vs-R2 is checked under new_throughout and R2f-vs-R2 separately: comparing R4 to
+    # R2f would report the f keys as a difference when nothing about f changed between the
+    # rungs whose verdicts are actually read against each other.
+    .pairs <- list()
+    for (sid in intersect(c("R2", "R3a", "R3", "R4"), .fit_stages)) {
+      pv <- prev_pooled(sid); if (!is.na(pv)) .pairs[[length(.pairs) + 1]] <- c(sid, pv)
+    }
+    if ("R2f" %in% .fit_stages && "R2" %in% .fit_stages) .pairs[[length(.pairs) + 1]] <- c("R2f", "R2")
+    for (pr in .pairs) {
+      a <- cfgs[[pr[2]]]; b <- cfgs[[pr[1]]]
+      d <- union(names(a), names(b))
+      d <- d[!vapply(d, function(k) identical(a[[k]], b[[k]]), logical(1))]
+      say(all(d %in% DELTA_KEYS) && length(d) > 0,
+          sprintf("%s differs from %s only in declared keys, and does differ", pr[1], pr[2]),
+          sprintf("%d key(s): %s", length(d), paste(sort(d), collapse = ", ")))
+    }
+    # the manifest: what each rung WILL run, before any of it runs
+    man <- do.call(rbind, lapply(.fit_stages, function(sid) {
+      c1 <- cfgs[[sid]]
+      data.frame(stage = sid, f_method = F_METHOD, model = STAGE_DEFS[[sid]]$model,
+                 run_tag = STAGE_DEFS[[sid]]$tag, digest = stage_digest(sid),
+                 tau_boat_prior_mu = paste(c1$tau_boat_prior_mu, collapse = ""),
+                 tau_boat_prior_sigma = c1$tau_boat_prior_sigma %||% NA,
+                 shared_tau_sigma = c1$shared_tau_sigma %||% NA,
+                 tau_shore_prior_mu = paste(c1$tau_shore_prior_mu, collapse = ""),
+                 f_strata = c1$crab_fraction_strata, f_source = c1$crab_fraction_source,
+                 f_dynamic = c1$crab_fraction_dynamic,
+                 census_uncertainty = c1$census_uncertainty, charter_frame = c1$charter_frame,
+                 charter_expansion = c1$charter_expansion,
+                 pe_effort_fill = c1$pe_empty_effort_stratum, pe_cpue_fill = c1$pe_empty_stratum,
+                 pe_variance = c1$pe_variance,
+                 headline = STAGE_DEFS[[sid]]$headline, stringsAsFactors = FALSE)
+    }))
+    mp <- .here("05_output", sprintf("improvements_2026-09-08_manifest%s.csv", .sfx))
+    utils::write.csv(man, mp, row.names = FALSE)
+    cat("\n  MANIFEST (written to ", basename(mp), "):\n", sep = "")
+    print(man[, c("stage", "model", "tau_boat_prior_mu", "shared_tau_sigma", "tau_shore_prior_mu",
+                  "f_strata", "f_dynamic", "census_uncertainty", "pe_effort_fill", "digest")], row.names = FALSE)
+    # what an existing folder would do under RESUME
+    if (isTRUE(RESUME)) {
+      for (sid in .fit_stages) {
+        ex <- find_outdir(STAGE_DEFS[[sid]]$model, STAGE_DEFS[[sid]]$tag)
+        if (!is.na(ex)) {
+          dg <- .stage_digest_of(ex)
+          cat(sprintf("  RESUME: %s has an existing folder %s -- digest %s (%s)\n", sid, basename(ex),
+                      if (is.na(dg)) "ABSENT" else dg,
+                      if (identical(dg, stage_digest(sid))) "matches: the fit will be SKIPPED"
+                      else "does NOT match this stage's config: it will be RE-RUN"))
+        }
+      }
+    }
+  }
   .self <- .here("06_diagnostics", "run_improvements_2026-09-08.R")
   .src <- if (file.exists(.self)) readLines(.self, warn = FALSE) else character(0)
   .src <- .src[!grepl("^\\s*#", .src)]
@@ -288,7 +542,7 @@ preflight <- function() {
 # R0: the desk rung. Everything that changed without a fit, on the real inputs.
 # ---------------------------------------------------------------------------
 desk_R0 <- function() {
-  banner("R0  desk: the PE and reporting changes, and the data the fitted rungs read")
+  banner("R0  desk: the PE fills and variance, the census split, and the data the fitted rungs read")
   out <- .here("05_output", format(Sys.Date(), "%Y%m%d"), "improvements-desk")
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
   q <- function(e) { s <- tempfile(); sink(s); on.exit(sink()); force(e) }
@@ -440,6 +694,99 @@ desk_R0 <- function() {
                   "the shift are unclassified and only OSP's all-day count can say whether their mix differs.",
                   "shift_coverage_*.csv and contact_hour_by_trip_type.csv carry the detail."))
     }
+    # ---- 2026-09-12: THE PE ITSELF, under every unsampled-cell setting. -------------
+    # R0 is called "the PE and reporting changes" and until now never ran the PE. It costs
+    # a minute per arm and it is the only way the D19 fill question can be settled without
+    # spending 4 h of MCMC per arm; the shipped BSS reference for the comparison is R4,
+    # which this same run produces.
+    # The desk PE must be the DRIVER's PE, so it needs the same two resolutions the driver
+    # does before section 4: the shore turnover prior (D_R4 sets tau_shore_prior_mu =
+    # "derived", a STRING that run_pe_pooled cannot multiply) and the L_effective
+    # regression. p already carries the resolved boat turnover from bss_resolve_tau_boat_prior
+    # above.
+    p <- q(bss_resolve_tau_shore_prior(p, st))
+    .Lm <- if (isTRUE(p$use_ie_day_length) && nrow(ie) > 0)
+             tryCatch(q(estimate_L_effective(ie, p)), error = function(e) NULL) else NULL
+    .pe_arm <- function(pp) {
+      subs <- build_subseasons(pp)
+      out <- list()
+      for (pop in c("shore", "private_boat")) for (ss in subs) {
+        lab <- paste0(pop, "_", ss$name)
+        sm <- q(prep_population_summary(dwg, pop, ss$start, ss$end, pp))
+        dd <- q(prep_days_crab(ss$start, ss$end, pp, L_eff_model = .Lm))
+        out[[lab]] <- tryCatch(q(run_pe_pooled(sm, dd, pp, lab)), error = function(e) NULL)
+      }
+      out
+    }
+    .arms <- list(
+      "effort zero, CPUE pooled (through 2026-09-11)" = list(pe_empty_effort_stratum = "zero", pe_empty_stratum = "pooled"),
+      "effort day_type, CPUE local"                    = list(pe_empty_effort_stratum = "day_type", pe_empty_stratum = "local"),
+      "effort local_day_type, CPUE pooled"             = list(pe_empty_effort_stratum = "local_day_type", pe_empty_stratum = "pooled"),
+      "effort local_day_type, CPUE local (SHIPPED)"    = list(pe_empty_effort_stratum = "local_day_type", pe_empty_stratum = "local"))
+    .rows <- list(); .pe_ship <- NULL
+    for (nm in names(.arms)) {
+      pa <- modifyList(p, .arms[[nm]])
+      res <- .pe_arm(pa)
+      if (grepl("SHIPPED", nm)) .pe_ship <- res
+      for (k in names(res)) {
+        r <- res[[k]]; if (is.null(r)) next
+        .rows[[length(.rows) + 1]] <- data.frame(
+          arm = nm, component = k,
+          effort_fill = r$pe_empty_effort_fill %||% NA, cpue_fill = pa$pe_empty_stratum %||% NA,
+          variance = r$pe_variance %||% NA,
+          effort = r$effort_total %||% NA, effort_se = r$effort_se %||% NA,
+          effort_se_sampled_only = r$effort_se_sampled_only %||% NA,
+          catch = r$Dungeness_Kept %||% NA, imputed_catch = r$imputed_Dungeness_Kept %||% NA,
+          n_empty_strata = r$n_empty_effort_strata %||% NA, n_empty_days = r$n_empty_effort_days %||% NA,
+          n_single_strata = r$n_single_effort_strata %||% NA, n_single_days = r$n_single_effort_days %||% NA,
+          n_strata_total = r$n_effort_strata_total %||% NA,
+          n_calendar_days = r$n_calendar_days %||% NA, zeroed_effort_bias = r$pe_zeroed_effort_bias %||% NA,
+          stringsAsFactors = FALSE)
+      }
+    }
+    .pe_tab <- do.call(rbind, .rows)
+    utils::write.csv(.pe_tab, file.path(out, "pe_unsampled_cell_arms.csv"), row.names = FALSE)
+    # The commercial/charter component is fill-invariant (it is a census plus an expansion,
+    # not a stratified day expansion), so add it back as a constant: these totals are then
+    # directly comparable to pe_port_summary.csv from any fitted rung.
+    .cc_c <- cc$Dungeness_Kept %||% 0; .cc_e <- cc$effort_total %||% 0
+    .tot <- .pe_tab |> group_by(arm) |> summarise(catch = sum(catch, na.rm = TRUE) + .cc_c,
+                                                  effort = sum(effort, na.rm = TRUE) + .cc_e, .groups = "drop")
+    .tot <- .tot[match(names(.arms), .tot$arm), ]          # the declared order, not alphabetical
+    .base_c <- .num1(.tot$catch[grepl("^effort zero", .tot$arm)])
+    V1row("R0", "the PE's unsampled-cell settings, all four arms on the real 2024-25 inputs (D19; the CPUE half found 2026-09-12)",
+          paste(sprintf("%s: catch %s (%+.1f%% vs the retired arm), effort %s", .tot$arm, fmt(.tot$catch, 0),
+                        100 * (.tot$catch - .base_c) / max(.base_c, 1), fmt(.tot$effort, 0)), collapse = "; "),
+          "the shipped arm is the one the fitted rungs use; the spread between arms is the size of the D19 question",
+          "READ",
+          paste("The 2026-09-11 figure for this was +26% on the PE port total, and it was WRONG in a",
+                "specific way: it paired a month-local EFFORT fill with a sub-season-pooled CPUE, so the",
+                "seasonal gradient was counted once in the effort and once more in the rate. The imputed",
+                "boat cells are in the summer and the pooled boat CPUE is dominated by the high-CPUE",
+                "winter. Putting both halves on the month scale takes the boat all-gear PE from 42,841",
+                "to 37,018 and the port total from 90,861 to 85,076, +17.8% on the retired 72,224.",
+                "Read the arm spread against R4's BSS, not against 20260904 A1, which predates the",
+                "derived shore turnover and the boat recentring."))
+    if (!is.null(.pe_ship)) {
+      .sh <- .pe_tab[grepl("SHIPPED", .pe_tab$arm), ]
+      V1row("R0", "how much of the PE rests on 0 or 1 sampled days, and what that does to its SE (D21)",
+            paste(sprintf("%s: %d of %d cells unsampled (%d days) and %d singleton (%d days) = %.0f%% of days; SE %s vs %s on the retired arithmetic",
+                          .sh$component, .sh$n_empty_strata, .sh$n_strata_total,
+                          .sh$n_empty_days, .sh$n_single_strata, .sh$n_single_days,
+                          100 * (.sh$n_empty_days + .sh$n_single_days) / pmax(.sh$n_calendar_days, 1),
+                          fmt(.sh$effort_se, 0), fmt(.sh$effort_se_sampled_only, 0)), collapse = "; "),
+            "the SE must widen when half the days rest on one observation or none",
+            if (all(.sh$effort_se >= .sh$effort_se_sampled_only, na.rm = TRUE) &&
+                any(.sh$effort_se > .sh$effort_se_sampled_only * 1.5, na.rm = TRUE)) "PASS" else "REVIEW",
+            paste("The retired SE was sqrt(N^2 sd^2 / max(n,1)) with sd from the cell's own sampled days,",
+                  "and sd() of ONE observation is NA, replaced by 0. So 37 of 93 shore all-gear cells and",
+                  "34 of 93 boat cells contributed their full point estimate and no variance, and so did",
+                  "every imputed cell: the shore SE was bit-identical at 410 whether the fill added 0 or",
+                  "7,947 effort units. This is a PE-side interval, but a gate-failed component reports its",
+                  "PE point in the port total as a CONSTANT, which is the case where it reaches the",
+                  "headline. pe_variance = 'sampled_only' restores the old arithmetic exactly."))
+    }
+
     # item 6: the gear bootstrap on the boat all-gear interviews
     sub <- build_subseasons(p)
     ss  <- sub[[which(vapply(sub, function(x) x$gear_regime == "all_gear", logical(1)))]]
@@ -479,8 +826,19 @@ run_stage <- function(sid) {
               paste(cfg$tau_shore_prior_mu, collapse = ""), cfg$census_uncertainty))
   existing <- find_outdir(st$model, st$tag)
   if (isTRUE(RESUME) && !is.na(existing) && file.exists(file.path(existing, "run_parameters.txt"))) {
-    cat("  RESUME: output already present at", basename(existing), "- skipping the fit.\n")
-    return(existing)
+    # 2026-09-12: a matching DIGEST is now required, not just a finished-looking folder.
+    # The deltas in this file changed on 2026-09-11 and again on 2026-09-12, so reusing a
+    # folder on the strength of its name would have silently mixed configurations into one
+    # ladder. run_parameters.txt is still checked first: it is written last by the driver,
+    # so its presence is the completion marker.
+    dg <- .stage_digest_of(existing)
+    if (identical(dg, stage_digest(sid))) {
+      cat("  RESUME: output present at", basename(existing), "with a MATCHING config digest - skipping the fit.\n")
+      return(existing)
+    }
+    cat(sprintf(paste0("  RESUME: output present at %s but its config digest %s does not match this stage (%s).\n",
+                       "          RE-RUNNING. The old folder is overwritten by the render.\n"),
+                basename(existing), if (is.na(dg)) "is ABSENT (pre-2026-09-12 run)" else dg, stage_digest(sid)))
   }
   if (isTRUE(DRY_RUN)) { cat("  DRY_RUN: not fitting.\n"); return(NA_character_) }
   cfg$model <- st$model; cfg$run_tag <- st$tag; cfg$run_weather <- FALSE
@@ -500,6 +858,7 @@ run_stage <- function(sid) {
               if (is.na(done)) "OUTPUT FOLDER NOT FOUND" else done))
   if (is.na(done)) stop(sprintf("%s rendered but no folder named %s%s exists under 05_output",
                                 sid, prefix[[st$model]], st$tag))
+  .stage_stamp(done, sid)   # the config digest RESUME will check on a later pass
   done
 }
 
@@ -529,20 +888,35 @@ verdict_R1 <- function(dir) {
   base <- .here("05_output", REF$A1$dir)
   sa <- .comp(dir, "shore (All gear)"); sp <- .comp(dir, "shore (Pot closure)")
   ba <- .comp(dir, "private_boat (All gear)"); bp <- .comp(dir, "private_boat (Pot closure)")
-  V1row("R1", "item 8 alone (plus the 2026-09-09 workbook): the fitted components against the baseline",
+  # 2026-09-12: under F_METHOD = "new_throughout" this rung also carries the NEW f, so the
+  # BOAT is EXPECTED to move against the baseline and cannot be a pass/fail criterion. The
+  # SHORE still can: f is boat-only (crab_fraction_stan_data() sets apply_cf = 0 for shore),
+  # so the shore is the clean regression test against A1 in either mode.
+  .newf <- !identical(F_METHOD, "ladder")
+  V1row("R1", if (.newf)
+          "item 8 + the new f: the SHORE against the baseline (the boat is expected to move with f)"
+        else "item 8 alone (plus the 2026-09-09 workbook): the fitted components against the baseline",
         sprintf("shore pc %s (%+.1f%%), shore ag %s (%+.1f%%), boat pc %s (%+.1f%%), boat ag %s (%+.1f%%); census %s (baseline %s: exact over the tally days by design)",
                 fmt(sp, 0), .pct(sp, REF$A1$shore_pc), fmt(sa, 0), .pct(sa, REF$A1$shore_ag),
                 fmt(bp, 0), .pct(bp, REF$A1$boat_pc), fmt(ba, 0), .pct(ba, REF$A1$boat_ag),
                 fmt(.comp(dir, "comm_charter (census)", "PE_catch"), 0), fmt(REF$A1$census, 0)),
-        "every fitted component within a few percent; the boat a few percent LOWER (zero-catch trips restored)",
-        if (all(abs(c(.pct(sp, REF$A1$shore_pc), .pct(sa, REF$A1$shore_ag))) < 5, na.rm = TRUE) &&
+        if (.newf) "both shore components within a few percent; the boat rises with the winter f (no threshold)"
+        else "every fitted component within a few percent; the boat a few percent LOWER (zero-catch trips restored)",
+        if (.newf) {
+          if (all(abs(c(.pct(sp, REF$A1$shore_pc), .pct(sa, REF$A1$shore_ag))) < 5, na.rm = TRUE)) "PASS" else "REVIEW"
+        } else if (all(abs(c(.pct(sp, REF$A1$shore_pc), .pct(sa, REF$A1$shore_ag))) < 5, na.rm = TRUE) &&
               isTRUE(.pct(ba, REF$A1$boat_ag) < 2)) "PASS" else "REVIEW",
         paste("The hours filter dropped 22 boat trips (14 with recorded catch) and ~140 shore rows whose",
               "time field was blank or under 0.5 h; under the deployment unit a set pot with zero time",
               "is real effort with real catch. Restoring them lowers the boat CPUE slightly (more zeros)",
               "and barely moves the shore. The rebuilt workbook (2026-09-09) also applies the tampered-gear",
               "filter (13 Grays Harbor interviews in 2024-25) and a few source corrections. The census is",
-              "not compared: it is now the exact sum over the tally days (-3,869 by design)."))
+              "not compared: it is now the exact sum over the tally days (-3,869 by design).",
+              if (.newf) paste("UNDER new_throughout the boat ALSO carries the dynamic monthly f, whose",
+                               "winter months run 0.88 to 1.00 against the retired 0.30 anchor, so the boat",
+                               "moving several tens of percent here is the design and not a regression. The",
+                               "f change is not attributed by any fit in this mode; add R2f for the",
+                               "factorization proof or run F_METHOD = 'ladder' for the full attribution.") else ""))
   b <- .full_row(dir, "private_boat_all_gear", "tau_bar_out")
   V1row("R1", "the boat turnover under the pre-patch prior (the R2 control)",
         sprintf("tau_bar %s (baseline %s)", fmt(.num1(b$mean), 4), fmt(REF$A1$tau_bar, 4)),
@@ -578,6 +952,44 @@ verdict_R2 <- function(dir, prev) {
           paste(utils::capture.output(print(utils::head(pt, 6))), collapse = " | "),
           "PIT means near 0.5, coverage near nominal", "READ",
           "The prior move should improve, not worsen, the OSP stream's fit: read the OSP/trailer rows.")
+}
+
+# ---------------------------------------------------------------------------
+# R2f (new_throughout only): THE FACTORIZATION PROOF, at one fit instead of two.
+# R2f is R2 with the f block rolled back, so the pair differs ONLY in f. The design
+# claim is that f enters the boat GENERATED QUANTITIES and nothing else, so:
+#   - the shore fits must be BIT-IDENTICAL (the shore has no f at all), and
+#   - every boat parameter that is not an f term must agree within Monte Carlo error.
+# Bit-identity is impossible on the boat: the parameter vector gained z_f, sigma_f and
+# cfi_kappa, so every HMC trajectory differs. Agreement in DISTRIBUTION is what the design
+# guarantees, and fit_agreement() is that test.
+# ---------------------------------------------------------------------------
+verdict_R2f <- function(dir, ref) {
+  if (is.na(dir %||% NA) || is.na(ref %||% NA)) return(invisible(NULL))
+  fe <- fit_exactness(dir, ref, pat = "shore", what = "shore fits, R2f vs R2",
+                      expect_delta = c("crab_fraction_strata", "crab_fraction_source", "crab_fraction_dynamic",
+                                       "crab_fraction_rows", "run_tag", "model",
+                                       "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
+  V1row("R2f", "the shore did not move when f was rolled back (f is boat-only)", fe$observed,
+        "shore fits bit-identical to R2", fe$verdict,
+        "crab_fraction_stan_data() sets apply_crab_fraction = 0 for shore; a FAIL means an f term reached the shore.")
+  fa <- fit_agreement(dir, ref, pat = "private_boat",
+                      exclude = "^(f_crab|f_lower|f_theta|f_lower_param|z_f|sigma_f|cfi_kappa|combo_c|eta_f|osp_f_kappa|E\\[|E_sum|C\\[|C_sum|C_expected|lambda_Ctot|log_lik|lp__)",
+                      what = "boat non-f parameters, R2f vs R2")
+  V1row("R2f", "the f block leaves effort and CPUE untouched (factorization)", fa$observed,
+        "max |z| under 5 and under 1% of rows above 3", fa$verdict,
+        paste("This is the R3-vs-R3a test of the 2026-09-08 design, run as a single control rung",
+              "against the CURRENT turnover prior instead of the retired one. A FAIL means an f term",
+              "reached an effort or CPUE likelihood, which would make every boat number in the ladder",
+              "attributable to two things at once."))
+  ba <- .comp(dir, "private_boat (All gear)"); ba1 <- .comp(ref, "private_boat (All gear)")
+  V1row("R2f", "what the new f is worth on the boat, at a fixed turnover",
+        sprintf("boat all-gear with the new f %s vs the retired f %s (%+.1f%%); shore unchanged",
+                fmt(ba1, 0), fmt(ba, 0), .pct(ba1, ba)),
+        "informational: this is the f effect the 'ladder' mode spends two fits to attribute", "INFO",
+        paste("The boat is linear in f day by day, so this ratio is the effort-weighted change in f.",
+              "Read it against crab_fraction_strata_*.csv from the R2 folder, which carries the",
+              "monthly f the walk produced and the contact counts behind each month."))
 }
 
 verdict_R3a <- function(dir, prev) {
@@ -709,8 +1121,8 @@ verdict_R5 <- function(dir, pooled_dir) {
 # ---------------------------------------------------------------------------
 # DRIVE
 # ---------------------------------------------------------------------------
-banner(sprintf("IMPROVEMENT LADDER  2026-09-08   DRY_RUN=%s  stages: %s  (R5 follows %s)", DRY_RUN,
-               paste(STAGES, collapse = ", "), GEAR_FOLLOWS))
+banner(sprintf("IMPROVEMENT LADDER  2026-09-08   DRY_RUN=%s  F_METHOD=%s  stages: %s  (R5 follows %s)",
+               DRY_RUN, F_METHOD, paste(STAGES, collapse = ", "), GEAR_FOLLOWS))
 preflight()
 
 dirs <- list()
@@ -724,23 +1136,24 @@ for (sid in STAGES) dirs[[sid]] <- run_stage(sid)
   invisible(NULL)
 })
 .dir_of <- function(sid) if (!is.na(sid %||% NA) && sid %in% names(dirs)) dirs[[sid]] else NA_character_
-for (sid in intersect(c("R1", "R2", "R3a", "R3", "R4"), STAGES)) .safe(sid, ladder_row(sid, dirs[[sid]]))
+for (sid in intersect(c("R1", "R2", "R2f", "R3a", "R3", "R4"), STAGES)) .safe(sid, ladder_row(sid, dirs[[sid]]))
 if ("R1"  %in% STAGES) .safe("R1",  verdict_R1(dirs$R1))
 if ("R2"  %in% STAGES) .safe("R2",  verdict_R2(dirs$R2, .dir_of(prev_pooled("R2"))))
+if ("R2f" %in% STAGES) .safe("R2f", verdict_R2f(dirs$R2f, .dir_of("R2")))
 if ("R3a" %in% STAGES) .safe("R3a", verdict_R3a(dirs$R3a, .dir_of(prev_pooled("R3a"))))
 if ("R3"  %in% STAGES) .safe("R3",  verdict_R3(dirs$R3, .dir_of(prev_pooled("R3"))))
 if ("R4"  %in% STAGES) .safe("R4",  verdict_R4(dirs$R4, .dir_of(prev_pooled("R4"))))
 if ("R5"  %in% STAGES) .safe("R5",  verdict_R5(dirs$R5, .dir_of(GEAR_FOLLOWS)))
 
 if (length(LAD)) {
-  lp <- .here("05_output", "improvements_2026-09-08_ladder.csv")
+  lp <- .here("05_output", sprintf("improvements_2026-09-08_ladder%s.csv", .sfx))
   merge_csv_by(do.call(rbind, LAD), lp, "rung")
   banner("LADDER")
   print(do.call(rbind, LAD), row.names = FALSE)
   cat("\n  written to", lp, "\n")
 }
 if (length(V)) {
-  vp <- .here("05_output", "improvements_2026-09-08_verdicts.csv")
+  vp <- .here("05_output", sprintf("improvements_2026-09-08_verdicts%s.csv", .sfx))
   merge_csv_by(do.call(rbind, V), vp, c("stage", "criterion"))
   banner("VERDICTS")
   for (r in seq_len(length(V))) with(V[[r]], cat(sprintf("  [%s] %-14s %s\n     obs: %s\n",

@@ -2439,6 +2439,29 @@ local({
       grepl('merge_csv_by(do.call(rbind, V), vp, c("stage", "criterion"))', s, fixed = TRUE) && grepl('merge_csv_by(do.call(rbind, LAD), lp, "rung")', s, fixed = TRUE))
   chk("ladder: every verdict block is wrapped so a reading defect cannot destroy a result", grepl(".safe <- function(sid, expr) tryCatch", s, fixed = TRUE))
   chk("ladder: the single-season window is pinned on every rung", grepl('season_filter = "2024-25"', s, fixed = TRUE) && grepl("modifyList(BASE, WINDOW, keep.null = TRUE)", s, fixed = TRUE))
+  # 2026-09-12: the pin has to be COMPLETE. Four per-season keys were missing, so every
+  # 2024-25 rung would have inherited the two-season config's 2023-24 values, pot_open_date
+  # among them.
+  for (k in c("pot_closure_start", "pot_closure_end", "pot_open_date", "census_start_date",
+              "census_end_date", "commercial_opener", "pe_empty_effort_stratum",
+              "pe_empty_stratum", "pe_variance", "bss_seed"))
+    chk(sprintf("ladder: WINDOW pins %s", k), grepl(paste0(k, " = "), s, fixed = TRUE))
+  chk("ladder: pot_open_date is pinned to the 2024-25 value, not the 2-season 2023-12-01",
+      grepl('pot_open_date = "2024-12-01"', s, fixed = TRUE))
+  chk("ladder: F_METHOD exists and ships 'new_throughout' (Matt 2026-09-12: the run uses the new f)",
+      any(grepl('^F_METHOD <- "new_throughout"', t)))
+  chk("ladder: the preflight PROVES no non-delta key differs between rungs, before any MCMC",
+      grepl("no configuration leak", s, fixed = TRUE) && grepl("DELTA_KEYS", s, fixed = TRUE))
+  chk("ladder: RESUME requires a matching config digest, not just a finished folder",
+      grepl("stage_digest", s, fixed = TRUE) && grepl("IMP_STAGE.txt", s, fixed = TRUE) &&
+      grepl(".stage_stamp(done, sid)", s, fixed = TRUE))
+  chk("ladder: a manifest of the resolved rungs is written before the fits",
+      grepl("improvements_2026-09-08_manifest", s, fixed = TRUE))
+  chk("ladder: the mode is in every tag and output filename, so two modes cannot collide",
+      grepl('.sfx <- if (identical(F_METHOD, "ladder")) "" else "-newf"', s, fixed = TRUE) &&
+      grepl('improvements_2026-09-08_verdicts%s.csv', s, fixed = TRUE))
+  chk("ladder: R0 runs the PE under every unsampled-cell arm, so D19 needs no refit",
+      grepl("pe_unsampled_cell_arms.csv", s, fixed = TRUE) && grepl("SHIPPED", s, fixed = TRUE))
   # the deltas are cumulative and each adds one thing
   e <- new.env()
   e$`%||%` <- function(a, b) if (is.null(a)) b else a
@@ -2446,20 +2469,51 @@ local({
   # instead of grepping for lines that look like delta keys. The grep broke the moment a
   # delta gained a comment line or a key outside its list, which is the harness-fragility
   # failure mode section 43 exists to prevent.
-  .i1 <- grep("^D_R1 *<-", tt)[1]; .i2 <- grep("^D_R4 *<-", tt)[1]
+  # 2026-09-12: the block now starts at F_NEW (D_R1 is built from it) and F_METHOD has to
+  # be defined in the eval environment, because the deltas branch on it.
+  e$F_METHOD <- "new_throughout"; e$modifyList <- modifyList
+  .i1 <- grep("^F_NEW *<-", tt)[1]; .i2 <- grep("^D_R4 *<-", tt)[1]
   stopifnot(is.finite(.i1), is.finite(.i2), .i2 > .i1)
   .parsed <- FALSE
   for (.end in .i2:min(.i2 + 12L, length(tt))) {
     .txt <- paste(tt[.i1:.end], collapse = "\n")
     if (!inherits(try(parse(text = .txt), silent = TRUE), "try-error")) { eval(parse(text = .txt), envir = e); .parsed <- TRUE; break }
   }
-  chk("ladder: the D_R1..D_R4 delta block parses as written", .parsed)
-  chk("ladder: R1 is the pre-patch configuration (tau 1.2, sigma 0.3, flat f from the blank egress columns, legacy construction)",
-      identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$crab_fraction_strata, "none") && identical(e$D_R1$crab_fraction_source, "ie") && identical(e$D_R1$crab_fraction_dynamic, FALSE))
-  chk("ladder: R2 adds only the calibration prior", identical(e$D_R2$tau_boat_prior_mu, "calibration") && identical(e$D_R2$crab_fraction_strata, "none"))
-  chk("ladder: R3a adds only the monthly f from both sources (legacy)", identical(e$D_R3a$crab_fraction_strata, "month") && identical(e$D_R3a$crab_fraction_source, "both") && identical(e$D_R3a$crab_fraction_dynamic, FALSE))
+  chk("ladder: the F_NEW..D_R4 delta block parses as written", .parsed)
+  # 2026-09-12: D_R1's f block now depends on F_METHOD, so the block is evaluated under
+  # BOTH modes and each is asserted against its own contract.
+  chk("ladder: R1 keeps the pre-patch TURNOVER priors under either F_METHOD (tau 1.2, sigma 0.3)",
+      identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$tau_boat_prior_sigma, 0.3) &&
+      is.null(e$D_R1$shared_tau_sigma) && identical(e$D_R1$tau_shore_prior_mu, 1.7))
+  chk("ladder: under new_throughout every rung carries the NEW f from R1 onward",
+      identical(e$D_R1$crab_fraction_strata, "month") && identical(e$D_R1$crab_fraction_source, "both") &&
+      identical(e$D_R1$crab_fraction_dynamic, TRUE))
+  chk("ladder: F_OLD and F_NEW are the only two f blocks, named once each",
+      identical(e$F_OLD, list(crab_fraction_strata = "none", crab_fraction_source = "ie", crab_fraction_dynamic = FALSE)) &&
+      identical(e$F_NEW, list(crab_fraction_strata = "month", crab_fraction_source = "both", crab_fraction_dynamic = TRUE)))
+  chk("ladder: under F_METHOD = 'ladder' R1 rolls the f block back to the retired one",
+      { e2 <- new.env(); e2$`%||%` <- e$`%||%`; e2$F_METHOD <- "ladder"
+        e2$modifyList <- modifyList; eval(parse(text = .txt), envir = e2)
+        identical(e2$D_R1$crab_fraction_strata, "none") && identical(e2$D_R1$crab_fraction_dynamic, FALSE) &&
+        identical(e2$D_R3$crab_fraction_dynamic, TRUE) })
+  chk("ladder: R2f is R2 with the f block rolled back (the factorization control)",
+      identical(e$D_R2f$tau_boat_prior_mu, "calibration") && identical(e$D_R2f$crab_fraction_dynamic, FALSE) &&
+      identical(e$D_R2f$crab_fraction_strata, "none") &&
+      identical(e$D_R2f[setdiff(names(e$D_R2f), names(e$F_OLD))], e$D_R2[setdiff(names(e$D_R2), names(e$F_NEW))]))
+  chk("ladder: R2 adds only the calibration prior", identical(e$D_R2$tau_boat_prior_mu, "calibration") &&
+      identical(e$D_R2$crab_fraction_strata, e$D_R1$crab_fraction_strata))
+  # Under new_throughout R3a/R3 are refused by the stage guard, so their contract is
+  # asserted in the ladder-mode environment where they are the f rungs.
+  chk("ladder: R3a adds only the monthly f from both sources (legacy construction)",
+      { e2 <- new.env(); e2$`%||%` <- e$`%||%`; e2$F_METHOD <- "ladder"; e2$modifyList <- modifyList
+        eval(parse(text = .txt), envir = e2)
+        identical(e2$D_R3a$crab_fraction_strata, "month") && identical(e2$D_R3a$crab_fraction_source, "both") &&
+        identical(e2$D_R3a$crab_fraction_dynamic, FALSE) })
   chk("ladder: R3 adds only the dynamic f and still pins the pre-adoption shore turnover (1.7 / 0.3)",
       identical(e$D_R3$crab_fraction_dynamic, TRUE) && identical(e$D_R3$tau_shore_prior_mu, 1.7) && identical(e$D_R3$tau_shore_prior_sigma, 0.3))
+  chk("ladder: the stage guards refuse a mode/stage mix rather than running an unattributable rung",
+      grepl("R2f is the new_throughout factorization control", s, fixed = TRUE) &&
+      grepl("R3a / R3 are the 'ladder' f rungs", s, fixed = TRUE))
   chk("ladder: R4 adds only the derived shore turnover, and equals the shipped run_config on the moved keys",
       identical(e$D_R4$tau_shore_prior_mu, "derived") && identical(e$D_R4$crab_fraction_dynamic, TRUE) && {
         rc <- new.env(); sys.source("run_config.R", envir = rc); rc <- rc$run_config
