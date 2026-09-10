@@ -469,7 +469,7 @@ run_P1 <- function() {
   dwg     <- fetch_crab_data(params)
   ie_data <- fetch_ie_data(params)
   L_eff   <- if (!is.null(ie_data) && nrow(ie_data) > 0)
-               estimate_L_effective(ie_data, params$pot_open_date, params) else NULL
+               estimate_L_effective(ie_data, params) else NULL
   subs    <- build_subseasons(params)
 
   rows <- list()

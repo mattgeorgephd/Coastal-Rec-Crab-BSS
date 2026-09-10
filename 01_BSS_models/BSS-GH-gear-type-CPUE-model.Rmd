@@ -499,7 +499,7 @@ params <- bss_resolve_tau_boat_prior(params, osp_overlap)
 
 L_eff_model <- NULL
 if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
-  L_eff_model <- estimate_L_effective(ie_data, params$pot_open_date, params)
+  L_eff_model <- estimate_L_effective(ie_data, params)
   if(!is.null(L_eff_model) && !is.null(L_eff_model$detail)) {
     write.csv(L_eff_model$detail,
               file.path(output_dir, "L_effective_ie_detail.csv"), row.names = FALSE)
@@ -653,6 +653,8 @@ timer_stop("2_diagnostic_plots")
 ## 3. Point Estimator (PE)
 
 The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the season, independently of the BSS. It is the model-free cross-check the gate can fall back to. This block also runs the commercial/charter census and the PE port totals.
+
+**The unsampled and singleton (week x day-type) cells** are handled by the same three settings the pooled track uses, from one shared implementation (`03_R_functions/pe_effort_strata.R`, rebuilt 2026-09-12): the effort of an unsampled cell is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`), its CPUE from that month's ratio-of-sums (`pe_empty_stratum = "local"`), and a cell resting on one sampled day or none now contributes variance rather than the zero the retired `sd()`-of-one formula gave it (`pe_variance = "impute_aware"`). On 2024-25 that is 44% of the shore all-gear days and 43% of the boat's. `run_config.R` documents each with its measured effect; `pe_empty_effort_strata.csv` carries the per-component numbers for this run.
 
 ```{r gear-sec3-pe}
 # ---- 7.2 PE ESTIMATES ----

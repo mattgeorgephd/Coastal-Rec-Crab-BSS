@@ -202,12 +202,23 @@ run_config <- list(
   # ---------------------------------------------------------------------------
 
   # --- Regulatory / structural dates ---------------------------------------
-  # KNOWN APPROXIMATION on a multi-season span: pot_open_date is a SINGLE date feeding the
-  # L_effective I/E regression split; with two seasons it is exact for one season only.
-  # The day-length regression is seasonal by date (suncalc), so the error is confined to
-  # how a handful of closure-period I/E days are grouped. Tracked in CHANGE_REGISTER A14.
-  pot_open_date     = "2023-12-01",   # pots legal from this date (used for L_effective
-                                      #   and as the default pot_closure_end + 1 day)
+  # 2026-09-12 CORRECTION. The note that stood here said pot_open_date "is a SINGLE date
+  # feeding the L_effective I/E regression split", a known multi-season approximation
+  # (CHANGE_REGISTER A14). IT DID NOT. estimate_L_effective() took pot_open_date as an
+  # argument and never referenced it; its only predictors are yday (quadratic) and day
+  # type. The dead argument is gone and A14 is corrected. pot_open_date now has exactly
+  # three consumers, all of them per-season and none of them a model term:
+  #   - the "Pots open" vertical line on the season plots (pot_closure_markers);
+  #   - the gear driver's monthly-panel vline;
+  #   - build_subseasons()'s fallback for pot_closure_end when that is NULL.
+  # SO A STALE VALUE IS COSMETIC, NOT SILENT-WRONG -- but it is stale here on any
+  # single-season rollback: the value below belongs to 2023-24 because the shipped span
+  # starts there. validate_season_window() now WARNS when it, or pot_closure_start/end,
+  # falls outside the estimation window, which is what the 2026-09-11 ladder pin missed.
+  # THE REAL multi-season approximation is that the L_effective regression pools every
+  # season's I/E days into one yday -> L curve; it is documented at the function.
+  pot_open_date     = "2023-12-01",   # pots legal from this date (plot markers, and the
+                                      #   default pot_closure_end + 1 day)
   # Pot-closure window: the period when pots are NOT legal (only non-pot gear, ring
   # nets/snares/traps). Given explicitly here rather than assumed to start at the
   # season start, so a future season whose start does not coincide with the closure
@@ -313,44 +324,105 @@ run_config <- list(
   drop_unfished_zero_catch = TRUE,    # deployment units: drop no-time AND zero-catch rows
   period_pe         = "week",         # PE temporal stratum
   sections          = c(1),
-  # PE empty-stratum CPUE fallback (item 2, 2026-07-13). A week x day-type stratum with
-  # expanded effort but no surviving interviews: "pooled" (default) borrows the
-  # population x sub-season ratio-of-sums CPUE; "zero" assigns it zero catch (old
-  # behavior). "pooled" removes the sparse-stratum sign instability in the thin boat PE
-  # (the incomplete-trip "anomaly", item 2); shore is dense so it barely moves.
-  pe_empty_stratum  = "pooled",       # "pooled" | "zero"
-  # PE empty-EFFORT-stratum fallback (2026-08-25). Distinct from pe_empty_stratum above,
-  # which covers a stratum with expanded effort but no surviving INTERVIEWS. This one
-  # covers a (period x day_type) stratum with calendar days but no SAMPLED day: the PE
-  # builds strata from sampled days and left-joins the calendar, so an unsampled cell
-  # contributes ZERO effort, not an imputed one.
-  #   "zero"     (default) the historical behaviour.
-  #   "day_type" fill the cell with that sub-season's mean daily effort for the same
-  #              day type, falling back to the overall sub-season mean.
-  #   "local_day_type" (2026-09-11) the same day type in the same MONTH, falling back to the
-  #              sub-season day type and then to the sub-season mean. Local, so a February
-  #              cell is filled at February rates rather than at a mean the summer dominates.
-  # WHY THIS IS SURFACED NOW. Moving Friday out of the weekend stratum (improvement 3)
-  # changes which cells are populated, and it makes thin components worse: on the 2024-25
-  # data the boat POT CLOSURE goes from 4 of 76 days zeroed to 9 of 76, all of them
-  # weekend or holiday days, which carry roughly 1.7-2.3x weekday effort. That biases its
-  # PE DOWN, and it is the same component improvement 6 promotes to a BSS attempt and the
-  # one most likely to fall back to PE.
+  # =========================================================================
+  # THE PE's THREE UNSAMPLED-CELL LEVERS (rebuilt 2026-09-12; one shared
+  # implementation in 03_R_functions/pe_effort_strata.R, used by both PE runners)
+  # -------------------------------------------------------------------------
+  # The PE stratifies by (week x day_type) from the SAMPLED days and left-joins the
+  # calendar. Roughly half of every component's calendar days therefore sit in a cell
+  # that is either UNSAMPLED (no sampled day at all) or SINGLETON (exactly one), and the
+  # three levers below say what happens to each. On 2024-25 that is not a corner case:
   #
-  # MEASURED 2026-09-11, and BIGGER THAN THE 2026-08-25 NOTE ASSUMED. On the rebuilt
-  # 2024-25 inputs the shipped "zero" fill zeroes 45 of 289 shore all-gear days (15.6%) and
-  # 48 of 289 boat all-gear days, three times the 5% threshold that prints the warning. The
-  # PE port total is 72,224 under "zero", 85,243 under "day_type" (+18%) and 90,861 under
-  # "local_day_type" (+26%): the empty cells sit in the HIGH months, so a local fill is
-  # larger than a sub-season one, not smaller. Which is right cannot be settled against the
-  # current BSS reference, because 20260904/pooled-CPUE-AD-A1-adopted predates the derived
-  # shore turnover and the boat turnover recentring; on that stale reference the shipped
-  # "zero" PE happens to sit closest to the BSS (boat all-gear PE 10,482 vs BSS 11,118;
-  # shore all-gear 27,345 vs 25,539). So the default stays "zero" and the choice belongs in
-  # the ladder, against the post-ladder BSS (CHANGE_REGISTER D19). This affects the PE only:
-  # the BSS gives every day a weekend (B1) and holiday (B2) effort effect and imputes the
-  # unsampled ones from its AR, so it never zeroes a day.
-  pe_empty_effort_stratum = "zero",   # "zero" | "day_type" | "local_day_type"
+  #   component            cells  unsampled        singleton        effort with no variance
+  #   shore all-gear         93   21 (45 days)     37 (82 days)     54% (SE read 1.5%)
+  #   boat all-gear          93   23 (48 days)     34 (77 days)     49% (SE read 5.5%)
+  #   shore pot-closure      24    1 ( 1 day )     10 (19 days)     41%
+  #   boat pot-closure       24    6 (11 days)      7 (14 days)     29%
+  #
+  # WHY THIS IS NOT PE-ONLY, contrary to the note that stood here until 2026-09-12. A
+  # component whose convergence gate FAILS reports its PE point in the port total, as a
+  # CONSTANT with no interval (see section 7.7 of either driver). The boat pot closure is
+  # the component most likely to fall back. So these levers can reach the headline.
+  # =========================================================================
+  #
+  # 1. THE CPUE OF A CELL WITH NO SURVIVING INTERVIEWS (item 2, 2026-07-13; extended
+  #    2026-09-12). A cell can carry expanded effort and still have no interview left
+  #    after the incomplete-trip filter.
+  #      "local"  (SHIPPED 2026-09-12) that MONTH's ratio-of-sums, falling back to the
+  #               sub-season's. Matches the scale of the effort fill below.
+  #      "pooled" the sub-season-wide ratio-of-sums (the behaviour through 2026-09-11).
+  #      "zero"   assign zero catch (the pre-2026-07-13 behaviour; reintroduces the
+  #               sparse-stratum sign instability in the thin boat PE).
+  #    MEASURED, and it is the LARGER lever on the boat, which the 2026-09-11 note missed:
+  #    with the month-local effort fill below, boat all-gear PE catch is 42,841 under
+  #    "pooled" and 37,018 under "local", -13.6%. The imputed boat cells are in the SUMMER
+  #    months and the sub-season-pooled boat CPUE is dominated by the high-CPUE winter, so
+  #    "pooled" was multiplying summer effort by a winter-inflated rate. The shore is
+  #    almost unmoved (29,705 -> 29,737), so this is a boat correction. The shipped PE
+  #    port total is 85,076, +17.8% on the historical 72,224, NOT the +26% reported on
+  #    2026-09-11: that figure mixed a month-local effort fill with a season-pooled CPUE
+  #    and so double-counted the seasonal gradient. The full decomposition, 2024-25:
+  #      72,224  effort "zero",           CPUE "pooled"   (through 2026-09-11)
+  #      90,861  effort "local_day_type", CPUE "pooled"   (+18,637 from the effort fill)
+  #      85,076  effort "local_day_type", CPUE "local"    (-5,785 from the CPUE fill)
+  pe_empty_stratum  = "local",        # "local" | "pooled" | "zero"
+  #
+  # 2. THE EFFORT OF A CELL WITH NO SAMPLED DAY (2026-08-25; default changed 2026-09-12).
+  #      "local_day_type" (SHIPPED 2026-09-12, Matt) the same day type in the same MONTH,
+  #               falling back to the same day type sub-season-wide and then to the
+  #               sub-season mean. Local, so a February cell is filled at February rates
+  #               rather than at a mean the summer dominates.
+  #      "day_type" that sub-season's day-type mean. A sub-season spans a 20-fold seasonal
+  #               swing, so this overfills a thin winter week and underfills a summer one.
+  #      "zero"   the pre-2026-09-12 default: the cell contributes NOTHING.
+  #    WHY "zero" IS NO LONGER THE DEFAULT. It is not a neutral choice; it is an
+  #    assumption that 15.6% of the shore's days and 16.6% of the boat's had no fishing,
+  #    on days that are disproportionately weekend and holiday days carrying 1.7-2.3x
+  #    weekday effort. And its error is a BIAS, which no SE can carry: under "zero" the
+  #    component's interval is silent about the omission, while under a fill the
+  #    imputation is priced (lever 3). Every run now reports pe_zeroed_effort_bias, the
+  #    effort the zeroed cells WOULD carry, so choosing "zero" states its own cost.
+  #    2024-25 PE port total at the shipped CPUE fill: 72,224 ("zero"), 81,160
+  #    ("day_type"), 85,076 ("local_day_type", shipped). The effort totals are 45,175 /
+  #    53,846 / 56,793: "zero" omits 20% of the season's effort.
+  #    Still worth reading against the post-ladder BSS rather than the stale
+  #    20260904/pooled-CPUE-AD-A1-adopted reference (CHANGE_REGISTER D19); the ladder's R0
+  #    desk rung prints all three so the comparison costs no MCMC.
+  pe_empty_effort_stratum = "local_day_type",  # "local_day_type" | "day_type" | "zero"
+  #
+  # 3. WHAT AN UNSAMPLED OR SINGLETON CELL CONTRIBUTES TO THE SE (NEW 2026-09-12,
+  #    CHANGE_REGISTER D21). The SE was sqrt(N^2 sd^2 / max(n,1)) with sd from the cell's
+  #    own sampled days, and sd() of ONE observation is NA, replaced by 0. So a singleton
+  #    cell contributed its full point estimate and no variance, and an IMPUTED cell did
+  #    too: the shore all-gear effort SE was bit-identical (410) whether the fill added
+  #    0, 6,240 or 7,947 effort units. Half of every component's reported effort had no
+  #    uncertainty attached to it at all.
+  #      "impute_aware" (SHIPPED) a singleton cell borrows its donor's spread with the
+  #               divisor still 1 (the collapsed-stratum estimator standard for
+  #               one-per-stratum designs: Hansen, Hurwitz & Madow 1953; Cochran 1977
+  #               sec. 5A.12; Wolter 2007 ch. 2); an imputed cell carries the donor
+  #               mean's own sampling variance PLUS a between-cell surrogate of one
+  #               cell's worth of the donor's day-to-day spread, s^2 (1/n_donor + 1).
+  #               Deliberately conservative: an imputed number should read wider than a
+  #               measured one.
+  #      "donor_mean_only" drops the between-cell term (s^2 / n_donor). The lower bound.
+  #      "sampled_only"   the pre-2026-09-12 arithmetic, exactly. Kept so any earlier
+  #               number stays reachable; every run reports effort_se_sampled_only
+  #               alongside effort_se whatever this is set to.
+  #    MEASURED on 2024-25 at the shipped fill, and the POINT ESTIMATE DOES NOT MOVE (all
+  #    three settings give the same 85,076), so this lever is pure honesty about the
+  #    interval: shore all-gear effort SE 410 -> 1,379 (1.5% -> 3.9% of the component),
+  #    boat all-gear 573 -> 1,310 (5.5% -> 9.4%), shore pot-closure 238 -> 550, boat
+  #    pot-closure 29 -> 79. "donor_mean_only" lands between (1,184 and 1,103 on the two
+  #    all-gear components). Under the retired "zero" fill the same lever gives 1,099 and
+  #    1,046, i.e. MOST of the understatement was never about imputation at all: it was
+  #    the 37 and 34 singleton cells. The mean and the spread are
+  #    borrowed from DIFFERENT donor levels on purpose (finest with any sampled day for
+  #    the mean, finest with two or more for the spread), so this lever and lever 2 move
+  #    independent things and the ladder can attribute them one at a time.
+  #    NOT INCLUDED, and tracked separately as D22: the PE applies no finite-population
+  #    correction anywhere, and the PE catch still has NO SE at all (only effort does).
+  pe_variance       = "impute_aware", # "impute_aware" | "donor_mean_only" | "sampled_only"
 
   # --- Incomplete-trip filter (both models) --------------------------------
   # Incomplete trips (soak-time gear not yet retrieved) read systematically low

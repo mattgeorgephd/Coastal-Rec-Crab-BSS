@@ -227,7 +227,7 @@ desk_routing <- function() {
     p$crabbing_holiday_dates <- read_crabbing_holidays(p)
     q <- function(e) { s <- tempfile(); sink(s); on.exit(sink()); force(e) }
     dwg <- q(fetch_crab_data(p)); ie <- q(fetch_ie_data(p))
-    Le  <- q(if (!is.null(ie) && nrow(ie) > 0) estimate_L_effective(ie, p$pot_open_date, p) else NULL)
+    Le  <- q(if (!is.null(ie) && nrow(ie) > 0) estimate_L_effective(ie, p) else NULL)
     sub <- build_subseasons(p)
     ss  <- sub[[which(vapply(sub, function(x) x$gear_regime == "all_gear", logical(1)))]]
     days <- q(prep_days_crab(ss$start, ss$end, p, L_eff_model = Le))

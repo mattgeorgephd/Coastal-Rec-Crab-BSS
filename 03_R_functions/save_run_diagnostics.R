@@ -556,14 +556,24 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
 
 # ---- run-level writers ------------------------------------------------------
 
-# Empty-effort-stratum audit (2026-08-27).
+# Unsampled / singleton effort-stratum audit (2026-08-27; widened 2026-09-12).
 #
-# The PE expands a week x day-type stratum that carries calendar days but no sampled day.
-# Under the default fill, `pe_empty_effort_stratum = "zero"`, those days are expanded at ZERO
-# effort, which biases that component's PE DOWN; and because the unsampled strata skew
-# weekend and holiday, and those days carry 1.7-2.3x weekday effort, the bias is worse than
-# the day count suggests. The weekend redefinition changes which strata are empty, so this is
-# a number that moves with configuration and has to be on the record per run.
+# The PE stratifies by (week x day_type) from the SAMPLED days and left-joins the calendar,
+# so a cell can carry calendar days and no sampled day (UNSAMPLED) or exactly one
+# (SINGLETON). Both are common: on 2024-25, 21 of 93 shore all-gear cells are unsampled and
+# 37 more are singletons, together 44% of that component's calendar days.
+#
+# The three levers and their measured effects are documented in run_config.R
+# (pe_empty_stratum, pe_empty_effort_stratum, pe_variance); this writer is what puts the
+# per-run numbers in a FILE. As of 2026-09-12 it carries three things it did not before:
+#   - the singleton counts, which were never reported anywhere and are the LARGER half of
+#     the variance understatement (SE 410 -> 1,099 on shore all-gear from the singletons
+#     alone, before any imputation);
+#   - effort_se against effort_se_sampled_only, so the honest interval and the historical
+#     one sit side by side and no earlier number becomes unreachable;
+#   - zeroed_effort_bias, the effort an unsampled cell WOULD carry under the shipped fill,
+#     so `pe_empty_effort_stratum = "zero"` states its own cost. A zeroed cell's error is a
+#     BIAS and no SE represents it, which is why that setting is no longer the default.
 #
 # run_pe_pooled() / run_pe_gear() computed the counts and only cat()-ed them. The pooled
 # driver's PE chunk is results='hide', so on that track the report reached nothing at all --
@@ -580,14 +590,32 @@ write_pe_empty_stratum_report <- function(pe_all, output_dir, params = list()) {
     n_days  <- r$n_empty_effort_days   %||% NA_integer_
     n_cal   <- r$n_calendar_days       %||% NA_integer_
     frac    <- if (is.na(n_days) || is.na(n_cal) || n_cal == 0) NA_real_ else n_days / n_cal
+    n_sing  <- r$n_single_effort_strata %||% NA_integer_
+    n_singd <- r$n_single_effort_days   %||% NA_integer_
+    eff     <- r$effort_total %||% NA_real_
     data.frame(
       component            = k,
-      fill                 = r$pe_empty_effort_fill %||% (params$pe_empty_effort_stratum %||% "zero"),
+      effort_fill          = r$pe_empty_effort_fill %||% (params$pe_empty_effort_stratum %||% "local_day_type"),
+      cpue_fill            = params$pe_empty_stratum %||% "local",
+      variance             = r$pe_variance %||% (params$pe_variance %||% "impute_aware"),
       n_empty_strata       = r$n_empty_effort_strata %||% NA_integer_,
+      n_single_strata      = n_sing,
       n_strata_total       = r$n_effort_strata_total %||% NA_integer_,
       n_empty_days         = n_days,
+      n_single_days        = n_singd,
       n_calendar_days      = n_cal,
       empty_day_fraction   = frac,
+      # the share of calendar days whose effort rests on 0 or 1 sampled day
+      thin_day_fraction    = if (is.na(n_cal) || n_cal == 0) NA_real_
+                             else (sum(n_days, na.rm = TRUE) + sum(n_singd, na.rm = TRUE)) / n_cal,
+      effort_total         = eff,
+      imputed_effort       = r$pe_imputed_effort %||% NA_real_,
+      imputed_effort_share = if (is.na(eff) || eff == 0) NA_real_ else (r$pe_imputed_effort %||% NA_real_) / eff,
+      # what "zero" omits: 0 under any fill, so a non-zero here IS the bias being carried
+      zeroed_effort_bias   = r$pe_zeroed_effort_bias %||% NA_real_,
+      effort_se            = r$effort_se %||% NA_real_,
+      effort_se_sampled_only = r$effort_se_sampled_only %||% NA_real_,
+      effort_cv            = if (is.na(eff) || eff == 0) NA_real_ else (r$effort_se %||% NA_real_) / eff,
       exceeds_5pct_at_zero = !is.na(frac) && frac > 0.05 &&
                              identical(r$pe_empty_effort_fill %||% "zero", "zero"),
       stringsAsFactors     = FALSE)

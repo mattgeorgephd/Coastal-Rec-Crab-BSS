@@ -83,7 +83,8 @@
 #
 # CONTENTS
 #   fetch_ie_data(params)                          lifted verbatim from the pooled
-#   estimate_L_effective(ie_data, pot_open, params)  driver (v7.4), unmodified
+#   estimate_L_effective(ie_data, params)            driver (v7.4); the dead pot_open_date
+#                                                    argument was removed 2026-09-12
 #   bss_day_length_civil(dates, params)            civil-twilight helper
 #   bss_assign_day_length(days, L_eff_model, params)  sets day_length, L_mu,
 #                                                  L_prior_sigma on a days tibble
@@ -263,6 +264,22 @@ fetch_ie_data <- function(params) {
 # This captures the seasonal gradient WITHIN sub-seasons and provides per-day
 # prediction uncertainty for propagation into the Stan model.
 #
+# 2026-09-12: the `pot_open_date` ARGUMENT WAS DEAD. It appeared in the signature and
+# nowhere in the body, so there has never been a pots-open split in this regression; the
+# only predictors are yday (quadratic) and day type. Both drivers passed
+# params$pot_open_date into it, and run_config's comment on pot_open_date plus
+# CHANGE_REGISTER A14 both described a multi-season approximation ("pot_open_date is a
+# SINGLE date feeding the L_effective I/E regression split; with two seasons it is exact
+# for one season only") that therefore never existed. The argument is removed rather than
+# used, because a pots-open indicator is NOT the right fix either: the closure boundary
+# is already inside the yday term, and adding a second, season-specific predictor to a
+# model fitted on 40 I/E days would cost more than it buys. THE REAL multi-season
+# approximation, now stated where it belongs: the regression POOLS every season's I/E
+# days and assumes one yday -> L relationship across them. On the 2023-25 span that is
+# 2023-24's shorter Grays Harbor shifts and 2024-25's being fitted as one curve. A
+# per-season interaction is the fix if the two seasons' I/E day lengths diverge; check
+# L_effective_ie_detail.csv (residuals by season) before assuming they do not.
+#
 # Returns: list with
 #   $predict_fn: function(event_date, day_type) -> tibble(L_mu, L_sigma)
 #   $model: the fitted lm object (NULL on the grand-mean rung)
@@ -270,7 +287,7 @@ fetch_ie_data <- function(params) {
 #   $n_obs, $method: "regression" or "grand_mean"
 # ===========================================================================
 
-estimate_L_effective <- function(ie_data, pot_open_date, params) {
+estimate_L_effective <- function(ie_data, params) {
   cat("\n  Fitting L_effective regression from historical I/E data...\n")
 
   ie_shore <- ie_data |>

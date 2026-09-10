@@ -537,7 +537,7 @@ params <- bss_resolve_tau_boat_prior(params, osp_overlap)
 # --- Fit L_effective regression ---
 L_eff_model <- NULL
 if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
-  L_eff_model <- estimate_L_effective(ie_data, params$pot_open_date, params)
+  L_eff_model <- estimate_L_effective(ie_data, params)
   if(!is.null(L_eff_model)) {
     # Save regression diagnostics
     if(!is.null(L_eff_model$detail)) {
@@ -945,6 +945,14 @@ if (!is.null(ie_rep)) {
 ## 4. Point Estimator (PE)
 
 The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the unsampled days. The PE is fast and transparent, and it is the fallback whenever a Bayesian fit does not pass the convergence gate.
+
+**Half of every component's days rest on one sampled day or none** (2026-09-12). With weekly strata and roughly 50% day coverage, a (week x day-type) cell often has one sampled day and sometimes none: on 2024-25, 21 of the 93 shore all-gear cells are unsampled and 37 more hold exactly one, together 44% of that component's calendar days; the boat all-gear figures are 23 and 34, 43%. Three settings say what happens to those cells, all documented in `run_config.R` and implemented once in `03_R_functions/pe_effort_strata.R`:
+
+- an unsampled cell's **effort** is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`). Through 2026-09-11 it contributed nothing, which took 20% of the season's effort out of the PE and did it on days that are disproportionately weekend and holiday days carrying 1.7 to 2.3x weekday effort. `"zero"` restores that, and every run now reports `pe_zeroed_effort_bias`, the effort those cells would have carried, so choosing it states its own cost.
+- an unsampled cell's **CPUE** is that month's ratio-of-sums (`pe_empty_stratum = "local"`), matching the scale of the effort fill. Pairing a month-local effort fill with the old sub-season-pooled rate counted the seasonal gradient twice and put the boat all-gear PE 13.6% too high.
+- an unsampled or singleton cell's **variance** (`pe_variance = "impute_aware"`). A singleton cell's `sd()` does not exist, and the retired formula replaced it with zero, so half of every component's reported effort carried no uncertainty and the SE was unchanged by imputation. A singleton cell now borrows its donor's spread with the divisor still 1 (the collapsed-stratum estimator), and an imputed cell carries the donor mean's sampling variance plus a between-cell surrogate. On 2024-25 the shore all-gear effort SE goes 410 to 1,379 and the boat 573 to 1,310; `effort_se_sampled_only` keeps the old number on the page.
+
+The point estimate is unaffected by the third setting and the PE port total is 85,076 against the retired 72,224. **This is not PE-only bookkeeping**: a component whose gate fails reports its PE point in the port total as a constant, so these settings reach the headline whenever a component falls back.
 
 ```{r pe-estimates, results='hide'}
 # ---- 7.2 PE ESTIMATES ----

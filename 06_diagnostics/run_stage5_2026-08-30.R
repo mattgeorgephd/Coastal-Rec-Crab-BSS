@@ -588,7 +588,17 @@ fit_exactness <- function(new_dirname, ref_dir, fit_pattern = NULL, what = "fits
 # STAGE S1: the empty-stratum fill, PE only (plan 5.1).
 #
 # pe_empty_effort_stratum changes ONLY the Point Estimator, so a full render would spend
-# ~4 h of MCMC to answer a question the PE settles in a minute. This builds the same inputs
+# ~4 h of MCMC to answer a question the PE settles in a minute.
+#
+# SUPERSEDED 2026-09-12. Two statements in this stage are now known to be wrong. (1) "changes
+# ONLY the Point Estimator": a component whose convergence gate FAILS reports its PE point in
+# the port total as a constant, so the fill can reach the headline. (2) the two-arm comparison
+# is not the whole lever: the empty-stratum CPUE fill (pe_empty_stratum) was always the
+# sub-season ratio-of-sums, so a month-local effort fill was being multiplied by a
+# season-average rate and the seasonal gradient counted twice. The current arms and their
+# 2024-25 numbers are in run_config.R and in the ladder's R0 desk rung
+# (pe_unsampled_cell_arms.csv); the shipped settings are local_day_type / local /
+# impute_aware. This stage is kept as the record of what was run on its date. This builds the same inputs
 # the driver builds, INCLUDING the crabbing-holiday workbook, and calls run_pe_pooled()
 # twice per component.
 #
@@ -609,7 +619,7 @@ run_stage_S1 <- function() {
   # Mirrors the driver exactly: the day-length model is built only when there is I/E data,
   # and NULL falls back to civil twilight the same way.
   L_eff   <- if (!is.null(ie_data) && nrow(ie_data) > 0)
-               estimate_L_effective(ie_data, params$pot_open_date, params) else NULL
+               estimate_L_effective(ie_data, params) else NULL
   subs    <- build_subseasons(params)
 
   rows <- list()

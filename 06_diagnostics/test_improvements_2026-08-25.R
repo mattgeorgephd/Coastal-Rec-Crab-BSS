@@ -255,7 +255,12 @@ local({
   chk("shipped: opener_covariate_mode OFF", identical(rc$opener_covariate_mode, "off"))
   chk("shipped: razor_dig_mode no", identical(rc$razor_dig_mode, "no"))
   chk("shipped: use_osp_crab_lower OFF", identical(rc$use_osp_crab_lower, FALSE))
-  chk("shipped: pe_empty_effort_stratum = zero (historical)", identical(rc$pe_empty_effort_stratum, "zero"))
+  # 2026-09-12: the three unsampled-cell levers ship at their new values. "zero" is no
+  # longer a neutral default; it is an assumption that 15.6% of the shore's days and 16.6%
+  # of the boat's had no fishing, and its error is a bias no SE can carry.
+  chk("shipped: pe_empty_effort_stratum = local_day_type (2026-09-12)", identical(rc$pe_empty_effort_stratum, "local_day_type"))
+  chk("shipped: pe_empty_stratum = local, so the CPUE fill matches the effort fill's scale", identical(rc$pe_empty_stratum, "local"))
+  chk("shipped: pe_variance = impute_aware, so an imputed or singleton cell is not free", identical(rc$pe_variance, "impute_aware"))
   chk("shipped: filter_incomplete_trips still TRUE (diagnostic only)", identical(rc$filter_incomplete_trips, TRUE))
   chk("shipped: crab_fraction_strata = month (review item 1, 2026-09-08)", identical(rc$crab_fraction_strata, "month"))
   chk("shipped: crab_fraction_dynamic = TRUE (review item 1B, 2026-09-08)", identical(rc$crab_fraction_dynamic, TRUE))
@@ -393,13 +398,19 @@ local({
   dir.create(td, showWarnings = FALSE, recursive = TRUE)
   pe_fake <- list(
     shore_all_gear = list(n_empty_effort_strata = 0L, n_empty_effort_days = 0L,
+                          n_single_effort_strata = 30L, n_single_effort_days = 60L,
                           n_effort_strata_total = 84L, n_calendar_days = 289L,
-                          pe_empty_effort_fill = "zero"),
+                          pe_empty_effort_fill = "local_day_type", pe_variance = "impute_aware",
+                          effort_total = 30000, effort_se = 1200, effort_se_sampled_only = 400,
+                          pe_imputed_effort = 0, pe_zeroed_effort_bias = 0),
     private_boat_ring_net_only = list(n_empty_effort_strata = 9L, n_empty_effort_days = 9L,
+                          n_single_effort_strata = 5L, n_single_effort_days = 8L,
                           n_effort_strata_total = 22L, n_calendar_days = 76L,
-                          pe_empty_effort_fill = "zero"),
+                          pe_empty_effort_fill = "zero", pe_variance = "impute_aware",
+                          effort_total = 400, effort_se = 90, effort_se_sampled_only = 29,
+                          pe_imputed_effort = 0, pe_zeroed_effort_bias = 63),
     comm_charter = list(effort_total = 283))
-  rep_df <- write_pe_empty_stratum_report(pe_fake, td)
+  rep_df <- write_pe_empty_stratum_report(pe_fake, td, list(pe_empty_stratum = "local", pe_variance = "impute_aware"))
   chk("empty-stratum report writes a file", file.exists(file.path(td, "pe_empty_effort_strata.csv")))
   chk("empty-stratum report excludes the census component",
       !"comm_charter" %in% rep_df$component && nrow(rep_df) == 2)
@@ -409,6 +420,22 @@ local({
   chk("empty-stratum report raises the >5%-at-zero flag",
       isTRUE(rep_df$exceeds_5pct_at_zero[rep_df$component == "private_boat_ring_net_only"]) &&
       isFALSE(rep_df$exceeds_5pct_at_zero[rep_df$component == "shore_all_gear"]))
+  # 2026-09-12: the report now carries the SINGLETON cells, both SEs and the zeroing bias.
+  # The singleton count was never reported anywhere before, and it is the LARGER half of
+  # the variance understatement (SE 410 -> 1,099 on shore all-gear from singletons alone).
+  chk("empty-stratum report carries the singleton cells and the thin-day share",
+      identical(rep_df$n_single_strata[rep_df$component == "shore_all_gear"], 30L) &&
+      isTRUE(all.equal(rep_df$thin_day_fraction[rep_df$component == "shore_all_gear"], 60/289)))
+  chk("empty-stratum report carries BOTH SEs, so the historical number stays reachable",
+      isTRUE(all.equal(rep_df$effort_se[rep_df$component == "shore_all_gear"], 1200)) &&
+      isTRUE(all.equal(rep_df$effort_se_sampled_only[rep_df$component == "shore_all_gear"], 400)) &&
+      isTRUE(all.equal(rep_df$effort_cv[rep_df$component == "shore_all_gear"], 1200/30000)))
+  chk("empty-stratum report carries the zeroing BIAS for a component left at 'zero'",
+      isTRUE(all.equal(rep_df$zeroed_effort_bias[rep_df$component == "private_boat_ring_net_only"], 63)) &&
+      isTRUE(all.equal(rep_df$zeroed_effort_bias[rep_df$component == "shore_all_gear"], 0)))
+  chk("empty-stratum report records all three levers per component",
+      identical(rep_df$effort_fill[rep_df$component == "shore_all_gear"], "local_day_type") &&
+      identical(unique(rep_df$cpue_fill), "local") && identical(unique(rep_df$variance), "impute_aware"))
   unlink(td, recursive = TRUE)
 
   # 10c. I/E observation PROVENANCE. bss_effort_spec() must name the column the shore
@@ -2846,18 +2873,219 @@ local({
       isTRUE(all.equal(r$carried_var, r$charter_var)) &&
         isTRUE(all.equal(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "none")))$carried_var, 0)) &&
         { z <- estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling"))); isTRUE(all.equal(z$carried_var, z$Dungeness_Kept_var)) })
-  # the PE empty-effort-stratum fill: the option set, and that the local one is month-scoped
+  # 2026-09-12: BOTH PE runners must delegate to the ONE shared implementation. Three
+  # defects lived in two copies of this code; a fix to one copy would have been a fix to
+  # half the pipeline, and the pooled and gear PEs would then disagree, which is exactly
+  # what run_pe_gear was extracted to prevent.
   for (pf in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R")) {
     src <- paste(readLines(pf, warn = FALSE), collapse = "\n")
-    chk(sprintf("%s: offers zero / day_type / local_day_type, and the local fill is scoped to the month", basename(pf)),
-        grepl('c("day_type", "local_day_type")', src, fixed = TRUE) && grepl("md_mean_daily", src, fixed = TRUE) &&
-          grepl("group_by(.m, day_type)", src, fixed = TRUE) && grepl('local_day_type', src, fixed = TRUE))
+    chk(sprintf("%s: delegates the strata, the fill and the variance to pe_effort_strata.R", basename(pf)),
+        grepl("pe_build_effort_strata(daily_effort, days, params)", src, fixed = TRUE) &&
+        grepl("pe_effort_stratum_report(effort_strat, population_name, params)", src, fixed = TRUE) &&
+        grepl("pe_empty_cpue_fill(daily_cpue, effort_strat, days, params)", src, fixed = TRUE))
+    chk(sprintf("%s: no longer carries its own copy of the fill or the SE formula", basename(pf)),
+        !grepl("md_mean_daily", src, fixed = TRUE) &&
+        !grepl("replace_na(sd_daily^2,0)/pmax(n_sampled,1)", src, fixed = TRUE))
+    chk(sprintf("%s: reports both SEs", basename(pf)),
+        grepl("results$effort_se_sampled_only", src, fixed = TRUE))
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("shipped: the PE empty-effort fill stays 'zero' (the 2026-09-11 measurement is in the change register, the choice is not made here)",
-      identical(rc$pe_empty_effort_stratum, "zero"))
+  chk("shipped: the PE unsampled-cell levers are the 2026-09-12 set (Matt: ship local_day_type on)",
+      identical(rc$pe_empty_effort_stratum, "local_day_type") && identical(rc$pe_empty_stratum, "local") &&
+      identical(rc$pe_variance, "impute_aware"))
   chk("shipped: the census keys are the 2026-09-11 set", identical(rc$census_expansion, "none") && identical(rc$charter_frame, "roster") &&
         identical(rc$charter_expansion, "vessel") && identical(rc$census_uncertainty, "charter"))
+})
+
+# ---------------------------------------------------------------------------
+# 59. THE PE's UNSAMPLED AND SINGLETON CELLS (2026-09-12). Three defects, all of them in
+#     two copies of the same code, all recomputed here BY HAND on a fixture small enough
+#     to check with a calculator:
+#       - the SE was sqrt(N^2 sd^2 / max(n,1)) with sd from the cell's own sampled days,
+#         and sd() of ONE observation is NA -> 0, so a singleton cell contributed its full
+#         point estimate and no variance;
+#       - an IMPUTED cell did the same, so the effort SE was unchanged by imputation;
+#       - the effort fill could be month-local while the CPUE fill was sub-season-wide.
+#     The fixture is two months x two day types so every donor level is exercised, and the
+#     "sampled_only" arm must reproduce the pre-2026-09-12 arithmetic EXACTLY.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/pe_effort_strata.R")
+  # calendar: Jan (period 1) and Feb (period 5), weekday + weekend cells.
+  mkdays <- function() {
+    d <- tibble(event_date = c(as.Date("2025-01-06") + 0:6, as.Date("2025-02-03") + 0:6))
+    d |> mutate(day_type = ifelse(format(event_date, "%u") %in% c("6", "7"), "weekend", "weekday"),
+                month = as.numeric(format(event_date, "%m")),
+                period = as.numeric(format(event_date, "%W")),
+                open_section_1 = TRUE)
+  }
+  days <- mkdays()
+  # sampled days: Jan weekday x3 (10, 20, 30), Jan weekend x1 (100), Feb weekday x2 (2, 4).
+  # The Feb WEEKEND cell has NO sampled day: that is the imputed cell.
+  de <- tibble(
+    event_date = c(as.Date("2025-01-06"), as.Date("2025-01-07"), as.Date("2025-01-08"),
+                   as.Date("2025-01-11"), as.Date("2025-02-03"), as.Date("2025-02-04")),
+    est_daily_effort = c(10, 20, 30, 100, 2, 4), section_num = 1) |>
+    left_join(days |> select(event_date, day_type, period), by = "event_date")
+  P0 <- list(pe_empty_effort_stratum = "zero",           pe_variance = "sampled_only")
+  P1 <- list(pe_empty_effort_stratum = "local_day_type", pe_variance = "sampled_only")
+  P2 <- list(pe_empty_effort_stratum = "local_day_type", pe_variance = "impute_aware")
+  P3 <- list(pe_empty_effort_stratum = "local_day_type", pe_variance = "donor_mean_only")
+  P4 <- list(pe_empty_effort_stratum = "day_type",       pe_variance = "impute_aware")
+  s0 <- pe_build_effort_strata(de, days, P0); s1 <- pe_build_effort_strata(de, days, P1)
+  s2 <- pe_build_effort_strata(de, days, P2); s3 <- pe_build_effort_strata(de, days, P3)
+  s4 <- pe_build_effort_strata(de, days, P4)
+  .g <- function(st, per, dt, col) st[[col]][st$period == per & st$day_type == dt]
+  jan_wd <- unique(days$period[days$month == 1 & days$day_type == "weekday"])[1]
+  feb_wd <- unique(days$period[days$month == 2 & days$day_type == "weekday"])[1]
+  feb_we <- unique(days$period[days$month == 2 & days$day_type == "weekend"])[1]
+  jan_we <- unique(days$period[days$month == 1 & days$day_type == "weekend"])[1]
+
+  # ---- the cell taxonomy is what the levers key off ------------------------
+  k0 <- attr(s0, "counts")
+  # 4 cells over 14 days: (Jan, weekday) n = 3, (Jan, weekend) n = 1 -> SINGLETON,
+  # (Feb, weekday) n = 2, (Feb, weekend) n = 0 -> UNSAMPLED.
+  chk("PE strata: the fixture has one unsampled cell, one singleton cell and two multi cells",
+      identical(k0$n_empty_strata, 1L) && identical(k0$n_single_strata, 1L) &&
+      identical(k0$n_strata_total, 4L) && identical(k0$n_calendar_days, 14L) &&
+      identical(k0$n_empty_days, 2L) && identical(k0$n_single_days, 2L))
+
+  # ---- 1. the MULTI cell: unchanged, and it is the only case the old code got right ----
+  # Jan weekday: n = 3, days = 5, mean = 20, sd = 10 -> est 100, se = 5 * 10 / sqrt(3)
+  nd <- .g(s2, jan_wd, "weekday", "n_total_days")
+  chk("PE strata: a cell with 2+ sampled days is untouched (mean, and se = N sd / sqrt(n))",
+      isTRUE(all.equal(.g(s2, jan_wd, "weekday", "mean_daily"), 20)) &&
+      isTRUE(all.equal(.g(s2, jan_wd, "weekday", "est_total"), 20 * nd)) &&
+      isTRUE(all.equal(.g(s2, jan_wd, "weekday", "se_total"), nd * 10 / sqrt(3))) &&
+      isTRUE(all.equal(.g(s2, jan_wd, "weekday", "se_total"), .g(s0, jan_wd, "weekday", "se_total"))))
+
+  # ---- 2. the SINGLETON cell: was zero variance, now the collapsed-stratum donor sd ----
+  # Feb weekday has n = 2 (2, 4) so it is NOT a singleton; Jan weekend (100) and Feb
+  # weekend (imputed) are. Jan weekend: n = 1, so sd is undefined. Its donor for the SPREAD
+  # is the day_type level (weekend has 1 sampled day across the fixture -> falls to the
+  # sub-season sd over all 6 sampled days).
+  sd_all <- sd(de$est_daily_effort)
+  n_jw <- .g(s2, jan_we, "weekend", "n_total_days")
+  chk("PE strata: a singleton cell had ZERO variance under the old arithmetic",
+      isTRUE(all.equal(.g(s0, jan_we, "weekend", "se_total"), 0)) &&
+      isTRUE(all.equal(.g(s1, jan_we, "weekend", "se_total"), 0)))
+  chk("PE strata: a singleton cell now borrows its donor's spread with the divisor still 1 (collapsed stratum)",
+      isTRUE(all.equal(.g(s2, jan_we, "weekend", "se_total"), n_jw * sd_all)) &&
+      grepl("^collapsed stratum", .g(s2, jan_we, "weekend", "var_source")))
+  chk("PE strata: the singleton fix is INDEPENDENT of the fill (same SE under day_type and local_day_type)",
+      isTRUE(all.equal(.g(s2, jan_we, "weekend", "se_total"), .g(s4, jan_we, "weekend", "se_total"))))
+
+  # ---- 3. the IMPUTED cell: mean from the finest level, spread from the finest with 2+ ----
+  # Feb weekend is unsampled. Under local_day_type its MEAN comes from the finest level with
+  # any sampled day: (Feb x weekend) has none, so it falls to day_type (weekend = 100).
+  # Under day_type it also gets the weekend mean, 100. Under "zero" it gets 0.
+  n_fw <- .g(s1, feb_we, "weekend", "n_total_days")
+  chk("PE strata: 'zero' leaves the unsampled cell at zero and reports the omission as a BIAS",
+      isTRUE(all.equal(.g(s0, feb_we, "weekend", "est_total"), 0)) &&
+      isTRUE(all.equal(.g(s0, feb_we, "weekend", "se_total"), 0)) &&
+      isTRUE(all.equal(.g(s0, feb_we, "weekend", "zeroed_effort_bias"), 100 * n_fw)) &&
+      isTRUE(all.equal(attr(s0, "counts")$zeroed_effort_bias, 100 * n_fw)))
+  chk("PE strata: a fill imputes the cell and sets the bias to zero (the error becomes representable)",
+      isTRUE(all.equal(.g(s1, feb_we, "weekend", "est_total"), 100 * n_fw)) &&
+      isTRUE(all.equal(attr(s1, "counts")$zeroed_effort_bias, 0)) &&
+      isTRUE(all.equal(attr(s1, "counts")$imputed_effort, 100 * n_fw)))
+  chk("PE strata: an imputed cell was FREE under the old arithmetic (point estimate, no variance)",
+      isTRUE(all.equal(.g(s1, feb_we, "weekend", "se_total"), 0)))
+  # impute_aware: var = N^2 s^2 (1/n_donor + 1); donor here is the sub-season (n = 6)
+  chk("PE strata: an imputed cell now carries the donor-mean variance PLUS a between-cell term",
+      isTRUE(all.equal(.g(s2, feb_we, "weekend", "se_total"), n_fw * sd_all * sqrt(1/6 + 1))) &&
+      grepl("^imputed \\(donor mean \\+ between-cell\\)", .g(s2, feb_we, "weekend", "var_source")))
+  chk("PE strata: donor_mean_only drops the between-cell term and is the LOWER bound",
+      isTRUE(all.equal(.g(s3, feb_we, "weekend", "se_total"), n_fw * sd_all / sqrt(6))) &&
+      .g(s3, feb_we, "weekend", "se_total") < .g(s2, feb_we, "weekend", "se_total"))
+
+  # ---- 4. the mean and the spread come from DIFFERENT donor levels, on purpose --------
+  # Feb weekday has 2 sampled days, so a Feb-weekday-donated cell would take the month
+  # mean AND the month sd. Assert the two selections are reported separately.
+  chk("PE strata: mean_level and sd_level are recorded per cell and may differ",
+      all(c("mean_level", "sd_level") %in% names(s2)) &&
+      any(s2$mean_level != s2$sd_level | s2$n_sampled >= 2L))
+
+  # ---- 5. 'sampled_only' must reproduce the pre-2026-09-12 arithmetic EXACTLY ---------
+  chk("PE strata: pe_variance = 'sampled_only' reproduces the old SE for every cell",
+      isTRUE(all.equal(s1$se_total, s1$se_total_sampled_only)) &&
+      isTRUE(all.equal(s0$se_total, s0$se_total_sampled_only)))
+  chk("PE strata: the honest SE is reported ALONGSIDE the old one, never instead of it",
+      all(c("se_total", "se_total_sampled_only") %in% names(s2)) &&
+      sum(s2$se_total^2) > sum(s2$se_total_sampled_only^2))
+  chk("PE strata: the variance lever does NOT move the point estimate",
+      isTRUE(all.equal(sum(s1$est_total), sum(s2$est_total))) &&
+      isTRUE(all.equal(sum(s2$est_total), sum(s3$est_total))))
+
+  # ---- 6. the CPUE fill, scale-matched -------------------------------------
+  # Jan interviews: 10 crab / 5 gear = 2.0; Feb: 1 crab / 5 gear = 0.2; pooled 11/10 = 1.1.
+  dc <- tibble(event_date = c(as.Date("2025-01-06"), as.Date("2025-02-03")),
+               catch = c(10, 1), hrs = c(5, 5))
+  f_loc <- pe_empty_cpue_fill(dc, s2, days, list(pe_empty_stratum = "local"))
+  f_pool <- pe_empty_cpue_fill(dc, s2, days, list(pe_empty_stratum = "pooled"))
+  f_zero <- pe_empty_cpue_fill(dc, s2, days, list(pe_empty_stratum = "zero"))
+  i_fw <- which(s2$period == feb_we & s2$day_type == "weekend")
+  chk("PE CPUE fill: 'local' gives a February cell February's ratio-of-sums, not the season's",
+      isTRUE(all.equal(f_loc[i_fw], 0.2)) && isTRUE(all.equal(unname(f_pool[i_fw]), 1.1)))
+  chk("PE CPUE fill: 'pooled' reproduces the pre-2026-09-12 behaviour and 'zero' the pre-2026-07-13 one",
+      length(unique(f_pool)) == 1L && isTRUE(all.equal(unique(as.numeric(f_pool)), 1.1)) &&
+      all(f_zero == 0))
+  chk("PE CPUE fill: the source string says how many cells got a month rate",
+      grepl("month ratio-of-sums", attr(f_loc, "source")) && grepl("sub-season", attr(f_pool, "source")))
+  chk("PE CPUE fill: an unknown setting STOPS rather than silently falling back",
+      inherits(tryCatch(pe_empty_cpue_fill(dc, s2, days, list(pe_empty_stratum = "monthly")), error = function(e) e), "error") &&
+      inherits(tryCatch(pe_build_effort_strata(de, days, list(pe_empty_effort_stratum = "mean")), error = function(e) e), "error") &&
+      inherits(tryCatch(pe_build_effort_strata(de, days, list(pe_variance = "honest")), error = function(e) e), "error"))
+
+  # ---- 7. the helper's own defaults are the shipped ones -------------------
+  sd_def <- pe_build_effort_strata(de, days, list())
+  chk("PE strata: the helper's defaults ARE the shipped settings, so a caller that passes nothing is not on the retired path",
+      identical(attr(sd_def, "pe_fill"), "local_day_type") && identical(attr(sd_def, "pe_variance"), "impute_aware") &&
+      isTRUE(all.equal(sd_def$se_total, s2$se_total)))
+
+  # ---- 8. estimate_L_effective's dead argument, and the doc claim it supported ---------
+  src <- paste(readLines("03_R_functions/bss_day_length.R", warn = FALSE), collapse = "\n")
+  chk("L_effective: the dead pot_open_date argument is gone from the signature",
+      grepl("estimate_L_effective <- function(ie_data, params)", src, fixed = TRUE) &&
+      !grepl("estimate_L_effective <- function(ie_data, pot_open_date, params)", src, fixed = TRUE))
+  # this harness file is excluded: it QUOTES the retired signature in the assertion above
+  for (cf in setdiff(c(list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE),
+                       list.files("06_diagnostics", pattern = "\\.R$", full.names = TRUE)),
+                     "06_diagnostics/test_improvements_2026-08-25.R")) {
+    cs <- paste(readLines(cf, warn = FALSE), collapse = "\n")
+    if (!grepl("estimate_L_effective(", cs, fixed = TRUE)) next
+    chk(sprintf("L_effective: %s calls it with the two-argument signature", basename(cf)),
+        !grepl("estimate_L_effective(ie_data, params$pot_open_date", cs, fixed = TRUE) &&
+        !grepl("estimate_L_effective(ie, p$pot_open_date", cs, fixed = TRUE))
+  }
+  rcs <- paste(readLines("run_config.R", warn = FALSE), collapse = "\n")
+  chk("L_effective: run_config no longer claims pot_open_date feeds an I/E regression split",
+      !grepl("feeding the\n  # L_effective I/E regression split", rcs) &&
+      !grepl("SINGLE date feeding the", rcs))
+
+  # ---- 9. the per-season calendar guard ------------------------------------
+  source("03_R_functions/validate_season_window.R")
+  eff <- tibble(date = as.Date("2024-12-01") + 0:9, season = "2024-25")
+  int <- tibble(event_date = as.Date("2024-12-01") + 0:9, season = "2024-25")
+  Pw <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25",
+             pot_closures = NULL, pot_closure_start = "2024-09-16", pot_closure_end = "2024-11-30",
+             pot_open_date = "2024-12-01", census_start_date = "2024-12-01", census_end_date = "2025-02-08")
+  chk("season window: a complete per-season pin warns about nothing",
+      length(suppressMessages(withCallingHandlers(
+        { w <- character(0); validate_season_window(eff, int, Pw, quiet = TRUE); w },
+        warning = function(cd) { w <<- c(w, conditionMessage(cd)); invokeRestart("muffleWarning") }))) == 0)
+  chk("season window: a stale pot_open_date from a multi-season rollback now WARNS",
+      { w <- character(0)
+        withCallingHandlers(validate_season_window(eff, int, modifyList(Pw, list(pot_open_date = "2023-12-01")), quiet = TRUE),
+                            warning = function(cd) { w <<- c(w, conditionMessage(cd)); invokeRestart("muffleWarning") })
+        any(grepl("pot_open_date", w)) && any(grepl("PER-SEASON", w)) })
+  chk("season window: the guard is skipped when pot_closures carries the multi-season calendar",
+      { w <- character(0)
+        withCallingHandlers(validate_season_window(eff, int, modifyList(Pw, list(
+          pot_closures = list(list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")),
+          pot_open_date = "2023-12-01")), quiet = TRUE),
+          warning = function(cd) { w <<- c(w, conditionMessage(cd)); invokeRestart("muffleWarning") })
+        !any(grepl("pot_open_date", w)) })
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
