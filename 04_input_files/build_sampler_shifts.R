@@ -19,10 +19,11 @@
 # if not, see <https://www.gnu.org/licenses/>.
 # -----------------------------------------------------------------------------
 ###############################################################################
-# build_sampler_shifts.R  (2026-09-09)
+# build_sampler_shifts.R  (2026-09-09; rebuilt on the season workbooks 2026-09-10)
 #
-# Formats the creel SURVEY export (one row per sampler site-visit: check-in and check-out
-# in 24-hour clock time) into 04_input_files/sampler_shifts.xlsx, sheet "data".
+# Builds 04_input_files/sampler_shifts.xlsx (sheet "data") from the "crab creel survey
+# data" sheet of every per-season creel workbook in raw/: one row per sampler site-visit
+# (a survey), with the check-in and check-out in 24-hour clock time.
 #
 # WHY. The crabbing-fraction classification comes from the boats the samplers contacted,
 # and samplers are in port for a shift (about 9:45 to 15:50 at Westport in 2024-25), so
@@ -30,112 +31,113 @@
 # return-time weighting of the classification needs once OSP's all-day counts arrive,
 # and until then they support the shift-coverage diagnostic
 # (03_R_functions/sampler_shifts.R). The survey id is also the link between an interview
-# (interview_combined.xlsx: survey_id = "S<n>") and the shift it was taken in.
+# or an effort count (survey_id = "S<n>") and the shift it was taken in.
+#
+# WHAT THE SEASON WORKBOOKS ADD (2026-09-10) over the 2026-09-09 survey export: the
+# sampler's on-site conditions, recorded once per survey (tide stage in 2022-23 and
+# 2023-24; rain, cloud, wind and wind direction every season; the weather station site
+# from 2024-25), which are the covariate candidates for the effort process nearest to
+# what a crabber saw when deciding to go (../README.md); and, in 2025-26, the Westport
+# vessel tallies (commercial / private / charter), which build_comm_charter_tally.R reads.
 #
 # COLUMNS WRITTEN
 #   survey_id        "S<n>", matching interview_combined.xlsx / effort_combined.xlsx
-#   survey_num       the export's numeric ID
-#   season           fishery season by the Sep 16 boundary (a date on or after Sep 16 of
-#                    year Y is "Y-(Y+1)"), the convention of every other workbook
+#   survey_num       the numeric ID
+#   season           fishery season (the workbook's; checked against the date)
 #   date             ISO text yyyy-mm-dd
-#   day_of_week, holiday (0/1), creel_location, samplers, special_conditions, notes
+#   day_of_week, holiday (0/1: the sampler's flag), creel_location, weather_location,
+#   samplers, tide, rain, weather, wind, wind_direction, special_conditions, notes
 #   check_in, check_out          "HH:MM" (24-hour)
 #   check_in_hour, check_out_hour decimal hours (10.72 = 10:43)
 #   shift_hours                  check_out_hour - check_in_hour; NA when flagged
-#   qc_flag          "" | "missing_check_out" | "check_out_before_check_in" |
-#                    "duplicate_survey_id"; a flagged row keeps its raw strings and gets
-#                    NA hours, so nothing is silently corrected
+#   qc_flag          "" | "missing_check_in" | "missing_check_out" |
+#                    "check_out_before_check_in" | "duplicate_survey_id"; a flagged row
+#                    keeps its raw values and gets NA hours, so nothing is silently
+#                    corrected
 #
-# USAGE (from the repository root):
-#   Rscript 04_input_files/build_sampler_shifts.R [raw_survey.xlsx] [output.xlsx]
-# Defaults: raw/surveydata20222026.xlsx -> sampler_shifts.xlsx.
+# USAGE (from the repository root): Rscript 04_input_files/build_sampler_shifts.R
 ###############################################################################
 
-suppressPackageStartupMessages({ library(readxl); library(dplyr); library(tibble); library(stringr); library(writexl) })
+source(file.path(if (dir.exists("04_input_files")) "04_input_files" else ".", "build_helpers.R"))
+root <- build_root()
+out_path <- file.path(root, "04_input_files", "sampler_shifts.xlsx")
 
-args <- commandArgs(trailingOnly = TRUE)
-.root <- getwd()
-if (!dir.exists(file.path(.root, "04_input_files")) && dir.exists(file.path(.root, "..", "04_input_files")))
-  .root <- normalizePath(file.path(.root, ".."))
-raw_path <- if (length(args) >= 1) args[1] else file.path(.root, "04_input_files", "raw", "surveydata20222026.xlsx")
-out_path <- if (length(args) >= 2) args[2] else file.path(.root, "04_input_files", "sampler_shifts.xlsx")
-stopifnot(file.exists(raw_path))
+wb <- season_workbooks(root)
+say("Season workbooks: %s", paste(sprintf("%s (%s)", basename(wb$path), wb$season), collapse = ", "))
 
-raw <- suppressWarnings(readxl::read_excel(raw_path, sheet = 1, .name_repair = "minimal"))
-need <- c("ID", "Date", "Day of Week", "Holiday", "Samplers", "Creel Location", "Special Conditions",
-          "Check In Time", "Check Out Time", "Notes")
-miss <- setdiff(need, names(raw))
-if (length(miss)) stop("raw survey export lacks column(s): ", paste(miss, collapse = ", "))
+txt <- function(x) { x <- str_squish(as.character(x)); ifelse(is.na(x) | x == "", NA_character_, x) }
 
-# "H:M:S" or "H:M" text in 24-hour clock time -> decimal hours; anything else NA.
-.clock_hours <- function(x) {
-  x <- str_squish(as.character(x))
-  m <- str_match(x, "^(\\d{1,2}):(\\d{1,2})(?::(\\d{1,2}))?$")
-  h <- suppressWarnings(as.numeric(m[, 2])); mi <- suppressWarnings(as.numeric(m[, 3])); s <- suppressWarnings(as.numeric(m[, 4]))
-  s[is.na(s)] <- 0
-  out <- h + mi / 60 + s / 3600
-  out[is.na(h) | is.na(mi) | h > 24 | mi >= 60] <- NA_real_
-  out
-}
-.hhmm <- function(hrs) ifelse(is.na(hrs), NA_character_, sprintf("%02d:%02d", floor(hrs), round((hrs - floor(hrs)) * 60)))
-# The export's Date is M/D/YYYY text (an Excel date cell would come through as POSIXct).
-.as_date <- function(x) {
-  if (inherits(x, "POSIXct")) return(as.Date(x, tz = "UTC"))
-  if (inherits(x, "Date")) return(x)
-  d <- suppressWarnings(as.Date(as.character(x), format = "%m/%d/%Y"))
-  d2 <- suppressWarnings(as.Date(as.character(x), format = "%Y-%m-%d"))
-  d[is.na(d)] <- d2[is.na(d)]
-  d
-}
-.season_of <- function(d) {
-  y <- as.integer(format(d, "%Y")); after <- format(d, "%m%d") >= "0916"
-  y0 <- ifelse(after, y, y - 1L)
-  sprintf("%d-%02d", y0, (y0 + 1L) %% 100)
-}
-
-shifts <- raw |>
-  transmute(
-    survey_num  = suppressWarnings(as.integer(ID)),
-    survey_id   = ifelse(is.na(survey_num), NA_character_, paste0("S", survey_num)),
-    date_d      = .as_date(Date),
-    season      = .season_of(date_d),
+read_season <- function(path, season) {
+  ss <- sheet_named(path, c("crab creel survey data"))
+  if (is.null(ss)) stop("no 'crab creel survey data' sheet in ", basename(path))
+  s <- read_sheet_text(path, ss)
+  date_raw <- pick_col(s, "Date"); date_d <- parse_date_any(date_raw); report_unparsed(sprintf("%s date", season), date_raw, date_d)
+  ci_raw <- pick_col(s, "Check In Time"); ci <- parse_clock_hours(ci_raw); report_unparsed(sprintf("%s check-in", season), ci_raw, ci)
+  co_raw <- pick_col(s, "Check Out Time"); co <- parse_clock_hours(co_raw); report_unparsed(sprintf("%s check-out", season), co_raw, co)
+  tibble(
+    survey_num  = suppressWarnings(as.integer(round(num(pick_col(s, "ID"))))),
+    season      = season,
+    date_d      = date_d,
     date        = format(date_d, "%Y-%m-%d"),
-    day_of_week = as.character(`Day of Week`),
-    holiday     = suppressWarnings(as.integer(Holiday)),
-    creel_location     = as.character(`Creel Location`),
-    samplers           = as.character(Samplers),
-    special_conditions = as.character(`Special Conditions`),
-    check_in_raw  = as.character(`Check In Time`),
-    check_out_raw = as.character(`Check Out Time`),
-    check_in_hour  = .clock_hours(`Check In Time`),
-    check_out_hour = .clock_hours(`Check Out Time`),
-    notes = as.character(Notes)
+    day_of_week = txt(pick_col(s, "Day of Week")),
+    holiday     = { h <- num(pick_col(s, c("Holiday?", "Holiday"))); ifelse(is.na(h), NA_integer_, as.integer(h != 0)) },
+    creel_location   = txt(pick_col(s, "Creel Location")),
+    weather_location = txt(pick_col(s, "Weather Location")),
+    samplers         = txt(pick_col(s, c("Sampler(s)", "Samplers"))),
+    tide             = txt(pick_col(s, "Tide")),
+    rain             = txt(pick_col(s, "Rain")),
+    weather          = txt(pick_col(s, "Weather")),
+    wind             = txt(pick_col(s, "Wind")),
+    wind_direction   = txt(pick_col(s, "Wind Direction")),
+    special_conditions = txt(pick_col(s, "Special Conditions")),
+    check_in_hour  = ci,
+    check_out_hour = co,
+    notes = txt(pick_col(s, "Notes"))
   ) |>
+    mutate(survey_id = ifelse(is.na(survey_num), NA_character_, paste0("S", survey_num)))
+}
+
+shifts <- pmap_dfr(list(wb$path, wb$season), read_season)
+
+bad_season <- shifts |> filter(!is.na(date_d), season_of(date_d) != season)
+if (nrow(bad_season)) stop(sprintf("%d survey row(s) dated outside their workbook's fishery season, e.g. %s in %s",
+                                   nrow(bad_season), bad_season$date[1], bad_season$season[1]))
+
+shifts <- shifts |>
   mutate(
     qc_flag = case_when(
       is.na(check_in_hour)                              ~ "missing_check_in",
       is.na(check_out_hour)                             ~ "missing_check_out",
       check_out_hour < check_in_hour                    ~ "check_out_before_check_in",
       TRUE ~ ""),
-    qc_flag = ifelse(!is.na(survey_id) & duplicated(survey_id) | duplicated(survey_id, fromLast = TRUE) & !is.na(survey_id),
-                     paste0(qc_flag, ifelse(nzchar(qc_flag), ";", ""), "duplicate_survey_id"), qc_flag),
-    shift_hours    = ifelse(qc_flag == "", check_out_hour - check_in_hour, NA_real_),
-    check_in       = .hhmm(check_in_hour),
-    check_out      = .hhmm(check_out_hour)
+    .dup = !is.na(survey_id) & (duplicated(survey_id) | duplicated(survey_id, fromLast = TRUE)),
+    qc_flag = ifelse(.dup, paste0(qc_flag, ifelse(nzchar(qc_flag), ";", ""), "duplicate_survey_id"), qc_flag),
+    shift_hours = ifelse(qc_flag == "", check_out_hour - check_in_hour, NA_real_),
+    check_in    = hhmm(check_in_hour),
+    check_out   = hhmm(check_out_hour)
   ) |>
-  select(survey_id, survey_num, season, date, day_of_week, holiday, creel_location, samplers, special_conditions,
+  select(survey_id, survey_num, season, date, day_of_week, holiday, creel_location, weather_location, samplers,
+         tide, rain, weather, wind, wind_direction, special_conditions,
          check_in, check_out, check_in_hour, check_out_hour, shift_hours, qc_flag, notes) |>
   arrange(date, survey_num)
 
 if (any(is.na(shifts$date))) warning(sprintf("%d row(s) with an unparseable date", sum(is.na(shifts$date))))
-cat("Surveys by season x creel_location:\n"); print(table(shifts$season, shifts$creel_location))
+cat("\nSurveys by season x creel_location:\n"); print(table(shifts$season, shifts$creel_location))
+cat("\nDate range by season:\n"); print(as.data.frame(shifts |> group_by(season) |> summarise(first = min(date), last = max(date), rows = n(), .groups = "drop")))
 cat("\nQC flags:\n"); print(table(shifts$qc_flag, useNA = "ifany"))
 fl <- shifts |> filter(qc_flag != "")
 if (nrow(fl)) { cat("flagged rows:\n"); print(as.data.frame(fl |> select(survey_id, date, creel_location, check_in, check_out, qc_flag))) }
 gh <- shifts |> filter(creel_location == "Grays Harbor", !is.na(shift_hours))
-cat(sprintf("\nGrays Harbor: %d surveys with a usable shift; check-in median %s, check-out median %s, shift hours median %.2f\n",
-            nrow(gh), .hhmm(median(gh$check_in_hour)), .hhmm(median(gh$check_out_hour)), median(gh$shift_hours)))
+cat("\nGrays Harbor shifts by season (usable rows; medians):\n")
+print(as.data.frame(gh |> group_by(season) |> summarise(n = n(), check_in = hhmm(median(check_in_hour)), check_out = hhmm(median(check_out_hour)), shift_h = round(median(shift_hours), 2), .groups = "drop")))
+cat("\nSampler-flagged holidays (dates any survey flagged holiday = 1):\n")
+print(as.data.frame(shifts |> filter(holiday %in% 1) |> distinct(season, date, day_of_week) |> arrange(date)))
 
-dir.create(dirname(out_path), showWarnings = FALSE, recursive = TRUE)
-writexl::write_xlsx(list(data = shifts), out_path)
-cat(sprintf("\nWrote %s: %d rows x %d columns.\n", out_path, nrow(shifts), ncol(shifts)))
+if (file.exists(out_path)) {
+  old <- suppressWarnings(readxl::read_excel(out_path, sheet = "data", guess_max = 1e5))
+  cat("\nComparison with the previous workbook on survey_id:\n")
+  compare_with_previous(old |> distinct(survey_id, .keep_all = TRUE), shifts |> distinct(survey_id, .keep_all = TRUE), "survey_id",
+                        c("season", "date", "creel_location", "check_in_hour", "check_out_hour", "shift_hours", "qc_flag", "holiday"))
+}
+
+write_data_sheet(shifts, out_path)

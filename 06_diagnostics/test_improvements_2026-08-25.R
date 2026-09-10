@@ -2450,8 +2450,10 @@ local({
     all(c("season","creel_location","date","survey_id","interview_num","crabbing_mode","boat_type","crabbers","gear_type","number_of_gear",
           "dungeness_kept","red_rock_kept","hours_fished","crabber_hours","gear_hours","completed_trip","gear_tampered",
           "trip_type","trip_type_class","creel_area","interview_time") %in% nm) })
-  chk("workbook: the raw export and both builders are in the repository",
-      file.exists("04_input_files/raw/interviewdata20222026.xlsx") && file.exists("04_input_files/raw/surveydata20222026.xlsx") &&
+  # 2026-09-10: the pasted exports were replaced by the per-season workbooks (section 57)
+  chk("workbook: the season workbooks and the interview / shift builders are in the repository",
+      length(list.files("04_input_files/raw", pattern = "^[0-9]{4}_rec_crab_harvest_data\\.xlsx$")) >= 4 &&
+        !file.exists("04_input_files/raw/interviewdata20222026.xlsx") &&
         file.exists("04_input_files/build_interview_combined.R") && file.exists("04_input_files/build_sampler_shifts.R"))
   # the contact builder on a synthetic frame with trip types and areas
   source("03_R_functions/fetch_crab_data.R")
