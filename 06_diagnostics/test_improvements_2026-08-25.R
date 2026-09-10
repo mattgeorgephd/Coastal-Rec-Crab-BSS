@@ -2639,14 +2639,23 @@ local({
   chk("charter roster: 2024-25 Westport has 31 sailed trips in the tally window, 8 of them on days without a tally",
       nrow(w25) == 31 && sum(!w25$date %in% ta$date) == 8 && all(w25$status[!w25$date %in% ta$date] == "missed"))
   ho <- read_input_workbook("crabbing_holidays.xlsx")
-  chk("holidays: five seasons by one rule; the 2024-25 rows are the shipped ten; the observed Independence Day is in 2025-26",
+  chk("holidays: five seasons by one rule; the 2024-25 rows are the 2026-07-16 ten plus the three added on 2026-09-11; observed days present",
       setequal(unique(ho$season), c("2022-23", "2023-24", "2024-25", "2025-26", "2026-27")) &&
-        setequal(ho$date[ho$season == "2024-25"], c("2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08", "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15", "2025-07-04", "2025-09-01")) &&
-        "2026-07-03" %in% ho$date && "2024-01-01" %in% ho$date && "2023-11-24" %in% ho$date)
+        setequal(ho$date[ho$season == "2024-25"],
+                 c("2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08", "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15", "2025-07-04", "2025-09-01",
+                   "2024-11-28", "2024-11-11", "2025-06-19")) &&
+        "2026-07-03" %in% ho$date && "2024-01-01" %in% ho$date && "2023-11-24" %in% ho$date &&
+        # Thanksgiving is the 4th Thursday; Veterans Day and Juneteenth carry their observed day when the date is a weekend
+        all(weekdays(as.Date(ho$date[ho$holiday_name == "Thanksgiving Day"])) == "Thursday") &&
+        "2023-11-10" %in% ho$date[ho$holiday_name == "Veterans Day (observed)"] &&
+        "2027-06-18" %in% ho$date[ho$holiday_name == "Juneteenth (observed)"] &&
+        # the sampler-flagged days the counts do NOT support stay out
+        !any(c("2024-12-24", "2025-01-20", "2025-02-17") %in% ho$date))
   source("03_R_functions/read_crabbing_holidays.R")
   chk("holidays reader: every season resolves, and a two-season vector resolves to both calendars",
-      all(vapply(c("2022-23", "2023-24", "2024-25", "2025-26"), function(sn) length(read_crabbing_holidays(list(season_filter = sn))) >= 10, logical(1))) &&
-        length(read_crabbing_holidays(list(season_filter = c("2023-24", "2024-25")))) == 20)
+      all(vapply(c("2022-23", "2023-24", "2024-25", "2025-26"), function(sn) length(read_crabbing_holidays(list(season_filter = sn))) >= 13, logical(1))) &&
+        length(read_crabbing_holidays(list(season_filter = c("2023-24", "2024-25")))) ==
+          length(read_crabbing_holidays(list(season_filter = "2023-24"))) + length(read_crabbing_holidays(list(season_filter = "2024-25"))))
 
   # --- the readers on the rebuilt workbooks ---
   source("03_R_functions/fetch_crab_data.R"); source("03_R_functions/validate_season_window.R")

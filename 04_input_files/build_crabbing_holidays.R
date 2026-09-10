@@ -27,12 +27,16 @@
 # moved to the workbook on 2026-07-16; the other seasons apply THE SAME NAMED HOLIDAYS by
 # rule, so a multi-season run types every season the same way:
 #
+#   Thanksgiving Day               the 4th Thursday of November (ADDED 2026-09-11)
 #   Native American Heritage Day   the Friday after Thanksgiving
+#   Veterans Day                   Nov 11, and the federal OBSERVED day when Nov 11 falls
+#                                  on a weekend (ADDED 2026-09-11)
 #   New Year's Eve / New Year's Day
 #   Super Bowl Eve                 the Saturday before the Super Bowl (a Saturday, so a
 #                                  no-op for day typing; kept because the 2024-25 list
 #                                  and the I/E workbook's crabbing_holiday flag carry it)
 #   Memorial Day weekend           Saturday, Sunday, Monday
+#   Juneteenth                     June 19, and its observed day (ADDED 2026-09-11)
 #   Father's Day                   (a Sunday; no-op)
 #   Independence Day               July 4, and the federal OBSERVED day when July 4 falls
 #                                  on a weekend (Fri Jul 3, 2026: the samplers flagged it
@@ -40,11 +44,12 @@
 #                                  mean; Mon Jul 5, 2027)
 #   Labor Day
 #
-# What the samplers' own Holiday? flag adds (sampler_shifts.xlsx, column holiday) and the
-# effort counts say about it is in ../README.md: Veterans Day (observed), Thanksgiving
-# Day, Juneteenth read 1.7 to 2.4x the month's weekday gear count at Float 20 on the days
-# they were sampled; Christmas Eve, Presidents Day and MLK Day do not. They are NOT in
-# this calendar; adding a name here is the way to change the rule.
+# THE THREE ADDED ON 2026-09-11 (Matt), on the evidence of the samplers own Holiday? flag
+# (sampler_shifts.xlsx) and the Float 20 gear count against the same month weekday mean:
+# Thanksgiving Day 2.4x, Veterans Day observed 2.3x, Juneteenth 1.7x and 2.3x. The
+# sampler-flagged days still NOT in the calendar, because the counts do not support them:
+# Christmas Eve (1.1x, 0.8x), Presidents Day (0.8x), MLK Day (1.3x), Easter Sunday
+# (a Sunday anyway). Adding a name here is the whole change.
 #
 # Super Bowl dates: LVII 2023-02-12, LVIII 2024-02-11, LIX 2025-02-09, LX 2026-02-08,
 # LXI 2027-02-14 (scheduled).
@@ -71,8 +76,13 @@ super_bowl <- c("2023" = "2023-02-12", "2024" = "2024-02-11", "2025" = "2025-02-
 season_rows <- function(y0) {                      # season y0-(y0+1): Sep 16 y0 .. Sep 15 y0+1
   y1 <- y0 + 1L; season <- sprintf("%d-%02d", y0, y1 %% 100)
   thanks <- nth_weekday(y0, 11, 4, 4); mem <- last_weekday(y1, 5, 1); jul4 <- as.Date(sprintf("%d-07-04", y1)); jul4o <- observed(jul4)
+  vet <- as.Date(sprintf("%d-11-11", y0)); veto <- observed(vet)
+  jun <- as.Date(sprintf("%d-06-19", y1)); juno <- observed(jun)
   rows <- tribble(~date, ~holiday_name, ~note,
+    thanks,                                  "Thanksgiving Day",                "4th Thursday of November",
     thanks + 1,                              "Native American Heritage Day",    "Friday after Thanksgiving",
+    vet,                                     "Veterans Day",                    NA_character_,
+    jun,                                     "Juneteenth",                      NA_character_,
     as.Date(sprintf("%d-12-31", y0)),        "New Year's Eve",                  NA_character_,
     as.Date(sprintf("%d-01-01", y1)),        "New Year's Day",                  NA_character_,
     as.Date(super_bowl[[as.character(y1)]]) - 1, "Super Bowl Eve",             "Saturday; no-op for day typing",
@@ -83,7 +93,11 @@ season_rows <- function(y0) {                      # season y0-(y0+1): Sep 16 y0
     jul4,                                    "Independence Day",                NA_character_,
     nth_weekday(y1, 9, 1, 1),                "Labor Day",                       NA_character_
   )
+  # the federal observed day, when the date itself falls on a weekend (a no-op for day
+  # typing on the weekend date, but the observed weekday is the one that carries effort)
   if (jul4o != jul4) rows <- bind_rows(rows, tibble(date = jul4o, holiday_name = "Independence Day (observed)", note = "federal observed day"))
+  if (veto  != vet)  rows <- bind_rows(rows, tibble(date = veto,  holiday_name = "Veterans Day (observed)",     note = "federal observed day"))
+  if (juno  != jun)  rows <- bind_rows(rows, tibble(date = juno,  holiday_name = "Juneteenth (observed)",       note = "federal observed day"))
   rows |> mutate(season = season) |> arrange(date)
 }
 
@@ -91,10 +105,11 @@ hol <- map_dfr(2022:2026, season_rows) |>
   mutate(date = format(date, "%Y-%m-%d")) |>
   select(season, date, holiday_name, note)
 
-# the 2024-25 rows must reproduce the shipped list exactly
-ref <- c("2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08", "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15", "2025-07-04", "2025-09-01")
+# the 2024-25 rows must be the 2026-07-16 list plus exactly the three added on 2026-09-11
+ref <- c("2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08", "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15", "2025-07-04", "2025-09-01",
+         "2024-11-28", "2024-11-11", "2025-06-19")
 got <- hol$date[hol$season == "2024-25"]
-if (!setequal(ref, got)) stop("2024-25 holidays differ from the shipped list: ", paste(setdiff(union(ref, got), intersect(ref, got)), collapse = ", "))
+if (!setequal(ref, got)) stop("2024-25 holidays differ from the expected list: ", paste(setdiff(union(ref, got), intersect(ref, got)), collapse = ", "))
 
 cat("Crabbing holidays by season:\n"); print(as.data.frame(hol), row.names = FALSE)
 # cross-check against the samplers' flags where a shift workbook exists
