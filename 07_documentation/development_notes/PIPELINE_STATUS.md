@@ -1000,6 +1000,28 @@ Four changes, none of them a new rung (B22).
 
 ---
 
+## 1u. The two-pass run, and the two things that would have wasted it (2026-09-13)
+
+Matt: *"set up the ladder run based on your recommendation: run the 4-rung version now and then follow up with the new `R2f` control rung."*
+
+`LADDER_PASS` makes that one number: `1` fits R0/R1/R2/R4/R5 (~12-14 h, and every one of those rungs' port totals is citable), `2` adds R2f and re-runs, whereupon `RESUME` matches the four pass-1 fits by their config digest, skips them, fits R2f alone (~4 h) and recomputes every verdict from the folders on disk. Verified before shipping that adding R2f leaves the other four digests **unchanged**, so pass 2 cannot accidentally re-fit them.
+
+Reviewing the plan before it runs turned up two defects that would each have cost real time.
+
+**The f/c exclusion list the factorization verdict uses had a real gap, and finding out what it actually costs corrected my own first claim (D23).** `fit_agreement()` compares every shared row of two runs' summaries. `crab_bss_pooled.stan` declares `sigma_f_out`, `cfi_kappa_out`, `sigma_c_out` and `cfc_kappa_out` **unconditionally** and sets each to exactly `0.0` when its walk is off, and `sigma_c_out`, `cfc_kappa_out` and `z_c` were **never added** to the hand-typed exclusion list when the combo-share walk arrived on 2026-09-09 — in either of the two copies it existed in.
+
+I first wrote that this would have made R2f's factorization verdict FAIL after four hours of fitting. **That was wrong, and the smoke fit below is what showed it.** Under the R2f configuration those quantities report `sd` 0 and therefore `se_mean` **NaN** — not 0; `n_eff` and `Rhat` are NaN too — and `fit_agreement()` skips any row whose combined `se` is not finite. So they are skipped with or without the list. The rows that *would* have been compared and would have produced an enormous z are `f_crab_out[*]` (a real posterior on **both** sides: 0.307 under R2f against the winter monthly values under R2), plus `E_sum` and `C_expected_sum` — and all three were already excluded before today.
+
+The gap is therefore closed as **hardening, not a fix**: the masking rests on `rstan::summary()`'s NaN convention for a zero-variance parameter, an implementation detail rather than a property of the design. The durable part is not the three names but harness section 60, which asserts the regex covers every f/c quantity **both** Stan models report, asserts it does *not* cover the parameters the proof must compare (`B1`, `B2`, `tau_bar_out`, `R_G_boat_out`, `mu_mu_E`, `sigma_eps_C`, `sigma_IE_out`), and pins the NaN-skip behaviour the reasoning above depends on. The list maintains itself the next time an f output is added, and a future rstan that reports 0 instead of NaN cannot turn this into the failure it currently is not.
+
+**A patch applied between the two passes would have invalidated the comparison, silently.** The config digest says a folder was built from this rung's *configuration*. It says nothing about the code. Demonstrated: appending a line to `crab_bss_pooled.stan` left every digest unchanged and `RESUME` still reused R2 — so R2f would have been fitted by one version of the pipeline and measured against an R2 fitted by another, with nothing on the page to say so. `IMP_STAGE.txt` now records a three-layer code fingerprint (Stan models / drivers / `03_R_functions`) and the rstan/StanHeaders versions. It is **reported, not enforced**: re-fitting 12 h because a comment changed in an R function would be worse than the problem. What it does instead is name the layer that moved in the RESUME table and at the rung, record a REVIEW row, and route every cross-rung claim through `V1cross()`, which downgrades PASS to REVIEW and says why — *the premise, not the result, is what failed*. Seven verdicts are wrapped: every `fit_exactness()` bit-identity claim and both `fit_agreement()` factorization proofs.
+
+**Also checked, because under `new_throughout` nothing exercises it until R2f is reached twelve hours in: the legacy-f Stan path samples cleanly.** A 2-chain 300-iteration fit of the 2024-25 boat all-gear component under the R2f configuration (`crab_fraction_dynamic = FALSE`, `crab_fraction_strata = "none"`) built valid Stan data (`D` 289, `P_n` 10, `IntC` 130, `CFI_n` 0, `CFC_n` 0, `n_f_strata` 1, the retired Beta(6,14) at 0.30), passed `bss_assert_stan_data()` and ran in 0.7 min with every R-hat at 1.00: `f_crab_out` 0.307 (prior-driven, as it must be with `CFI_n` 0), `tau_bar_out` 2.99 (on the calibration, matching the 2.97 likelihood-only figure quoted for R2), `R_G_boat_out` 3.56. This is also the fit that produced the `se_mean` NaN result above, which is why the D23 claim could be corrected before it was acted on.
+
+**Verification:** harness **817** assertions (section 60 covers the digest stability across the two passes, `F_EXCLUDE`'s coverage against both Stan models and its non-coverage of the parameters the proof compares, the pinned NaN-skip behaviour of `fit_agreement()`, the fingerprint's determinism and layer attribution, and the non-fatal rung loop); the code-drift warning fires and names `stan` when only a Stan model changes; a seeded set of pass-1 folders makes pass 2 report "RESUME will reuse 4 of 5 fitted rung(s); R2f will be fitted."
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
