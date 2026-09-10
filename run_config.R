@@ -159,19 +159,27 @@ run_config <- list(
   # =========================================================================
   # ACTIVE RUN: TWO-SEASON SPAN, 2023-24 + 2024-25 (staged 2026-09-10).
   #
-  # DATA PREREQUISITES, checked 2026-09-10 against the shipped workbooks. The run STOPS
-  # or warns, by design, until these rows exist:
-  #   1. effort_combined.xlsx      has NO 2023-24 rows (2024-25 only). 2023-24 has 13,629
-  #      interviews but ZERO effort counts, so its effort process would be pure
-  #      imputation; the season/window check warns in exactly these words.
-  #   2. wes_commercial_tally.xlsx has NO 2023-24 rows (census component empty).
-  #   3. crabbing_holidays.xlsx    has NO 2023-24 rows (the run STOPS at the holiday
-  #      reader until they are added; deliberate, since blank holidays mis-type days).
+  # DATA PREREQUISITES (the 2026-09-10 rebuild of 04_input_files from the per-season
+  # creel workbooks closed the first and third; the second cannot be closed):
+  #   1. effort_combined.xlsx      NOW HOLDS 2022-23 through 2025-26 (2023-24: 4,116
+  #      counts on 360 days; 20 Feb-2024 rows flagged and held out, see effort_qc_drop).
+  #   2. wes_commercial_tally.xlsx has NO 2023-24 rows AND NONE CAN EXIST: no vessel tally
+  #      was kept before 2024-25 and no charter roster either. The 2023-24 census component
+  #      is therefore 0 and estimate_comm_charter() WARNS that the frame is missing (33
+  #      Westport commercial-vessel interviews with no vessel count to expand to). A
+  #      two-season port total is short by the 2023-24 commercial/charter catch.
+  #   3. crabbing_holidays.xlsx    NOW HOLDS 2022-23 through 2026-27 (the 2024-25 named
+  #      holidays applied by rule; build_crabbing_holidays.R).
   #   WBL_boat_counts.xlsx covers 2024-2025 only: no OSP for 2023-24 is SURVIVABLE
   #   (stream absent, boat trailer-only) but weakens the 2023-24 boat.
+  #   interview_combined.xlsx: the 2023-24 gear count is present again (D15) and the
+  #   2022-24 gear labels are harmonised to the 2024-25 vocabulary (a ring net was being
+  #   classed as a trap by the gear-resolved regex); Grays Harbor 2023-24 shifts were
+  #   shorter (median 4.1 h against 6.0 h in 2024-25), so the contact-based crabbing
+  #   fraction covers less of the day in that season.
   #
-  # SINGLE-SEASON 2024-25 ROLLBACK: swap the five values below for the ones in the
-  # commented block that follows them.
+  # SINGLE-SEASON ROLLBACK / 2025-26: swap the five values below for one of the
+  # commented blocks that follow them.
   # =========================================================================
   est_date_start    = "2023-09-16",   # first day of the estimation window
   est_date_end      = "2025-09-15",   # last day
@@ -183,6 +191,14 @@ run_config <- list(
   #   est_date_start = "2024-09-16",  est_date_end = "2025-09-15",
   #   season_filter  = "2024-25",     pot_closures = NULL,
   #   census_windows = NULL,          run_tag = "production",
+  # -- single-season 2025-26 (data through 2026-09-08; the season ends 2026-09-15): ----
+  #   est_date_start = "2025-09-16",  est_date_end = "2026-09-15",
+  #   season_filter  = "2025-26",     pot_closures = NULL,
+  #   pot_closure_start = "2025-09-16", pot_closure_end = "2025-11-30", pot_open_date = "2025-12-01",
+  #   census_windows = NULL,  census_start_date = "2025-12-01", census_end_date = "2026-01-03",
+  #   commercial_opener = "2026-01-04", run_tag = "season-2025-26"
+  #   (no OSP / WBL_boat_counts rows for 2025-26 yet: the boat stream runs on trailers + I/E;
+  #   the tally has 23 days, the charter roster 11 Westport trips)
   # ---------------------------------------------------------------------------
 
   # --- Regulatory / structural dates ---------------------------------------
@@ -212,11 +228,16 @@ run_config <- list(
   pot_closure_end   = "2024-11-30",   #   (here = season start .. day before pots open)
   commercial_opener = "2025-01-01",   # (was malformed "2025-01-1" in gear-resolved)
   # PER-SEASON CENSUS WINDOWS (2026-09-10). Non-NULL outranks the scalar pair below; a
-  # named list season -> c(start, end), one commercial/charter window per season.
-  # ASSUMPTION TO CONFIRM: the 2023-24 window below MIRRORS 2024-25 (Dec 1 to Feb 8) and
-  # was not taken from records; correct it before trusting the 2023-24 census component.
+  # named list season -> c(start, end), one commercial/charter window per season: pots
+  # legal (Dec 1) through the last day before the coastal commercial fishery opened and
+  # the vessels stopped fishing as recreational.
+  #   2023-24  opened Feb 1, 2024 coastwide (WDFW bulletin, "Washington's coastal Dungeness
+  #            crab commercial season opens Feb. 1"); no tally exists for this window.
+  #   2024-25  the tally ran Dec 3 to Feb 8, 2025 (opener Feb 11).
+  #   2025-26  Grays Harbor opened Jan 4, 2026 (WDFW news release 2025-12-29); the tally ran
+  #            Dec 1 to Jan 3 with the gear-set days noted on the sheet.
   census_windows = list(
-    "2023-24" = c("2023-12-01", "2024-02-08"),
+    "2023-24" = c("2023-12-01", "2024-01-31"),
     "2024-25" = c("2024-12-01", "2025-02-08")
   ),
   census_start_date = "2024-12-01",   # scalar fallback, used only when census_windows is NULL
@@ -1090,6 +1111,23 @@ run_config <- list(
   interview_file    = "interview_combined.xlsx",
   tally_file        = "wes_commercial_tally.xlsx",
   input_sheet       = "data",         # sheet name shared by the flat input workbooks
+  # 2026-09-10: every workbook is BUILT from the per-season creel workbooks in
+  # 04_input_files/raw/ by the builders next to them (build_all_inputs.R runs the set), and
+  # every one now spans 2022-23 through 2025-26 (through 2026-09-08). Readers go through
+  # read_input_workbook() (guess_max over the whole column, since early seasons leave some
+  # columns blank). The effort workbook carries a qc_flag; rows with a flag in this vector
+  # are held out of the counts (build_effort_combined.R lists the flags and their counts):
+  effort_qc_drop    = "gear_count_from_interviews",   # Feb 2024 PFD stand-down: day totals recorded as counts; "none" keeps every row
+  # The charter trip roster (charter_trips.xlsx, 2024-25 on): the trip-level census frame
+  # for the charter part of the commercial/charter census. charter_frame = "roster" (default)
+  # counts, per day, the larger of the roster's trips and the tally's charter column, on
+  # every day of the window (the roster does not depend on a sampler being in port: 8 of the
+  # 31 sailed Westport charter trips of 2024-25 fell on days without a tally); "tally"
+  # reproduces the 2026-09-09 arithmetic (7,884 on 2024-25). See estimate_comm_charter.R.
+  charter_frame       = "roster",
+  charter_trips_file  = "charter_trips.xlsx",
+  charter_trips_sheet = "data",
+  charter_roster_port = "Westport",
 
   # --- Input selection: which rows/sites each reader keeps -----------------
   # Surfaced here (mirroring the ingress/egress ie_shore_location / ie_boat_location

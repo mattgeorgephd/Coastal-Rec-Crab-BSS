@@ -2228,7 +2228,15 @@ comparison[[length(comparison)+1]] <- tibble(
   BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept),
   BSS_catch = NA, catch_diff_pct = NA,
-  method_selected = "Census (day-type stratified)"
+  # 2026-09-10: say which expansion and which charter frame produced the number
+  method_selected = sprintf("Census (%s; charter frame %s%s; SE %s, %s)",
+                            if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "exact sum over the tally days" else "day-type stratified",
+                            pe_all$comm_charter$charter_frame %||% "tally",
+                            if ((pe_all$comm_charter$n_roster_only_days %||% 0L) > 0)
+                              sprintf(", %s crab on %d roster-only days", format(round(pe_all$comm_charter$charter_roster_dung %||% 0), big.mark = ","),
+                                      pe_all$comm_charter$n_roster_only_days) else "",
+                            format(round(pe_all$comm_charter$Dungeness_Kept_se %||% NA), big.mark = ","),
+                            if (identical(pe_all$comm_charter$census_uncertainty %||% "none", "sampling")) "in the port interval" else "not in the port interval")
 )
 
 comparison_df <- bind_rows(comparison)

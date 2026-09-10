@@ -61,6 +61,25 @@
 # "day_type" keeps the 2026-09-08 day-type expansion (unsampled days filled with the
 # sampled days' day-type mean, imputation variance carried), for reproduction of earlier
 # runs and for a season in which the roster did NOT track operations.
+#
+# 2026-09-10: THE CHARTER TRIP ROSTER (params$charter_frame). The season workbooks carry
+# a per-trip roster of the charter crab trips the operators reported (charter_trips.xlsx,
+# built by 04_input_files/build_charter_trips.R; dwg$charter_roster), each marked
+# interviewed / missed / canceled. It is a census frame that does not depend on a sampler
+# being in port, and on 2024-25 it contradicts the no-operation premise for charters: of
+# the 31 Westport charter trips that sailed in the window, 8 (every one "missed") fell on
+# days WITHOUT a tally, and on three tally days the tally has one charter where the roster
+# has two. "roster" (the default whenever the file has rows in the window) therefore takes
+# the CHARTER count per day as the larger of the roster's trips and the tally's charter
+# column (the union of the two frames) on every day of the window, exact and never
+# expanded; the COMMERCIAL vessels stay on the tally days under census_expansion, since no
+# roster exists for them. "tally" reproduces the 2026-09-09 arithmetic (7,884 on 2024-25).
+# The daily table labels roster-only days "charter roster (no tally)"; the reconciliation
+# (days where the two frames disagree) is printed every run.
+#
+# 2026-09-10: a window with commercial/charter INTERVIEWS but no tally row (2023-24: 33
+# Westport commercial-vessel interviews, no tally was kept that season) now warns that
+# the census frame is missing, instead of returning a silent zero.
 ###############################################################################
 
 estimate_comm_charter <- function(dwg, params) {
@@ -102,12 +121,21 @@ estimate_comm_charter <- function(dwg, params) {
       tot$imputed_dung   <- (tot$imputed_dung   %||% 0) + (per[[k]]$imputed_dung   %||% 0)
       tot$Dungeness_Kept_var <- (tot$Dungeness_Kept_var %||% 0) + (per[[k]]$Dungeness_Kept_var %||% 0)
       tot$n_unsampled_days <- (tot$n_unsampled_days %||% 0L) + (per[[k]]$n_unsampled_days %||% 0L)
+      # 2026-09-10: the roster additions add too
+      tot$charter_roster_dung  <- (tot$charter_roster_dung  %||% 0) + (per[[k]]$charter_roster_dung  %||% 0)
+      tot$n_roster_only_days   <- (tot$n_roster_only_days   %||% 0L) + (per[[k]]$n_roster_only_days   %||% 0L)
+      tot$n_roster_trips       <- (tot$n_roster_trips       %||% 0L) + (per[[k]]$n_roster_trips       %||% 0L)
       if (!is.null(tot$daily_full) && !is.null(per[[k]]$daily_full))
         tot$daily_full <- dplyr::bind_rows(tot$daily_full, per[[k]]$daily_full)
+      if (!is.null(tot$daily_est) && !is.null(per[[k]]$daily_est))
+        tot$daily_est <- dplyr::bind_rows(tot$daily_est, per[[k]]$daily_est)
       if (!is.null(tot$variance_detail) && !is.null(per[[k]]$variance_detail))
         tot$variance_detail <- dplyr::bind_rows(tot$variance_detail, per[[k]]$variance_detail)
+      if (!is.null(tot$roster_reconciliation) && !is.null(per[[k]]$roster_reconciliation))
+        tot$roster_reconciliation <- dplyr::bind_rows(tot$roster_reconciliation, per[[k]]$roster_reconciliation)
     }
     tot$Dungeness_Kept_se <- sqrt(tot$Dungeness_Kept_var %||% 0)
+    tot$charter_frame <- paste(unique(vapply(per, function(r) r$charter_frame %||% "tally", character(1))), collapse = "+")
     tot$season    <- NULL
     tot$by_season <- per
     return(tot)
@@ -127,12 +155,29 @@ estimate_comm_charter <- function(dwg, params) {
     filter(population == "comm_charter",
            between(event_date, census_start, census_end))
 
-  if(nrow(comm_int) == 0 || nrow(tally) == 0) {
+  # 2026-09-10: the charter roster for this window (NULL when absent or the frame is "tally")
+  charter_frame <- tolower(params$charter_frame %||% "roster")
+  if (!charter_frame %in% c("roster", "tally"))
+    stop("params$charter_frame must be 'roster' or 'tally' (got '", charter_frame, "')", call. = FALSE)
+  roster <- dwg$charter_roster
+  if (charter_frame == "roster" && !is.null(roster) && nrow(roster)) {
+    roster <- roster |> filter(between(as.Date(date), census_start, census_end))
+  } else roster <- NULL
+  use_roster <- !is.null(roster) && nrow(roster) > 0
+  if (charter_frame == "roster" && !use_roster) charter_frame <- "tally"
+
+  if(nrow(comm_int) == 0 || (nrow(tally) == 0 && !use_roster)) {
+    if (nrow(comm_int) > 0 && nrow(tally) == 0)
+      warning(sprintf(paste0("estimate_comm_charter(): %d commercial/charter interview(s) in the window %s to %s but NO vessel tally ",
+                             "rows (and no charter roster): the census frame is missing for this window and the component is 0. ",
+                             "A tally was kept from 2024-25 on; see 04_input_files/build_comm_charter_tally.R."),
+                      nrow(comm_int), census_start, census_end), call. = FALSE)
     cat("  No commercial/charter data available.\n")
     result <- list(effort_total=0, Dungeness_Kept=0,
                    observed_dung = 0, imputed_dung = 0, Dungeness_Kept_var = 0, Dungeness_Kept_se = 0,
                    census_uncertainty = tolower(params$census_uncertainty %||% "none"),
-                   census_expansion = tolower(params$census_expansion %||% "none"), n_unsampled_days = 0L)
+                   census_expansion = tolower(params$census_expansion %||% "none"), n_unsampled_days = 0L,
+                   charter_frame = charter_frame, charter_roster_dung = 0, n_roster_only_days = 0L, n_roster_trips = 0L)
     if(params$estimate_red_rock) result$Red_Rock_Kept <- 0
     return(result)
   }
@@ -169,30 +214,73 @@ estimate_comm_charter <- function(dwg, params) {
   cat(sprintf("  Mean Dungeness/vessel: commercial %.1f, charter %.1f%s\n",
               md_comm, md_char, rr_str))
 
-  daily_est <- tally |>
-    mutate(
-      total_comm_charter = commercial_tally + charter_tally,
-      est_dung = commercial_tally * md_comm + charter_tally * md_char,
-      day_of_week = weekdays(date),
-      day_type = case_when(
-        date %in% crabbing_holiday_dates ~ "weekend",
-        day_of_week %in% params$days_wkend ~ "weekend",
-        TRUE ~ "weekday"
-      )
-    )
-
-  if(params$estimate_red_rock) {
-    daily_est <- daily_est |> mutate(est_rr = commercial_tally * mr_comm + charter_tally * mr_char)
+  .day_type <- function(d) {
+    dow <- weekdays(d)
+    case_when(d %in% crabbing_holiday_dates ~ "weekend", dow %in% params$days_wkend ~ "weekend", TRUE ~ "weekday")
   }
+
+  # --- the charter frame per day (2026-09-10) ---------------------------------------
+  # tally_est: the tally days, the frame the expansion machinery runs on. Under "roster"
+  # the charter count on a tally day is the union max(tally, roster) and roster-only days
+  # are added as exact charter days outside the expansion.
+  tally_est <- tally |>
+    mutate(commercial_tally = replace_na(as.numeric(commercial_tally), 0),
+           charter_tally    = replace_na(as.numeric(charter_tally), 0),
+           roster_trips = 0, charter_n = charter_tally)
+  roster_only <- tibble(date = as.Date(character()), roster_trips = numeric())
+  roster_recon <- NULL
+  if (use_roster) {
+    r_day <- roster |>
+      mutate(date = as.Date(date), status = tolower(as.character(status))) |>
+      filter(!status %in% "canceled") |>
+      count(date, name = "roster_trips")
+    tally_est <- tally_est |>
+      select(-roster_trips) |>
+      left_join(r_day, by = "date") |>
+      mutate(roster_trips = replace_na(roster_trips, 0), charter_n = pmax(charter_tally, roster_trips))
+    roster_only <- r_day |> filter(!date %in% tally_est$date)
+    roster_recon <- bind_rows(
+      tally_est |> filter(roster_trips != charter_tally) |> transmute(date, tally_charter = charter_tally, roster_trips, charter_used = charter_n, note = "tally day; frames disagree"),
+      roster_only |> transmute(date, tally_charter = NA_real_, roster_trips, charter_used = roster_trips, note = "no tally; roster trips")) |>
+      arrange(date)
+    cat(sprintf(paste0("  Charter frame: roster (union with the tally). %d roster trips on %d days in the window, %d of them on %d days ",
+                       "without a tally (counted; a tally-only census would carry 0 there); %d tally day(s) where the frames disagree.\n"),
+                sum(r_day$roster_trips), nrow(r_day), sum(roster_only$roster_trips), nrow(roster_only),
+                sum(tally_est$roster_trips != tally_est$charter_tally)))
+    if (nrow(roster_recon)) {
+      cat("    date        tally  roster  used  note\n")
+      for (i in seq_len(nrow(roster_recon)))
+        cat(sprintf("    %s   %4s   %5.0f  %4.0f  %s\n", roster_recon$date[i],
+                    ifelse(is.na(roster_recon$tally_charter[i]), "-", sprintf("%.0f", roster_recon$tally_charter[i])),
+                    roster_recon$roster_trips[i], roster_recon$charter_used[i], roster_recon$note[i]))
+    }
+  } else cat(sprintf("  Charter frame: tally%s.\n", if (tolower(params$charter_frame %||% "roster") == "roster") " (no charter roster rows in the window)" else ""))
+
+  # est_dung_exp is what the expansion machinery expands: commercial always; charter on
+  # the tally days only under the tally frame. Under the roster frame the charter part is
+  # exact on every day (charter_exact) and never expanded.
+  daily_est <- tally_est |>
+    mutate(
+      total_comm_charter = commercial_tally + charter_n,
+      est_dung_comm = commercial_tally * md_comm,
+      est_dung_char = charter_n * md_char,
+      est_dung = est_dung_comm + est_dung_char,                      # the day's exact estimate
+      est_dung_exp = if (use_roster) est_dung_comm else est_dung,    # what is expanded
+      day_of_week = weekdays(date),
+      day_type = .day_type(date)
+    )
+  if(params$estimate_red_rock) {
+    daily_est <- daily_est |> mutate(est_rr = commercial_tally * mr_comm + charter_n * mr_char,
+                                     est_rr_exp = if (use_roster) commercial_tally * mr_comm else est_rr)
+  }
+  charter_exact    <- if (use_roster) sum(daily_est$est_dung_char) + sum(roster_only$roster_trips) * md_char else 0
+  charter_exact_rr <- if (use_roster && params$estimate_red_rock) sum(daily_est$charter_n * mr_char) + sum(roster_only$roster_trips) * mr_char else 0
+  charter_vessels  <- if (use_roster) sum(daily_est$charter_n) + sum(roster_only$roster_trips) else 0
 
   census_calendar <- tibble(
     date = seq.Date(census_start, census_end, by = "day"),
     day_of_week = weekdays(date),
-    day_type = case_when(
-      date %in% crabbing_holiday_dates ~ "weekend",
-      day_of_week %in% params$days_wkend ~ "weekend",
-      TRUE ~ "weekday"
-    )
+    day_type = .day_type(date)
   )
 
   total_by_type <- census_calendar |> count(day_type, name = "n_total_days")
@@ -205,15 +293,15 @@ estimate_comm_charter <- function(dwg, params) {
   strat_harvest <- daily_est |>
     group_by(day_type) |>
     summarise(
-      mean_daily_dung = mean(est_dung),
-      mean_daily_vessels = mean(total_comm_charter),
+      mean_daily_dung = mean(est_dung_exp),
+      mean_daily_vessels = mean(if (use_roster) commercial_tally else total_comm_charter),
       .groups = "drop"
     )
 
   if(params$estimate_red_rock) {
     strat_harvest_rr <- daily_est |>
       group_by(day_type) |>
-      summarise(mean_daily_rr = mean(est_rr), .groups = "drop")
+      summarise(mean_daily_rr = mean(est_rr_exp), .groups = "drop")
     strat_harvest <- strat_harvest |> left_join(strat_harvest_rr, by = "day_type")
   }
 
@@ -225,10 +313,10 @@ estimate_comm_charter <- function(dwg, params) {
   # the pooled between-day variance over all sampled days.
   .no_sample <- strat$n_sampled_days == 0
   if (any(.no_sample)) {
-    strat$mean_daily_dung[.no_sample]    <- mean(daily_est$est_dung)
-    strat$mean_daily_vessels[.no_sample] <- mean(daily_est$total_comm_charter)
+    strat$mean_daily_dung[.no_sample]    <- mean(daily_est$est_dung_exp)
+    strat$mean_daily_vessels[.no_sample] <- mean(if (use_roster) daily_est$commercial_tally else daily_est$total_comm_charter)
     if (params$estimate_red_rock && "mean_daily_rr" %in% names(strat))
-      strat$mean_daily_rr[.no_sample] <- mean(daily_est$est_rr)
+      strat$mean_daily_rr[.no_sample] <- mean(daily_est$est_rr_exp)
     cat(sprintf("  NOTE: no sampled day in the %s stratum; its %d days take the pooled sampled-day mean.\n",
                 paste(strat$day_type[.no_sample], collapse = "/"), sum(strat$n_total_days[.no_sample])))
   }
@@ -247,28 +335,34 @@ estimate_comm_charter <- function(dwg, params) {
       est_total_vessels = mean_daily_vessels * n_expand_days
     )
 
-  cat(sprintf("\n  Stratified expansion by day type (census_expansion = '%s'%s):\n", census_expansion,
-              if (census_expansion == "none") "; unsampled days = no operation, so Total = Sampled" else ""))
+  cat(sprintf("\n  Stratified expansion by day type (census_expansion = '%s'%s%s):\n", census_expansion,
+              if (census_expansion == "none") "; unsampled days = no operation, so Total = Sampled" else "",
+              if (use_roster) "; commercial vessels only, the charter roster is exact and added below" else ""))
   cat(sprintf("    %-10s  Sampled  Calendar  Expanded-to  Mean/day  Expanded\n", "Day Type"))
   for(i in 1:nrow(strat)) {
     cat(sprintf("    %-10s  %5d    %6d    %8d    %7.1f   %8.0f\n",
                 strat$day_type[i], strat$n_sampled_days[i], strat$n_calendar_days[i], strat$n_expand_days[i],
                 strat$mean_daily_dung[i], strat$est_total_dung[i]))
   }
+  if (use_roster)
+    cat(sprintf("    charter (roster frame, exact): %d vessel-trips x %.1f = %s crab, of which %s on %d day(s) without a tally\n",
+                as.integer(charter_vessels), md_char, format(round(charter_exact), big.mark = ","),
+                format(round(sum(roster_only$roster_trips) * md_char), big.mark = ","), nrow(roster_only)))
 
-  total_dung <- sum(strat$est_total_dung)
-  total_vessels <- sum(strat$est_total_vessels)
+  total_dung <- sum(strat$est_total_dung) + charter_exact
+  total_vessels <- sum(strat$est_total_vessels) + charter_vessels
 
   # T1.4: per-vessel-type split summary for the report (a sampled-day census, i.e.
   # before the day-type expansion that produces the headline total_dung).
-  comm_tally_n <- sum(tally$commercial_tally, na.rm = TRUE)
-  char_tally_n <- sum(tally$charter_tally,    na.rm = TRUE)
+  comm_tally_n <- sum(tally_est$commercial_tally, na.rm = TRUE)
+  char_tally_n <- if (use_roster) charter_vessels else sum(tally_est$charter_tally, na.rm = TRUE)
   vessel_type_detail <- tibble(
     vessel_type          = c("Commercial", "Charter"),
     n_interviews         = c(n_comm, n_char),
     mean_dung_per_vessel = c(md_comm, md_char),
     tally_vessels        = c(comm_tally_n, char_tally_n),
-    sampled_catch        = c(comm_tally_n * md_comm, char_tally_n * md_char)
+    sampled_catch        = c(comm_tally_n * md_comm, char_tally_n * md_char),
+    frame                = c("tally", if (use_roster) "roster + tally" else "tally")
   )
 
   # --- REVIEW ITEM 4 (2026-09-08): observed vs imputed, and the imputation variance ------
@@ -282,10 +376,10 @@ estimate_comm_charter <- function(dwg, params) {
   if (identical(census_mode, "imputed_days")) census_mode <- "sampling"   # the 2026-09-08 name
   if (!census_mode %in% c("none", "sampling"))
     stop("params$census_uncertainty must be 'none' or 'sampling' (got '", census_mode, "')", call. = FALSE)
-  s2_pooled <- if (nrow(daily_est) > 1) stats::var(daily_est$est_dung) else 0
+  s2_pooled <- if (nrow(daily_est) > 1) stats::var(daily_est$est_dung_exp) else 0
   var_by_type <- daily_est |>
     group_by(day_type) |>
-    summarise(n_sampled_days = n(), s2_day = if (n() > 1) stats::var(est_dung) else NA_real_, .groups = "drop")
+    summarise(n_sampled_days = n(), s2_day = if (n() > 1) stats::var(est_dung_exp) else NA_real_, .groups = "drop")
   variance_detail <- strat |>
     select(day_type, n_total_days, n_calendar_days, n_expand_days, n_sampled_days, mean_daily_dung) |>
     left_join(var_by_type |> select(day_type, s2_day), by = "day_type") |>
@@ -310,25 +404,39 @@ estimate_comm_charter <- function(dwg, params) {
   }
   V_comm <- sum((strat$n_expand_days / pmax(strat$n_sampled_days, 1)) *
                   vapply(strat$day_type, function(dt) sum(daily_est$commercial_tally[daily_est$day_type == dt], na.rm = TRUE), numeric(1)))
-  V_char <- sum((strat$n_expand_days / pmax(strat$n_sampled_days, 1)) *
-                  vapply(strat$day_type, function(dt) sum(daily_est$charter_tally[daily_est$day_type == dt], na.rm = TRUE), numeric(1)))
+  V_char <- if (use_roster) charter_vessels else
+    sum((strat$n_expand_days / pmax(strat$n_sampled_days, 1)) *
+          vapply(strat$day_type, function(dt) sum(daily_est$charter_tally[daily_est$day_type == dt], na.rm = TRUE), numeric(1)))
   var_means <- V_comm^2 * .mean_var("Commercial", "dungeness_kept") + V_char^2 * .mean_var("Charter", "dungeness_kept")
   var_total <- sum(variance_detail$var_imputed) + var_means
-  observed_dung <- sum(variance_detail$observed_dung)
+  observed_dung <- sum(variance_detail$observed_dung) + charter_exact     # the roster days are observed, not imputed
   imputed_dung  <- sum(variance_detail$imputed_dung)
   daily_full <- census_calendar |>
     select(date, day_type) |>
-    left_join(daily_est |> select(date, commercial_tally, charter_tally, total_comm_charter, est_dung), by = "date") |>
+    left_join(daily_est |> select(date, commercial_tally, charter_tally, roster_trips, charter_n, total_comm_charter, est_dung, est_dung_exp), by = "date") |>
+    left_join(roster_only |> transmute(date, roster_only_trips = roster_trips), by = "date") |>
     left_join(strat |> select(day_type, mean_daily_dung, mean_daily_vessels), by = "day_type") |>
     mutate(observed = !is.na(est_dung),
-           est_dung = ifelse(observed, est_dung, if (census_expansion == "none") 0 else mean_daily_dung),
-           est_vessels = ifelse(observed, total_comm_charter, if (census_expansion == "none") 0 else mean_daily_vessels),
-           source = ifelse(observed, "tally (census)",
-                           if (census_expansion == "none") "no operation (unsampled day)" else "imputed (day-type mean)")) |>
-    select(date, day_type, observed, source, commercial_tally, charter_tally, est_vessels, est_dung)
-  cat(sprintf(paste0("  Observed exactly on %d sampled days: %s crab; %d unsampled calendar days %s; SE %s (%.1f%% of the total,",
+           roster_only_trips = replace_na(roster_only_trips, 0),
+           est_dung = case_when(observed ~ est_dung,
+                                roster_only_trips > 0 ~ roster_only_trips * md_char + (if (census_expansion == "none") 0 else mean_daily_dung),
+                                census_expansion == "none" ~ 0,
+                                TRUE ~ mean_daily_dung),
+           est_vessels = case_when(observed ~ total_comm_charter,
+                                   roster_only_trips > 0 ~ roster_only_trips + (if (census_expansion == "none") 0 else mean_daily_vessels),
+                                   census_expansion == "none" ~ 0,
+                                   TRUE ~ mean_daily_vessels),
+           source = case_when(observed & use_roster ~ "tally (census) + charter roster",
+                              observed ~ "tally (census)",
+                              roster_only_trips > 0 & census_expansion == "none" ~ "charter roster (no tally)",
+                              roster_only_trips > 0 ~ "charter roster (no tally) + imputed commercial (day-type mean)",
+                              census_expansion == "none" ~ "no operation (unsampled day)",
+                              TRUE ~ "imputed (day-type mean)")) |>
+    select(date, day_type, observed, source, commercial_tally, charter_tally, roster_trips, roster_only_trips, charter_n, est_vessels, est_dung)
+  cat(sprintf(paste0("  Observed exactly on %d sampled days%s: %s crab; %d unsampled calendar days %s; SE %s (%.1f%% of the total,",
                      " %s); census_uncertainty = '%s'%s\n"),
-              sum(strat$n_sampled_days), format(round(observed_dung), big.mark = ","),
+              sum(strat$n_sampled_days), if (use_roster) sprintf(" plus %d charter-roster day(s)", nrow(roster_only)) else "",
+              format(round(observed_dung), big.mark = ","),
               sum(variance_detail$n_unsampled_days),
               if (census_expansion == "none") "treated as no operation (0 crab)"
               else sprintf("imputed at the day-type mean: %s crab", format(round(imputed_dung), big.mark = ",")),
@@ -340,10 +448,18 @@ estimate_comm_charter <- function(dwg, params) {
     cat("    NOTE: ", paste(sprintf("%s stratum: %s", variance_detail$day_type[variance_detail$s2_source != "stratum"],
                                     variance_detail$s2_source[variance_detail$s2_source != "stratum"]), collapse = "; "), "\n")
 
+  # daily_est for the drivers' monthly distribution: every day with an exact estimate
+  # (tally days, plus the roster-only charter days under the roster frame)
+  daily_est_out <- bind_rows(
+    daily_est |> select(date, day_of_week, day_type, commercial_tally, charter_tally, roster_trips, charter_n, total_comm_charter, est_dung),
+    roster_only |> transmute(date, day_of_week = weekdays(date), day_type = .day_type(date), commercial_tally = NA_real_, charter_tally = NA_real_,
+                             roster_trips, charter_n = roster_trips, total_comm_charter = roster_trips, est_dung = roster_trips * md_char)) |>
+    arrange(date)
+
   result <- list(
     Dungeness_Kept = total_dung,
     effort_total = total_vessels,
-    daily_est = daily_est,
+    daily_est = daily_est_out,
     strat_detail = strat,
     vessel_type_detail = vessel_type_detail,
     # review item 4
@@ -355,13 +471,19 @@ estimate_comm_charter <- function(dwg, params) {
     census_expansion = census_expansion,
     n_unsampled_days = sum(variance_detail$n_unsampled_days),
     daily_full = daily_full,
-    variance_detail = variance_detail
+    variance_detail = variance_detail,
+    # 2026-09-10: the charter frame
+    charter_frame = charter_frame,
+    charter_roster_dung = if (use_roster) sum(roster_only$roster_trips) * md_char else 0,   # on days without a tally
+    n_roster_only_days = nrow(roster_only),
+    n_roster_trips = if (use_roster) as.integer(sum(daily_est$roster_trips) + sum(roster_only$roster_trips)) else 0L,
+    roster_reconciliation = roster_recon
   )
 
   if(params$estimate_red_rock) {
     strat <- strat |>
       mutate(est_total_rr = mean_daily_rr * n_expand_days)   # mean_daily_rr joined above (pooled fallback applied)
-    result$Red_Rock_Kept <- sum(strat$est_total_rr)
+    result$Red_Rock_Kept <- sum(strat$est_total_rr) + charter_exact_rr
   }
 
   dung_str <- format(round(total_dung), big.mark=",")

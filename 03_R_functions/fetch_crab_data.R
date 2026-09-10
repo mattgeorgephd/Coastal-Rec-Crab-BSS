@@ -54,12 +54,26 @@ fetch_crab_data <- function(params) {
   # sequential year+week / year+month factors), and the one thing a multi-season span
   # CANNOT yet express is more than one pot-closure window; see build_subseasons.R and
   # NEW_SEASON_GUIDE.md.
-  effort_raw <- readxl::read_excel(
-      here("04_input_files", params$effort_file %||% "effort_combined.xlsx"), sheet = in_sheet) |>
+  effort_raw <- read_input_workbook(params$effort_file %||% "effort_combined.xlsx", sheet = in_sheet) |>
     filter(season %in% params$season_filter) |> mutate(date = as.Date(date))
+  # 2026-09-10: the effort workbook carries a qc_flag (04_input_files/build_effort_combined.R).
+  # Rows whose flag is in params$effort_qc_drop are held out of the counts. The default drops
+  # "gear_count_from_interviews": the Feb 2024 PFD stand-down rows, where the Float 20 / 17-21
+  # "count" is the day's TOTAL gear from interviews (already a day's deployments, so feeding it
+  # to the count model would inflate the shore effort by about the turnover). The other flags
+  # (missing_count_time: dropped below anyway; implausible_count_time: a mistyped clock time
+  # on a real count) are informational and stay.
+  if ("qc_flag" %in% names(effort_raw)) {
+    drop_flags <- params$effort_qc_drop %||% "gear_count_from_interviews"
+    if (length(drop_flags) && identical(tolower(drop_flags[1]), "none")) drop_flags <- character(0)   # "none" keeps every row
+    .fl <- ifelse(is.na(effort_raw$qc_flag), "", as.character(effort_raw$qc_flag))
+    if (any(.fl %in% drop_flags))
+      cat(sprintf("  Effort counts: %d row(s) held out by qc_flag (%s)\n", sum(.fl %in% drop_flags),
+                  paste(unique(.fl[.fl %in% drop_flags]), collapse = ", ")))
+    effort_raw <- effort_raw[!.fl %in% drop_flags, , drop = FALSE]
+  }
 
-  interview_raw <- readxl::read_excel(
-      here("04_input_files", params$interview_file %||% "interview_combined.xlsx"), sheet = in_sheet) |>
+  interview_raw <- read_input_workbook(params$interview_file %||% "interview_combined.xlsx", sheet = in_sheet) |>
     mutate(completed_trip = as.character(completed_trip)) |>
     filter(season %in% params$season_filter)
 
@@ -214,9 +228,13 @@ fetch_crab_data <- function(params) {
     mutate(section_num=1, count_type="Trailer Count", population="private_boat")
 
   # --- COMMERCIAL TALLY ---
-  comm_tally <- readxl::read_excel(
-      here("04_input_files", params$tally_file %||% "wes_commercial_tally.xlsx"), sheet = in_sheet) |>
+  comm_tally <- read_input_workbook(params$tally_file %||% "wes_commercial_tally.xlsx", sheet = in_sheet) |>
     mutate(date = as.Date(date))
+
+  # 2026-09-10: the charter trip roster (charter_trips.xlsx), the trip-level census frame for
+  # the charter part of the census; NULL when the file is absent (estimate_comm_charter falls
+  # back to the tally frame and says so).
+  charter_roster <- fetch_charter_roster(params)
 
   cat(sprintf("\n  Shore effort obs: %d (%d days)\n", nrow(shore_effort), n_distinct(shore_effort$event_date)))
   cat(sprintf("  Boat effort obs: %d (%d days)\n", nrow(boat_effort), n_distinct(boat_effort$event_date)))
@@ -245,8 +263,41 @@ fetch_crab_data <- function(params) {
     boat_contacts_detail = boat_contacts_detail,   # 2026-09-09: one row per contacted private boat
     catch = catch,
     comm_tally = comm_tally,
+    charter_roster = charter_roster,   # 2026-09-10: the charter trip roster (NULL when absent)
     ll = tibble(centroid_lat=46.904, centroid_lon=-124.105)
   ))
+}
+
+
+###############################################################################
+# fetch_charter_roster()  (2026-09-10)
+#
+# Reads 04_input_files/<params$charter_trips_file> (default charter_trips.xlsx, sheet
+# "data"; built by 04_input_files/build_charter_trips.R from the season workbooks' "charter
+# trips" sheets): one row per charter crab trip the operators reported, with status
+# interviewed / missed / canceled. Filtered to params$charter_roster_port (default
+# "Westport") and params$season_filter. Returns a tibble(season, port, vessel, date (Date),
+# status, contact, notes) or NULL when the file is absent, so a workbook set without a
+# roster runs exactly as before (the census uses the tally frame).
+###############################################################################
+fetch_charter_roster <- function(params, quiet = FALSE) {
+  f <- here("04_input_files", params$charter_trips_file %||% "charter_trips.xlsx")
+  if (!file.exists(f)) {
+    if (!isTRUE(quiet)) cat("  Charter roster: no charter_trips.xlsx; the census uses the tally frame for charters.\n")
+    return(NULL)
+  }
+  r <- read_input_workbook(f, sheet = params$charter_trips_sheet %||% "data")
+  need <- c("season", "port", "vessel", "date", "status")
+  if (!all(need %in% names(r))) stop("charter_trips.xlsx lacks column(s): ", paste(setdiff(need, names(r)), collapse = ", "), call. = FALSE)
+  port <- params$charter_roster_port %||% "Westport"
+  r <- r |>
+    mutate(date = as.Date(as.character(date)), status = tolower(as.character(status))) |>
+    filter(tolower(port) == tolower(!!port))
+  if (!is.null(params$season_filter)) r <- r |> filter(season %in% params$season_filter)
+  if (!isTRUE(quiet))
+    cat(sprintf("  Charter roster (%s): %d trips on %d days; %d interviewed, %d missed, %d canceled\n", port, nrow(r),
+                n_distinct(r$date), sum(r$status == "interviewed"), sum(r$status == "missed"), sum(r$status == "canceled")))
+  r
 }
 
 

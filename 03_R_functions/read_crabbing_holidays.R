@@ -53,7 +53,7 @@ read_crabbing_holidays <- function(params) {
          "\n  Add the file, or point run_config$crabbing_holidays_file at it.",
          call. = FALSE)
 
-  hol <- readxl::read_excel(path, sheet = sheet)
+  hol <- read_input_workbook(path, sheet = sheet)
   names(hol) <- tolower(trimws(names(hol)))
 
   if (!all(c("season", "date") %in% names(hol)))

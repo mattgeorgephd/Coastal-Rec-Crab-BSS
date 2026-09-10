@@ -61,7 +61,7 @@ diagnose_osp_trailer_overlap <- function(osp, params, output_dir = NULL) {
   # --- Trailer daily series at the OSP-matched launch (read fresh, self-contained) ---
   area  <- params$osp_match_trailer_area %||% "Westport Boat Launch"
   eff_file <- here::here("04_input_files", params$effort_file %||% "effort_combined.xlsx")
-  trailer_raw <- readxl::read_excel(eff_file, sheet = params$input_sheet %||% "data")
+  trailer_raw <- read_input_workbook(eff_file, sheet = params$input_sheet %||% "data")
   trail <- trailer_raw |>
     dplyr::filter(creel_area == area) |>
     dplyr::mutate(event_date = as.Date(date),

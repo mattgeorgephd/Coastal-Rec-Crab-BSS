@@ -94,7 +94,7 @@ fetch_osp_boat_counts <- function(params) {
 
   val_col  <- params$osp_effort_col    %||% "WestportPrivateEffort"
   crab_col <- params$osp_crab_only_col %||% "WestportCrabOnlyEffort"
-  raw <- readxl::read_excel(osp_file, sheet = params$osp_boat_counts_sheet %||% "Sheet1")
+  raw <- read_input_workbook(osp_file, sheet = params$osp_boat_counts_sheet %||% "Sheet1")
 
   # Build event_date from Year/Month/Day, or from a pre-existing ISO `date` column.
   if (all(c("Year", "Month", "Day") %in% names(raw))) {

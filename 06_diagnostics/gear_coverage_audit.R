@@ -61,9 +61,9 @@ d_potopen  <- as.Date(p$pot_open_date    %||% "2024-12-01")
 d_end      <- as.Date(p$est_date_end     %||% "2025-09-15")
 
 int <- readxl::read_excel(here::here("04_input_files", p$interview_file %||% "interview_combined.xlsx"),
-                          sheet = p$input_sheet %||% "data") |>
+                          sheet = p$input_sheet %||% "data", guess_max = 100000) |>
   mutate(completed_trip = as.character(completed_trip)) |>
-  filter(season == season_f, creel_location == loc) |>
+  filter(season %in% season_f, creel_location == loc) |>
   mutate(gear_type = tidyr::replace_na(as.character(gear_type), ""))
 
 int <- int |>

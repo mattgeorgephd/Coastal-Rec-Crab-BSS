@@ -57,7 +57,7 @@ fetch_sampler_shifts <- function(params, quiet = FALSE) {
     if (!isTRUE(quiet)) cat("  Sampler shifts: file not found (", basename(f), "); the shift diagnostic is skipped.\n")
     return(NULL)
   }
-  sh <- readxl::read_excel(f, sheet = params$sampler_shifts_sheet %||% "data")
+  sh <- read_input_workbook(f, sheet = params$sampler_shifts_sheet %||% "data")
   need <- c("survey_id", "date", "creel_location", "check_in_hour", "check_out_hour", "shift_hours", "qc_flag")
   if (!all(need %in% names(sh))) stop("sampler_shifts.xlsx lacks column(s): ", paste(setdiff(need, names(sh)), collapse = ", "), call. = FALSE)
   sh <- sh |>

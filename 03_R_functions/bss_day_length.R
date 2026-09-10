@@ -109,7 +109,7 @@ fetch_ie_data <- function(params) {
     ))
   }
 
-  ie_raw <- readxl::read_excel(ie_file, sheet = params$ie_sheet) |>
+  ie_raw <- read_input_workbook(ie_file, sheet = params$ie_sheet) |>
     mutate(event_date = as.Date(date))
 
   # Optional: restrict I/E to the current fishery season. Default FALSE preserves the

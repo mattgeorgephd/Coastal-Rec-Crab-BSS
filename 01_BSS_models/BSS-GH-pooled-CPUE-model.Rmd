@@ -1038,7 +1038,7 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
 
 The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
 
-**Why the census is exact (2026-09-09).** The vessel count on a tally day is a census (charter coordination, vessel monitoring for the commercial fleet), and the samplers are scheduled on the days those vessels are confirmed to be operating, so a day of the window without a tally row is a day with no commercial or charter fishing. Under `census_expansion = "none"` (the shipped value) the component is the sum over the tally days, with the unsampled days contributing zero; `census_daily.csv` lists every calendar day as observed or no-operation, and the only variance left, the near-census per-vessel catch mean, is reported in `census_variance.csv` and stays out of the port interval unless `census_uncertainty = "sampling"`. The 2026-09-08 day-type expansion (unsampled days filled with the sampled days' mean) remains available as `census_expansion = "day_type"` for a season whose roster did not track operations.
+**Why the census is exact (2026-09-09), and the charter roster (2026-09-10).** The vessel count on a tally day is a census (charter coordination, vessel monitoring for the commercial fleet), and the samplers are scheduled on the days those vessels are confirmed to be operating, so a day of the window without a tally row is a day with no commercial or charter fishing. Under `census_expansion = "none"` (the shipped value) the commercial part is the sum over the tally days, with the unsampled days contributing zero; `census_daily.csv` lists every calendar day as observed or no-operation, and the only variance left, the near-census per-vessel catch mean, is reported in `census_variance.csv` and stays out of the port interval unless `census_uncertainty = "sampling"`. For the charters the season workbooks carry a per-trip roster from the operators (`charter_trips.xlsx`: interviewed / missed / canceled), a frame that does not depend on a sampler being in port, and on 2024-25 it lists 8 sailed Westport trips on days without a tally. Under `charter_frame = "roster"` (the shipped value) the charter count on each day is the larger of the roster's trips and the tally's charter column, on every day of the window, exact and never expanded; `charter_frame = "tally"` reproduces the tally-only sum. The 2026-09-08 day-type expansion (unsampled days filled with the sampled days' mean) remains available as `census_expansion = "day_type"` for a season whose roster did not track operations.
 
 ```{r pe-comm, results='hide'}
 # ---- 7.4 COMMERCIAL/CHARTER ----
@@ -2825,13 +2825,18 @@ comparison[[length(comparison)+1]] <- tibble(
   PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, effort_diff_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, catch_diff_pct = NA,
   # Review item 4 (2026-09-08/09): say what was observed and what the unsampled days are.
-  method_selected = sprintf("Census (%s; %s observed on %d tally days; %d unsampled days %s; SE %s, %s)",
+  method_selected = sprintf("Census (%s; %s observed on %d tally days; %d unsampled days %s; charter frame %s%s; SE %s, %s)",
                             if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "exact sum over the tally days" else "day-type stratified",
                             format(round(pe_all$comm_charter$observed_dung %||% NA), big.mark = ","),
                             sum(pe_all$comm_charter$daily_full$observed %||% NA),
                             sum(!(pe_all$comm_charter$daily_full$observed %||% NA)),
                             if (identical(pe_all$comm_charter$census_expansion %||% "none", "none")) "= no operation"
                             else sprintf("imputed at %s", format(round(pe_all$comm_charter$imputed_dung %||% NA), big.mark = ",")),
+                            # 2026-09-10: the charter trip roster, when it is the frame, counts trips on days without a tally
+                            pe_all$comm_charter$charter_frame %||% "tally",
+                            if ((pe_all$comm_charter$n_roster_only_days %||% 0L) > 0)
+                              sprintf(", %s crab on %d roster-only days", format(round(pe_all$comm_charter$charter_roster_dung %||% 0), big.mark = ","),
+                                      pe_all$comm_charter$n_roster_only_days) else "",
                             format(round(pe_all$comm_charter$Dungeness_Kept_se %||% NA), big.mark = ","),
                             if (identical(pe_all$comm_charter$census_uncertainty %||% "none", "sampling")) "in the port interval" else "not in the port interval")
 )

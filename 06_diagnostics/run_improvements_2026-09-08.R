@@ -67,7 +67,16 @@
 #
 # WINDOW. Every rung fits the single 2024-25 season (the run_config.R rollback block) so
 # the rungs compare to the 2026-09-04 A1 baseline; the live two-season configuration is
-# blocked on the 2023-24 effort workbooks and is not what this ladder measures.
+# not what this ladder measures (since 2026-09-10 it is no longer blocked on data: the
+# 2023-24 effort counts, gear counts and holidays exist; only its 2023-24 census frame
+# does not).
+#
+# 2026-09-10 (the inputs rebuilt from the season workbooks): every rung reads the rebuilt
+# workbooks. For the 2024-25 season that changes nothing in the fitted components (the
+# 2024-25 rows reproduce the earlier workbooks) and one thing in the census: the charter
+# trip roster is now the charter frame (charter_frame = "roster"), which counts the 8
+# sailed charter trips that fell on days without a tally, 7,884 -> 8,592 on 2024-25. The
+# R0 row states both numbers; charter_frame = "tally" reproduces 7,884.
 ###############################################################################
 
 # ============================ CONTROL BLOCK ================================ #
@@ -319,11 +328,14 @@ desk_R0 <- function() {
     cc <- q(estimate_comm_charter(dwg, p))
     utils::write.csv(cc$daily_full, file.path(out, "census_daily.csv"), row.names = FALSE)
     utils::write.csv(cc$variance_detail, file.path(out, "census_variance.csv"), row.names = FALSE)
-    V1row("R0", "the census is the exact sum over the tally days; unsampled days had no operation (item 4, settled 2026-09-09)",
-          sprintf("census_expansion = '%s': %s crab observed on %d tally days; %d unsampled calendar days %s; SE %s (%.1f%%, the per-vessel mean); total %s (baseline %s under the day-type expansion)",
+    cc_tally <- q(estimate_comm_charter(dwg, modifyList(p, list(charter_frame = "tally"))))
+    V1row("R0", "the census is the exact sum over the tally days; unsampled days had no operation (item 4, settled 2026-09-09); the charter roster is the charter frame (2026-09-10)",
+          sprintf(paste0("census_expansion = '%s': %s crab observed on %d tally days; %d unsampled calendar days %s; SE %s (%.1f%%, the per-vessel mean); ",
+                         "total %s with charter_frame = '%s' (%s crab on %d charter-roster days without a tally; %s under the tally frame; baseline %s under the day-type expansion)"),
                   cc$census_expansion %||% "none", fmt(cc$observed_dung, 0), sum(cc$daily_full$observed),
                   sum(!cc$daily_full$observed), if (identical(cc$census_expansion, "none")) "at zero" else sprintf("imputed at %s", fmt(cc$imputed_dung, 0)),
-                  fmt(cc$Dungeness_Kept_se, 0), 100 * cc$Dungeness_Kept_se / max(cc$Dungeness_Kept, 1), fmt(cc$Dungeness_Kept, 0), fmt(REF$A1$census, 0)),
+                  fmt(cc$Dungeness_Kept_se, 0), 100 * cc$Dungeness_Kept_se / max(cc$Dungeness_Kept, 1), fmt(cc$Dungeness_Kept, 0),
+                  cc$charter_frame %||% "tally", fmt(cc$charter_roster_dung %||% 0, 0), cc$n_roster_only_days %||% 0L, fmt(cc_tally$Dungeness_Kept, 0), fmt(REF$A1$census, 0)),
           "the total is the tally-day sum; the SE stays out of the port interval under census_uncertainty = none",
           if (identical(cc$census_expansion, "none") && isTRUE(all.equal(cc$imputed_dung, 0))) "PASS" else "REVIEW",
           paste("Samplers are scheduled on the days the charter and commercial (recreational) vessels are",

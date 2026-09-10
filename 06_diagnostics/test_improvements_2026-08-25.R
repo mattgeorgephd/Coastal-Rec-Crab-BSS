@@ -31,7 +31,8 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "annotate_decoupled_run.R",
             "bss_sampler_override.R",
             "pe_gear_ratio_frame.R",
-            "bss_ar_rung_summary.R")) source(file.path("03_R_functions", f))
+            "bss_ar_rung_summary.R",
+            "read_input_workbook.R")) source(file.path("03_R_functions", f))   # 2026-09-10: the workbook reader
 
 ok <- 0; bad <- 0
 chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
@@ -1702,6 +1703,7 @@ local({
 local({
   for (f in c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE),
               list.files("06_diagnostics", pattern = "\\.R$", full.names = TRUE),
+              list.files("04_input_files", pattern = "\\.R$", full.names = TRUE),   # 2026-09-10: the builders
               "run_config.R")) {
     ln <- readLines(f, warn = FALSE)
     bad_i <- which(grepl("[ \t]+$", ln))
@@ -2546,6 +2548,180 @@ local({
   chk("shift coverage: falls back to pooled sites when the WBL series is thin, and says so",
       grepl("pooled", diagnose_shift_coverage(shifts, ie, det, list(ie_boat_location = "WBL", shift_coverage_ie_min_days = 5), quiet = TRUE)$summary$return_profile_source))
   chk("shift coverage: no shifts -> NULL, no error", is.null(diagnose_shift_coverage(NULL, ie, det, list(), quiet = TRUE)))
+})
+
+# ---------------------------------------------------------------------------
+# 57. The inputs rebuilt from the per-season creel workbooks (2026-09-10). Every model
+#     workbook is built from raw/<YYYY><YY>_rec_crab_harvest_data.xlsx by the builders in
+#     04_input_files/ (build_all_inputs.R); the pasted exports of 2026-09-09 are gone. The
+#     checks: the builder helpers' parsers, the workbooks' shape and coverage (four
+#     seasons through 2026-09-08; the 2023-24 gear count back; gear labels harmonised;
+#     the effort qc_flag; the two-season tally; the charter roster; the five-season
+#     holiday calendar), the reader that guesses column types over the whole column, the
+#     effort qc drop, and the charter-roster frame of the census on a synthetic fixture.
+# ---------------------------------------------------------------------------
+local({
+  # --- the builder helpers, pure ---
+  eh <- new.env(); sys.source("04_input_files/build_helpers.R", envir = eh)
+  chk("helpers: dates parse from Excel serial text, ISO text and M/D/YYYY text; junk is NA",
+      identical(eh$parse_date_any(c("45292", "2024-01-01", "2024-01-01 00:00:00", "1/1/2024", "yesterday", NA)),
+                as.Date(c("2024-01-01", "2024-01-01", "2024-01-01", "2024-01-01", NA, NA))))
+  chk("helpers: clock times parse from a day fraction and from H:MM(:SS) text; 12-hour slips are not corrected",
+      isTRUE(all.equal(eh$parse_clock_hours(c("0.4479166666666667", "10:45:00", "9:05", "25:00", "abc")), c(10.75, 10.75, 9 + 5/60, NA, NA))) &&
+        identical(eh$hhmm(c(10.75, NA)), c("10:45", NA)) && identical(eh$hhmmss(10.75), "10:45:00"))
+  chk("helpers: the fishery season turns on Sep 16; survey ids are 'S<n>'",
+      identical(eh$season_of(as.Date(c("2024-09-15", "2024-09-16", "2025-01-01"))), c("2023-24", "2024-25", "2024-25")) &&
+        identical(eh$survey_id_of(c("S4949", "4949", "4949.0", NA)), c("S4949", "S4949", "S4949", NA)))
+  chk("helpers: the 2022-23 site names map to the current vocabulary; Westport sites are untouched",
+      identical(eh$harmonise_area(c("Tokeland boat Launch", "Chinook Boat Launch", "Westport Boat Launch ", "Westport Docks Float 20")),
+                c("Tokeland Boat Launch", "Chinook Boat Launch and Marina", "Westport Boat Launch", "Westport Docks Float 20")))
+  # the gear vocabulary map lives in the interview builder; pull the definitions out
+  src <- readLines("04_input_files/build_interview_combined.R", warn = FALSE)
+  eg <- new.env(); for (nm in c("library(stringr)", "library(dplyr)")) eval(parse(text = nm), envir = eg)
+  i1 <- grep("^gear_map <- c\\(", src)[1]; i2 <- grep("^harmonise_gear <- function", src)[1]; i3 <- i2 + which(src[i2:length(src)] == "}")[1] - 1L
+  eval(parse(text = src[i1:i3]), envir = eg)
+  hg <- eg$harmonise_gear(c("Collapsible trap or ring", "Pot, Collapsible trap or ring, Fishing rod with snare", "Fishing rod with foldable trap",
+                            "Rake, net or hands", "Star trap, Fishing rod with snare", "Trap (foldable, star), Snare", "Pot", "Slip ring pot", NA, ""))
+  chk("gear labels: the 2022-24 vocabulary maps onto the 2024-25 labels, multi-gear lists keep their order, current labels are unchanged",
+      identical(hg, c("Ring Net", "Pot, Ring Net, Snare", "Trap (foldable, star)", "Rake or Net", "Trap (foldable, star), Snare",
+                      "Trap (foldable, star), Snare", "Pot", "Slip Ring Pot", NA, NA)))
+  # the gear-resolved regex on the harmonised labels: a ring net is a ring net, not a trap
+  rn <- function(x) c(pot = str_detect(x, "(?i)\\bpot\\b") & !str_detect(x, "(?i)\\bslip\\s*ring\\b"), ring = str_detect(x, "(?i)\\bring\\s*net\\b"),
+                      trap = str_detect(x, "(?i)\\b(trap|star)\\b"), snare = str_detect(x, "(?i)\\bsnare\\b"))
+  chk("gear labels: on the old label 'Collapsible trap or ring' the classifier saw a TRAP; on 'Ring Net' it sees a ring net",
+      isTRUE(rn("Collapsible trap or ring")[["trap"]]) && !isTRUE(rn("Collapsible trap or ring")[["ring"]]) &&
+        isTRUE(rn("Ring Net")[["ring"]]) && !isTRUE(rn("Ring Net")[["trap"]]))
+
+  # --- the workbooks ---
+  wbs <- list.files("04_input_files/raw", pattern = "^[0-9]{4}_rec_crab_harvest_data\\.xlsx$")
+  chk("raw: four season workbooks (2223, 2324, 2425, 2526) and no pasted export", setequal(substr(wbs, 1, 4), c("2223", "2324", "2425", "2526")) &&
+        !file.exists("04_input_files/raw/surveydata20222026.xlsx"))
+  chk("builders: six builders, the shared helpers and the orchestrator are in 04_input_files",
+      all(file.exists(file.path("04_input_files", c("build_helpers.R", "build_all_inputs.R", "build_interview_combined.R", "build_effort_combined.R",
+                                                   "build_sampler_shifts.R", "build_comm_charter_tally.R", "build_charter_trips.R", "build_crabbing_holidays.R")))))
+  iv <- read_input_workbook("interview_combined.xlsx")
+  chk("interviews: four seasons, through 2026-09-08 or later, 31 columns with the ten 2026-09-10 additions",
+      setequal(unique(iv$season), c("2022-23", "2023-24", "2024-25", "2025-26")) && max(iv$date) >= "2026-09-08" &&
+        all(c("gear_type_raw", "boat_name", "bay_or_ocean", "river_or_ocean", "total_vehicles", "crab_released", "dungeness_returned",
+              "dungeness_returned_reason", "red_rock_returned", "red_rock_returned_reason") %in% names(iv)) && ncol(iv) == 31)
+  chk("interviews: the 2023-24 gear count is present (D15 closed): every 2023-24 row has number_of_gear, 0 to 23",
+      sum(!is.na(iv$number_of_gear[iv$season == "2023-24"])) == sum(iv$season == "2023-24") && max(iv$number_of_gear[iv$season == "2023-24"]) == 23)
+  chk("interviews: gear_type carries the 2024-25 vocabulary in every season, gear_type_raw the label as recorded",
+      !any(grepl("Collapsible trap or ring|Fishing rod with", iv$gear_type)) && any(grepl("Collapsible trap or ring", iv$gear_type_raw)) &&
+        all(iv$gear_type[iv$season == "2025-26" & !is.na(iv$gear_type)] == iv$gear_type_raw[iv$season == "2025-26" & !is.na(iv$gear_type)]))
+  chk("interviews: read_input_workbook types the late-starting columns from the whole column (total_vehicles numeric, not logical)",
+      is.numeric(iv$total_vehicles) && is.numeric(iv$gear_tampered) && is.character(iv$interview_time))
+  chk("interviews: dates are ISO text, interview_time is HH:MM, completed_trip is 0/1/NA, creel_area has no trailing space",
+      all(grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", iv$date)) && all(grepl("^[0-9]{2}:[0-9]{2}$", iv$interview_time[!is.na(iv$interview_time)])) &&
+        all(iv$completed_trip[!is.na(iv$completed_trip)] %in% c(0, 1)) && !any(grepl("\\s$", iv$creel_area)))
+  ef <- read_input_workbook("effort_combined.xlsx")
+  chk("effort: four seasons, the count columns of every protocol, count_time HH:MM:SS, a qc_flag column",
+      setequal(unique(ef$season), c("2022-23", "2023-24", "2024-25", "2025-26")) && max(ef$date) >= "2026-09-08" &&
+        all(c("total_gear_count", "boat_trailer_count", "vehicle_count", "boats_entering_marina", "buoy_count", "crabber_count", "jetty_people_count", "qc_flag") %in% names(ef)) &&
+        all(grepl("^[0-9]{2}:[0-9]{2}:[0-9]{2}$", ef$count_time[!is.na(ef$count_time)])))
+  chk("effort: the 2024-25 rows reproduce the 2026-07-16 workbook (3,256 rows; trailer and gear sums)",
+      sum(ef$season == "2024-25") == 3256 && sum(ef$boat_trailer_count[ef$season == "2024-25" & ef$creel_area == "Westport Boat Launch"]) == 2558 &&
+        sum(ef$total_gear_count[ef$season == "2024-25" & ef$creel_area == "Westport Docks Float 20"]) == 14676)
+  chk("effort: the Feb 2024 interview-total rows are flagged (20, all 2023-24) and the 2023-24 trailer counts come from the Truck/Boat Trailer column",
+      sum(ef$qc_flag %in% "gear_count_from_interviews") == 20 && all(ef$season[ef$qc_flag %in% "gear_count_from_interviews"] == "2023-24") &&
+        sum(ef$boat_trailer_count[ef$season == "2023-24" & ef$creel_area == "Westport Boat Launch"], na.rm = TRUE) == 3603)
+  sh <- read_input_workbook("sampler_shifts.xlsx")
+  chk("shifts: four seasons with the sampler's on-site conditions (tide, rain, weather, wind, wind_direction, weather_location)",
+      setequal(unique(sh$season), c("2022-23", "2023-24", "2024-25", "2025-26")) && all(c("tide", "rain", "weather", "wind", "wind_direction", "weather_location", "holiday") %in% names(sh)) &&
+        nrow(sh) == 3077)
+  ta <- read_input_workbook("wes_commercial_tally.xlsx")
+  chk("tally: 2024-25 (47 days, unchanged sums) and 2025-26 (23 days, Dec 1 to Jan 3), read by header name not position",
+      sum(ta$season == "2024-25") == 47 && sum(ta$private_tally[ta$season == "2024-25"]) == 107 && sum(ta$commercial_tally[ta$season == "2024-25"]) == 164 &&
+        sum(ta$charter_tally[ta$season == "2024-25"]) == 23 && sum(ta$season == "2025-26") == 23 && min(ta$date[ta$season == "2025-26"]) == "2025-12-01" &&
+        max(ta$date[ta$season == "2025-26"]) == "2026-01-03" && sum(ta$commercial_tally[ta$season == "2025-26"]) == 67 && sum(ta$private_tally[ta$season == "2025-26"]) == 85)
+  cr <- read_input_workbook("charter_trips.xlsx")
+  w25 <- cr |> filter(season == "2024-25", port == "Westport", date >= "2024-12-03", date <= "2025-02-08", status != "canceled")
+  chk("charter roster: 2024-25 Westport has 31 sailed trips in the tally window, 8 of them on days without a tally",
+      nrow(w25) == 31 && sum(!w25$date %in% ta$date) == 8 && all(w25$status[!w25$date %in% ta$date] == "missed"))
+  ho <- read_input_workbook("crabbing_holidays.xlsx")
+  chk("holidays: five seasons by one rule; the 2024-25 rows are the shipped ten; the observed Independence Day is in 2025-26",
+      setequal(unique(ho$season), c("2022-23", "2023-24", "2024-25", "2025-26", "2026-27")) &&
+        setequal(ho$date[ho$season == "2024-25"], c("2024-11-29", "2024-12-31", "2025-01-01", "2025-02-08", "2025-05-24", "2025-05-25", "2025-05-26", "2025-06-15", "2025-07-04", "2025-09-01")) &&
+        "2026-07-03" %in% ho$date && "2024-01-01" %in% ho$date && "2023-11-24" %in% ho$date)
+  source("03_R_functions/read_crabbing_holidays.R")
+  chk("holidays reader: every season resolves, and a two-season vector resolves to both calendars",
+      all(vapply(c("2022-23", "2023-24", "2024-25", "2025-26"), function(sn) length(read_crabbing_holidays(list(season_filter = sn))) >= 10, logical(1))) &&
+        length(read_crabbing_holidays(list(season_filter = c("2023-24", "2024-25")))) == 20)
+
+  # --- the readers on the rebuilt workbooks ---
+  source("03_R_functions/fetch_crab_data.R"); source("03_R_functions/validate_season_window.R")
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  P1 <- modifyList(rc, list(season_filter = "2023-24", est_date_start = "2023-09-16", est_date_end = "2024-09-15", pot_closures = NULL, census_windows = NULL))
+  out <- capture.output(d1 <- fetch_crab_data(P1))
+  chk("reader 2023-24: effort counts and interviews load; the 20 interview-total rows are held out; no Float 20 count on Feb 3 to 13, 2024 enters the shore series",
+      any(grepl("20 row\\(s\\) held out by qc_flag", out)) && nrow(d1$shore_effort) > 300 && nrow(d1$boat_effort) > 300 &&
+        !any(d1$shore_effort$event_date %in% (as.Date("2024-02-03") + 0:10) & d1$shore_effort$f20_gear > 30))
+  chk("reader 2023-24: the interviews carry a gear count (the 2023-24 CPUE denominator exists again)", mean(!is.na(d1$interview$number_of_gear)) > 0.99)
+  chk("reader: effort_qc_drop = \"none\" keeps every row", { P0 <- modifyList(P1, list(effort_qc_drop = "none")); o0 <- capture.output(d0 <- fetch_crab_data(P0)); nrow(d0$shore_effort) > nrow(d1$shore_effort) })
+  P2 <- modifyList(rc, list(season_filter = "2025-26", est_date_start = "2025-09-16", est_date_end = "2026-09-15", pot_closures = NULL, census_windows = NULL,
+                            pot_closure_start = "2025-09-16", pot_closure_end = "2025-11-30", pot_open_date = "2025-12-01",
+                            census_start_date = "2025-12-01", census_end_date = "2026-01-03"))
+  out2 <- capture.output(d2 <- fetch_crab_data(P2))
+  chk("reader 2025-26: the season loads with shore and boat counts, contacts, a 23-day tally and the charter roster",
+      nrow(d2$shore_effort) > 500 && nrow(d2$boat_effort) > 400 && sum(d2$boat_contacts$boats_total) > 900 && !is.null(d2$charter_roster) && nrow(d2$charter_roster) == 11)
+  chk("reader: the charter roster is filtered to the port and the season; absent file -> NULL",
+      all(d2$charter_roster$port == "Westport") && all(d2$charter_roster$season == "2025-26") &&
+        is.null(fetch_charter_roster(list(charter_trips_file = "no_such_file.xlsx"), quiet = TRUE)))
+
+  # --- the charter-roster frame of the census, on the section-53 fixture plus a roster ---
+  source("03_R_functions/estimate_comm_charter.R")
+  cal <- seq(as.Date("2025-01-06"), as.Date("2025-01-19"), by = "day"); wk <- weekdays(cal) %in% c("Saturday", "Sunday")
+  samp <- c(cal[!wk][1:8], cal[wk][1:2])
+  tally <- tibble(date = samp, commercial_tally = c(4, 6, 5, 7, 4, 6, 5, 3, 8, 10), charter_tally = c(1, 0, 1, 1, 0, 1, 1, 0, 2, 2))
+  ints  <- tibble(population = "comm_charter", event_date = rep(samp, each = 2), boat_type_clean = rep(c("Commercial", "Charter"), 10),
+                  dungeness_kept = rep(c(40, 60), 10), red_rock_kept = 0)
+  unsampled <- cal[!cal %in% samp]                      # 4 days: 2 weekdays, 2 weekend days
+  roster <- tibble(season = "2024-25", port = "Westport", vessel = "V",
+                   date = c(unsampled[1], unsampled[1], unsampled[3], samp[1], samp[2], samp[2], unsampled[2]),
+                   status = c("missed", "missed", "interviewed", "interviewed", "interviewed", "missed", "canceled"), contact = NA, notes = NA)
+  Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
+             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+  obs <- sum(tally$commercial_tally * 40 + tally$charter_tally * 60)
+  dwg <- list(comm_tally = tally, interview = ints, charter_roster = roster)
+  rt <- estimate_comm_charter(dwg, modifyList(Pc, list(charter_frame = "tally")))
+  rr <- estimate_comm_charter(dwg, Pc)
+  # roster: 3 trips on 2 unsampled days (canceled one excluded); samp[1] has tally 1 / roster 1 (agree); samp[2] has tally 0 / roster 2 (+2)
+  extra <- (2 + 1) * 60 + 2 * 60
+  chk("census roster frame: the default is 'roster'; the total adds the roster-only trips and the tally days where the roster has more",
+      identical(rt$charter_frame, "tally") && isTRUE(all.equal(rt$Dungeness_Kept, obs)) &&
+        identical(rr$charter_frame, "roster") && isTRUE(all.equal(rr$Dungeness_Kept, obs + extra)) &&
+        isTRUE(all.equal(rr$charter_roster_dung, 3 * 60)) && rr$n_roster_only_days == 2 && rr$n_roster_trips == 6)
+  chk("census roster frame: the daily table sums to the total, labels the roster-only days, and observed = total under 'none'",
+      isTRUE(all.equal(sum(rr$daily_full$est_dung), rr$Dungeness_Kept)) && sum(grepl("charter roster \\(no tally\\)$", rr$daily_full$source)) == 2 &&
+        isTRUE(all.equal(rr$observed_dung, rr$Dungeness_Kept)) && nrow(rr$roster_reconciliation) == 9 && nrow(rr$daily_est) == 12)
+  rd <- estimate_comm_charter(dwg, modifyList(Pc, list(census_expansion = "day_type")))
+  chk("census roster frame + day_type: only the commercial part is expanded; the charter part is exact; the daily table still sums to the total",
+      isTRUE(all.equal(rd$Dungeness_Kept, sum(tally$commercial_tally * 40) + 2 * mean((tally$commercial_tally * 40)[!weekdays(tally$date) %in% c("Saturday", "Sunday")]) +
+                                            2 * mean((tally$commercial_tally * 40)[weekdays(tally$date) %in% c("Saturday", "Sunday")]) + sum(tally$charter_tally) * 60 + extra)) &&
+        isTRUE(all.equal(sum(rd$daily_full$est_dung), rd$Dungeness_Kept)))
+  chk("census roster frame: a roster with no trips in the window falls back to the tally frame and says so; bad values refused",
+      identical(estimate_comm_charter(list(comm_tally = tally, interview = ints, charter_roster = roster |> mutate(date = date + 365)), Pc)$charter_frame, "tally") &&
+        inherits(tryCatch(estimate_comm_charter(dwg, modifyList(Pc, list(charter_frame = "union"))), error = function(e) e), "error"))
+  w <- tryCatch({ estimate_comm_charter(list(comm_tally = tally[0, ], interview = ints), Pc); NULL }, warning = function(w) conditionMessage(w))
+  chk("census: interviews without any tally row warn that the census frame is missing (2023-24), instead of a silent zero",
+      !is.null(w) && grepl("NO vessel tally", w))
+  Pw <- Pc; Pw$census_windows <- list("a" = c("2025-01-06", "2025-01-12"), "b" = c("2025-01-13", "2025-01-19"))
+  rw <- estimate_comm_charter(dwg, Pw)
+  chk("census roster frame: the per-window path sums the roster additions and stacks the reconciliation",
+      isTRUE(all.equal(rw$Dungeness_Kept, rr$Dungeness_Kept)) && isTRUE(all.equal(rw$charter_roster_dung, rr$charter_roster_dung)) && nrow(rw$roster_reconciliation) == 9)
+
+  # --- the shipped configuration and the drivers ---
+  chk("shipped: charter_frame = roster, effort_qc_drop holds the interview-total flag, the 2023-24 census window ends Jan 31 (opener Feb 1, 2024), a 2025-26 block is documented",
+      identical(rc$charter_frame, "roster") && identical(rc$effort_qc_drop, "gear_count_from_interviews") &&
+        identical(unname(rc$census_windows[["2023-24"]]), c("2023-12-01", "2024-01-31")) &&
+        any(grepl("season-2025-26", readLines("run_config.R", warn = FALSE), fixed = TRUE)))
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: the census row names the charter frame", basename(drv)), any(grepl("charter_frame", d, fixed = TRUE)))
+  }
+  rd_files <- c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE))
+  direct <- vapply(rd_files, function(f) any(grepl("readxl::read_excel\\(", readLines(f, warn = FALSE))) && !grepl("read_input_workbook.R", f), logical(1))
+  chk("readers: no function in 03_R_functions reads an input workbook with readxl directly (all go through read_input_workbook)", !any(direct))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
