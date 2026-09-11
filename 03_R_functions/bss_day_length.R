@@ -508,13 +508,47 @@ estimate_shore_turnover <- function(ie_intervals, shore_effort, params = list(),
     .say("  Shore turnover: no I/E interval rows with a time column; derivation unavailable (peak-based prior stays).\n")
     return(empty)
   }
-  iv <- ie_intervals |>
+  # WHICH DAYS THE TURNOVER IS DERIVED FROM (2026-09-11). Until the first full ladder run
+  # this function silently used EVERY I/E interval row in the workbook, and nothing said
+  # so. On the 2024-25 run that is 40 days spanning 2023-08 to 2026-08, of which SEVEN are
+  # inside the 2024-25 season and FOUR inside the all-gear sub-season the resulting 2.477
+  # is applied to. It therefore returns the SAME number for every season, while
+  # NEW_SEASON_GUIDE.md described it as derived "from the window's I/E time column and
+  # count hours" -- a claim that was true of the boat side (`tau_boat_prior_mu =
+  # "calibration"`, which reads the window-filtered overlap) and never true of this one.
+  # The count-time WEIGHTS below are in-window (shore_effort is), so what shipped was a
+  # hybrid: in-window count hours weighting an all-seasons diel profile.
+  #
+  # Pooling is defensible -- seven days is a thin basis for a quantity that scales the
+  # whole shore component by 1.36 -- so it stays the DEFAULT. But it has to be a stated
+  # choice with a number attached, not an accident, because this is the second-largest
+  # mover in the whole improvement series. Both are now reported every run
+  # (n_days_in_window, tau_in_window in shore_turnover_summary.csv) and
+  # tau_shore_derive_window_only = TRUE restricts the derivation to the estimation window
+  # so the alternative can be priced without editing code. See CHANGE_REGISTER D24.
+  .ws <- suppressWarnings(as.Date(params$est_date_start %||% NA))
+  .we <- suppressWarnings(as.Date(params$est_date_end   %||% NA))
+  iv_all <- ie_intervals |>
     mutate(hbin = floor(hour)) |>
     group_by(event_date) |>
     mutate(arrivals = sum(crabbers_on), peak = max(crabber_flow)) |>
     ungroup() |>
     filter(arrivals > 0, peak > 0)
+  .in_win <- if (is.na(.ws) || is.na(.we)) rep(TRUE, nrow(iv_all))
+             else as.Date(iv_all$event_date) >= .ws & as.Date(iv_all$event_date) <= .we
+  .n_win <- length(unique(iv_all$event_date[.in_win]))
+  .n_all <- length(unique(iv_all$event_date))
+  iv <- if (isTRUE(params$tau_shore_derive_window_only)) iv_all[.in_win, , drop = FALSE] else iv_all
   if (!nrow(iv)) { .say("  Shore turnover: no I/E day with arrivals; derivation unavailable.\n"); return(empty) }
+  .say(sprintf(paste0("  Shore turnover derived from %d I/E day(s)%s; %d of the %d days in the workbook fall INSIDE the",
+                      " estimation window (%s to %s).\n"),
+               length(unique(iv$event_date)),
+               if (isTRUE(params$tau_shore_derive_window_only)) " (window-only: tau_shore_derive_window_only = TRUE)" else " (ALL seasons pooled; the default)",
+               .n_win, .n_all, if (is.na(.ws)) "?" else as.character(.ws), if (is.na(.we)) "?" else as.character(.we)))
+  if (!isTRUE(params$tau_shore_derive_window_only) && .n_all > 0 && .n_win / .n_all < 0.5)
+    .say(sprintf(paste0("  *** NOTE: only %.0f%% of the I/E days behind this turnover are inside the window it is",
+                        " applied to. The shore component scales linearly in it; read sigma_IE in the fitted",
+                        " output, which is the in-window check. ***\n"), 100 * .n_win / max(.n_all, 1)))
 
   # --- count-time weights: the hours the creel counts were actually taken ------------
   max_seq <- params$bss_max_count_seq %||% 3
@@ -578,8 +612,20 @@ estimate_shore_turnover <- function(ie_intervals, shore_effort, params = list(),
                by_dt$tau_ratio_of_sums[by_dt$dt == "weekday"] %||% NA_real_,
                by_dt$tau_ratio_of_sums[by_dt$dt == "weekend"] %||% NA_real_))
 
+  # the IN-WINDOW subset, always computed and always reported, whatever the derivation used
+  .bw <- if (is.na(.ws) || is.na(.we)) by_day
+         else by_day[as.Date(by_day$event_date) >= .ws & as.Date(by_day$event_date) <= .we, , drop = FALSE]
+  tau_win <- if (nrow(.bw) && sum(.bw$presence_at_counts) > 0)
+    sum(.bw$arrivals) / sum(.bw$presence_at_counts) else NA_real_
+  if (nrow(.bw) < nrow(by_day))
+    .say(sprintf(paste0("    IN-WINDOW SUBSET: %d of %d day(s), ratio of sums %s against %.3f pooled.",
+                        " The pooled value is what ships; tau_shore_derive_window_only = TRUE uses the subset.\n"),
+                 nrow(.bw), nrow(by_day), if (is.na(tau_win)) "unavailable" else sprintf("%.3f", tau_win), tau_ros))
+
   list(tau = tau_ros, tau_geomean = tau_geo, log_se = log_se, log_sd_days = lsd,
        tau_peak = tau_peak, n_days = nrow(by_day), method = "count-time-weighted ratio of sums",
+       n_days_in_window = nrow(.bw), n_days_total = .n_all, tau_in_window = tau_win,
+       derived_window_only = isTRUE(params$tau_shore_derive_window_only),
        profile = profile, by_day = by_day, count_time_weights = w_use, by_day_type = by_dt)
 }
 
@@ -594,7 +640,14 @@ write_shore_turnover <- function(st, output_dir) {
       method = st$method, n_days = st$n_days, tau_ratio_of_sums = st$tau, tau_geomean = st$tau_geomean,
       log_se_bootstrap = st$log_se, log_sd_between_days = st$log_sd_days, tau_peak_based = st$tau_peak,
       weekday = st$by_day_type$tau_ratio_of_sums[st$by_day_type$dt == "weekday"] %||% NA_real_,
-      weekend = st$by_day_type$tau_ratio_of_sums[st$by_day_type$dt == "weekend"] %||% NA_real_),
+      weekend = st$by_day_type$tau_ratio_of_sums[st$by_day_type$dt == "weekend"] %||% NA_real_,
+      # 2026-09-11 (D24): the shipped derivation POOLS every I/E day in the workbook, so
+      # these three columns are how a reader sees what the number rests on. On the 2024-25
+      # run n_days_in_window was 7 of 40 and the shore component scales linearly in tau.
+      n_days_in_window = st$n_days_in_window %||% NA_integer_,
+      n_days_total = st$n_days_total %||% NA_integer_,
+      tau_in_window = st$tau_in_window %||% NA_real_,
+      derived_window_only = isTRUE(st$derived_window_only)),
       file.path(output_dir, "shore_turnover_summary.csv"), row.names = FALSE)
   }, error = function(e) cat("  (shore turnover CSVs not written:", conditionMessage(e), ")\n"))
   invisible(NULL)

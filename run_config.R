@@ -495,6 +495,28 @@ run_config <- list(
   tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
   tau_shore_prior_mu_fallback = 1.7,  # used by "derived" when the I/E time column is absent
   tau_shore_derive_min_days   = 10,   # minimum I/E days behind a derived centre
+  # WHICH I/E DAYS THE DERIVED CENTRE USES (surfaced 2026-09-11 by the first full ladder
+  # run; CHANGE_REGISTER D24). FALSE (shipped) pools EVERY I/E interval day in the
+  # workbook. On the 2024-25 run that is 40 days spanning 2023-08 to 2026-08, of which 7
+  # are inside the season and 4 inside the all-gear sub-season the resulting 2.477 scales
+  # by 1.36 -- so the shipped value is a multi-season quantity, and it is the SAME number
+  # whichever season you run. That was not documented and NEW_SEASON_GUIDE described it as
+  # derived from the window; the boat side ("calibration") really is window-filtered, this
+  # one never was.
+  #
+  # It stays pooled by default because 7 days is a thin basis for the second-largest mover
+  # in the series, and because the derivation needs a diel profile (presence by hour) that
+  # a handful of days estimates badly. TRUE restricts it to the estimation window so the
+  # alternative can be priced. Every run now reports n_days_in_window, n_days_total and
+  # tau_in_window in shore_turnover_summary.csv either way.
+  #
+  # THE IN-WINDOW CHECK THAT EXISTS TODAY is sigma_IE in the fitted output: the shore
+  # likelihood is arrivals ~ lognormal(log(lambda_E * tau_shore), sigma_IE), so if the
+  # pooled turnover over-expands this window's counts, sigma_IE grows. On the 2024-25 run
+  # it went 0.373 -> 0.577 (+55%) when the derived centre was adopted, on FOUR in-window
+  # days -- a direction, not a measurement. A paired gear count on every I/E day is the
+  # field fix; see PIPELINE_STATUS section 1v.
+  tau_shore_derive_window_only = FALSE,  # FALSE (shipped) = pool all I/E days | TRUE = window only
   # --- BOAT TURNOVER PRIOR (review item 3, 2026-09-08) --------------------------
   # "calibration" resolves the prior centre from THIS window's OSP/trailer overlap
   # (03_R_functions/bss_turnover_prior.R): the implied turnover of the

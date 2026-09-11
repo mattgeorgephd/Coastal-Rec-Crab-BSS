@@ -3164,9 +3164,13 @@ local({
   # ---- the control block -------------------------------------------------
   chk("two-pass: LADDER_PASS exists and ships pass 1 (the four citable rungs first)",
       any(grepl("^LADDER_PASS <- 1", t)) && grepl("LADDER_PASS >= 2", s, fixed = TRUE))
-  chk("two-pass: pass 1 is R0/R1/R2/R4/R5 and pass 2 adds R2f in that position",
-      grepl('c("R0", "R1", "R2", "R4", "R5")', s, fixed = TRUE) &&
-      grepl('c("R0", "R1", "R2", "R2f", "R4", "R5")', s, fixed = TRUE))
+  # 2026-09-11: R4 is fitted FIRST. It is the shipped configuration, so the citable number
+  # lands at hour 4 of a 16-hour run instead of hour 11. Verified safe before the run and
+  # confirmed by it: the verdict blocks execute after the whole loop and resolve their
+  # comparison folders by rung NAME, so fit order cannot reach them.
+  chk("two-pass: R4 is fitted first, and pass 2 adds R2f after R2",
+      grepl('c("R0", "R4", "R1", "R2", "R5")', s, fixed = TRUE) &&
+      grepl('c("R0", "R4", "R1", "R2", "R2f", "R5")', s, fixed = TRUE))
   chk("two-pass: the run prints what to do next, so the plan is not carried in someone's head",
       grepl("PASS 1 COMPLETE", s, fixed = TRUE) && grepl("PASS 2 COMPLETE", s, fixed = TRUE) &&
       grepl("LADDER_PASS <- 2", s, fixed = TRUE))
@@ -3175,7 +3179,7 @@ local({
   # Evaluate the runner's head twice, once per STAGES setting, and compare.
   .head <- t[seq_len(grep("^# PRE-FLIGHT", t)[1] - 1)]
   .dig <- function(pass) {
-    h <- sub("^LADDER_PASS <- 1", paste0("LADDER_PASS <- ", pass), .head)
+    h <- sub("^LADDER_PASS <- [0-9]+", paste0("LADDER_PASS <- ", pass), .head)
     e <- new.env(parent = globalenv())
     eval(parse(text = paste(h, collapse = "\n")), envir = e)
     st <- setdiff(get("STAGES", envir = e), "R0")
@@ -3304,7 +3308,124 @@ local({
         identical(cd(sub("^stan:[0-9a-f]{8}", "stan:deadbeef", a)), "stan") &&
         identical(cd(sub("fns:[0-9a-f]{8}$", "fns:deadbeef", a)), "fns") &&
         is.na(cd(NA_character_)))
+    # 2026-09-11: comments and blank lines are stripped before hashing, so a doc-only
+    # patch cannot downgrade an existing record's verdicts, and an EQUIVALENCE list
+    # carries the ones that still move the hash but provably not the inference.
+    ceq <- get("CODE_EQUIVALENT", envir = e2)
+    chk("two-pass: the fingerprint ignores comments and blank lines",
+        { td <- tempfile(); dir.create(file.path(td, "02_stan_models"), recursive = TRUE)
+          dir.create(file.path(td, "01_BSS_models")); dir.create(file.path(td, "03_R_functions"))
+          writeLines(c("x <- 1", "y <- 2"), file.path(td, "03_R_functions", "a.R"))
+          h1 <- local({ .here <- function(...) file.path(td, ...); get(".code_group", envir = e2) })
+          f1 <- environment(); g <- get(".code_group", envir = e2)
+          e3 <- new.env(parent = environment(g)); e3$.here <- function(...) file.path(td, ...)
+          environment(g) <- e3
+          v1 <- g("03_R_functions", "\\.R$")
+          writeLines(c("# a new comment", "x <- 1", "", "y <- 2   # trailing"), file.path(td, "03_R_functions", "a.R"))
+          v2 <- g("03_R_functions", "\\.R$")
+          writeLines(c("x <- 1", "y <- 3"), file.path(td, "03_R_functions", "a.R"))
+          v3 <- g("03_R_functions", "\\.R$")
+          unlink(td, recursive = TRUE)
+          identical(v1, v2) && !identical(v1, v3) })
+    chk("two-pass: the equivalence list is an audit trail -- every entry carries a reason",
+        is.list(ceq) && length(ceq) >= 1 &&
+        all(grepl("^stan:[0-9a-f]{8} drivers:[0-9a-f]{8} fns:[0-9a-f]{8}$", names(ceq))) &&
+        all(nzchar(unlist(ceq))) && all(nchar(unlist(ceq)) > 40))
+    chk("two-pass: a fingerprint on the equivalence list reports no delta; one off it still does",
+        identical(cd(names(ceq)[1]), "") &&
+        identical(cd(sub("fns:[0-9a-f]{8}$", "fns:deadbeef", a)), "fns"))
   }
+})
+
+# ---------------------------------------------------------------------------
+# 61. WHAT THE FIRST FULL LADDER RUN EXPOSED (2026-09-11). Three reporting defects and
+#     one substantive one, all of them found by reading the run rather than the code:
+#       D24  estimate_shore_turnover() never filtered the I/E days to the window, so the
+#            second-largest mover in the series is a multi-season quantity. Now reported
+#            either way, and pricable with tau_shore_derive_window_only.
+#       D25  the R2 boat-rise threshold assumed the turnover passes through 1:1. It does
+#            not (14.0% prior move -> 4.4% component move), so a correct rung read REVIEW.
+#       D26  verdict_R4's expect_delta omitted the census keys D_R4 adds by design, and it
+#            hard-coded "R3" as the predecessor's name.
+# ---------------------------------------------------------------------------
+local({
+  f <- "06_diagnostics/run_improvements_2026-09-08.R"
+  chk("post-run: ladder runner present", file.exists(f)); if (!file.exists(f)) return(invisible(NULL))
+  t <- readLines(f, warn = FALSE); tt <- t[!grepl("^\\s*#", t)]; s <- paste(tt, collapse = "\n")
+
+  # ---- D26: the R4 exactness row -----------------------------------------
+  chk("post-run: verdict_R4 expects the census keys D_R4 adds, so a correct config cannot print UNEXPECTED",
+      grepl('"census_uncertainty", "charter_frame", "charter_expansion"', s, fixed = TRUE) &&
+      grepl("expect_delta = c(\"tau_shore_prior_mu\"", s, fixed = TRUE))
+  chk("post-run: every key D_R4 adds on top of D_R2 is in verdict_R4's expect_delta",
+      { e <- new.env(parent = globalenv()); e$F_METHOD <- "new_throughout"; e$modifyList <- modifyList
+        e$`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+        .i1 <- grep("^F_NEW *<-", tt)[1]; .i2 <- grep("^D_R4 *<-", tt)[1]
+        ok2 <- FALSE
+        for (.end in .i2:min(.i2 + 12L, length(tt))) {
+          .txt <- paste(tt[.i1:.end], collapse = "\n")
+          if (!inherits(try(parse(text = .txt), silent = TRUE), "try-error")) { eval(parse(text = .txt), envir = e); ok2 <- TRUE; break } }
+        if (!ok2) FALSE else {
+          moved <- names(e$D_R4)[!vapply(names(e$D_R4), function(k) identical(e$D_R4[[k]], e$D_R2[[k]]), logical(1))]
+          .j <- grep("^verdict_R4 <- function", t)[1]; .k <- .j
+          while (!grepl("^\\}", t[.k]) || .k == .j) .k <- .k + 1L
+          blk <- paste(t[.j:.k], collapse = "\n")
+          all(vapply(moved, function(k) grepl(sprintf('"%s"', k), blk, fixed = TRUE), logical(1))) } })
+  chk("post-run: verdict_R4 no longer hard-codes 'R3' as the predecessor's name",
+      grepl("verdict_R4 <- function(dir, prev, prev_id", s, fixed = TRUE) &&
+      grepl("verdict_R4(dirs$R4, .dir_of(prev_pooled(\"R4\")), prev_pooled(\"R4\"))", s, fixed = TRUE) &&
+      !grepl('what = "boat fits vs R3"', s, fixed = TRUE) &&
+      !grepl('sprintf("sigma_IE %s (R3 %s)"', s, fixed = TRUE))
+
+  # ---- D25: the R2 pass-through ------------------------------------------
+  chk("post-run: the R2 boat band is widened and the pass-through ratio is reported",
+      grepl("pass-through %s of the prior move", s, fixed = TRUE) &&
+      grepl(".pct(ba, ba0) > 2", s, fixed = TRUE) && !grepl(".pct(ba, ba0) > 8", s, fixed = TRUE))
+
+  # ---- D24: the sigma_IE row has to say how many observations it rests on -
+  chk("post-run: the sigma_IE row reports the in-window I/E day count",
+      grepl("in-window I/E day(s) of %s in the workbook", s, fixed = TRUE) &&
+      grepl("L_effective_ie_detail.csv", s, fixed = TRUE))
+
+  # ---- D24: the turnover derivation ---------------------------------------
+  bd <- paste(readLines("03_R_functions/bss_day_length.R", warn = FALSE), collapse = "\n")
+  chk("post-run: estimate_shore_turnover reports the in-window share and offers a window-only derivation",
+      grepl("tau_shore_derive_window_only", bd, fixed = TRUE) &&
+      grepl("n_days_in_window = nrow(.bw)", bd, fixed = TRUE) &&
+      grepl("tau_in_window = tau_win", bd, fixed = TRUE))
+  chk("post-run: shore_turnover_summary.csv carries the window columns",
+      grepl("n_days_in_window = st$n_days_in_window", bd, fixed = TRUE) &&
+      grepl("tau_in_window = st$tau_in_window", bd, fixed = TRUE) &&
+      grepl("derived_window_only = isTRUE(st$derived_window_only)", bd, fixed = TRUE))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("post-run: the default POOLS every I/E day (the run's numbers stay reproducible)",
+      identical(rc$tau_shore_derive_window_only, FALSE))
+  chk("post-run: NEW_SEASON_GUIDE no longer claims the derived shore centre comes from the window",
+      { g <- paste(readLines("07_documentation/NEW_SEASON_GUIDE.md", warn = FALSE), collapse = "\n")
+        !grepl('"derived"` from the window\'s I/E time column', g, fixed = TRUE) &&
+        grepl("tau_shore_derive_window_only", g, fixed = TRUE) })
+
+  # the derivation, exercised on a fixture: the window filter must actually bite
+  source("03_R_functions/bss_day_length.R")
+  set.seed(7)
+  mk <- function(dates) do.call(rbind, lapply(dates, function(d) data.frame(
+    event_date = as.Date(d), season = "fixture", day_type = "Weekday", hour = 8:16 + 0.5,
+    crabbers_on = c(2, 5, 8, 6, 4, 3, 2, 1, 0), crabber_flow = c(2, 7, 14, 18, 19, 18, 15, 11, 8))))
+  iv <- mk(c("2023-08-10", "2024-01-10", "2025-01-10", "2025-08-10", "2026-05-10"))
+  se <- data.frame(count_sequence = 1L, count_hour = c(10.5, 12.5))
+  P <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", bss_max_count_seq = 3)
+  a <- estimate_shore_turnover(iv, se, P, n_boot = 50, quiet = TRUE)
+  b <- estimate_shore_turnover(iv, se, modifyList(P, list(tau_shore_derive_window_only = TRUE)), n_boot = 50, quiet = TRUE)
+  chk("post-run: the pooled derivation uses every day and the window-only one uses the in-window subset",
+      identical(a$n_days, 5L) && identical(b$n_days, 2L) &&
+      identical(a$n_days_in_window, 2L) && identical(a$n_days_total, 5L) &&
+      isFALSE(a$derived_window_only) && isTRUE(b$derived_window_only))
+  chk("post-run: tau_in_window is reported by BOTH paths and equals the window-only tau",
+      is.finite(a$tau_in_window) && isTRUE(all.equal(a$tau_in_window, b$tau)) &&
+      isTRUE(all.equal(b$tau_in_window, b$tau)))
+  chk("post-run: with no window set, the derivation is unchanged and everything counts as in-window",
+      { z <- estimate_shore_turnover(iv, se, list(bss_max_count_seq = 3), n_boot = 50, quiet = TRUE)
+        identical(z$n_days, 5L) && identical(z$n_days_in_window, 5L) && isTRUE(all.equal(z$tau, a$tau)) })
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

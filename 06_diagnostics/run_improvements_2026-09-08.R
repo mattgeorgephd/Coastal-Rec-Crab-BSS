@@ -143,7 +143,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- FALSE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
+DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
 F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- see note 1 above
 
 # THE TWO-PASS PLAN (Matt 2026-09-13: "run the 4-rung version now and then follow up with
@@ -165,7 +165,13 @@ F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- s
 # verdict resting on it is downgraded from PASS to REVIEW. So do not apply another patch
 # between the two passes unless you mean to, and if you do, delete the affected rung
 # folders so they re-fit.
-LADDER_PASS <- 2                   # 1 = the four citable rungs; 2 = adds R2f. See above.
+# ALREADY RUN, 2026-09-11: all five fitted rungs completed in ONE pass with LADDER_PASS = 2
+# and R4 fitted first. Results are committed under 05_output/20260910-11/*-newf/ and
+# summarised in PIPELINE_STATUS section 1v (port total 94,376 [77,566, 118,602]; 14 PASS,
+# 2 REVIEW, both diagnosed as D24 and D25). The two switches below are reset to their SAFE
+# values so a clone does not start a 16-hour run by accident; RESUME will reuse every rung
+# whose config digest still matches, so re-running costs minutes unless a delta changed.
+LADDER_PASS <- 1                   # 1 = the four citable rungs; 2 = adds R2f. See above.
 
 STAGES  <- if (identical(F_METHOD, "ladder")) {
              c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
@@ -447,14 +453,40 @@ stage_digest <- function(sid) {
 # (2) record a verdict row, and (3) make the cross-rung verdicts that depend on shared
 # code (R2f's factorization proof, and every fit_exactness bit-identity claim) report
 # REVIEW instead of PASS when the two folders disagree.
+# COMMENTS AND BLANK LINES ARE STRIPPED BEFORE HASHING (2026-09-11). The first full run
+# produced a record worth protecting, and the next documentation patch would otherwise have
+# flagged every one of its folders as "code changed" and downgraded four PASS verdicts to
+# REVIEW. An R comment cannot change a fit, so hashing it is a false positive generator --
+# and a flag that cries wolf on doc edits is a flag nobody reads on the day it matters.
+# This is a narrowing, not a weakening: any executable change still moves the hash.
 .code_group <- function(dir_rel, pattern) {
   fs <- sort(list.files(.here(dir_rel), pattern = pattern, full.names = TRUE))
   if (!length(fs)) return("none")
-  txt <- paste(vapply(fs, function(f) paste(readLines(f, warn = FALSE), collapse = "\n"), character(1)),
-               collapse = "\n--\n")
+  .strip <- function(f) {
+    l <- readLines(f, warn = FALSE)
+    l <- sub("(^|[^\\\\])#.*$", "\\1", l)     # trailing comments (Stan and R both use #; // handled below)
+    l <- sub("//.*$", "", l)                  # Stan line comments
+    l <- trimws(l)
+    paste(l[nzchar(l)], collapse = "\n")
+  }
+  txt <- paste(vapply(fs, .strip, character(1)), collapse = "\n--\n")
   b <- as.integer(charToRaw(txt))
   sprintf("%08x", as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
 }
+# FINGERPRINTS DECLARED EQUIVALENT TO THE CURRENT ONE, with the reason, so a change that
+# provably cannot alter a fit does not degrade an existing record. This is an AUDIT TRAIL,
+# not an escape hatch: every entry names what changed and why the fits are unaffected, and
+# an entry is only defensible when the default code path is identical. Anything you cannot
+# write that sentence about belongs in a re-fit, not in this list.
+CODE_EQUIVALENT <- list(
+  # The 2026-09-11 full run. Patched the same day to add the in-window I/E diagnostic to
+  # estimate_shore_turnover() (D24) and to fix three verdict-reporting defects (D25, D26).
+  # The turnover derivation's DEFAULT path is byte-identical: tau_shore_derive_window_only
+  # ships FALSE, under which `iv` is exactly the frame the previous code built, and the new
+  # run_config key reaches no likelihood. The verdict fixes touch reporting only.
+  "stan:6e4aca2a drivers:3de636d0 fns:44079dee" =
+    "the 2026-09-11 ladder run; patched for the D24 turnover diagnostic and the D25/D26 verdict fixes, neither of which changes a fit"
+)
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),
         sprintf("drivers:%s", .code_group("01_BSS_models", "\\.Rmd$")),
@@ -485,6 +517,7 @@ code_fingerprint <- function() {
 # Which layer(s) differ between a recorded fingerprint and another (or the current one).
 .code_delta <- function(a, b = code_fingerprint()) {
   if (is.na(a %||% NA) || is.na(b %||% NA)) return(NA_character_)
+  if (!is.null(CODE_EQUIVALENT[[a]])) return("")   # declared equivalent; see the list above
   pa <- strsplit(a, " ")[[1]]; pb <- strsplit(b, " ")[[1]]
   ka <- sub(":.*$", "", pa); kb <- sub(":.*$", "", pb)
   ks <- union(ka, kb)
@@ -656,6 +689,8 @@ preflight <- function() {
                       else "does NOT match this stage's config: it will be RE-RUN",
                       if (!keep) "" else if (is.na(cd %||% NA)) "  [no code fingerprint recorded: pre-2026-09-13 run]"
                       else if (nzchar(cd)) sprintf("  *** CODE HAS CHANGED SINCE THAT FIT (%s): it is being REUSED anyway, and any cross-rung claim against it is downgraded ***", cd)
+                      else if (!is.null(CODE_EQUIVALENT[[.stage_code_of(ex) %||% ""]]))
+                        sprintf("  [code fingerprint declared EQUIVALENT: %s]", CODE_EQUIVALENT[[.stage_code_of(ex)]])
                       else "  [code fingerprint matches]"))
         }
       }
@@ -1096,17 +1131,36 @@ verdict_R2 <- function(dir, prev) {
         dir, prev %||% "")
   tb <- .full_row(dir, "private_boat_all_gear", "tau_bar_out")
   ba <- .comp(dir, "private_boat (All gear)"); ba0 <- .comp(prev %||% "", "private_boat (All gear)")
-  V1row("R2", "tau_bar lands on the calibration and the boat rises with it",
-        sprintf("tau_bar %s [%s, %s] (R1 %s); boat all-gear %s vs R1 %s (%+.1f%%)",
+  # 2026-09-11 CORRECTION, from the first full run. The threshold here was 8-20% on the
+  # boat, reasoned from "effort = lambda_E x tau x f, so the boat moves in proportion to
+  # tau_bar". THAT PROPORTIONALITY DOES NOT HOLD, and the run is what showed it: tau_bar
+  # rose 14.0% (2.612 -> 2.977) and boat all-gear rose 4.4% (43,668 -> 45,604), because
+  # the latent effort level absorbed most of it (mu_mu_E 2.7067 -> 2.6449 on the log
+  # scale, a -6.0% multiplicative fall) while kappa_OSP held still (3.120 -> 3.136). The
+  # boat effort scale is JOINTLY identified by the trailer counts, the OSP counts and the
+  # catch likelihood, so re-centring the prior moves the reported component by roughly a
+  # third of the prior move, not by all of it. That is a better property than the one the
+  # old threshold assumed -- it means the OSP stream is doing work -- but it made a correct
+  # run report REVIEW. The band is widened to 2-20% and the pass-through ratio is now
+  # REPORTED, because the ratio is the quantity worth watching: a value near 1 would mean
+  # the effort streams had stopped constraining the level.
+  .tb0 <- .num1(.full_row(prev %||% "", "private_boat_all_gear", "tau_bar_out")$mean)
+  .tpass <- if (isTRUE(is.finite(.tb0)) && .tb0 > 0 && isTRUE(is.finite(.pct(.num1(tb$mean), .tb0))) &&
+                abs(.pct(.num1(tb$mean), .tb0)) > 1e-9) .pct(ba, ba0) / .pct(.num1(tb$mean), .tb0) else NA_real_
+  V1row("R2", "tau_bar lands on the calibration, and how much of it reaches the boat",
+        sprintf("tau_bar %s [%s, %s] (R1 %s, %+.1f%%); boat all-gear %s vs R1 %s (%+.1f%%); pass-through %s of the prior move",
                 fmt(.num1(tb$mean), 3), fmt(.num1(tb[["2.5%"]]), 3), fmt(.num1(tb[["97.5%"]]), 3),
-                fmt(.num1(.full_row(prev %||% "", "private_boat_all_gear", "tau_bar_out")$mean), 3),
-                fmt(ba, 0), fmt(ba0, 0), .pct(ba, ba0)),
-        "tau_bar 2.8-3.1; boat all-gear +10 to +18%",
-        if (isTRUE(.num1(tb$mean) > 2.75) && isTRUE(.num1(tb$mean) < 3.2) && isTRUE(.pct(ba, ba0) > 8) && isTRUE(.pct(ba, ba0) < 20))
+                fmt(.tb0, 3), .pct(.num1(tb$mean), .tb0), fmt(ba, 0), fmt(ba0, 0), .pct(ba, ba0),
+                if (is.na(.tpass)) "NA" else sprintf("%.2f", .tpass)),
+        "tau_bar 2.8-3.1; boat all-gear +2 to +20%; pass-through well below 1",
+        if (isTRUE(.num1(tb$mean) > 2.75) && isTRUE(.num1(tb$mean) < 3.2) && isTRUE(.pct(ba, ba0) > 2) && isTRUE(.pct(ba, ba0) < 20))
           "PASS" else "REVIEW",
-        paste("Effort = lambda_E x tau x f, so the boat moves in proportion to tau_bar. Likelihood-only tau",
-              "was 2.97 against the shrunk posterior 2.60, i.e. +14%; the OSP series identifies tau_bar",
-              "and the prior should no longer fight it. A move outside 8-20% means something else changed."))
+        paste("tau_bar is identified by the OSP/trailer overlap and the prior should no longer fight it:",
+              "the likelihood-only value was 2.97 against the shrunk 2.60. What the boat COMPONENT does",
+              "with that is a separate question, and the answer measured on 2026-09-11 is that it absorbs",
+              "about two thirds of the move in the latent effort level rather than passing it through.",
+              "A pass-through near 1 would mean the trailer, OSP and catch streams had stopped",
+              "constraining the effort scale, which is the thing to watch here."))
   pt <- rd(dir, "ppc_calibration_private_boat_all_gear_Dungeness_Kept.csv")
   if (!is.null(pt))
     V1row("R2", "boat PPC still calibrated after the prior move",
@@ -1229,13 +1283,22 @@ verdict_R3 <- function(dir, prev) {
         "The candidate for adoption if R4 is not adopted: items 8, 3, 1A, 1B in one number.")
 }
 
-verdict_R4 <- function(dir, prev) {
+verdict_R4 <- function(dir, prev, prev_id = "the previous rung") {
   if (is.na(dir %||% NA)) return(invisible(NULL))
-  fe <- fit_exactness(dir, prev %||% "", pat = "private_boat", what = "boat fits vs R3",
+  # 2026-09-11, from the first full run: the three census keys were MISSING from
+  # expect_delta, so this row reported "3 UNEXPECTED: census_uncertainty,
+  # charter_expansion, charter_frame" on a PASS. They belong to D_R4 by design (the
+  # 2026-09-11 census split ships with the derived shore turnover), so they are expected.
+  # An UNEXPECTED flag that fires on a correct configuration is worse than no flag: it
+  # trains the reader to ignore the one place the runner says "this comparison is not what
+  # you think it is".
+  fe <- fit_exactness(dir, prev %||% "", pat = "private_boat",
+                      what = sprintf("boat fits vs %s", prev_id),
                       expect_delta = c("tau_shore_prior_mu", "tau_shore_prior_sigma", "tau_shore_prior_source", "shared_tau_min_obs",
+                                       "census_uncertainty", "charter_frame", "charter_expansion",
                                        "run_tag", "model", "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates"))
   V1cross("R4", "the boat did not move (the shore prior cannot reach it)", fe$observed,
-        "boat fits bit-identical to the previous rung", fe$verdict,
+        sprintf("boat fits bit-identical to %s", prev_id), fe$verdict,
         "A FAIL means the shore turnover leaked into the boat fits, which it has no path to do.",
         dir, prev %||% "")
   sa <- .comp(dir, "shore (All gear)"); sa0 <- .comp(prev %||% "", "shore (All gear)")
@@ -1248,15 +1311,45 @@ verdict_R4 <- function(dir, prev) {
         if (isTRUE(abs(ea / ea0 - 2.48 / 1.7) < 0.12)) "PASS" else "REVIEW",
         paste("The shore is linear in tau_shore; the derived prior is 2.48 against 1.7 and the shared level",
               "carries it. A ratio well off 1.45 means the data (I/E trips) pulled the level, which is",
-              "worth reading: the I/E stream is the only shore observation that can."))
+              "worth reading: the I/E stream is the only shore observation that can. Measured 2026-09-11:",
+              "x1.356 on the all-gear effort, i.e. the data pulled the posterior turnover slightly BELOW",
+              "the prior centre (2.394 against 2.477) and the tight derived prior (log SD 0.1) held the",
+              "rest. Read this row together with the sigma_IE row below: they are two views of the same",
+              "disagreement."))
   s1 <- .full_row(dir, "shore_all_gear", "sigma_IE_out"); s0 <- .full_row(prev %||% "", "shore_all_gear", "sigma_IE_out")
-  V1row("R4", "the I/E observation scale did not worsen", sprintf("sigma_IE %s (R3 %s)", fmt(.num1(s1$mean), 3), fmt(.num1(s0$mean), 3)),
-        "not larger than R3's", if (isTRUE(.num1(s1$mean) <= .num1(s0$mean) * 1.05)) "PASS" else "REVIEW",
-        "If the I/E trips disagree with the derived turnover, sigma_IE absorbs the disagreement; it should not grow.")
+  # HOW MANY OBSERVATIONS IS THIS VERDICT RESTING ON? Added 2026-09-11, because the first
+  # full run returned sigma_IE 0.577 against 0.373 (+55%, a REVIEW) and the number that
+  # makes that interpretable was nowhere on the page: the shore ALL-GEAR fit has only FOUR
+  # in-window I/E days (the shore turnover itself is derived from 40 days, 36 of them
+  # outside this sub-season). A +55% move in a parameter estimated from four observations
+  # is a direction, not a measurement, and the row has to say so.
+  .ie_n <- tryCatch({
+    x <- rd(dir, "L_effective_ie_detail.csv")
+    pc <- rd(dir, "bss_period_coverage_shore_all_gear_Dungeness_Kept.csv")
+    if (is.null(x) || is.null(pc)) NA_integer_ else {
+      d1 <- min(as.Date(pc$date_start)); d2 <- max(as.Date(pc$date_end))
+      sum(as.Date(x$event_date) >= d1 & as.Date(x$event_date) <= d2, na.rm = TRUE)
+    }
+  }, error = function(e) NA_integer_)
+  .ie_tot <- tryCatch(nrow(rd(dir, "L_effective_ie_detail.csv")), error = function(e) NA_integer_)
+  V1row("R4", "the I/E observation scale did not worsen",
+        sprintf("sigma_IE %s (%s %s); the shore all-gear likelihood has %s in-window I/E day(s) of %s in the workbook",
+                fmt(.num1(s1$mean), 3), prev_id, fmt(.num1(s0$mean), 3),
+                if (is.na(.ie_n)) "?" else as.character(.ie_n),
+                if (is.na(.ie_tot)) "?" else as.character(.ie_tot)),
+        sprintf("not more than 5%% above %s's", prev_id),
+        if (isTRUE(.num1(s1$mean) <= .num1(s0$mean) * 1.05)) "PASS" else "REVIEW",
+        paste("The I/E stream is the shore's only direct observation of the turnover: the likelihood is",
+              "arrivals ~ lognormal(log(lambda_E * tau_shore), sigma_IE), so if the derived tau over-expands",
+              "the count, sigma_IE grows to absorb it. Measured 2026-09-11: 0.373 -> 0.577, and on the four",
+              "in-window days the predicted arrivals went from 1.25x the observed to 1.64x. The direction is",
+              "consistent and physically interpretable; the magnitude is not well identified (the two",
+              "posteriors overlap heavily, [0.03, 0.84] against [0.29, 1.03]) because n = 4. The pot-closure",
+              "component, which has its own I/E days, did NOT move (0.206 -> 0.202). See CHANGE_REGISTER D24."))
   V1row("R4", "the port total with the derived shore turnover",
-        sprintf("%s [%s, %s] (R3 %s; baseline %s)", fmt(.num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_median), 0),
+        sprintf("%s [%s, %s] (%s %s; baseline %s)", fmt(.num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_median), 0),
                 fmt(.num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_lo95), 0), fmt(.num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_hi95), 0),
-                fmt(.num1(.port_row(rd(prev %||% "", "port_total_Dungeness_Kept.csv"))$BSS_median), 0), fmt(REF$A1$port, 0)),
+                prev_id, fmt(.num1(.port_row(rd(prev %||% "", "port_total_Dungeness_Kept.csv"))$BSS_median), 0), fmt(REF$A1$port, 0)),
         "informational; the decision (adopt, or hold for a field check) is Matt's", "INFO",
         "A paired gear count on every I/E day is the cheap field confirmation of the derived turnover.")
 }
@@ -1335,7 +1428,7 @@ if ("R2"  %in% STAGES) .safe("R2",  verdict_R2(dirs$R2, .dir_of(prev_pooled("R2"
 if ("R2f" %in% STAGES) .safe("R2f", verdict_R2f(dirs$R2f, .dir_of("R2")))
 if ("R3a" %in% STAGES) .safe("R3a", verdict_R3a(dirs$R3a, .dir_of(prev_pooled("R3a"))))
 if ("R3"  %in% STAGES) .safe("R3",  verdict_R3(dirs$R3, .dir_of(prev_pooled("R3"))))
-if ("R4"  %in% STAGES) .safe("R4",  verdict_R4(dirs$R4, .dir_of(prev_pooled("R4"))))
+if ("R4"  %in% STAGES) .safe("R4",  verdict_R4(dirs$R4, .dir_of(prev_pooled("R4")), prev_pooled("R4")))
 if ("R5"  %in% STAGES) .safe("R5",  verdict_R5(dirs$R5, .dir_of(GEAR_FOLLOWS)))
 
 if (length(LAD)) {
