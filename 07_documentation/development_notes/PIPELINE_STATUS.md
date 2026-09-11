@@ -1022,6 +1022,84 @@ The gap is therefore closed as **hardening, not a fix**: the masking rests on `r
 
 ---
 
+## 1v. THE LADDER RAN. The 2024-25 estimate, and what moved it (2026-09-11)
+
+All five fitted rungs completed on 2026-09-11 (`LADDER_PASS <- 2`, R4 fitted first). Every code fingerprint matches across the five folders, so every cross-rung comparison is valid. **14 PASS, 7 INFO, 4 READ, 2 REVIEW**, and both REVIEWs are diagnosed below.
+
+### The headline
+
+| | port total | 95% CI | CI width / median | PE port |
+|---|---|---|---|---|
+| 2026-09-04 A1 baseline | 72,027 | [53,018, 101,364] | 67% | 45,105 (-37% vs BSS) |
+| **R4, the shipped configuration** | **94,376** | **[77,566, 118,602]** | **43%** | 85,076 (-10% vs BSS) |
+
+**+31.0% on the median, and the interval tightened from 67% to 43% of it.** The PE-vs-BSS reconciliation went from a 37% gap to a 10% gap.
+
+### What moved it, attributed
+
+This is what the ladder was built to produce, and the parts sum to the whole within 24 crab:
+
+| change | rung step | effect on the port |
+|---|---|---|
+| the dynamic monthly f (boat only) | R2f -> R2 | **+11,963** (boat all-gear +35.6% at a fixed turnover) |
+| the derived shore turnover | R2 -> R4 | **+10,327** (shore all-gear x1.356, pot closure x1.413) |
+| the boat turnover recentring | R1 -> R2 | +2,621 |
+| the census split (commercial census + charter expansion) | in R4 | -3,283 against the baseline's 11,821, by design |
+| the filters and the rebuilt inputs | A1 -> R1, shore | +0.1% shore all-gear, +0.4% pot closure |
+
+### The design guarantees held exactly
+
+- **Shore bit-identical across R1, R2 and R2f** (6,343 / 21,502 in all three, same divergence counts, same R-hat): the boat turnover prior and the f block have no path to the shore, and now that is measured rather than argued. 6,270 shared parameter rows identical at full precision.
+- **Boat bit-identical between R2 and R4** (1,372 / 45,604): the shore turnover has no path to the boat. 4,170 rows identical.
+- **THE FACTORIZATION PROOF IS ESTABLISHED.** R2f is R2 with the f block rolled back, so the pair differs only in f. Max |z| over 1,957 shared boat parameters is **3.20** (`L_raw[13]` of the pot-closure fit), with 2 rows above 3 (0.10%). f enters the boat generated quantities and nothing else; effort and CPUE posteriors are unchanged in distribution. This had never been run before.
+- **The two tracks agree**: gear port 93,274 against pooled 94,376 (-1.17%, inside the 2% criterion), tau_bar to 0.02%, monthly f to 0.002.
+
+### Sampler health: clean everywhere
+
+Every component reports BSS in every rung -- **no PE fallbacks anywhere**, which also means the PE's unsampled-cell levers did not reach the reported total. Worst divergence fraction 2.17% (shore all-gear) against a 5% backstop; treedepth saturation 0%; every R-hat within 1.0007 of 1; n_eff 4,600 to 21,200 against a 400 floor; scale-aware divergence impact at most 0.003 posterior SD against a 0.10 threshold. `model_adequacy.csv` flags nothing overparameterised, nothing miscalibrated, no PIT bias; `p_loo` runs 7-18% of observations (the retired daily shore AR was 35%), and the only `flag_loo_unreliable` cases are one bad Pareto k each on shore all-gear and boat pot closure.
+
+### D19 is settled, for the shore
+
+**Shore all-gear: PE 35,292 against BSS 34,837, -1.3% on effort and -1.8% on catch.** Under the retired `zero` fill the same comparison was -21.5%; under `day_type` -3.6%. Two estimators with nothing in common -- a design-based stratified expansion with a month-local donor, and a Bayesian AR(1) state-space with day-type effects imputing every unsampled day -- landing within 1.3% is the strongest available validation of both, and it is what the `local_day_type` fill was adopted to achieve. Shore pot closure: +3.0%.
+
+**For the boat it is not settled, and the evidence runs against the CPUE half of B19.** Boat all-gear PE 37,018 against BSS 45,604, -18.8%. The `pooled` CPUE fill would have given 42,841, **-6.1%** -- closer. The PE's own internal target points the same way: the boat interview ratio-of-sums is 3.276 crab per deployment, and the PE's implied CPUE is 2.650 under `local` (0.81x) against 3.067 under `pooled` (0.94x), with the BSS at 2.928 (0.89x). Against that, the theoretical argument for `local` (a month-local effort fill multiplied by a season-pooled rate counts the seasonal gradient twice) remains sound, and a correct month-local fill SHOULD pull the effort-weighted implied CPUE below an interview ratio-of-sums that is not weighted by the calendar. So this is genuinely unresolved: `local_day_type` for the effort fill is vindicated, `pe_empty_stratum = "local"` is not, and because no component fell back to PE the choice currently affects only the cross-check.
+
+### The two REVIEWs
+
+**1. R2, the boat rose 4.4% where the threshold expected 8-20%. The threshold was wrong (D25).** tau_bar moved 14.0% and the component moved 4.4%, because `mu_mu_E` fell 6.0% multiplicatively while `kappa_OSP` held still: the boat effort scale is jointly identified by the trailer counts, the OSP counts and the catch likelihood, so the prior move does not pass through. That is a better property than the threshold assumed. Band corrected, pass-through ratio now reported.
+
+**2. R4, sigma_IE grew 55%, and this one is real (D24).** 0.373 -> 0.577 on the shore all-gear fit when the derived turnover was adopted; the pot-closure fit, which has its own I/E days, did not move (0.206 -> 0.202). Chasing it found that **`estimate_shore_turnover()` never filtered the I/E interval rows to the estimation window.** The shipped 2.477 rests on 40 days spanning 2023-08 to 2026-08, of which 6 are in the season and 4 in the sub-season it scales by 1.36 -- and it is the same number whichever season you run, while the guide described it as derived from the window. Three independent indications now point the same way:
+
+| indication | value |
+|---|---|
+| in-window ratio of sums vs pooled | **2.225** vs 2.477 (**-10.2%**) |
+| fitted posterior turnover | 2.394, between the two, with the log-SD 0.1 prior holding the rest |
+| the 4 in-window I/E days | predicted arrivals 1.25x observed at tau 1.7, **1.64x** at 2.478 |
+
+What this does **not** establish is that 2.225 is right: 6 days with a between-day log-SD of 0.20 gives a bootstrap log-SE of 0.068, so it is itself +/-15%, and both values sit far above the retired peak-based 1.669. **The direction of the 2026-09-09 adoption is well supported; the magnitude is worth about 3,500 crab (3.7%) on the port total.** `tau_shore_derive_window_only = TRUE` prices the alternative (it also needs `tau_shore_derive_min_days` lowered from 10, or the resolver rejects a 6-day derivation and falls back to 1.7). The field fix is a paired gear count on every I/E day.
+
+### The monthly f, which is the largest mover, behaves as designed
+
+| month | contacts | share | f | | month | contacts | share | f |
+|---|---|---|---|---|---|---|---|---|
+| 2024-12 | 31 | 0.97 | 0.92 | | 2025-05 | 17 | 0.47 | 0.51 |
+| 2025-01 | 26 | 0.89 | 0.89 | | 2025-06 | 13 | 0.46 | 0.47 |
+| 2025-02 | **5** | 1.00 | **0.87** | | 2025-07 | 17 | 0.47 | 0.42 |
+| 2025-03 | 13 | 0.69 | 0.75 | | 2025-08 | 44 | 0.27 | 0.30 |
+| 2025-04 | 26 | 0.62 | 0.62 | | 2025-09 | 29 | 0.14 | 0.20 |
+
+No month sits at the retired 0.30 anchor; every informed month (n >= 20) tracks its own contact share within 0.06; the five thin months carry visibly wider intervals (mean width 0.360 against 0.249). February is the clearest demonstration: 5 contacts, all 5 crabbing, and the walk reports 0.87 rather than 1.00, shrinking toward January (0.89) and March (0.75) -- where the retired Beta(6,14) with kappa 20 would have pulled it toward 0.30. `sigma_f` 0.701, away from zero, so the walk is identified; f_Rhat within 1.0002, n_eff at least 10,108. **The flat f = 0.30 was wrong by roughly 3x in the winter months that carry most of the boat catch**, and that is the +35.6% R2f isolates.
+
+### A caveat on the PE-vs-BSS agreement that the totals hide
+
+The shore all-gear annual totals agree to 1.8%, but the MONTHLY distributions do not: the PE over-allocates January to March by about 2.2x and under-allocates June and July (0.36x, 0.59x), and the errors cancel. The boat is worse (0.20x in June, 3.23x in September). The annual agreement is real and worth having, but it is not month-by-month agreement and should not be cited as such.
+
+### One thing the post-run patch itself exposed (B24)
+
+The code fingerprint B23 added hashes raw file text, so the very patch that records this run flagged all five of its folders as "code changed" and would have downgraded four PASS verdicts to REVIEW on the next re-run -- for edits that cannot alter a fit. Comments and blank lines are now stripped before hashing, and `CODE_EQUIVALENT` carries an auditable fingerprint-to-reason map for changes whose default code path is provably identical. The 2026-09-11 run's fingerprint (`stan:6e4aca2a drivers:3de636d0 fns:44079dee`) is the list's first entry. **Verification:** harness **833** assertions.
+
+---
+
 ## 2. Repository map
 
 - **`01_BSS_models/`**, the two production driver `.Rmd` (pooled, gear-resolved) and a README; the rendered `.html` are written into the run folder, not kept here. Pooled is v7.9, gear is v5.6. The `-old.Rmd` snapshots were removed 2026-07-12.
