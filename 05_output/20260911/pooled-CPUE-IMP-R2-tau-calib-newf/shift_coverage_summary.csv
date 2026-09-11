@@ -1,0 +1,2 @@
+"n_shift_days","median_first_check_in","median_last_check_out","median_hours_in_port","return_profile_source","median_return_share_covered","returns_before_first_check_in","returns_after_last_check_out","contacts_inside_shift","weighting"
+199,9.73333333333333,15.8666666666667,6.11666666666666,"all boat-I/E sites pooled (WBL has 5 days, floor 10)",0.753125,0.0875,0.146875,0.99,"none"

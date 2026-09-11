@@ -1,0 +1,12 @@
+stage: R2f
+F_METHOD: new_throughout
+digest: R2f|new_throughout|04a56a99
+code: stan:6e4aca2a drivers:3de636d0 fns:44079dee
+rstan: 2.32.7 / StanHeaders 2.32.10
+written: 2026-09-11 10:48:39
+
+# run_improvements_2026-09-08.R writes this after a rung renders. RESUME
+# reuses a folder ONLY when the `digest` line matches the stage it is resolving
+# now. The `code` line is NOT enforced: a mismatch is reported at the rung and in
+# the verdicts, and downgrades any cross-rung bit-identity or agreement claim that
+# rests on the two folders having been fitted by the same code.

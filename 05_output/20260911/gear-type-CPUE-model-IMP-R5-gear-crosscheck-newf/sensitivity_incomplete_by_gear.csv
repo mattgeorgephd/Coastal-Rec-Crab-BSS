@@ -1,0 +1,5 @@
+"gear_type","cpue_unit","cpue_complete","n_complete","cpue_incomplete","n_incomplete","bias_pct","bias_pct_crabber_hours_legacy"
+"Pot","gear-deployments",0.766,382,0.612,262,-20.1,-18.6
+"Ring Net","gear-deployments",0.917,422,0.722,228,-21.3,4.4
+"Trap","gear-deployments",1.387,582,0.92,314,-33.7,-23.1
+"Snare","gear-deployments",0.957,194,0.789,97,-17.5,-19.7

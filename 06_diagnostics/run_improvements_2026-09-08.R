@@ -143,7 +143,7 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
-DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
+DRY_RUN <- FALSE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
 F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- see note 1 above
 
 # THE TWO-PASS PLAN (Matt 2026-09-13: "run the 4-rung version now and then follow up with
@@ -165,14 +165,14 @@ F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- s
 # verdict resting on it is downgraded from PASS to REVIEW. So do not apply another patch
 # between the two passes unless you mean to, and if you do, delete the affected rung
 # folders so they re-fit.
-LADDER_PASS <- 1                   # 1 = the four citable rungs; 2 = adds R2f. See above.
+LADDER_PASS <- 2                   # 1 = the four citable rungs; 2 = adds R2f. See above.
 
 STAGES  <- if (identical(F_METHOD, "ladder")) {
              c("R0", "R1", "R2", "R3a", "R3", "R4", "R5")
            } else if (LADDER_PASS >= 2) {
-             c("R0", "R1", "R2", "R2f", "R4", "R5")
+             c("R0", "R4", "R1", "R2", "R2f", "R5")
            } else {
-             c("R0", "R1", "R2", "R4", "R5")
+             c("R0", "R4", "R1", "R2", "R5")
            }
 RESUME  <- TRUE                    # reuse a rung ONLY when its IMP_STAGE.txt digest matches
 GEAR_FOLLOWS <- "R4"               # the pooled rung whose configuration R5 fits: "R4" (shipped) | "R3"
