@@ -32,11 +32,11 @@ Everything is in `run_config.R`; the keys below must move TOGETHER. A checklist 
 3. **The closure calendar:** `pot_closure_start`, `pot_closure_end`, `pot_open_date`. A window that does not intersect the closure yields a single all-gear sub-season (fixed 2026-09-09); a window inside the closure yields a single pot-closure sub-season; a mid-window closure yields three. A span containing several closures uses `pot_closures` instead, one entry per season (added 2026-09-10; see section 7). **Since 2026-09-12 `validate_season_window()` warns when any of these three, or the two census dates, falls outside the estimation window** -- the failure mode is a single-season ROLLBACK from a multi-season span, where these are exactly the keys left behind. `pot_open_date` is the least dangerous of them (its only consumers are the "Pots open" plot marker and a fallback for a NULL `pot_closure_end`; the "L_effective I/E regression split" it was once documented as feeding never existed) and `pot_closure_start`/`end` are the most, because `build_subseasons()` splits the season on them.
 4. **The census window:** `census_start_date`, `census_end_date` (the commercial/charter tally span; independent of the estimation window and easy to forget).
 5. **The AR caps:** `ar_max_resolution`. These are 2024-25 answers and the subject of section 3. Treat them as starting points.
-6. **Every key tagged `SEASON-DERIVED`** in `run_config.R`: the `kappa_OSP` prior center (3.0, from the 2024-25 overlap days), the ZI prior shape (Beta(1,9), from the 2024-25 zero bin), `shared_tau_min_obs` (15; check the printed OSP-informed-day count against it), `tau_boat_prior_mu_fallback` (2.7) and `tau_shore_prior_mu_fallback` (1.7). Since 2026-09-08/09 the two turnover prior centres resolve per run (`tau_boat_prior_mu = "calibration"` from the window's OSP/trailer overlap, `tau_shore_prior_mu = "derived"` from the I/E time column and the window's count hours -- **note, corrected 2026-09-11: the count HOURS are the window's but the diel presence PROFILE pools every I/E day in the workbook, so the derived centre is a multi-season quantity and is the same number whichever season you run. On 2024-25 only 7 of its 40 days are in the season. `tau_shore_derive_window_only = TRUE` restricts it; `shore_turnover_summary.csv` reports both either way. See CHANGE_REGISTER D24**), the crabbing fraction f and the combo share c are read from the season's contacts and trip types, and the census is the exact sum over the tally days; the fallbacks apply only when a season lacks the data behind them, and the run says so.
+6. **Every key tagged `SEASON-DERIVED`** in `run_config.R`: the `kappa_OSP` prior center (3.0, from the 2024-25 overlap days), the ZI prior shape (Beta(1,9), from the 2024-25 zero bin), `shared_tau_min_obs` (15; check the printed OSP-informed-day count against it), `tau_boat_prior_mu_fallback` (2.7) and `tau_shore_prior_mu_fallback` (1.7). Since 2026-09-08/09 the two turnover prior centres resolve per run (`tau_boat_prior_mu = "calibration"` from the window's OSP/trailer overlap, `tau_shore_prior_mu = "derived"` from the I/E time column and the window's count hours -- **note, corrected 2026-09-11: the count HOURS are the window's but the diel presence PROFILE pools every I/E day in the workbook, so the derived centre is a multi-season quantity and is the same number whichever season you run. On 2024-25 only 6 of its 40 days are in the season, and the window's own 6 give 2.225 against the pooled 2.477, a gap of 0.83 SE that the existing I/E data cannot resolve either way. `tau_shore_derive_window_only = TRUE` restricts it; `shore_turnover_summary.csv` reports both either way. See CHANGE_REGISTER D24**), the crabbing fraction f and the combo share c are read from the season's contacts and trip types, and the census is the exact sum over the tally days; the fallbacks apply only when a season lacks the data behind them, and the run says so.
 7. **The PE's unsampled-cell levers:** `pe_empty_effort_stratum`, `pe_empty_stratum`, `pe_variance`. Not season-derived, but read the per-component numbers in `pe_empty_effort_strata.csv` for the new season before citing anything: with weekly strata and ~50% day coverage, roughly half of a component's calendar days rest on one sampled day or none, and a thinner season makes it worse. These levers change the PE point and its SE, and a component whose gate FAILS reports its PE point in the port total as a constant, so on a thin season they can reach the headline.
 8. **`run_tag`:** name the run so you can find the folder.
 
-Worked values for **2025-26** (data through 2026-09-08; the season ends 2026-09-15), in the commented block under `season_filter` in `run_config.R`: window 2025-09-16 to 2026-09-15, `season_filter = "2025-26"`, closure 2025-09-16 to 2025-11-30 with pots legal 2025-12-01, census window 2025-12-01 to 2026-01-03 (Grays Harbor's commercial fishery opened Jan 4, 2026), `commercial_opener = "2026-01-04"`. As of 2026-09-10 the season has no OSP rows and no WBL boat I/E days, so the boat runs on the trailer counts with per-day turnover draws (a short smoke fit of the boat all-gear component sampled in 4 minutes with 37 of 2,000 divergences, the known funnel of the per-day-tau geometry; expect to pin the boat on the OSP file when it arrives).
+Worked values for **2025-26** (data through 2026-09-08; the season ends 2026-09-15), also written out as a paste-ready block in section 7.1 below (they used to sit commented out in `run_config.R`; since 2026-09-12 that file carries only the canonical 2024-25 window, CHANGE_REGISTER D28): window 2025-09-16 to 2026-09-15, `season_filter = "2025-26"`, closure 2025-09-16 to 2025-11-30 with pots legal 2025-12-01, census window 2025-12-01 to 2026-01-03 (Grays Harbor's commercial fishery opened Jan 4, 2026), `commercial_opener = "2026-01-04"`. As of 2026-09-10 the season has no OSP rows and no WBL boat I/E days, so the boat runs on the trailer counts with per-day turnover draws (a short smoke fit of the boat all-gear component sampled in 4 minutes with 37 of 2,000 divergences, the known funnel of the per-day-tau geometry; expect to pin the boat on the OSP file when it arrives).
 
 Also know that the drivers' own `params_model` blocks carry per-fit sampler settings (iterations, treedepth, adapt_delta keyed by fit name) tuned on 2024-25 geometry. They are conservative, so they rarely need touching, but a new season's pathological fit is tuned there, not in `run_config` (`bss_sampler_override` is the sanctioned route from the config side).
 
@@ -102,7 +102,90 @@ Supported as of 2026-09-10 (CHANGE_REGISTER A14). A span takes four settings tha
 
 The report then writes `season_totals.csv` (always) and renders a season-summary table (when the span has more than one season). Monthly figures and fit diagnostics already cover the full span: month labels are year-qualified (`%Y-%m`) and the calendar indices are span-safe (sequential year-week and year-month factors; no aliasing).
 
-Two things to know about a span. `pot_open_date` is still a single scalar feeding the ingress/egress `L_effective` regression split, so the split is exact only for the first season (tracked in A14). And a span is NOT one statistical process: `build_subseasons()` emits one sub-season per closure and the driver fits each one independently (its own effort, CPUE and turnover parameters), so nothing is shared across seasons except the I/E day-length regression (pooled across seasons unless `ie_filter_by_season = TRUE`) and the config priors. A season's total from a span therefore equals a standalone single-season run of the same data up to those two inputs and Monte Carlo error; the value of a span is one run, one report and one set of figures, not borrowed strength between seasons. (Corrected 2026-09-08; the first version of this section claimed a shared process.)
+Two things to know about a span. The first is NOT what this section used to say: `pot_open_date` was described as a single scalar feeding the ingress/egress `L_effective` regression split, exact only for the first season. It never did that; `estimate_L_effective()` took it as an argument and never referenced it, and the dead argument is gone (corrected 2026-09-12, CHANGE_REGISTER A14). **The real approximation is that the I/E day-length regression POOLS every season's days into one `yday -> L` curve**, so check the residuals by season in `L_effective_ie_detail.csv` before trusting a span whose seasons have different day-length behaviour; `ie_filter_by_season = TRUE` is the per-season alternative. The same pooling is what makes the derived shore turnover a multi-season quantity (D24). And a span is NOT one statistical process: `build_subseasons()` emits one sub-season per closure and the driver fits each one independently (its own effort, CPUE and turnover parameters), so nothing is shared across seasons except the I/E day-length regression (pooled across seasons unless `ie_filter_by_season = TRUE`) and the config priors. A season's total from a span therefore equals a standalone single-season run of the same data up to those two inputs and Monte Carlo error; the value of a span is one run, one report and one set of figures, not borrowed strength between seasons. (Corrected 2026-09-08; the first version of this section claimed a shared process.)
+
+### 7.1 Paste-ready window blocks
+
+`run_config.R` ships the canonical single 2024-25 season and nothing else, so the alternative
+windows live here. Each block replaces the nine per-season keys in section 1.2 of that file as a
+set; change one, change them all.
+
+**The canonical run (shipped; no edit needed).** The window of
+`05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602]:
+
+```r
+  est_date_start    = "2024-09-16",   est_date_end      = "2025-09-15",
+  season_filter     = "2024-25",
+  pot_closures      = NULL,
+  pot_closure_start = "2024-09-16",   pot_closure_end   = "2024-11-30",
+  pot_open_date     = "2024-12-01",
+  census_windows    = NULL,
+  census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
+  commercial_opener = "2025-02-11",
+  run_tag           = "canonical-2024-25",
+```
+
+**Single season 2025-26** (data through 2026-09-08; the season ends 2026-09-15). Grays Harbor's
+commercial fishery opened Jan 4, 2026 (WDFW news release 2025-12-29), so the census window ends
+Jan 3:
+
+```r
+  est_date_start    = "2025-09-16",   est_date_end      = "2026-09-15",
+  season_filter     = "2025-26",
+  pot_closures      = NULL,
+  pot_closure_start = "2025-09-16",   pot_closure_end   = "2025-11-30",
+  pot_open_date     = "2025-12-01",
+  census_windows    = NULL,
+  census_start_date = "2025-12-01",   census_end_date   = "2026-01-03",
+  commercial_opener = "2026-01-04",
+  run_tag           = "season-2025-26",
+```
+
+Known before you run it: no OSP rows and no WBL boat I/E days exist for 2025-26 yet
+(CHANGE_REGISTER D18, `WBL_boat_counts.xlsx` stops 2025-10-18), so the boat runs on the trailer
+counts with per-day turnover draws and the shared boat turnover is REFUSED for want of overlap
+days. A smoke fit of the boat all-gear component sampled in 4 minutes with 37 of 2,000
+divergences, which is the known funnel of the per-day-tau geometry. The tally has 23 days and the
+charter roster 11 Westport trips. Expect to pin the boat on the OSP file when it arrives.
+
+**The 2023-25 two-season span** (STAGED AND BLOCKED; this is what `run_config.R` shipped between
+2026-09-10 and 2026-09-12, CHANGE_REGISTER D28):
+
+```r
+  est_date_start    = "2023-09-16",   est_date_end      = "2025-09-15",
+  season_filter     = c("2023-24", "2024-25"),
+  pot_closures      = list(
+    list(season = "2023-24", start = "2023-09-16", end = "2023-11-30"),
+    list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")
+  ),
+  pot_closure_start = "2024-09-16",   pot_closure_end   = "2024-11-30",
+  pot_open_date     = "2024-12-01",
+  census_windows    = list(
+    "2023-24" = c("2023-12-01", "2024-01-31"),
+    "2024-25" = c("2024-12-01", "2025-02-08")
+  ),
+  census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
+  commercial_opener = "2025-02-11",
+  run_tag           = "two-season-2023-25",
+```
+
+**Why it is blocked, and what it would still buy.** The 2023-24 census window ends Jan 31, 2024
+because the coastal commercial fishery opened Feb 1, 2024 (WDFW bulletin, "Washington's coastal
+Dungeness crab commercial season opens Feb. 1"), but **no vessel tally and no charter roster were
+ever kept for that season**, so `estimate_comm_charter()` finds 33 Westport commercial-vessel
+interviews with no vessel count to expand to, warns that the frame is missing, and returns 0. A
+two-season port total is therefore short by the whole 2023-24 commercial/charter catch. That is a
+`warning()` inside a multi-hour knit, so it is easy to miss; if you run the span, read the census
+section of the report before quoting a total.
+
+The data that IS there, after the 2026-09-10 rebuild: `effort_combined.xlsx` holds 2022-23
+through 2025-26 (2023-24: 4,116 counts on 360 days, with 20 Feb-2024 rows flagged and held out,
+see `effort_qc_drop`); `crabbing_holidays.xlsx` holds 2022-23 through 2026-27;
+`interview_combined.xlsx` carries the 2023-24 gear count (it was there all along under a different
+header spelling, D15) with the 2022-24 gear labels harmonised to the 2024-25 vocabulary. Two
+caveats on the 2023-24 season itself: `WBL_boat_counts.xlsx` starts in March 2024, so most of that
+season's boat runs trailer-only; and the Grays Harbor 2023-24 shifts were shorter (median 4.1 h
+against 6.0 h in 2024-25), so the contact-based crabbing fraction covers less of the day.
 
 ## 8. Failure modes, and what each one means
 

@@ -2835,10 +2835,18 @@ local({
       isTRUE(all.equal(rw$Dungeness_Kept, rr$Dungeness_Kept)) && isTRUE(all.equal(rw$charter_roster_dung, rr$charter_roster_dung)) && nrow(rw$roster_reconciliation) == 9)
 
   # --- the shipped configuration and the drivers ---
-  chk("shipped: charter_frame = roster, effort_qc_drop holds the interview-total flag, the 2023-24 census window ends Jan 31 (opener Feb 1, 2024), a 2025-26 block is documented",
-      identical(rc$charter_frame, "roster") && identical(rc$effort_qc_drop, "gear_count_from_interviews") &&
-        identical(unname(rc$census_windows[["2023-24"]]), c("2023-12-01", "2024-01-31")) &&
-        any(grepl("season-2025-26", readLines("run_config.R", warn = FALSE), fixed = TRUE)))
+  # 2026-09-12: run_config.R ships ONLY the canonical single 2024-25 window (D28), so the
+  # alternative windows -- and the 2023-24 census date that goes with the blocked span --
+  # are asserted where they now live, NEW_SEASON_GUIDE section 7.1, not in the config.
+  chk("shipped: charter_frame = roster, effort_qc_drop holds the interview-total flag",
+      identical(rc$charter_frame, "roster") && identical(rc$effort_qc_drop, "gear_count_from_interviews"))
+  chk("shipped: the alternative windows are paste-ready in the guide (2025-26, and the blocked 2023-25 span ending Jan 31 on the 2024 opener)",
+      { g <- paste(readLines("07_documentation/NEW_SEASON_GUIDE.md", warn = FALSE), collapse = "\n")
+        grepl("Paste-ready window blocks", g, fixed = TRUE) &&
+        grepl('season_filter     = "2025-26"', g, fixed = TRUE) &&
+        grepl('run_tag           = "season-2025-26"', g, fixed = TRUE) &&
+        grepl('"2023-24" = c("2023-12-01", "2024-01-31")', g, fixed = TRUE) &&
+        grepl('c("2023-24", "2024-25")', g, fixed = TRUE) })
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
     d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
     chk(sprintf("%s: the census row names the charter frame", basename(drv)), any(grepl("charter_frame", d, fixed = TRUE)))
@@ -3619,6 +3627,84 @@ local({
   chk("window: the missing-census-frame condition is a warning (D28 option b would make it a stop)",
       grepl("the frame is missing for this window and the component is 0", cc, fixed = TRUE) &&
       grepl("warning(sprintf(paste0(\"estimate_comm_charter():", cc, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 66. run_config.R IS THE CANONICAL RUN, AND IT IS ORDERED (2026-09-12, D28 closed).
+#     Two properties, both of which had failed silently before. (a) The shipped window is
+#     the window of the authoritative run, so a clone that runs run_estimation.R
+#     reproduces the box instead of the blocked 2023-25 span. Asserted by comparing the
+#     config against the ladder's own WINDOW pin, key for key, so either drifting is
+#     caught. (b) The file is ordered so a reader who wants to know what the model DOES
+#     can stop at the end of section 2: the method keys come before the diagnostics
+#     banner and the experiment levers come after it.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  src <- readLines("run_config.R", warn = FALSE)
+
+  # ---- (a) the canonical window -------------------------------------------
+  chk("canonical: the shipped model is the pooled headline estimator",
+      identical(e$model, "pooled") && identical(e$run_weather, FALSE))
+  chk("canonical: the nine per-season keys are the single 2024-25 season",
+      identical(rc$est_date_start, "2024-09-16") && identical(rc$est_date_end, "2025-09-15") &&
+      identical(rc$season_filter, "2024-25") &&
+      is.null(rc$pot_closures) && is.null(rc$census_windows) &&
+      identical(rc$pot_closure_start, "2024-09-16") && identical(rc$pot_closure_end, "2024-11-30") &&
+      identical(rc$pot_open_date, "2024-12-01") &&
+      identical(rc$census_start_date, "2024-12-01") && identical(rc$census_end_date, "2025-02-08") &&
+      identical(rc$commercial_opener, "2025-02-11"))
+  t <- readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE)
+  i <- grep("^WINDOW <- list\\(", t)[1]
+  j <- i; while (!grepl("^\\s*estimate_red_rock", t[j])) j <- j + 1L
+  ev <- new.env(); eval(parse(text = paste(t[i:j], collapse = "\n")), envir = ev)
+  W <- ev$WINDOW
+  drift <- Filter(function(k) !identical(rc[[k]], W[[k]]), setdiff(names(W), "run_weather"))
+  chk("canonical: run_config AGREES WITH THE LADDER'S WINDOW PIN on every key it pins",
+      length(drift) == 0, sprintf("(drifted: %s)", paste(drift, collapse = ", ")))
+  chk("canonical: nothing in the file still sets the blocked two-season span",
+      !any(grepl('season_filter *= *c\\("2023-24"', src)) &&
+      !any(grepl('est_date_start *= *"2023-09-16"', src)))
+  chk("canonical: the header names the authoritative run and points at the one box",
+      any(grepl("pooled-CPUE-IMP-R4-shore-tau-newf", src, fixed = TRUE)) &&
+      any(grepl("94,376", src, fixed = TRUE)) &&
+      any(grepl("PIPELINE_STATUS.md", src, fixed = TRUE)))
+
+  # ---- (b) the file is ordered ---------------------------------------------
+  ban <- function(pat) { h <- grep(pat, src); if (length(h)) h[1] else NA_integer_ }
+  b1 <- ban("^  # 1\\. THE RUN"); b2 <- ban("^  # 2\\. THE METHOD OF RECORD")
+  b3 <- ban("^  # 3\\. DIAGNOSTICS REPORTED BESIDE"); b4 <- ban("^  # 4\\. LEVERS FOR SENSITIVITY")
+  b5 <- ban("^  # 5\\. GEAR-RESOLVED MODEL ONLY")
+  chk("ordered: the five section banners are present and in order",
+      all(is.finite(c(b1, b2, b3, b4, b5))) && all(diff(c(b1, b2, b3, b4, b5)) > 0))
+  keyline <- function(k) { h <- grep(sprintf("^  %s[ ]*=", k), src); if (length(h)) h[1] else NA_integer_ }
+  # every key in the file is at indent 2 exactly once, so a key's line locates its section
+  in_method <- c("shore_effort_unit", "tau_shore_prior_mu", "tau_boat_prior_mu", "shared_tau",
+                 "use_osp_boat_counts", "osp_scale_is_tau", "crab_fraction_dynamic",
+                 "crab_fraction_strata", "use_osp_crab_lower", "estimate_catch_zi",
+                 "ar_max_resolution", "pe_empty_stratum", "pe_empty_effort_stratum",
+                 "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length")
+  in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
+                "save_ppc_draws", "run_fishery_spillover_diag")
+  in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
+                "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C")
+  in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive", "use_boat_ie")
+  chk("ordered: every method-of-record key sits in section 2",
+      all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
+      sprintf("(stray: %s)", paste(Filter(function(k) { l <- keyline(k); !(is.finite(l) && l > b2 && l < b3) }, in_method), collapse = ", ")))
+  chk("ordered: every production diagnostic sits in section 3",
+      all(vapply(in_diag, function(k) { l <- keyline(k); is.finite(l) && l > b3 && l < b4 }, logical(1))))
+  chk("ordered: every sensitivity / experiment lever sits in section 4",
+      all(vapply(in_lever, function(k) { l <- keyline(k); is.finite(l) && l > b4 && l < b5 }, logical(1))))
+  chk("ordered: every gear-resolved-only toggle sits in section 5",
+      all(vapply(in_gear, function(k) { l <- keyline(k); is.finite(l) && l > b5 }, logical(1))))
+  chk("ordered: the window and the sampler sit in section 1, ahead of any method key",
+      all(vapply(c("est_date_start", "season_filter", "pot_open_date", "bss_seed", "bss_chains",
+                   "effort_file", "interview_file"),
+                 function(k) { l <- keyline(k); is.finite(l) && l > b1 && l < b2 }, logical(1))))
+  chk("ordered: the header tells the reader they can stop at the end of section 2",
+      any(grepl("you can stop here", src, fixed = TRUE)) &&
+      any(grepl("HOW TO READ THIS FILE", src, fixed = TRUE)))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
