@@ -473,19 +473,50 @@ stage_digest <- function(sid) {
   b <- as.integer(charToRaw(txt))
   sprintf("%08x", as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
 }
-# FINGERPRINTS DECLARED EQUIVALENT TO THE CURRENT ONE, with the reason, so a change that
-# provably cannot alter a fit does not degrade an existing record. This is an AUDIT TRAIL,
-# not an escape hatch: every entry names what changed and why the fits are unaffected, and
-# an entry is only defensible when the default code path is identical. Anything you cannot
-# write that sentence about belongs in a re-fit, not in this list.
+# PRE-B24 STAMPS, NORMALIZED FIRST. Until B24 (2026-09-11) the fingerprint hashed the RAW
+# file text; it now strips comments and blank lines before hashing, so the current function
+# can NEVER emit a pre-B24 string again and a layer-by-layer comparison against one is
+# meaningless: every layer differs, including layers whose bytes never moved. The five
+# 2026-09-11 rung folders carry pre-B24 stamps, so without this map they are permanently
+# incomparable. Each entry maps a recorded pre-B24 stamp to code_fingerprint() COMPUTED ON
+# THE SAME TREE. Verify a new entry, do not guess it:
+#   git worktree add /tmp/wt <the commit the rung rendered from>   # then run code_fingerprint()
+CODE_LEGACY <- list(
+  # The five 2026-09-11 ladder rungs (R1, R2, R2f, R4, R5). Tree = 627a831, the last commit
+  # before the run; 3609f1d touched only this runner, which is not a hashed layer. Checked
+  # on that worktree: stan and drivers are bit-identical to HEAD and only 03_R_functions
+  # has moved since (bss_day_length.R, D24).
+  "stan:6e4aca2a drivers:3de636d0 fns:44079dee" = "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb"
+)
+.code_norm <- function(x) {
+  if (is.null(x) || length(x) == 0 || is.na(x)) return(x)
+  CODE_LEGACY[[x]] %||% x
+}
+
+# FINGERPRINT PAIRS DECLARED EQUIVALENT, with the reason, so a change that provably cannot
+# alter a fit does not degrade an existing record. This is an AUDIT TRAIL, not an escape
+# hatch: every entry names what changed and why the fits are unaffected, and an entry is only
+# defensible when the default code path is identical. Anything you cannot write that sentence
+# about belongs in a re-fit, not in this list.
+#
+# THE KEY NAMES BOTH ENDS, "<recorded> => <the fingerprint it is equivalent TO>", and that is
+# load-bearing. Keyed on the recorded side alone -- as it was between 2026-09-11 and
+# 2026-09-12 -- an entry NEVER EXPIRES: .code_delta short-circuits on the recorded string, so
+# the declaration excuses that folder against whatever the tree later becomes. Measured, not
+# argued: with the single-sided key, .code_delta("stan:6e4aca2a ...", a fingerprint with a
+# changed Stan layer) returned "" -- a Stan edit would have gone unflagged on all five
+# committed rungs, forever, and every cross-rung bit-identity claim would have kept its PASS.
+# Naming both ends makes the declaration lapse the moment the current tree moves again, which
+# is exactly when it should be re-examined.
 CODE_EQUIVALENT <- list(
-  # The 2026-09-11 full run. Patched the same day to add the in-window I/E diagnostic to
-  # estimate_shore_turnover() (D24) and to fix three verdict-reporting defects (D25, D26).
-  # The turnover derivation's DEFAULT path is byte-identical: tau_shore_derive_window_only
-  # ships FALSE, under which `iv` is exactly the frame the previous code built, and the new
-  # run_config key reaches no likelihood. The verdict fixes touch reporting only.
-  "stan:6e4aca2a drivers:3de636d0 fns:44079dee" =
-    "the 2026-09-11 ladder run; patched for the D24 turnover diagnostic and the D25/D26 verdict fixes, neither of which changes a fit"
+  # The 2026-09-11 full run (normalized by CODE_LEGACY above), against the tree as patched
+  # the same day: the in-window I/E diagnostic in estimate_shore_turnover() (D24) and three
+  # verdict-reporting fixes (D25, D26). The turnover derivation's DEFAULT path is
+  # byte-identical: tau_shore_derive_window_only ships FALSE, under which `iv` is exactly the
+  # frame the previous code built, and the new run_config key reaches no likelihood. The
+  # verdict fixes are in this runner, which is not a hashed layer at all.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:523f4e63 drivers:4c2ce454 fns:0868556b" =
+    "the 2026-09-11 ladder run vs the same tree plus D24's in-window turnover diagnostic; the default code path is byte-identical, so no fit is affected"
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),
@@ -517,7 +548,10 @@ code_fingerprint <- function() {
 # Which layer(s) differ between a recorded fingerprint and another (or the current one).
 .code_delta <- function(a, b = code_fingerprint()) {
   if (is.na(a %||% NA) || is.na(b %||% NA)) return(NA_character_)
-  if (!is.null(CODE_EQUIVALENT[[a]])) return("")   # declared equivalent; see the list above
+  a <- .code_norm(a); b <- .code_norm(b)                       # pre-B24 stamps first
+  if (identical(a, b)) return("")
+  # declared equivalent; the key names BOTH ends, so the declaration lapses when either moves
+  if (!is.null(CODE_EQUIVALENT[[paste(a, b, sep = " => ")]])) return("")
   pa <- strsplit(a, " ")[[1]]; pb <- strsplit(b, " ")[[1]]
   ka <- sub(":.*$", "", pa); kb <- sub(":.*$", "", pb)
   ks <- union(ka, kb)

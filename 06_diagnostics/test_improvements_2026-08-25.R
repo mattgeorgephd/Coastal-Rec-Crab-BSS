@@ -3327,13 +3327,43 @@ local({
           v3 <- g("03_R_functions", "\\.R$")
           unlink(td, recursive = TRUE)
           identical(v1, v2) && !identical(v1, v3) })
+    .fp <- "stan:[0-9a-f]{8} drivers:[0-9a-f]{8} fns:[0-9a-f]{8}"
     chk("two-pass: the equivalence list is an audit trail -- every entry carries a reason",
         is.list(ceq) && length(ceq) >= 1 &&
-        all(grepl("^stan:[0-9a-f]{8} drivers:[0-9a-f]{8} fns:[0-9a-f]{8}$", names(ceq))) &&
+        all(grepl(sprintf("^%s => %s$", .fp, .fp), names(ceq))) &&
         all(nzchar(unlist(ceq))) && all(nchar(unlist(ceq)) > 40))
-    chk("two-pass: a fingerprint on the equivalence list reports no delta; one off it still does",
-        identical(cd(names(ceq)[1]), "") &&
-        identical(cd(sub("fns:[0-9a-f]{8}$", "fns:deadbeef", a)), "fns"))
+    # 2026-09-12: the key names BOTH ends. Keyed on the recorded side alone the entry never
+    # expired -- it excused its folder against whatever the tree later became -- so a Stan
+    # edit would have passed unflagged on all five committed rungs. These three assert the
+    # declaration applies to the pair it names and LAPSES on anything else.
+    chk("two-pass: a declared PAIR reports no delta; a fingerprint off the list still does",
+        { kp <- strsplit(names(ceq)[1], " => ", fixed = TRUE)[[1]]
+          identical(cd(kp[1], kp[2]), "") &&
+          identical(cd(sub("fns:[0-9a-f]{8}$", "fns:deadbeef", a)), "fns") })
+    chk("two-pass: THE DEFECT -- an equivalence declaration must LAPSE when the other end moves",
+        { kp <- strsplit(names(ceq)[1], " => ", fixed = TRUE)[[1]]
+          d <- cd(kp[1], sub("^stan:[0-9a-f]{8}", "stan:deadbeef", kp[2]))
+          nzchar(d) && grepl("stan", d, fixed = TRUE) })
+    # pre-B24 stamps hashed RAW text, so the current function can never emit one; each is
+    # mapped to code_fingerprint() of the SAME tree before any layer comparison.
+    cleg <- get("CODE_LEGACY", envir = e2); cnorm <- get(".code_norm", envir = e2)
+    chk("two-pass: every pre-B24 stamp maps to a well-formed current-format fingerprint",
+        is.list(cleg) && length(cleg) >= 1 &&
+        all(grepl(sprintf("^%s$", .fp), names(cleg))) &&
+        all(grepl(sprintf("^%s$", .fp), unlist(cleg))) &&
+        !any(names(cleg) %in% unlist(cleg)) &&
+        identical(cnorm(names(cleg)[1]), cleg[[1]]) &&
+        identical(cnorm(a), a) && is.na(cnorm(NA_character_)))
+    # and the stamps actually on disk resolve: a rung folder whose code line is neither
+    # current-format-comparable nor mapped is a silently incomparable record.
+    chk("two-pass: every committed rung stamp is either current-format or mapped by CODE_LEGACY",
+        { st <- Sys.glob(file.path("05_output", "*", "*", "IMP_STAGE.txt"))
+          if (!length(st)) TRUE else {
+            got <- unique(na.omit(vapply(st, function(p) {
+              l <- grep("^code: ", readLines(p, warn = FALSE), value = TRUE)
+              if (!length(l)) NA_character_ else sub("^code: ", "", l[1]) }, character(1))))
+            length(got) >= 1 && all(vapply(got, function(g)
+              !is.null(cleg[[g]]) || identical(cnorm(g), g), logical(1))) } })
   }
 })
 
