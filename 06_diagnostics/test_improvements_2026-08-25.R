@@ -3484,9 +3484,15 @@ local({
   chk("pointers: the box names one authoritative run folder and one port total",
       grepl("THE AUTHORITATIVE RUN", box, fixed = TRUE) &&
       length(regmatches(box, gregexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", box))[[1]]) >= 1)
+  # position-independent: find the Repo line wherever it sits in the header
+  .repo <- grep("^\\*\\*Repo:\\*\\*", L, value = TRUE)
   chk("pointers: the status document names the working BRANCH, not main",
-      grepl("OSP-boat-count-incorporation", paste(L[seq_len(10L)], collapse = "\n"), fixed = TRUE) &&
-      !grepl("^\\*\\*Repo:\\*\\* `Coastal-Rec-Crab-BSS`, `main`\\.", L[6]))
+      length(.repo) >= 1 &&
+      grepl("OSP-boat-count-incorporation", .repo[1], fixed = TRUE) &&
+      !grepl("`Coastal-Rec-Crab-BSS`, `main`\\.", .repo[1]))
+  chk("pointers: the status document names Method v2.0 as the method of record, and where it is specified",
+      length(.repo) >= 1 && grepl("Method v2.0", .repo[1], fixed = TRUE) &&
+      grepl("BSS-GH-pooled-CPUE-model-documentation.md", .repo[1], fixed = TRUE))
 
   # the box against the run it names: the total in the box must be the total in the folder.
   bx <- regmatches(box, regexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", box))
@@ -3519,11 +3525,25 @@ local({
   chk("pointers: no live document offers 72,027 without marking it superseded",
       length(bad_ptr) == 0, sprintf("(%s)", paste(bad_ptr, collapse = ", ")))
 
-  # section 1v: one direction, stated.
-  s1v <- paste(L[seq(grep("^## 1v\\.", L)[1], length(L))], collapse = "\n")
+  # section 1v: one direction, stated. Moved to VALIDATION_CAMPAIGN.md on 2026-09-12, so the
+  # assertion follows it and also checks that the status document still routes the reader.
+  vc <- "07_documentation/development_notes/VALIDATION_CAMPAIGN.md"
+  chk("pointers: the campaign narrative has its own document and the status document routes to it",
+      file.exists(vc) &&
+      any(grepl("VALIDATION_CAMPAIGN.md", L, fixed = TRUE)) &&
+      any(grepl("^## 1b to 1v\\. The validation campaign: MOVED", L)))
+  VL  <- if (file.exists(vc)) readLines(vc, warn = FALSE) else character(0)
+  i1v <- grep("^## 1v\\.", VL)
+  chk("pointers: section 1v survived the move and every 1x letter came with it",
+      length(i1v) == 1 &&
+      length(grep("^## 1[b-v]\\.", VL)) >= 20 &&
+      !any(grepl("^## 1[b-v]\\.", L)))
+  s1v <- if (length(i1v) == 1) paste(VL[seq(i1v[1], length(VL))], collapse = "\n") else ""
   chk("pointers: section 1v states which way its PE/BSS percentages run",
       grepl("PE RELATIVE TO BSS", s1v, fixed = TRUE) &&
       !grepl("PE 35,292 against BSS 34,837, -1.3%", s1v, fixed = TRUE))
+  chk("pointers: no section title in the campaign is dated in the future of the ladder run",
+      !any(grepl("\\(2026-09-1[3-9]\\)", grep("^## 1", VL, value = TRUE))))
 })
 
 # ---------------------------------------------------------------------------
@@ -3791,6 +3811,93 @@ local({
       !any(grepl("weighted mean of daily ratios) is intentionally left", ph, fixed = TRUE)) &&
       any(grepl("has\n# been RATIO-OF-SUMS ever since", paste(ph, collapse = "\n"), fixed = TRUE)) |
       any(grepl("RATIO-OF-SUMS ever since", ph, fixed = TRUE)))
+})
+
+# ---------------------------------------------------------------------------
+# 68. METHOD v2.0 IS THE METHOD OF RECORD (2026-09-12, A28, closing D7). The break with v1.0
+#     is that v2.0 is LIVE: it is written against the code as it runs and tracks it. So the
+#     assertions here are not about prose, they are about the document agreeing with the
+#     code and with the run it names. A frozen document could be outrun silently; this one
+#     fails the harness when it is.
+# ---------------------------------------------------------------------------
+local({
+  mp <- "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"
+  mg <- "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md"
+  chk("method v2.0: both method documents exist", file.exists(mp) && file.exists(mg))
+  if (!file.exists(mp) || !file.exists(mg)) return(invisible(NULL))
+  P <- readLines(mp, warn = FALSE); G <- readLines(mg, warn = FALSE)
+  ps <- paste(P, collapse = "\n"); gs <- paste(G, collapse = "\n")
+
+  chk("method v2.0: the pooled document is v2.0, live rather than frozen, and says so",
+      grepl("Method Version 2.0", ps, fixed = TRUE) &&
+      grepl("this document is **not frozen**", ps, fixed = TRUE) &&
+      grepl("Operational, **not published**", ps, fixed = TRUE))
+  chk("method v2.0: the gear document is framework v6.0 and defers rather than duplicating",
+      grepl("framework v6.0", gs, fixed = TRUE) &&
+      grepl("READ THE POOLED DOCUMENT FIRST", gs, fixed = TRUE) &&
+      grepl("describes only what is DIFFERENT", gs, fixed = TRUE))
+  chk("method v2.0: v1.0 is archived, unaltered, under a banner with the difference table",
+      file.exists("07_documentation/archive/method-v1.0-pooled-CPUE.md") &&
+      file.exists("07_documentation/archive/method-v1.0-gear-resolved-CPUE.md") &&
+      { a <- paste(readLines("07_documentation/archive/method-v1.0-pooled-CPUE.md", warn = FALSE), collapse = "\n")
+        grepl("ARCHIVED. THIS IS METHOD v1.0", a, fixed = TRUE) &&
+        grepl("Method v1.0 | Method v2.0", a, fixed = TRUE) })
+
+  # THE POINT OF A LIVE DOCUMENT: its reference run must exist and its total must match it.
+  ref <- regmatches(ps, regexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", ps))
+  chk("method v2.0: the pooled document names a reference run that exists on disk",
+      length(ref) == 1 && dir.exists(ref), sprintf("(names %s)", paste(ref, collapse = "")))
+  chk("method v2.0: ITS HEADLINE AGREES WITH THAT RUN's port_total csv",
+      { f <- file.path(ref, "port_total_Dungeness_Kept.csv")
+        if (!length(ref) || !file.exists(f)) FALSE else {
+          d <- utils::read.csv(f, stringsAsFactors = FALSE)
+          r <- d[grepl("^Expected", d[[2]]), , drop = FALSE]
+          fm <- function(x) formatC(round(as.numeric(x)), format = "d", big.mark = ",")
+          nrow(r) == 1 && all(vapply(c(r$BSS_median, r$BSS_lo95, r$BSS_hi95),
+                                     function(v) grepl(fm(v), ps, fixed = TRUE), logical(1))) } })
+
+  # the method document must describe the levers run_config actually ships
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("method v2.0: the document's stated method matches the shipped levers",
+      identical(rc$crab_fraction_dynamic, TRUE)    && grepl("logit random walk", ps, fixed = TRUE) &&
+      identical(rc$use_osp_boat_counts, TRUE)      && grepl("OSP daily port count", ps, fixed = TRUE) &&
+      identical(rc$osp_scale_is_tau, TRUE)         && grepl("osp_scale_is_tau = 1", ps, fixed = TRUE) &&
+      identical(rc$shared_tau, TRUE)               && grepl("shared_tau = 1", ps, fixed = TRUE) &&
+      identical(rc$tau_shore_prior_mu, "derived")  && grepl('tau_shore_prior_mu = "derived"', ps, fixed = TRUE) &&
+      identical(rc$tau_boat_prior_mu, "calibration") && grepl('tau_boat_prior_mu = "calibration"', ps, fixed = TRUE) &&
+      identical(rc$estimate_catch_zi, TRUE)        && grepl("zero-inflated", ps, fixed = TRUE) &&
+      identical(rc$census_expansion, "none")       && grepl('census_expansion = "none"', ps, fixed = TRUE) &&
+      identical(rc$charter_frame, "roster")        && grepl("charter trip roster", ps, fixed = TRUE) &&
+      identical(rc$pe_empty_effort_stratum, "local_day_type") &&
+        grepl('pe_empty_effort_stratum` | `"local_day_type"', ps, fixed = TRUE))
+  # the OSP crabbing-only column: the one piece of the method that is built and waiting on
+  # data, and the one a reader could most easily mis-wire. Assert all four facts separately.
+  .flat <- gsub("[ \n]+", " ", ps)
+  chk("method v2.0: it records that the OSP crabbing-only column is STILL OUTSTANDING, is a lower bound, and must not be wired in as f",
+      identical(rc$use_osp_crab_lower, FALSE) &&
+      grepl("**(a) is in hand**", .flat, fixed = TRUE) &&
+      grepl("**(b) is still outstanding.**", .flat, fixed = TRUE) &&
+      grepl("lower bound** on the vessels that did any crabbing, not the crabbing fraction itself", .flat, fixed = TRUE) &&
+      grepl("do not wire the crab-only column in as if it were `f`", .flat, fixed = TRUE) &&
+      grepl("built, tested and inert", .flat, fixed = TRUE))
+  chk("method v2.0: the gate thresholds in the document are the gate's actual defaults",
+      { g <- paste(readLines("03_R_functions/bss_convergence_gate.R", warn = FALSE), collapse = "\n")
+        grepl("max_impact_sd    = 0.10", g, fixed = TRUE) && grepl("`< 0.10`", ps, fixed = TRUE) &&
+        grepl("max_div_fraction = 0.05", g, fixed = TRUE) && grepl("`< 5%`", ps, fixed = TRUE) &&
+        grepl("rhat_threshold   = 1.01", g, fixed = TRUE) && grepl("`< 1.01`", ps, fixed = TRUE) &&
+        grepl("neff_threshold   = 400", g, fixed = TRUE)  && grepl("`> 400`", ps, fixed = TRUE) })
+  chk("method v2.0: the AR caps in the document are the caps run_config ships",
+      identical(rc$ar_max_resolution$pooled$shore$all_gear, "weekly") &&
+      identical(rc$ar_max_resolution$pooled$shore$pot_closure, "biweekly") &&
+      identical(rc$ar_max_resolution$pooled$private_boat, "monthly") &&
+      grepl("| pooled | biweekly | **weekly** | monthly |", ps, fixed = TRUE))
+  chk("method v2.0: it carries the caveats a reviewer will ask about, not just the result",
+      grepl("Moored private boats are outside the effort frame", ps, fixed = TRUE) &&
+      grepl("is NOT a full predictive distribution", ps, fixed = TRUE) &&
+      grepl("asserts a MEDIAN, not a mean", ps, fixed = TRUE) &&
+      grepl("MEANS TWO DIFFERENT THINGS under the same name", ps, fixed = TRUE))
+  chk("method v2.0: neither document uses an em dash (the stated convention)",
+      !any(grepl("—", P)) && !any(grepl("—", G)))
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

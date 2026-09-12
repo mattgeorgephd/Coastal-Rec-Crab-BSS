@@ -4,7 +4,7 @@
 - **Lead:** Matt George
 - **Status:** active development on branch `OSP-boat-count-incorporation`. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module. 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
 
-> **Where the work stands.** For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). The current authoritative run, its port total, and the open backlog live in the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md); every change on the active branch and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md). Several older documents quote superseded totals; those two files are the arbiters.
+> **Where the work stands.** The method of record is **Method v2.0** (adopted 2026-09-12), specified in [`07_documentation/BSS-GH-pooled-CPUE-model-documentation.md`](07_documentation/BSS-GH-pooled-CPUE-model-documentation.md). Unlike the frozen Method v1.0 it tracks the working model, so that document is the answer to "what does this model do". For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). **The current authoritative run and its port total live in ONE place**, the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md), and no number anywhere else in this repository, including the method document, should be quoted without checking it there. Every change and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md); how each was arrived at, run by run, is [`07_documentation/development_notes/VALIDATION_CAMPAIGN.md`](07_documentation/development_notes/VALIDATION_CAMPAIGN.md).
 
 ---
 
@@ -77,7 +77,7 @@ Despite the name, the pooled model is not minimal: effort is measured in **gear-
 | File | Description |
 |---|---|
 | `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd` | R analysis script |
-| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | Technical documentation |
+| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**, the method of record |
 | `02_stan_models/crab_bss_pooled.stan` | Stan model (single CPUE process) |
 
 ### 2. Gear-Resolved CPUE Model (production)
@@ -87,7 +87,7 @@ The cross-check model. With `gear_resolved_G = TRUE` the SHORE fits carry a genu
 | File | Description |
 |---|---|
 | `01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd` | R analysis script |
-| `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | Technical documentation |
+| `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | Framework v6.0; describes only what differs from the pooled model |
 | `02_stan_models/crab_bss_gear_resolved.stan` | Stan model (per-gear CPUE processes) |
 
 ### 3. Weather & Tide Covariate Module (experimental)
@@ -190,6 +190,7 @@ For the current state and the prioritized backlog (what is done and what remains
 | v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
 | v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
 | 2026-07 to 2026-09 | both | The OSP branch arc, versioned by date rather than v-number: the OSP second boat-effort stream and crabbing fraction `f`; the 2026-08-25 improvement batch (shore I/E unit fix, model adequacy, opener covariates); the **shared boat turnover** `tau_bar` (adopted 2026-09-01); the gear-track boat sampler fix (2026-09-02); the AR escalation ladder and per-rung adequacy; the **weekly shore all-gear AR** and the **zero-inflated shore catch likelihood** (both adopted 2026-09-07, gate-confirmed 2026-09-08). then, in the first two weeks of September, the four changes the 2026-09-11 improvement ladder priced and adopted together: the **dynamic monthly crabbing fraction `f`** (a per-stratum logit random walk on the sampler boat contacts, replacing the flat 0.3 placeholder), the **boat turnover from the OSP/trailer calibration**, the **shore turnover derived from the I/E `time` column**, and the **census split** into a commercial census plus a charter roster expansion. Together +31% on the port total, each attributed. See `CHANGE_REGISTER.md` for every item and its status |
+| **Method v2.0** (2026-09-12) | both | The method of record moves from the frozen v1.0 to the model that runs: the dynamic monthly crabbing fraction, the OSP daily port count as a second boat effort stream (the crabbing-only fraction still outstanding), both turnovers data-derived, the zero-inflated shore catch likelihood, the weekly shore all-gear AR, the commercial census plus charter roster expansion, and the PE's month-local unsampled-cell fill. `run_config.R` restructured into five sections, method first, and rolled back to the canonical 2024-25 window. v1.0 archived under `07_documentation/archive/` |
 | 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
 | OSP boat-count incorporation branch (2026-07-31) | pooled + gear-resolved | OSP second boat effort stream (kappa_OSP), crabbing fraction f (a flat 0.3 placeholder at the time, since replaced by the dynamic monthly walk), OSP-identifies-tau (osp_scale_is_tau, production ON after the trailer count was confirmed an instantaneous snapshot), non-crabbing + gear-tampered interview filters |
 

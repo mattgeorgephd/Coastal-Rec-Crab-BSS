@@ -16,16 +16,30 @@ For the one-paragraph project overview and quick start, see the [root README](..
 | File | Role |
 |---|---|
 | `development_notes/CHANGE_REGISTER.md` | **Every change on the branch and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
+| `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model IS. The method of record, the full specification and the limitations. |
+| `development_notes/VALIDATION_CAMPAIGN.md` | **How it got there**: the dated run-by-run record of the 2026-08/09 campaign (the former Sections 1b to 1v). |
 
-## Method documentation (Method v1.0, FROZEN)
+## Method documentation (Method v2.0, LIVE)
 
-These record **Method v1.0**, frozen against pooled code v7.4. The method description (estimators, likelihoods, gate criteria, expansion structure) is what they are for; **every number in them is historical**. The working model now differs from them in more than settings: a likelihood (the zero-inflated shore catch, 2026-09-07), a resolution (the weekly shore AR, 2026-09-07), the crabbing fraction `f` (a per-stratum logit random walk since 2026-09-08, not a scalar), both turnovers (derived / calibration-centred), and the commercial-charter component (a census plus a roster expansion, not one expansion). Each carries a SUPERSEDED-NUMBERS banner at the top pointing at the authoritative run. Regenerating them against the current model is open documentation debt (CHANGE_REGISTER item D7) and is now the **largest** item of it.
+These describe **the model that runs**. Method v2.0 was adopted 2026-09-12, replacing the frozen Method v1.0, and unlike v1.0 it is **not frozen**: when an adopted change moves the method, these documents move with it and the change is logged in `development_notes/CHANGE_REGISTER.md`. Every number in them comes from the reference run named at the top, which may be superseded; the authoritative run always lives in the box at the top of `development_notes/PIPELINE_STATUS.md`.
 
 | File | Describes |
 |---|---|
-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model, as frozen (Method v1.0 / code v7.4; code is now well past v7.9). |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model, as frozen (framework v5.6). |
+| `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**, the method of record and the headline estimator. Read this one. Three parts: for everyone, for whoever runs it, and the full technical reference (the generative specification, the Point Estimator, the census, the gate, the priors, the limitations). |
+| `BSS-GH-gear-type-CPUE-model-documentation.md` | **Framework v6.0**, the gear-resolved CROSS-CHECK. Deliberately short: it describes only what differs from the pooled model and defers everything shared. |
 | `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (stale; not production; its conclusion, exclusion, stands). |
+
+What changed from Method v1.0 is nine things, and they are not settings: the boat effort streams, the crabbing fraction's whole construction, both turnovers, the shore catch likelihood, the shore AR resolution, the commercial-charter component, the PE's unsampled-cell fill, and the number of seasons a window may span. The table is in the archive banner and in Section 6 of the pooled document, with what each was worth on the 2024-25 season.
+
+## archive/
+
+Superseded method documents, kept unaltered below a banner because several later decisions are only legible as departures from them.
+
+| File | Was |
+|---|---|
+| `archive/method-v1.0-pooled-CPUE.md` | the pooled method of record, frozen against code v7.4, with a table of the nine places v1.0 and v2.0 differ |
+| `archive/method-v1.0-gear-resolved-CPUE.md` | the gear-resolved framework v5.6 |
+| `archive/method-v1.0-pooled-CPUE.html` | the rendered v1.0 pooled document |
 
 ## Development histories (the version-by-version change log)
 
@@ -47,7 +61,9 @@ The method documents summarize the history in one screen and point here for deta
 
 `PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
 
-The 2026-08/09 validation campaign is a CHAIN of review documents, one per batch, newest first; each supersedes parts of the one before and `PIPELINE_STATUS.md` Sections 1b-1m are the running summary:
+**Since 2026-09-12 the dated run-by-run narrative lives in `development_notes/VALIDATION_CAMPAIGN.md`**, which is what were Sections 1b to 1v of `PIPELINE_STATUS.md`, moved out unaltered so the status document can be the current state and the backlog. Every "Section 1x" reference in the repository resolves there. Read it for WHY a decision was taken and what the run said.
+
+The per-batch review documents below are the raw material that narrative was built from, newest first; each supersedes parts of the one before:
 
 | File | Status |
 |---|---|
