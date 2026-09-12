@@ -13,8 +13,12 @@
 >
 > **The current authoritative run and its totals live in ONE place:**
 > `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top of that
-> file. As of 2026-09-08 that is `05_output/20260904/pooled-CPUE-AD-A1-adopted`,
-> **port total 72,027 [53,018, 101,364]**. Every change on the branch and its status is
+> file. As of 2026-09-12 that is `05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`,
+> **port total 94,376 [77,566, 118,602]** (the first full improvement ladder, rung R4;
+> Section 1v). It supersedes 72,027, which this document's previous banner pointed at, and
+> the gap is not drift: a dynamic monthly crabbing fraction `f` replaced a flat 0.30, the
+> shore turnover is now derived, the boat turnover recentred, and the census split into a
+> commercial census plus a charter expansion. Every change on the branch and its status is
 > tabulated in `07_documentation/development_notes/CHANGE_REGISTER.md`.
 >
 > Do not quote a number from this document as current. The METHOD description (estimators,
@@ -31,7 +35,7 @@
 **Author:** Matthew George, Ph.D.
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
-**Status:** Operational. The method of record for gear-type harvest decomposition at Westport / Grays Harbor, and the companion to the published pooled-CPUE model (`BSS-GH-pooled-CPUE-model-documentation.md`). Use the pooled model for the headline total; use this model when gear-type catch structure is the management question.
+**Status:** Operational. The method of record for gear-type harvest decomposition at Westport / Grays Harbor, and the companion to the pooled-CPUE model (`BSS-GH-pooled-CPUE-model-documentation.md`). Use the pooled model for the headline total; use this model when gear-type catch structure is the management question. **Not published:** WDFW has released no estimate from this pipeline; "published" here means frozen and circulated internally (corrected 2026-09-12).
 **Method version:** 1.0 (corresponds to the gear-resolved pipeline framework code v5.6; reference calibration season 2024-25).
 **Code version:** framework v5.6, 2026-07-12 (v5.6 is the `run_config.R` base-parameter restructure, config-only; v5.5 was the shore move to gear-deployments).
 

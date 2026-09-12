@@ -18,6 +18,20 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-11, THE LADDER RAN: a new authoritative run, and what moved it (branch `OSP-boat-count-incorporation`)
+
+Harness **836 assertions**, 0 failing. Full account in `PIPELINE_STATUS.md` Section 1v and the box at the top of that file; every change on this branch and its status in `development_notes/CHANGE_REGISTER.md`.
+
+**NEW AUTHORITATIVE RUN: `05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602]**, superseding 72,027 (**+31.0%**), 4 of 4 components fitted and every one reporting BSS. It is rung R4 of the first full improvement ladder, and `D_R4` IS `run_config.R` (asserted by the runner's comparability preflight before any fitting), so it is the confirming render rather than a variant. The interval tightened from 67% of the median to 43%, and the PE-vs-BSS port gap from 37% to 10%.
+
+**THE MOVE IS ATTRIBUTED, AND THE PARTS SUM TO THE WHOLE WITHIN 24 CRAB.** The dynamic monthly crabbing fraction `f` **+11,963** (boat all-gear +35.6% at a fixed turnover; no month sits at the retired flat 0.30, and the winter months that carry most of the boat catch run 0.87 to 0.92, so the old anchor was wrong by roughly 3x where it mattered most); the shore turnover derived from the I/E `time` column **+10,327**; the boat turnover recentred on the OSP/trailer calibration **+2,621**; the census split, commercial census plus charter expansion, **-3,283**.
+
+**THE DESIGN GUARANTEES WERE MEASURED, NOT ARGUED.** Shore bit-identical across R1, R2 and R2f (6,270 shared parameter rows at full precision); boat bit-identical between R2 and R4 (4,170 rows); and **the f factorization proof, which had never been run**: R2f is R2 with the f block rolled back, and over 1,957 shared boat parameters the max abs z is 3.20 with 2 rows above 3 (0.10%), so f enters the boat generated quantities and nothing else. Cross-track: the gear-resolved rung R5 on the same configuration reads 93,274, **-1.17%**, inside the 2% criterion; `tau_bar` agrees to 0.02%, monthly `f` to 0.002.
+
+**SAMPLER HEALTH IS CLEAN EVERYWHERE**, and no component fell back to PE: worst divergence fraction 2.17% against a 5% backstop, treedepth saturation 0%, every R-hat within 1.0007, `n_eff` 4,600 to 21,200 against a 400 floor, divergence impact at most 0.003 posterior SD against 0.10, nothing flagged in `model_adequacy.csv`, `p_loo` 7-18% of observations.
+
+**TWO OPEN CAVEATS ON THIS TOTAL.** (D24) `estimate_shore_turnover()` never filtered the I/E days to the estimation window: the shipped 2.477 rests on 40 days spanning 2023-08 to 2026-08, of which 6 are in the season, and the window's own days give 2.225, 10.2% lower. The direction of the adoption is well supported; the magnitude is worth about 3,500 crab (3.7%) here, and `tau_shore_derive_window_only` prices it. (D19, CPUE half) The boat PE sits 18.8% below the boat BSS under the shipped `pe_empty_stratum = "local"` and 6.1% below under `"pooled"`; the shore, by contrast, agrees to 1.3% on effort. No component fell back to PE, so this moved the cross-check and not the total.
+
 ### 2026-09-08, The adoption gate passes: a new authoritative run, and the cross-check explained (branch `OSP-boat-count-incorporation`)
 
 Harness **452 assertions**, 0 failing. Full review in `development_notes/adoption-review-2026-09-08.md`; summary in `PIPELINE_STATUS.md` Section 1m; every change on this branch and its status in `development_notes/CHANGE_REGISTER.md`.

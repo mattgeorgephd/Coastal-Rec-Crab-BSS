@@ -3458,5 +3458,65 @@ local({
         identical(z$n_days, 5L) && identical(z$n_days_in_window, 5L) && isTRUE(all.equal(z$tau, a$tau)) })
 })
 
+# ---------------------------------------------------------------------------
+# 62. THE POINTERS RESOLVE (2026-09-12). Four documents defer to "the box at the top of
+#     PIPELINE_STATUS.md" as the single authoritative total. That is a good design and it
+#     failed anyway: the ladder ran on 2026-09-11, Section 1v recorded 94,376, and the box
+#     four screens above it still read 72,027 -- so every correctly-written pointer in the
+#     repository resolved to a superseded number for a day. These assert the property that
+#     design depends on: the box agrees with the run it names, and nothing still hands the
+#     reader the old total as current.
+# ---------------------------------------------------------------------------
+local({
+  ps <- "07_documentation/development_notes/PIPELINE_STATUS.md"
+  chk("pointers: the status document exists", file.exists(ps)); if (!file.exists(ps)) return(invisible(NULL))
+  L <- readLines(ps, warn = FALSE)
+  box <- paste(L[seq_len(min(60L, length(L)))], collapse = "\n")
+
+  chk("pointers: the box names one authoritative run folder and one port total",
+      grepl("THE AUTHORITATIVE RUN", box, fixed = TRUE) &&
+      length(regmatches(box, gregexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", box))[[1]]) >= 1)
+  chk("pointers: the status document names the working BRANCH, not main",
+      grepl("OSP-boat-count-incorporation", paste(L[seq_len(10L)], collapse = "\n"), fixed = TRUE) &&
+      !grepl("^\\*\\*Repo:\\*\\* `Coastal-Rec-Crab-BSS`, `main`\\.", L[6]))
+
+  # the box against the run it names: the total in the box must be the total in the folder.
+  bx <- regmatches(box, regexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", box))
+  pt <- file.path(bx, "port_total_Dungeness_Kept.csv")
+  chk("pointers: the authoritative folder named in the box exists on disk", dir.exists(bx),
+      sprintf("(box names %s)", bx))
+  chk("pointers: THE BOX AGREES WITH THE RUN IT NAMES (median and both interval ends)",
+      { if (!file.exists(pt)) NA else {
+          d <- utils::read.csv(pt, stringsAsFactors = FALSE)
+          r <- d[grepl("^Expected", d[[2]]), , drop = FALSE]
+          if (nrow(r) != 1) FALSE else {
+            f <- function(x) formatC(round(as.numeric(x)), format = "d", big.mark = ",")
+            all(vapply(c(r$BSS_median, r$BSS_lo95, r$BSS_hi95),
+                       function(v) grepl(f(v), box, fixed = TRUE), logical(1))) } } },
+      "(port_total_Dungeness_Kept.csv vs the box)")
+
+  # nothing hands the reader the superseded total as current. A document may still CONTAIN
+  # it (the histories and the reviews are records), but only labelled as superseded.
+  live <- c("07_documentation/development_notes/PIPELINE_STATUS.md",
+            "07_documentation/development_notes/CHANGE_REGISTER.md",
+            "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
+            "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md",
+            "07_documentation/development_notes/adoption-review-2026-09-08.md",
+            "PULL_REQUEST.md", "README.md", "07_documentation/CLAUDE.md")
+  bad_ptr <- Filter(function(f) {
+    if (!file.exists(f)) return(FALSE)
+    ln <- grep("72,027", readLines(f, warn = FALSE), value = TRUE)
+    any(!grepl("supersed|SUPERSED|historical|HISTORICAL|previous|used to", ln))
+  }, live)
+  chk("pointers: no live document offers 72,027 without marking it superseded",
+      length(bad_ptr) == 0, sprintf("(%s)", paste(bad_ptr, collapse = ", ")))
+
+  # section 1v: one direction, stated.
+  s1v <- paste(L[seq(grep("^## 1v\\.", L)[1], length(L))], collapse = "\n")
+  chk("pointers: section 1v states which way its PE/BSS percentages run",
+      grepl("PE RELATIVE TO BSS", s1v, fixed = TRUE) &&
+      !grepl("PE 35,292 against BSS 34,837, -1.3%", s1v, fixed = TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

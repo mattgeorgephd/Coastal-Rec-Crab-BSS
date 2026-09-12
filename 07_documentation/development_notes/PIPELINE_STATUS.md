@@ -1,19 +1,60 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-11 (Section 1s: the charter component is an expansion, not a census; three holidays added; a 26% PE question opened). Change register: `CHANGE_REGISTER.md`
+- **Last updated:** 2026-09-12 (the authoritative run moves to the ladder's R4; Section 1v; B25). Change register: `CHANGE_REGISTER.md`
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 
-**Repo:** `Coastal-Rec-Crab-BSS`, `main`. **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
+**Repo:** `Coastal-Rec-Crab-BSS`, branch `OSP-boat-count-incorporation` (`main` is the pre-FW-creel-meeting, pre-OSP state). **Method of record:** Method v1.0 (frozen against pooled code v7.4); the code has advanced well past v7.9 (Tier-2 batch 2026-07-13, the OSP boat-count branch, the 2026-08-25 improvement batch, the shared turnover adopted 2026-09-01, and the 2026-09-02 gear-driver fix).
 
 > ### THE AUTHORITATIVE RUN
 >
-> **`05_output/20260904/pooled-CPUE-AD-A1-adopted`, port total 72,027 [53,018, 101,364]**, 4 of 4 components fitted. Adopted 2026-09-07, gate passed 2026-09-08. Configuration: `shared_tau = TRUE` (boat-only via `shared_tau_min_obs = 15`), **shore all-gear AR capped at weekly**, **zero-inflated shore catch likelihood on**, `pe_gear_ratio_arm = "match_bss"`. Components: shore all-gear 21,489; shore pot closure 6,320; private boat all-gear 31,008; private boat pot closure 1,018; commercial/charter census 11,821.
+> **`05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602]**,
+> 4 of 4 components fitted, every one reporting BSS. Rendered 2026-09-11 as rung R4 of the first
+> full improvement ladder (`06_diagnostics/run_improvements_2026-09-08.R`, `F_METHOD =
+> "new_throughout"`, `LADDER_PASS = 2`). **R4 is not a variant of production: `D_R4` IS
+> `run_config.R`**, which the runner's comparability preflight asserts before any fitting, so this
+> render is the confirming render and no separate adoption run is owed. Full account: Section 1v.
 >
-> **THE ADEQUACY CAVEAT IS CLOSED.** Every earlier headline carried one: the shore all-gear component, 29% of the port, was fitted at a daily AR with p_loo at 35.2% of `n_obs`, 41 Pareto k above 0.7, `coverage_50` 0.701 (+7.1 sampling SD) and the miscalibration flag set. At weekly it reads 9.5%, **zero** bad Pareto k, 0.566 (+2.3 SD), flag clear. **No fit in this run carries the miscalibration flag.** See Section 1m.
+> Components (medians): shore all-gear 29,210; shore pot closure 8,963; private boat all-gear
+> 45,604; private boat pot closure 1,372; commercial/charter 8,538. **These sum to 93,687, not to
+> 94,376, and that is correct**: the port total is the median of the summed posterior draws, not
+> the sum of component medians. Predictive (observation-noise) interval: 94,386 [77,519, 118,776].
+> Configuration: the dynamic monthly crabbing fraction `f`; the boat turnover from the OSP/trailer
+> calibration; the shore turnover derived from the I/E `time` column; the commercial CENSUS plus a
+> charter EXPANSION over the roster trip frame with its SE carried; `shared_tau = TRUE`, shore
+> all-gear AR weekly, zero-inflated shore catch likelihood, `pe_gear_ratio_arm = "match_bss"`,
+> `pe_empty_effort_stratum = "local_day_type"`.
 >
-> **Cross-check.** The gear-resolved track reads 71,026, **-1.39%** apart at the port. That gap is a RESOLUTION difference, not a disagreement: the gear track still fits shore all-gear at monthly, and **at the same resolution the two tracks agree to 0.08%** (20,771 vs 20,754). `tau_bar` agrees to 0.05% across the two independent parameterizations.
+> **What this replaced, and why the number moved 31%.** The 2026-09-04 `AD-A1-adopted` run read
+> 72,027 [53,018, 101,364] (superseded 2026-09-12). The ladder attributes the +22,349 to four changes that sum to the whole
+> within 24 crab: the dynamic monthly `f` **+11,963** (the retired flat `f = 0.30` was wrong by
+> roughly 3x in the winter months that carry most of the boat catch), the derived shore turnover
+> **+10,327**, the boat turnover recentring **+2,621**, the census split **-3,283**. The interval
+> tightened from 67% of the median to 43%, and the PE-vs-BSS port gap from 37% to 10%.
 >
-> **Everything below this line that names a different authoritative run is HISTORICAL**, kept for provenance: `20260831/pooled-CPUE-VAL-1-adopted` (71,513, superseded 2026-09-07), rung 4 `20260826/pooled-CPUE-PV4-minint` (66,237), the 2026-08-04/05 OSP validation pair (67,312 pooled / 66,461 gear), Run 6 `20260715/pooled-CPUE-230256` (83,488), Run 1 (83,035). The 2024-25 reference numbers in the two method documents are **pre-refresh and superseded**; they have not been regenerated.
+> **The adequacy caveat stays closed**, and the sampler is clean everywhere: worst divergence
+> fraction 2.17% against a 5% backstop, treedepth saturation 0%, every R-hat within 1.0007,
+> `n_eff` 4,600-21,200 against a 400 floor, divergence impact at most 0.003 posterior SD against a
+> 0.10 threshold, nothing flagged in `model_adequacy.csv`, `p_loo` 7-18% of observations.
+>
+> **Two things this run does NOT settle, both of which a reviewer will ask about.** (1) **D24**: the
+> derived shore turnover pools all 40 I/E days, of which 6 are in the window; the window's own days
+> put it 10.2% lower (2.225 vs 2.477). The DIRECTION of the 2026-09-09 adoption is well supported,
+> the MAGNITUDE is worth about 3,500 crab (3.7%) on this total, and `tau_shore_derive_window_only`
+> prices the alternative. (2) **D19's CPUE half**: the boat PE sits 18.8% below the boat BSS under
+> the shipped `pe_empty_stratum = "local"` and 6.1% below under `"pooled"`. No component fell back
+> to PE in this run, so the choice did not touch the total; it did move the cross-check that the
+> total is judged by.
+>
+> **Cross-check.** The gear-resolved track (rung R5, same configuration) reads 93,274, **-1.17%**
+> apart at the port, inside the 2% criterion; `tau_bar` agrees to 0.02% and the monthly `f` to
+> 0.002 across the two independent parameterizations.
+>
+> **Everything below this line that names a different authoritative run is HISTORICAL**, kept for
+> provenance: `20260904/pooled-CPUE-AD-A1-adopted` (72,027, superseded 2026-09-12),
+> `20260831/pooled-CPUE-VAL-1-adopted` (71,513), rung 4 `20260826/pooled-CPUE-PV4-minint` (66,237),
+> the 2026-08-04/05 OSP validation pair (67,312 pooled / 66,461 gear), Run 6
+> `20260715/pooled-CPUE-230256` (83,488), Run 1 (83,035). The 2024-25 reference numbers in the two
+> method documents are **pre-refresh and superseded**; they have not been regenerated (D7).
 >
 > **A running list of every change on this branch and its status is `07_documentation/development_notes/CHANGE_REGISTER.md`.**
 
@@ -23,8 +64,8 @@
 
 | Component | Version | State |
 |---|---|---|
-| Pooled CPUE model (`crab_bss_pooled.stan`, `BSS-GH-pooled-CPUE-model.Rmd`) | v7.9 + Tier-2 batch, the OSP branch, the 2026-08-25 batch, `shared_tau` (2026-09-01), weekly shore AR + ZINB shore catch (2026-09-07) | **Production. Authoritative run `20260904/pooled-CPUE-AD-A1-adopted`, port 72,027 [53,018, 101,364].** All fitted components on gear-deployments; boat on monthly AR, shore all-gear on WEEKLY (adopted 2026-09-07 after the ladder, Sections 1j-1m), shore catch on the zero-inflated NB. **No fit carries the miscalibration flag.** |
-| Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** + **GR-7 Phase 1** (2026-07-20) + **Phase 2 coded** + the 2026-09-02 boat all-gear sampler fix | Production cross-check (last run 2026-09-07: port 71,026, -1.39% from pooled; **at a common monthly resolution the two tracks agree on shore all-gear to 0.08%**, so the gap is the resolution difference). Shore all-gear still capped at MONTHLY (the largest cross-track difference; needs its own ladder, Section 1m), and its Stan has **no zero-inflation block**, so the tracks now differ in the shore catch likelihood too. Shore + boat on gear-deployments. Default `G = 1` (gear split PE-apportioned); with `gear_resolved_G = TRUE` the SHORE fits carry genuine per-gear CPUE (all-gear G = 5, pot-closure G = 4), boat stays `G = 1` (GR-7 Phase 1, validated 2026-07-20). **Phase 2** (Dirichlet gear shares, `gear_share_dirichlet`, default off; forced off at `G = 1`) is **coded 2026-07-21 (parses under stanc 2.32.5), not yet sampled**, output byte-identical to Phase 1 when off. |
+| Pooled CPUE model (`crab_bss_pooled.stan`, `BSS-GH-pooled-CPUE-model.Rmd`) | v7.9 + Tier-2 batch, the OSP branch, the 2026-08-25 batch, `shared_tau` (2026-09-01), weekly shore AR + ZINB shore catch (2026-09-07) | **Production. Authoritative run `20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port 94,376 [77,566, 118,602]** (ladder rung R4, 2026-09-11, Section 1v; it superseded `20260904/pooled-CPUE-AD-A1-adopted` at 72,027). All fitted components on gear-deployments; boat on monthly AR, shore all-gear on WEEKLY (adopted 2026-09-07, Sections 1j-1m), shore catch on the zero-inflated NB, the crabbing fraction `f` a dynamic monthly walk, both turnovers data-derived. **No fit carries the miscalibration flag and no component fell back to PE.** |
+| Gear-resolved model (`crab_bss_gear_resolved.stan`, `BSS-GH-gear-type-CPUE-model.Rmd`) | framework **v5.6** + **GR-7 Phase 1** (2026-07-20) + **Phase 2 coded** + the 2026-09-02 boat all-gear sampler fix | Production cross-check (last run 2026-09-11 as ladder rung R5: port 93,274, **-1.17%** from pooled, inside the 2% criterion; the superseded 2026-09-07 pair read 71,026 / 72,027, -1.39%; **at a common monthly resolution the two tracks agree on shore all-gear to 0.08%**, so the gap is the resolution difference). Shore all-gear still capped at MONTHLY (the largest cross-track difference; needs its own ladder, Section 1m), and its Stan has **no zero-inflation block**, so the tracks now differ in the shore catch likelihood too. Shore + boat on gear-deployments. Default `G = 1` (gear split PE-apportioned); with `gear_resolved_G = TRUE` the SHORE fits carry genuine per-gear CPUE (all-gear G = 5, pot-closure G = 4), boat stays `G = 1` (GR-7 Phase 1, validated 2026-07-20). **Phase 2** (Dirichlet gear shares, `gear_share_dirichlet`, default off; forced off at `G = 1`) is **coded 2026-07-21 (parses under stanc 2.32.5), not yet sampled**, output byte-identical to Phase 1 when off. |
 | Weather/tide covariate module (`crab_bss_pooled_weather_adjusted.stan`, `06_diagnostics/...Rmd`) | ~v6.9 parity, **stale** | Not production. Forked engine, pre-deployment-scale Stan, not re-run since the day-length extraction. Do not cite its boat number. |
 | Config surface (`run_config.R`) | base-params architecture (P5) | `run_config` is the base parameter set; each driver layers model-specific tuning via `modifyList(run_config, params_model)`. **2026-08-25:** `bss_min_interviews` was removed from both `params_model` blocks; it sat on the winning side of that merge and silently overrode `run_config`. |
 | 2026-08-25 improvement batch (both models, both Stan files, 6 new/rewritten R modules) | **VALIDATED AND ADOPTED (2026-08-26 ladder, 6 runs, ~15 h)** | Eight requested improvements plus two defects found in review. The five-rung ladder ran clean: the baseline reproduces on both tracks (the gear fits are BIT-identical, 9,895 shared parameter rows at full precision), each change moved for its predicted reason, and the two tracks reconcile to 0.73%. **Rung 4 was the shipped configuration and authoritative run at the time (port total 66,237, 95% CI 50,037 - 91,210); SUPERSEDED, see the box at the top.** One rung lost a fit to a stalled chain and needed a reseed; see the 2026-08-27 update. |
@@ -793,7 +834,7 @@ Full review: `07_documentation/development_notes/adoption-review-2026-09-08.md`.
 
 ### The new authoritative run
 
-**Port total 72,027 [53,018, 101,364]**, superseding 71,513, **+0.72%**, essentially all of it the shore effort process no longer being over-imputed at daily. C1 read 72,032 on the same fits; the 5-crab difference is the port assembly resampling permuted draws, which is why the gate is judged on per-fit summaries and never on the total.
+**Port total 72,027 [53,018, 101,364]** (itself superseded 2026-09-12 by the ladder's R4, 94,376; see the box), superseding 71,513, **+0.72%**, essentially all of it the shore effort process no longer being over-imputed at daily. C1 read 72,032 on the same fits; the 5-crab difference is the port assembly resampling permuted draws, which is why the gate is judged on per-fit summaries and never on the total.
 
 | fit | `p_loo_frac` | Pareto k>0.7 | `cov50` dev | miscalibrated |
 |---|---:|---:|---:|---|
@@ -1030,7 +1071,7 @@ All five fitted rungs completed on 2026-09-11 (`LADDER_PASS <- 2`, R4 fitted fir
 
 | | port total | 95% CI | CI width / median | PE port |
 |---|---|---|---|---|
-| 2026-09-04 A1 baseline | 72,027 | [53,018, 101,364] | 67% | 45,105 (-37% vs BSS) |
+| 2026-09-04 A1 baseline (superseded) | 72,027 | [53,018, 101,364] | 67% | 45,105 (-37% vs BSS) |
 | **R4, the shipped configuration** | **94,376** | **[77,566, 118,602]** | **43%** | 85,076 (-10% vs BSS) |
 
 **+31.0% on the median, and the interval tightened from 67% to 43% of it.** The PE-vs-BSS reconciliation went from a 37% gap to a 10% gap.
@@ -1060,7 +1101,9 @@ Every component reports BSS in every rung -- **no PE fallbacks anywhere**, which
 
 ### D19 is settled, for the shore
 
-**Shore all-gear: PE 35,292 against BSS 34,837, -1.3% on effort and -1.8% on catch.** Under the retired `zero` fill the same comparison was -21.5%; under `day_type` -3.6%. Two estimators with nothing in common -- a design-based stratified expansion with a month-local donor, and a Bayesian AR(1) state-space with day-type effects imputing every unsampled day -- landing within 1.3% is the strongest available validation of both, and it is what the `local_day_type` fill was adopted to achieve. Shore pot closure: +3.0%.
+**Every gap in this subsection is stated PE RELATIVE TO BSS**, so a negative number is a PE below the BSS. That is the opposite of `pe_vs_bss_comparison.csv`'s own `effort_diff_pct` / `catch_diff_pct`, which are BSS relative to PE and carry no direction in the column name (D27); the first version of this section quoted the two directions in one sentence.
+
+**Shore all-gear: PE 35,292 against BSS 34,837, +1.3% on effort; PE 29,737 against BSS 29,210, +1.8% on catch.** Under the retired `zero` fill the effort comparison was **-21.5%** (PE 27,345); under `day_type`, **-3.6%** (PE 33,585). Two estimators with nothing in common -- a design-based stratified expansion with a month-local donor, and a Bayesian AR(1) state-space with day-type effects imputing every unsampled day -- landing within 1.3% is the strongest available validation of both, and it is what the `local_day_type` fill was adopted to achieve. Shore pot closure: **-2.9%** on effort, **-4.2%** on catch (PE 6,878 / 8,591 against BSS 7,086 / 8,963).
 
 **For the boat it is not settled, and the evidence runs against the CPUE half of B19.** Boat all-gear PE 37,018 against BSS 45,604, -18.8%. The `pooled` CPUE fill would have given 42,841, **-6.1%** -- closer. The PE's own internal target points the same way: the boat interview ratio-of-sums is 3.276 crab per deployment, and the PE's implied CPUE is 2.650 under `local` (0.81x) against 3.067 under `pooled` (0.94x), with the BSS at 2.928 (0.89x). Against that, the theoretical argument for `local` (a month-local effort fill multiplied by a season-pooled rate counts the seasonal gradient twice) remains sound, and a correct month-local fill SHOULD pull the effort-weighted implied CPUE below an interview ratio-of-sums that is not weighted by the calendar. So this is genuinely unresolved: `local_day_type` for the effort fill is vindicated, `pe_empty_stratum = "local"` is not, and because no component fell back to PE the choice currently affects only the cross-check.
 
@@ -1094,9 +1137,11 @@ No month sits at the retired 0.30 anchor; every informed month (n >= 20) tracks 
 
 The shore all-gear annual totals agree to 1.8%, but the MONTHLY distributions do not: the PE over-allocates January to March by about 2.2x and under-allocates June and July (0.36x, 0.59x), and the errors cancel. The boat is worse (0.20x in June, 3.23x in September). The annual agreement is real and worth having, but it is not month-by-month agreement and should not be cited as such.
 
-### One thing the post-run patch itself exposed (B24)
+### Two things the post-run patches themselves exposed (B24, B25)
 
-The code fingerprint B23 added hashes raw file text, so the very patch that records this run flagged all five of its folders as "code changed" and would have downgraded four PASS verdicts to REVIEW on the next re-run -- for edits that cannot alter a fit. Comments and blank lines are now stripped before hashing, and `CODE_EQUIVALENT` carries an auditable fingerprint-to-reason map for changes whose default code path is provably identical. The 2026-09-11 run's fingerprint (`stan:6e4aca2a drivers:3de636d0 fns:44079dee`) is the list's first entry. **Verification:** harness **833** assertions.
+The code fingerprint B23 added hashes raw file text, so the very patch that records this run flagged all five of its folders as "code changed" and would have downgraded four PASS verdicts to REVIEW on the next re-run -- for edits that cannot alter a fit. Comments and blank lines are now stripped before hashing, and `CODE_EQUIVALENT` carries an auditable fingerprint-to-reason map for changes whose default code path is provably identical. The 2026-09-11 run's fingerprint (`stan:6e4aca2a drivers:3de636d0 fns:44079dee`) is the list's first entry.
+
+**And auditing that patch the next day found two defects in it, one silent and permanent (B25).** The equivalence entry was keyed on the RECORDED fingerprint alone, and `.code_delta()` returns early on that key, so the declaration excused its folder against **whatever the tree later became**: measured, `.code_delta("stan:6e4aca2a ...", a fingerprint with a changed Stan layer)` returned `""`. A Stan edit would have gone unflagged on all five committed rungs, forever, and every bit-identity and agreement claim above would have kept its PASS on a premise that had quietly stopped being true. The key now names both ends, so a declaration lapses when either moves. Separately, B24 changed the hash function itself, so the five rung stamps can never be re-emitted and differ in ALL THREE layers from anything the current function produces, including layers whose bytes never moved; `CODE_LEGACY` maps each to `code_fingerprint()` on the same tree (627a831: `stan:523f4e63 drivers:4c2ce454 fns:30ed14fb`, verified on a worktree) before any comparison. **Verification:** harness **836** assertions, including the lapse case that would have caught it.
 
 ---
 

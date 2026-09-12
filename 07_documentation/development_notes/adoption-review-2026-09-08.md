@@ -1,5 +1,13 @@
 # Review: the adoption render, and a new authoritative run
 
+> **SUPERSEDED 2026-09-12.** The authoritative run this review crowns (`20260904/pooled-CPUE-AD-A1-adopted`, 72,027) has been superseded by the first full
+> improvement ladder's rung R4, `20260910/pooled-CPUE-IMP-R4-shore-tau-newf`,
+> **94,376 [77,566, 118,602]** (+31.0%). The current one is always in the box at the top of
+> `PIPELINE_STATUS.md`; the account of the move is Section 1v. The GATE finding below, that
+> `ar_force` and `ar_max_resolution` reach the same posterior across 10,253 rows, still
+> stands and is the reason this review exists. Its harness count (452) is likewise historical;
+> the harness is at 836.
+
 **Date:** 2026-09-08
 **Batch:** `06_diagnostics/run_adoption_2026-09-07.R`, results at `4ca59e6`
 **Runtime:** 4.1 h (A1 220.4 min, A2 26.4 min)

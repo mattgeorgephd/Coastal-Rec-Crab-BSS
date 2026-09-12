@@ -19,7 +19,7 @@ For the one-paragraph project overview and quick start, see the [root README](..
 
 ## Method documentation (Method v1.0, FROZEN)
 
-These record **Method v1.0**, frozen against pooled code v7.4. The method description (estimators, likelihoods, gate criteria, expansion structure) is what they are for; **every number in them is historical**, and since 2026-09-07 the working model also differs from them in a likelihood (the zero-inflated shore catch) and a resolution (the weekly shore AR). Each carries a SUPERSEDED-NUMBERS banner at the top pointing at the authoritative run. Regenerating them against the current model is open documentation debt (CHANGE_REGISTER item D7).
+These record **Method v1.0**, frozen against pooled code v7.4. The method description (estimators, likelihoods, gate criteria, expansion structure) is what they are for; **every number in them is historical**. The working model now differs from them in more than settings: a likelihood (the zero-inflated shore catch, 2026-09-07), a resolution (the weekly shore AR, 2026-09-07), the crabbing fraction `f` (a per-stratum logit random walk since 2026-09-08, not a scalar), both turnovers (derived / calibration-centred), and the commercial-charter component (a census plus a roster expansion, not one expansion). Each carries a SUPERSEDED-NUMBERS banner at the top pointing at the authoritative run. Regenerating them against the current model is open documentation debt (CHANGE_REGISTER item D7) and is now the **largest** item of it.
 
 | File | Describes |
 |---|---|
@@ -51,7 +51,8 @@ The 2026-08/09 validation campaign is a CHAIN of review documents, one per batch
 
 | File | Status |
 |---|---|
-| `adoption-review-2026-09-08.md` | **The current endpoint**: the adoption gate passed, `AD-A1-adopted` became the authoritative run, and the cross-track gap was shown to be a resolution difference (0.08% agreement at a common resolution). |
+| `PIPELINE_STATUS.md` Section 1v | **The current endpoint** (2026-09-11): the first full improvement ladder ran, `IMP-R4-shore-tau-newf` became the authoritative run at **94,376 [77,566, 118,602]**, the +31% was attributed to four changes that sum to the whole within 24 crab, and the `f` factorization proof was established. There is no separate review file for this batch; the account lives in the status document. |
+| `adoption-review-2026-09-08.md` | **SUPERSEDED 2026-09-12.** The adoption gate passed and `AD-A1-adopted` became the authoritative run at 72,027; the cross-track gap was shown to be a resolution difference (0.08% agreement at a common resolution). The gate finding stands; the total does not. |
 | `candidate-config-review-2026-09-07.md` | The completed 2x2 (AR resolution x catch likelihood); C1 identified as the candidate; the gear-track "monthly is also bad" figure retracted as a cross-model misattribution. |
 | `ladder-zinb-review-2026-09-06.md` | The ladder's first real run (daily is overfitted; the estimate barely moves) and the ZINB re-scored under the corrected PPC. |
 | `shore-ar-zi-review-2026-09-04.md` | Review of the 2026-09-03 batch: three one-line defects, five of eleven verdicts wrong, all corrected with an audit trail. |

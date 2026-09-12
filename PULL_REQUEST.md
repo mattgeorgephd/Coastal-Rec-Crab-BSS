@@ -20,9 +20,10 @@
 > instead of this file:** `07_documentation/development_notes/CHANGE_REGISTER.md` (every
 > change, its status, evidence, and effect on the number) and
 > `07_documentation/development_notes/PIPELINE_STATUS.md` (the narrative, Sections 1b-1m,
-> with the authoritative run in the box at the top: `20260904/pooled-CPUE-AD-A1-adopted`,
-> port total 72,027 [53,018, 101,364]). The text below is kept as the record of the
-> original OSP scope and its validation.
+> with the authoritative run in the box at the top: as of 2026-09-12 that is
+> `20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602],
+> superseding the 72,027 this file used to name). The text below is kept as the record of
+> the original OSP scope and its validation.
 
 ## Summary
 

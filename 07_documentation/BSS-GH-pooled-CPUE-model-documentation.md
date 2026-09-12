@@ -13,8 +13,12 @@
 >
 > **The current authoritative run and its totals live in ONE place:**
 > `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top of that
-> file. As of 2026-09-08 that is `05_output/20260904/pooled-CPUE-AD-A1-adopted`,
-> **port total 72,027 [53,018, 101,364]**. Every change on the branch and its status is
+> file. As of 2026-09-12 that is `05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`,
+> **port total 94,376 [77,566, 118,602]** (the first full improvement ladder, rung R4;
+> Section 1v). It supersedes 72,027, which this document's previous banner pointed at, and
+> the gap is not drift: a dynamic monthly crabbing fraction `f` replaced a flat 0.30, the
+> shore turnover is now derived, the boat turnover recentred, and the census split into a
+> commercial census plus a charter expansion. Every change on the branch and its status is
 > tabulated in `07_documentation/development_notes/CHANGE_REGISTER.md`.
 >
 > Do not quote a number from this document as current. The METHOD description (estimators,
@@ -31,7 +35,7 @@
 **Author:** Matthew George, Ph.D.
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
-**Status:** Published, operational. The method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor.
+**Status:** Operational, **not published**. "Method v1.0" is the frozen internal method-of-record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "published" in this document and in the histories below means "frozen and circulated internally", never released, and there is therefore no external figure a change has to stay consistent with (corrected 2026-09-12).
 **Method version:** 1.0. "Method v1.0" is the frozen method label: the model structure, the estimators, and the design decisions in this document. It is distinct from the pipeline "code" revision (v7.x), which tracks implementation changes. Method v1.0 was first frozen against code v7.4.
 **Current pipeline code:** v7.9 + Tier-2 batch (2026-07-13). Since v7.4 the code has advanced in ways that move published totals: v7.5 added the incomplete-trip filter (raises the shore estimate); v7.6 moved the private boat onto gear-deployments; v7.7 moved the shore BSS onto gear-deployments (moves the shore total); v7.8 completed the shore PE onto the same unit and refactored the code; v7.9 restructured `run_config.R` and tightened the pooled divergence backstop (no totals move). The 2026-07-11 v7.8 run refreshed the totals. One correction to an earlier expectation: the v7.6 boat move proved catch-neutral (on weekly AR the boat holds near 54,481, NOT the ~-25% originally predicted); it corrects the boat's effort unit and interpretation but does not move the boat harvest. What does move the boat is the AR resolution: on monthly boat AR (`05_output/20260713/pooled-CPUE-run1`) the boat reconciles to ~43,180, matching the gear-resolved pipeline, so monthly is the recommended production boat AR cap (see Sections 16 and 19). The method is unchanged by these; they are effort-unit and filtering corrections, not a re-derivation. Numbers quoted throughout that predate the 2026-07-11 run should be read as pre-refresh.
 **Reference calibration season:** 2024-25.
