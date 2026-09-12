@@ -10,9 +10,23 @@
 > **`05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602]**,
 > 4 of 4 components fitted, every one reporting BSS. Rendered 2026-09-11 as rung R4 of the first
 > full improvement ladder (`06_diagnostics/run_improvements_2026-09-08.R`, `F_METHOD =
-> "new_throughout"`, `LADDER_PASS = 2`). **R4 is not a variant of production: `D_R4` IS
-> `run_config.R`**, which the runner's comparability preflight asserts before any fitting, so this
-> render is the confirming render and no separate adoption run is owed. Full account: Section 1v.
+> "new_throughout"`, `LADDER_PASS = 2`). **R4 carries no model delta against `run_config.R`**: every
+> lever in `D_R4` is the shipped value, which the runner's comparability preflight asserts before
+> any fitting, so this is the confirming render and no separate adoption run is owed. Full
+> account: Section 1v.
+>
+> **WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW, and a clone will not reproduce it by running
+> `run_estimation.R`.** `run_config.R` currently ships the **2023-25 two-season span**
+> (`est_date_start = "2023-09-16"`, `season_filter = c("2023-24", "2024-25")`); the ladder's
+> `WINDOW` block rolls that back to the single 2024-25 season on every rung, pinning all nine
+> per-season keys. So the authoritative configuration is **`run_config.R` plus the 2024-25
+> rollback block that sits commented out beneath `season_filter`**. The span it ships instead is
+> BLOCKED (D8): there is no 2023-24 vessel tally or charter roster, so that season's census
+> component is 0 and a two-season port total is short by the 2023-24 commercial/charter catch.
+> `estimate_comm_charter()` says so, but with a `warning()`, four hours into a knit. **Open
+> decision:** roll `run_config.R` back to the 2024-25 window (the configuration that reproduces
+> this box) and keep the span in the commented block, or keep the span staged and make the
+> missing-frame condition a hard stop rather than a warning.
 >
 > Components (medians): shore all-gear 29,210; shore pot closure 8,963; private boat all-gear
 > 45,604; private boat pot closure 1,372; commercial/charter 8,538. **These sum to 93,687, not to

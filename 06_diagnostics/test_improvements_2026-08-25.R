@@ -3583,5 +3583,43 @@ local({
         grepl('if (identical(par_name, "R_T")) v else 1 / v', b, fixed = TRUE) })
 })
 
+# ---------------------------------------------------------------------------
+# 65. THE SHIPPED WINDOW IS NOT THE AUTHORITATIVE WINDOW (2026-09-12, D28). run_config.R
+#     ships the 2023-25 two-season span; the ladder's WINDOW block pins every rung to the
+#     single 2024-25 season. Both are deliberate, and the combination means a fresh clone
+#     running run_estimation.R does NOT reproduce the box. The claim "R4 IS run_config.R"
+#     is true of the model levers and false of the window, so the status document has to
+#     say which. Assert the discrepancy is DECLARED, not that it is absent: if someone
+#     later rolls run_config back to 2024-25 these still pass, because then the window in
+#     the pin and the window in the config agree.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  t <- readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE)
+  i <- grep("^WINDOW <- list\\(", t)[1]
+  chk("window: the ladder runner has a WINDOW pin", !is.na(i))
+  if (is.na(i)) return(invisible(NULL))
+  j <- i; while (!grepl("^\\s*estimate_red_rock", t[j])) j <- j + 1L
+  ev <- new.env(); eval(parse(text = paste(t[i:j], collapse = "\n")), envir = ev)
+  W <- ev$WINDOW
+  same <- identical(as.character(W$season_filter), as.character(rc$season_filter)) &&
+          identical(as.character(W$est_date_start), as.character(rc$est_date_start)) &&
+          identical(as.character(W$est_date_end),   as.character(rc$est_date_end))
+  ps <- paste(readLines("07_documentation/development_notes/PIPELINE_STATUS.md", warn = FALSE), collapse = "\n")
+  chk("window: if the pin and run_config disagree, the status document says so in the box",
+      same || (grepl("WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW", ps, fixed = TRUE) &&
+               grepl("D8", ps, fixed = TRUE)),
+      sprintf("(pin %s..%s [%s]; run_config %s..%s [%s])",
+              W$est_date_start, W$est_date_end, paste(W$season_filter, collapse = "+"),
+              rc$est_date_start, rc$est_date_end, paste(rc$season_filter, collapse = "+")))
+  chk("window: the box no longer claims R4 IS run_config without qualifying the window",
+      !grepl("**R4 is not a variant of production: `D_R4` IS\n> `run_config.R`**", ps, fixed = TRUE))
+  # the census frame guard is a warning, not a stop: assert which, so a change is deliberate
+  cc <- paste(readLines("03_R_functions/estimate_comm_charter.R", warn = FALSE), collapse = "\n")
+  chk("window: the missing-census-frame condition is a warning (D28 option b would make it a stop)",
+      grepl("the frame is missing for this window and the component is 0", cc, fixed = TRUE) &&
+      grepl("warning(sprintf(paste0(\"estimate_comm_charter():", cc, fixed = TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
