@@ -686,10 +686,14 @@ has 148.
 
 **Where the two centres come from, and this is the second-largest change in Method v2.0.**
 
-| | shipped setting | 2024-25 value | what it replaced |
-|---|---|---|---|
-| shore | `tau_shore_prior_mu = "derived"` | **2.477**, prior log-SD 0.10 | a literal 1.7 |
-| boat | `tau_boat_prior_mu = "calibration"` | fitted `tau_bar` **2.977** | a literal 1.2 |
+| | shipped setting | 2024-25 prior centre | fitted | what it replaced |
+|---|---|---|---|---|
+| shore | `tau_shore_prior_mu = "derived"` | **2.477**, log-SD 0.10 (floored) | posterior 2.394 | a literal 1.7 |
+| boat | `tau_boat_prior_mu = "calibration"` | **3.030**, SD 0.50, from 61 paired overlap days | `tau_bar` **2.977** | a literal 1.2 |
+
+Both resolve per run and both are printed with their source, so a run says where its turnover
+came from rather than leaving it to be looked up: `derived (I/E time column, 40 days,
+count-time-weighted ratio of sums)` and `calibration (trailer_mean_per_visit, n = 61)`.
 
 The shore centre is derived from the I/E `time` column: a diel presence profile, evaluated at
 the hours the creel counts were actually taken, giving a count-time-weighted ratio of

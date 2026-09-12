@@ -67,6 +67,14 @@
 > to PE in this run, so the choice did not touch the total; it did move the cross-check that the
 > total is judged by.
 >
+> **The shipped configuration reproduces this run's inputs exactly**, desk-checked 2026-09-12
+> after `run_config.R` was rolled back to the canonical window: sub-seasons
+> `ring_net_only` [2024-09-16, 2024-11-30] and `all_gear` [2024-12-01, 2025-09-15]; the shore
+> turnover resolving to 2.4771 and the boat prior centre to 3.0300 from 61 paired overlap days;
+> the census to commercial 6,405 plus charter 2,133 = 8,538 with a carried SE of 73; and **zero
+> warnings on the read**, where the two-season span it used to ship produced a missing-census-
+> frame warning.
+>
 > **Cross-check.** The gear-resolved track (rung R5, same configuration) reads 93,274, **-1.17%**
 > apart at the port, inside the 2% criterion; `tau_bar` agrees to 0.02% and the monthly `f` to
 > 0.002 across the two independent parameterizations.

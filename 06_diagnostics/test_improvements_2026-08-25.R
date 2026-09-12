@@ -3706,6 +3706,15 @@ local({
   chk("canonical: nothing in the file still sets the blocked two-season span",
       !any(grepl('season_filter *= *c\\("2023-24"', src)) &&
       !any(grepl('est_date_start *= *"2023-09-16"', src)))
+  # the desk check recorded in the box: these are the values the shipped config resolves to,
+  # pinned so a lever that changes one of them cannot pass silently.
+  chk("canonical: the box records the desk check that the shipped config reproduces the run's inputs",
+      { ps <- paste(readLines("07_documentation/development_notes/PIPELINE_STATUS.md", warn = FALSE), collapse = "\n")
+        f <- gsub("[ \n>]+", " ", ps)
+        grepl("shipped configuration reproduces this run's inputs exactly", f, fixed = TRUE) &&
+        grepl("2.4771", f, fixed = TRUE) && grepl("3.0300", f, fixed = TRUE) &&
+        grepl("commercial 6,405 plus charter 2,133 = 8,538", f, fixed = TRUE) &&
+        grepl("zero warnings on the read", f, fixed = TRUE) })
   chk("canonical: the header names the authoritative run and points at the one box",
       any(grepl("pooled-CPUE-IMP-R4-shore-tau-newf", src, fixed = TRUE)) &&
       any(grepl("94,376", src, fixed = TRUE)) &&
