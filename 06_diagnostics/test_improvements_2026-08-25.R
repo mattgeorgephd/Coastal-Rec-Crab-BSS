@@ -3707,5 +3707,91 @@ local({
       any(grepl("HOW TO READ THIS FILE", src, fixed = TRUE)))
 })
 
+# ---------------------------------------------------------------------------
+# 67. THE MONTHLY PE SHARE HAD LOST THE CRABBING FRACTION (2026-09-12). The boat branch of
+#     pe_monthly_effort_share() omitted the per-day f that run_pe_pooled() applies. That was
+#     EXACT while f was the scalar 0.30, because the share is normalized and a constant
+#     multiplier cancels; the dynamic monthly f adopted 2026-09-08 made it stop cancelling
+#     silently, with nothing at the call site changing. Measured on 2024-25: September
+#     over-weighted 2.39x, December pulled to 0.36x. No total moves. These assert the
+#     ALIGNMENT of the two formulae, not a number, so the next lever cannot re-open the gap.
+# ---------------------------------------------------------------------------
+local({
+  src <- readLines("03_R_functions/pe_monthly_effort_share.R", warn = FALSE)
+  code <- paste(src[!grepl("^\\s*#", src)], collapse = "\n")
+  chk("monthly share: the boat branch applies the per-day crabbing fraction",
+      grepl("crab_fraction_point_day(is_boat_pe, days_ss, params)", code, fixed = TRUE) &&
+      grepl("mean_count * gpg_pe * tau_pe * .f_crab_pe", code, fixed = TRUE))
+  chk("monthly share: the shore branch still carries NO f (there is none on shore)",
+      grepl("else mean_count * gear_mult * (if (use_tau) tau_shore else day_length)", code, fixed = TRUE))
+  chk("monthly share: an unresolved turnover prior names the key and the resolver",
+      grepl("bss_resolve_tau_boat_prior", code, fixed = TRUE) &&
+      grepl("not a number", code, fixed = TRUE))
+  chk("monthly share: the header records why the omission was invisible until f moved",
+      any(grepl("stopped cancelling the moment it stopped being constant", src, fixed = TRUE)) ||
+      any(grepl("stopped cancelling", src, fixed = TRUE)))
+
+  # functional: on a fixture where f varies by month, the helper must equal the
+  # by-hand run_pe_pooled formula, and must NOT equal the f-free one.
+  source("03_R_functions/pe_monthly_effort_share.R")
+  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+  days <- data.frame(event_date = seq(as.Date("2025-01-01"), as.Date("2025-03-31"), by = "day"))
+  days$month_label <- format(days$event_date, "%Y-%m")
+  days$day_length  <- 6
+  P <- list(bss_max_count_seq = 3, gear_per_group_default = 4, tau_boat_prior_mu = 3,
+            use_crab_fraction = TRUE)
+  f_by_month <- c("2025-01" = 0.9, "2025-02" = 0.5, "2025-03" = 0.1)
+  # stub the per-day f so the test does not depend on the crab_fraction machinery
+  cfp <- function(is_boat, days, params) if (isTRUE(is_boat)) unname(f_by_month[days$month_label]) else rep(1, nrow(days))
+  eff <- data.frame(event_date = days$event_date, count_sequence = 1L,
+                    count_quantity = rep(c(10, 20, 30), length.out = nrow(days)))
+  summ <- list(effort_index = eff, interview = data.frame(number_of_gear = numeric(0), angler_count = numeric(0)))
+  got <- local({ crab_fraction_point_day <- cfp
+                 environment(pe_monthly_effort_share) <- environment()
+                 pe_monthly_effort_share("private_boat", summ, days, P) })
+  want <- { z <- merge(eff, days, by = "event_date"); z$f <- unname(f_by_month[z$month_label])
+            a <- tapply(z$count_quantity * 4 * 3 * z$f, z$month_label, sum)
+            data.frame(month_label = names(a), share = as.numeric(a / sum(a))) }
+  nof <- { z <- merge(eff, days, by = "event_date")
+           a <- tapply(z$count_quantity * 4 * 3, z$month_label, sum)
+           as.numeric(a / sum(a)) }
+  chk("monthly share: the helper REPRODUCES run_pe_pooled's boat formula on a varying-f fixture",
+      isTRUE(all.equal(got$share[order(got$month_label)], want$share[order(want$month_label)])))
+  chk("monthly share: and it is NOT the f-free share (the fixture would not catch a no-op)",
+      !isTRUE(all.equal(got$share[order(got$month_label)], nof)))
+  chk("monthly share: with f constant the two agree, which is why the defect was invisible",
+      { f2 <- c("2025-01" = 0.3, "2025-02" = 0.3, "2025-03" = 0.3)
+        g2 <- local({ crab_fraction_point_day <- function(is_boat, days, params)
+                        if (isTRUE(is_boat)) unname(f2[days$month_label]) else rep(1, nrow(days))
+                      environment(pe_monthly_effort_share) <- environment()
+                      pe_monthly_effort_share("private_boat", summ, days, P) })
+        isTRUE(all.equal(g2$share[order(g2$month_label)], nof)) })
+
+  # the retired header claim in run_pe_pooled
+  ph <- readLines("03_R_functions/run_pe_pooled.R", warn = FALSE)
+  # THE SECOND COPY. .srd_monthly_share() splits the PE component total into months for
+  # monthly_pe_vs_bss.csv, which is the file that carried the 3.23x September figure. Its own
+  # header states the rule correctly ("any per-day multiplier that is constant cancels") and
+  # was written when day length was the only non-constant one.
+  sd_src <- readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE)
+  sd_code <- paste(sd_src[!grepl("^\\s*#", sd_src)], collapse = "\n")
+  chk("monthly share (2nd copy): .srd_monthly_share takes params and applies the per-day f",
+      grepl(".srd_monthly_share <- function(stan_data, days_ss, is_boat, params = list())", sd_code, fixed = TRUE) &&
+      grepl("crab_fraction_point_day(is_boat, days_ss, params)", sd_code, fixed = TRUE) &&
+      grepl("w   <- as.numeric(mc) * dl * fc", sd_code, fixed = TRUE))
+  chk("monthly share (2nd copy): the monthly_pe_vs_bss caller passes params through",
+      grepl(".srd_monthly_share(sd_, ds, is_boat, params)", sd_code, fixed = TRUE))
+  chk("monthly share (2nd copy): it is BOTH copies or neither, and the header says so",
+      any(grepl("it belongs in BOTH monthly-share copies", sd_src, fixed = TRUE)))
+  chk("monthly share (2nd copy): a failure to compute f degrades to 1, never to NA",
+      grepl("error = function(e) rep(1, length(di))", sd_code, fixed = TRUE) &&
+      grepl("if (length(fc) != length(di) || !all(is.finite(fc))) fc <- rep(1, length(di))", sd_code, fixed = TRUE))
+
+  chk("monthly share: run_pe_pooled's header no longer claims a weighted mean of daily ratios",
+      !any(grepl("weighted mean of daily ratios) is intentionally left", ph, fixed = TRUE)) &&
+      any(grepl("has\n# been RATIO-OF-SUMS ever since", paste(ph, collapse = "\n"), fixed = TRUE)) |
+      any(grepl("RATIO-OF-SUMS ever since", ph, fixed = TRUE)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

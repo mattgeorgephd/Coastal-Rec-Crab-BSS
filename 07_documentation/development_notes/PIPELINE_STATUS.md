@@ -1149,7 +1149,9 @@ No month sits at the retired 0.30 anchor; every informed month (n >= 20) tracks 
 
 ### A caveat on the PE-vs-BSS agreement that the totals hide
 
-The shore all-gear annual totals agree to 1.8%, but the MONTHLY distributions do not: the PE over-allocates January to March by about 2.2x and under-allocates June and July (0.36x, 0.59x), and the errors cancel. The boat is worse (0.20x in June, 3.23x in September). The annual agreement is real and worth having, but it is not month-by-month agreement and should not be cited as such.
+The shore all-gear annual totals agree to 1.8%, but the MONTHLY distributions do not: the PE over-allocates January to March by about 2.2x and under-allocates June and July (0.36x, 0.59x), and the errors cancel. The annual agreement is real and worth having, but it is not month-by-month agreement and should not be cited as such.
+
+**CORRECTED 2026-09-12 on the boat half.** This paragraph also said "the boat is worse (0.20x in June, 3.23x in September)". Most of that was an artefact of the reporting code, not a disagreement between the estimators: `pe_monthly_effort_share()` omitted the per-day crabbing fraction on the boat branch, which was exact for as long as `f` was the scalar 0.30 and stopped being exact the moment `f` became a month-varying walk. With `f` running 0.95 in December to 0.14 in September, the boat's monthly PE share was over-weighted **2.39x** in September and pulled to **0.36x** in December, which is the same shape and most of the size of the "disagreement" reported here. Fixed; the boat monthly PE-vs-BSS comparison needs re-reading on the next render before any statement is made about it. **No total moves**: the share is normalized and every component total comes from `run_pe_*()`, which always applied `f`.
 
 ### Two things the post-run patches themselves exposed (B24, B25)
 

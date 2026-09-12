@@ -36,8 +36,13 @@
 # gear-deployments, so the shore PE and shore BSS were on different units and the
 # pe_vs_bss_comparison / monthly PE effort-share for shore were unit-inconsistent.
 # NOTE: this MOVES the pooled shore PE number; confirm against a validation run.
-# The stratum-CPUE estimator (weighted mean of daily ratios) is intentionally left
-# unchanged; adopting the gear track's ratio-of-sums (P0) is a separate decision.
+#
+# CORRECTED 2026-09-12. This header used to end "The stratum-CPUE estimator (weighted mean
+# of daily ratios) is intentionally left unchanged; adopting the gear track's ratio-of-sums
+# (P0) is a separate decision." That decision was taken on 2026-07-12 and the code below has
+# been RATIO-OF-SUMS ever since: sum(catch) / sum(hrs) within the stratum, with the reasons
+# and the measured effect at the cpue_strat block. Do not cite the retired sentence; the
+# per-day `cpue` column is still computed but the estimator does not use it.
 ###############################################################################
 
 run_pe_pooled <- function(summ, days, params, population_name) {
