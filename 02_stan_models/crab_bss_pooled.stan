@@ -49,7 +49,14 @@
 //   / E_scale generalize E = lambda_E * E_scale * L; the driver sends h = number_of_gear
 //   and L = tau_boat for the boat. This removes the POOL-1 (R_T pinned at 1) and
 //   POOL-3 (flat L = 24 gear-hours) defects; the boat number moves and must be
-//   confirmed by a run. Shore is unchanged (crabber-hours, E_scale = 1).
+//   confirmed by a run. (This entry used to end "Shore is unchanged (crabber-hours,
+//   E_scale = 1)", which was the only statement about the shore unit in this header and was
+//   retired by v7.7 below; corrected 2026-09-12.)
+//
+// v7.7 (POOL-7, 2026-07-11): THE SHORE MOVES TOO, so both populations run on
+//   gear-deployments. Shore h = number_of_gear, E_scale = R_G, and L = tau_shore, a
+//   dimensionless turnover (2.477 derived from the I/E time column on 2024-25). No day
+//   length appears in the production expansion; L_effective in hours is a diagnostic.
 //
 // v6.6 (B1.3): the AR(1) initial states omega_E_0 / omega_C_0 are non-centered
 //   (omega_*_0 = stationary SD x raw) to remove the centered funnel that drove
@@ -157,7 +164,8 @@ data {
   // ---------------------------------------------------------------------------
   // improvement 2.1 (2026-08-27): SHARED TURNOVER.
   //
-  // shared_tau = 0 (default) keeps the historical parameterization exactly: L is D
+  // shared_tau = 0 (the RETIRED per-day form; production ships 1 since 2026-09-01) keeps
+  // the historical parameterization exactly: L is D
   // INDEPENDENT per-day draws, L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]), each
   // anchored on its own prior centre with nothing pooling information across days.
   //
@@ -238,7 +246,7 @@ data {
   int<lower=0> c[IntC];
   vector<lower=0>[IntC] h;
 
-  // --- Zero-inflated catch likelihood (2026-09-02, OFF by default) -----------
+  // --- Zero-inflated catch likelihood (2026-09-02; ADOPTED 2026-09-07, ON for shore) ---
   // WHY IT EXISTS. The 2026-09-01 validation batch scored the PPC zero bin as the observed
   // zero COUNT against the model's own expected count over ALL interviews, with a
   // Poisson-binomial SD. Every BOAT stream sat inside |z| = 2.3. The two SHORE CATCH
@@ -428,10 +436,15 @@ data {
   int<lower=0> cfc_crab[CFC_n];             // typed crabbing boats that day
   int<lower=0> cfc_combo[CFC_n];            // of which combo trips
   real<lower=0> cfc_kappa_prior_mu;         // lognormal centre of kappa_C
-  // Phase 3: OSP-informs-tau toggle. 0 (default) keeps the free kappa_OSP scale (Phase 1);
-  // 1 makes the OSP mean use L (= tau_boat) as the turnover, so the dense OSP series
-  // identifies the boat turnover. See the dev note for the kappa_OSP (~2.7) vs
-  // tau_boat prior (~1.2) tension; validate by run before using.
+  // Phase 3: OSP-informs-tau toggle. 0 keeps the free kappa_OSP scale (Phase 1); 1 makes the
+  // OSP mean use L (= tau_boat) as the turnover, so the dense OSP series identifies the boat
+  // turnover. PRODUCTION SHIPS 1, adopted 2026-09-01; this comment said "0 (default)" and
+  // "validate by run before using" until 2026-09-12, both of which were retired by that
+  // adoption. Under 1, kappa_OSP drops out of the likelihood entirely while still being
+  // sampled from its prior and reported as kappa_OSP_out, so read that column as a
+  // prior draw, not an estimate. The kappa_OSP (~2.7) vs tau_boat tension the dev note
+  // records is against the RETIRED 1.2 centre; the calibration centre is ~2.98, and the
+  // note that the conflict was being absorbed by r_OSP rather than by L still stands.
   int<lower=0,upper=1> osp_scale_is_tau;
 }
 

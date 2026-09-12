@@ -2,7 +2,7 @@
 
 ## Development history
 
-- **Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md` (the published gear-resolved method reference).
+- **Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md`, which is **framework v6.0** (adopted 2026-09-12) and deliberately describes only what differs from the pooled Method v2.0 document. Framework v5.6 is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
 - **Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.6** (2026-07-12): both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production (v5.5), and `run_config.R` is now the base parameter set in parity with the pooled track's v7.9 (v5.6).
 - **Convention:** no em dashes.
 

@@ -24,8 +24,9 @@
 # WHY THIS RUN EXISTS
 #   The 2026-09-08 patch series (items 1 to 8 of the 2026-09-06 branch review) changes
 #   the boat turnover prior (item 3), the boat PE (5), the fishing-time filters (8), the
-#   crabbing fraction f (1A, 1B), the gear split (6), the census reporting (4) and, OFF
-#   by default, the shore turnover (2). Three of those push the port total the same way
+#   crabbing fraction f (1A, 1B), the gear split (6), the census reporting (4) and the
+#   shore turnover (2), which was OFF by default when this was written and was ADOPTED on
+#   2026-09-09 (run_config ships tau_shore_prior_mu = "derived"). Three of those push the port total the same way
 #   (up), so they must be seen one at a time or their effects cannot be attributed. Each
 #   rung below adds ONE change on top of the previous rung; every rung is a full pooled
 #   render (four fits), so a rung is comparable to the last one and to the baseline.
@@ -36,7 +37,7 @@
 #   R1   pre-patch configuration + item 8 (the filters are code, always on)
 #   R2   + item 3: tau_boat prior from the OSP/trailer calibration (shared_tau_sigma 0.15)
 #   R3a  + item 1A: monthly f from the sampler contacts, LEGACY per-stratum construction
-#   R3   + item 1B: the dynamic f (the shipped configuration)
+#   R3   + item 1B: the dynamic f (shipped; R4 below is the FULL shipped configuration)
 #   R4   + item 2: tau_shore_prior_mu = "derived" (ADOPTED 2026-09-09: the shipped configuration)
 #   R5   the gear-resolved cross-check on the configuration GEAR_FOLLOWS names
 #
@@ -515,8 +516,43 @@ CODE_EQUIVALENT <- list(
   # byte-identical: tau_shore_derive_window_only ships FALSE, under which `iv` is exactly the
   # frame the previous code built, and the new run_config key reaches no likelihood. The
   # verdict fixes are in this runner, which is not a hashed layer at all.
+  # SUPERSEDED 2026-09-12 and kept for the record: this entry's current side (fns:0868556b)
+  # stopped being current the moment the monthly-share fix landed, and nothing caught it.
+  # The harness now asserts that a declaration's "=>" side IS the actual current fingerprint,
+  # so a stale declaration fails instead of sitting there.
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:523f4e63 drivers:4c2ce454 fns:0868556b" =
-    "the 2026-09-11 ladder run vs the same tree plus D24's in-window turnover diagnostic; the default code path is byte-identical, so no fit is affected"
+    "SUPERSEDED: the 2026-09-11 ladder run vs the same tree plus D24's in-window turnover diagnostic; the default code path was byte-identical, so no fit was affected",
+  # The 2026-09-11 ladder run against the tree as of the 2026-09-12 documentation sweep.
+  # THREE layers, and each is accounted for separately, because the layer is the unit the
+  # comparison is made at:
+  #
+  #   stan:      UNCHANGED (523f4e63). Every Stan edit since the run was a `//` comment,
+  #              which .strip removes before hashing.
+  #   drivers:   moved 4c2ce454 -> 73a39b79, ENTIRELY from report PROSE. Verified, not
+  #              assumed: purling both .Rmd versions and diffing the result gives only
+  #              comment lines, so no code chunk changed. This is a known limitation of the
+  #              fingerprint rather than a change to the model: .strip removes `#` comments
+  #              and markdown headers but NOT prose paragraphs, so editing the report text
+  #              moves this layer even though it cannot reach a fit.
+  #   fns:       moved 0868556b -> 747f065e from exactly TWO executable lines, found by
+  #              diffing the stripped text: the monthly-share crabbing-fraction fix
+  #              (pe_monthly_effort_share.R and save_run_diagnostics.R) and one cat() label
+  #              in prep_bss_crab_pooled.R that now reads the unit from bss_effort_spec()
+  #              instead of hard-coding it.
+  #
+  # WHY NO FIT IS AFFECTED. The monthly-share fix is in the REPORTING layer, downstream of
+  # every fit: its inputs are the PE component totals and the days frame, and its output is a
+  # normalized monthly weight. It reaches no Stan data, no prior and no likelihood. The cat()
+  # label writes to the console.
+  #
+  # WHAT THIS DECLARATION DOES NOT COVER, stated because an audit trail that only says
+  # "equivalent" is not one: monthly_pe_vs_bss.csv and the report's 7.8 / 7.8b monthly tables
+  # DID change for the boat, by design (the omitted per-day f). A cross-rung comparison of
+  # those files specifically is not equivalent and must not be claimed as such. Every
+  # cross-rung claim the runner actually makes rests on the per-fit posterior summaries and
+  # on the component totals, and those are untouched.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:523f4e63 drivers:73a39b79 fns:747f065e" =
+    "the 2026-09-11 ladder run vs the tree after the 2026-09-12 documentation sweep: stan unchanged, drivers moved on report prose alone (purl-verified), fns moved on the monthly-share f fix and one console label, neither of which can reach a fit. Does NOT cover monthly_pe_vs_bss.csv, which changed for the boat by design"
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

@@ -56,8 +56,10 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
   }
 
   # --- Effort expansion basis, by population (F2) ------------------------------
-  # SHORE  : effort = crabbers x effective day length (hours). days$day_length is
-  #          the I/E-derived L_effective set by bss_assign_day_length().
+  # SHORE  : effort = gear x tau_shore (gear-deployments, which is PRODUCTION since v7.7).
+  #          crabbers x effective day length in hours applies ONLY under a time-denominated
+  #          unit; the branch below reads the unit from bss_effort_spec() rather than
+  #          assuming one, and days$day_length is the I/E-derived L_effective it would use.
   # BOAT   : effort = gear DEPLOYMENTS = trailers x gear_per_group x tau.
   #          Boat catch is not linear in soak time (fitted exponent 0.133), so
   #          neither crabber-hours nor gear-hours is a stable effort unit; the
@@ -185,8 +187,10 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     # Empty-stratum CPUE fallback (item 2, 2026-07-13; mirrors run_pe_pooled). An
     # effort-bearing stratum with no surviving interviews gets mean_cpue = NA; the old
     # replace_na(., 0) zeroed its catch (under-count, and the source of the boat PE's
-    # sparse-stratum sign instability). params$pe_empty_stratum = "pooled" (default)
-    # fills it with the population x sub-season ratio-of-sums CPUE; "zero" is the old behavior.
+    # sparse-stratum sign instability). params$pe_empty_stratum = "local" (SHIPPED;
+    # "pooled" was the default until 2026-09-12) fills it from the month-local ratio-of-sums,
+    # falling back to the sub-season one; "pooled" uses the sub-season rate throughout and
+    # "zero" is the old behaviour.
     # 2026-09-12: SCALE-MATCHED to the effort fill via pe_empty_cpue_fill()
     # (pe_empty_stratum: "local" ships). A month-local effort fill multiplied by a
     # sub-season-wide CPUE put the two halves of the same imputed cell on different scales.

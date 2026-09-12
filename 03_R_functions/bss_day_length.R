@@ -35,7 +35,8 @@
 #   Boats do NOT use a day length at all. STALE COMMENT CORRECTED 2026-08-25: the old
 #   text here said "L = 24 by construction (the gear-hours formulation)", which stopped
 #   being true at POOL-3 / v7.6 when the boat moved to gear-deployments. The boat's L is
-#   tau_boat, the deployment turnover (~1.2), set by bss_effort_spec().
+#   tau_boat, the deployment turnover (~2.98 from the OSP/trailer calibration on 2024-25;
+#   the 1.2 this line used to name is the RETIRED centre), set by bss_effort_spec().
 #
 # WHAT PRODUCTION ACTUALLY EXPANDS ON (improvement 2, 2026-08-25)
 #   Since the v7.7 shore unit move, SHORE also expands on a turnover, not on a day

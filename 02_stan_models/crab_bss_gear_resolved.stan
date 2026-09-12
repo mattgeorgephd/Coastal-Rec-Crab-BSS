@@ -65,8 +65,13 @@
 //     E     = lambda_E * tau      (gear deployments per day)
 //     lambda_C = crab per gear deployment  (stable: 4.0-7.6 across all soaks)
 //
-//   Shore is unchanged: lambda_E = crabbers, h = crabber-hours, L = the I/E
-//   derived EFFECTIVE day length in hours (~3.5-5 h), estimated as a parameter.
+//   Shore now MATCHES, since v7.7 / POOL-7: lambda_E = crabbers observed through R_G,
+//   h = number_of_gear, L = tau_shore, a dimensionless turnover (2.477 derived on 2024-25),
+//   estimated as a parameter. No day length appears in the production expansion.
+//   (This block said "Shore is unchanged: crabber-hours, L = the I/E derived EFFECTIVE day
+//   length in hours" until 2026-09-12. It is the block this file's header and
+//   02_stan_models/README.md send readers to for the effort-unit rationale, so the stale
+//   version was the first thing a reader met.)
 //
 // G (GEAR DIMENSION) -- READ THIS BEFORE USING THIS MODEL
 //   The structure supports G > 1 (per-gear mu_C, per-gear mu_mu_C, AR over G*S,
@@ -163,7 +168,8 @@ data {
   // ---------------------------------------------------------------------------
   // improvement 2.1 (2026-08-27): SHARED TURNOVER.
   //
-  // shared_tau = 0 (default) keeps the historical parameterization exactly: L is D
+  // shared_tau = 0 (the RETIRED per-day form; production ships 1 since 2026-09-01) keeps
+  // the historical parameterization exactly: L is D
   // INDEPENDENT per-day draws, L[d] = L_data[d] * exp(L_prior_sigma[d] * L_raw[d]), each
   // anchored on its own prior centre with nothing pooling information across days.
   //
@@ -406,10 +412,15 @@ data {
   int<lower=0> cfc_crab[CFC_n];             // typed crabbing boats that day
   int<lower=0> cfc_combo[CFC_n];            // of which combo trips
   real<lower=0> cfc_kappa_prior_mu;         // lognormal centre of kappa_C
-  // Phase 3: OSP-informs-tau toggle. 0 (default) keeps the free kappa_OSP scale (Phase 1);
-  // 1 makes the OSP mean use L (= tau_boat) as the turnover, so the dense OSP series
-  // identifies the boat turnover. See the dev note for the kappa_OSP (~2.7) vs
-  // tau_boat prior (~1.2) tension; validate by run before using.
+  // Phase 3: OSP-informs-tau toggle. 0 keeps the free kappa_OSP scale (Phase 1); 1 makes the
+  // OSP mean use L (= tau_boat) as the turnover, so the dense OSP series identifies the boat
+  // turnover. PRODUCTION SHIPS 1, adopted 2026-09-01; this comment said "0 (default)" and
+  // "validate by run before using" until 2026-09-12, both of which were retired by that
+  // adoption. Under 1, kappa_OSP drops out of the likelihood entirely while still being
+  // sampled from its prior and reported as kappa_OSP_out, so read that column as a
+  // prior draw, not an estimate. The kappa_OSP (~2.7) vs tau_boat tension the dev note
+  // records is against the RETIRED 1.2 centre; the calibration centre is ~2.98, and the
+  // note that the conflict was being absorbed by r_OSP rather than by L still stands.
   int<lower=0,upper=1> osp_scale_is_tau;
 }
 

@@ -122,15 +122,22 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   cat(sprintf("  Using ALL %d interviews (no subsampling)\n", nrow(int_d)))
 
   # --- Effort expansion factor L (from the effort spec) ---
-  # P1/POOL-3: L is a PARAMETER in BOTH populations now (estimate_L = 1). Shore: the
-  # I/E-derived effective day length in hours. Boat: tau_boat, the gear-deployment
-  # turnover (~1.2), replacing the old flat L = 24 gear-hours (POOL-3). Its prior SD
+  # P1/POOL-3: L is a PARAMETER in BOTH populations now (estimate_L = 1). BOTH are
+  # TURNOVERS since v7.7, and both centres are now data-derived: shore tau_shore (2.477 on
+  # 2024-25, from the I/E time column) and boat tau_boat (~2.98, from the OSP/trailer
+  # calibration, and shared across the boat fits as tau_bar). This comment said "the I/E-
+  # derived effective day length in hours" for shore and "~1.2" for the boat until
+  # 2026-09-12; both were retired, the first by v7.7 and the second on 2026-09-08. The
+  # boat's L replaced the old flat L = 24 gear-hours (POOL-3). Its prior SD
   # comes from the effort spec so uncertainty propagates into the boat total.
   L_data_vec      <- eff_spec$L_data
   L_sigma_vec     <- eff_spec$L_prior_sigma
   estimate_L_flag <- 1L
+  # 2026-09-12: the label is READ FROM THE SPEC, not hard-coded per population. It said
+  # "effective day length, hours" for shore in every run log since v7.7, which is the
+  # retired unit; bss_effort_spec() is the single source of the unit and already carries it.
   cat(sprintf("  L (%s): range [%.2f, %.2f], sigma [%.2f, %.2f], estimate_L=1\n",
-              if(is_shore) "effective day length, hours" else "tau_boat, deployment turnover",
+              eff_spec$L_unit %||% if(is_shore) "shore turnover" else "tau_boat, deployment turnover",
               min(L_data_vec), max(L_data_vec), min(L_sigma_vec), max(L_sigma_vec)))
 
   # --- Sparse effort observation counts ---

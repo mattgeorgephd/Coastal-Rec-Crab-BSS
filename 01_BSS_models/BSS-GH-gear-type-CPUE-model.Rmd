@@ -106,8 +106,12 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # KEY FEATURES: weighted fractional gear-type classification; pi_gear as data
 # (period x day_type, Laplace-smoothed); per-gear process error and overdispersion;
 # B1 weekend + B2 holiday effort effects; B1_C weekend CPUE effect (estimate_B1_C);
-# gear-deployment effort scale (R_G_boat / tau); day-type-stratified commercial /
-# charter census expansion.
+# gear-deployment effort scale (R_G_boat / tau); commercial CENSUS over the tally days plus
+# a vessel-stratified charter EXPANSION with a finite-population correction (2026-09-11;
+# this line said "day-type-stratified commercial / charter census expansion" until
+# 2026-09-12, which is the retired estimator). Framework v6.0 on the Method v2.0
+# configuration: dynamic per-stratum crabbing fraction f, derived shore turnover,
+# calibration boat turnover with a shared tau_bar. No ZI block on this track.
 #
 # FULL CHANGE LOG (framework v5.x, the F/P fix-markers, and the GR backlog):
 #   07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md

@@ -32,13 +32,15 @@
 # dated output folder so they do not overwrite each other:
 #
 #     05_output/<date>/gear-type-CPUE-model-tau-0.90
-#     05_output/<date>/gear-type-CPUE-model-tau-1.20   (~ the production prior)
+#     05_output/<date>/gear-type-CPUE-model-tau-1.20   (the RETIRED production prior)
 #     05_output/<date>/gear-type-CPUE-model-tau-1.50
 #
 # tau_boat_prior_mu is the boat deployment turnover (trips per present group per
 # day); it enters as L_data for the boat via 03_R_functions/bss_effort_spec.R and
 # is already overridable from run_config. A tighter tau_boat_prior_sigma makes the
-# prior bind harder; 0.3 matches production.
+# prior bind harder. 0.3 was production until 2026-09-08; production now ships
+# tau_boat_prior_mu = "calibration" (resolved per window, ~2.98 on 2024-25) with
+# tau_boat_prior_sigma = 0.5, so NEITHER this grid nor this sigma is production any more.
 #
 # Run it like run_estimation.R (Source, not Knit):
 #     source("06_diagnostics/run_tau_sweep.R")
@@ -46,7 +48,9 @@
 # When it finishes, compare the boat all-gear catch and the port total across the
 # STALE BASELINE WARNING (2026-09-03). The numbers on this line are from 2026-07 and are
 # now badly wrong: production boat all-gear is 31,008 (not 43,314, -40%) and the port total
-# is 71,513 (not 82,957, -14%). MORE IMPORTANT: this sweep is superseded. diagnose_tau_boat
+# is 94,376 (not 82,957) under Method v2.0; this line named 71,513 until 2026-09-12, which
+# was itself already superseded. Read the box at the top of PIPELINE_STATUS.md instead of
+# any number written into a runner comment. MORE IMPORTANT: this sweep is superseded. diagnose_tau_boat
 # _sensitivity (run_config.R diagnose_tau_sensitivity = TRUE, a 5-point grid) reproduces its
 # refits to ~0.2% on every run, and production adopted shared_tau = TRUE on 2026-09-01, which
 # replaces the per-day tau_boat draws this sweep perturbs with a single estimated tau_bar of
@@ -78,8 +82,10 @@ model_rmd <- here::here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd")
 stopifnot(file.exists(model_rmd))
 
 # ---- Sweep grid ---------------------------------------------------------------
-tau_grid  <- c(0.9, 1.2, 1.5)   # tau_boat_prior_mu values (1.2 = the production prior)
-tau_sigma <- 0.3                # prior SD; tighter binds harder (0.3 = production)
+tau_grid  <- c(0.9, 1.2, 1.5)   # tau_boat_prior_mu values. NONE of these is production:
+                                #   1.2 was the centre until 2026-09-08, and production now
+                                #   resolves "calibration" to ~2.98. See the warning above.
+tau_sigma <- 0.3                # prior SD; tighter binds harder. Production ships 0.5.
 
 banner <- function(msg) cat("\n", strrep("=", 74), "\n ", msg,
                             "\n", strrep("=", 74), "\n", sep = "")

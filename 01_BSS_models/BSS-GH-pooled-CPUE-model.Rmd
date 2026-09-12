@@ -120,7 +120,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # components are estimated independently and summed to the port total:
 #   1. Shore crabbers (dock + jetty + beach)   BSS + PE
 #   2. Private boat crabbers                    BSS + PE
-#   3. Commercial/charter boats                 census/tally
+#   3. Commercial/charter boats                 commercial census + charter expansion
 # Two gear-regime sub-seasons: pot closure (Sep 16 - Nov 30, non-pot gear only) and
 # all-gear (Dec 1 - Sep 15, pots allowed). "Pot closure" was formerly labeled
 # "ring-net only"; non-pot gear other than ring nets is also legal, so the name was
@@ -134,7 +134,10 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # and AR-selector thresholds).
 #
 # KEY FEATURES: adaptive AR(1) temporal resolution; B1_C weekend CPUE effect;
-# L_effective day length estimated with uncertainty from I/E; data-driven R_G prior;
+# Method v2.0: derived shore turnover tau_shore and calibration boat turnover with a shared
+# tau_bar; dynamic per-stratum crabbing fraction f with a combo share c; zero-inflated NB2
+# shore catch; commercial census + charter expansion. L_effective from I/E is computed but is
+# a DIAGNOSTIC under the deployment unit; data-driven R_G prior;
 # gear-deployment effort scale (R_G_boat / tau_boat, tau_shore); scale-aware
 # convergence gate; expected + predictive catch in the generated quantities.
 #
@@ -275,7 +278,11 @@ params <- list(
   # (ar_max_resolution$pooled) so both models' caps sit in one place; this model's cap
   # is selected from it just after the merge below (P5, 2026-07-12). The boat
   # (trailer-count) effort series is too weakly informative for daily AR, so the boat
-  # is capped at weekly; a population absent from the map defaults to "daily" (no cap).
+  # is capped at MONTHLY; the shore is capped at WEEKLY for all-gear and BIWEEKLY for the
+  # pot closure (both adopted 2026-09-07 after the ladder, and the evidence is in Section 18
+  # of the method document). A population absent from the map defaults to "daily" (no cap).
+  # Read ar_max_resolution$pooled in run_config.R for the shipped values; the cap only ever
+  # COARSENS, so a cap finer than the data-driven pick is ignored.
 
   # --- I/E diagnostics ---
   ie_use_all_dates_for_diagnostics = TRUE
@@ -759,7 +766,7 @@ Which other-fishery openers, if any, enter the EFFORT model this run, and why. `
 
 **Read the screen as a screen, not a verdict.** Selecting a covariate on a p-value from the same data that then fits it inflates the coefficient and understates its uncertainty, and with eight tests about one false positive is expected at a raw alpha of 0.05. The default adjustment is Benjamini-Hochberg for that reason. The arbiter is predictive: refit with `opener_covariate_mode = "off"` and compare the effort-stream `elpd_loo`. The project's one worked example is instructive, razor-dig on shore effort came in at p = 0.045, was fitted as `B3` in Run 3, and produced no predictive gain on any stream; under the default adjustment it does not survive the screen, while MA2 halibut on boat trailers (p = 3.6e-06) does.
 
-**One interaction to hold in mind before switching on a boat opener.** Boat effort counts all private boats, so a halibut term legitimately describes that series, but the boats it captures are not crabbing. A constant crabbing fraction `f` converts the fitted surge into crab effort at the same rate as any other day, so fitting the surge better while multiplying it by a flat `f` makes the boat catch more biased on those days, not less. Pair a boat opener covariate with `crab_fraction_strata = "opener"` or `"month_opener"`; the chunk warns if you do not.
+**One interaction to hold in mind before switching on a boat opener.** Boat effort counts all private boats, so a halibut term legitimately describes that series, but the boats it captures are not crabbing. A crabbing fraction that is not opener-aware converts the fitted surge into crab effort at the same rate as any other day, so fitting the surge better while multiplying it by an opener-blind `f` makes the boat catch more biased on those days, not less. **Pair a boat opener covariate with `crab_fraction_strata = "month_opener"`, not with `"opener"`.** Under the shipped dynamic `f` the two are not equivalent: `"month_opener"` keeps the random walk with one chain per opener class, while plain `"opener"` (like `"day_type"` and `"none"`) anchors EVERY stratum to the level prior and silently discards the walk, which is a larger loss than the interaction it would fix. The chunk warns if you pair neither.
 
 ```{r opener-covariate-decision, echo=TRUE}
 # --- improvement 4: opener effort covariates ---------------------------------------
@@ -860,7 +867,7 @@ if (!is.null(opener_sel$table) && nrow(opener_sel$table) > 0) {
 
 ### 3.1 Ingress/egress and effective day length
 
-The I/E surveys measure how long crabbers are actually present, which sets the effective day length used to expand snapshot effort counts. Civil twilight (9 to 17 hours) would overstate active fishing time by roughly a factor of two, so the I/E-derived length is used instead.
+The I/E surveys measure crabber arrivals and presence through the day, which sets the shore deployment TURNOVER `tau_shore` that expands the snapshot gear counts: 2.477 on 2024-25, derived from the `time` column at the hours the creel counts were actually taken. They also give the effective day length `L_effective` in hours, which is computed every run and is a DIAGNOSTIC: since the v7.7 move to gear-deployments the shore expansion is `lambda_E * R_G * tau_shore` and no day length appears in it. `L_effective` becomes the expansion factor only if the shore effort unit is set back to a time unit, and civil twilight (9 to 17 hours) is the fallback below it, which would overstate active fishing time by roughly a factor of two.
 
 ```{r ie-analysis, results='hide', fig.show='hide'}
 # ---- 7.1b I/E ANALYSIS ----
@@ -1044,7 +1051,7 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
 
 ### 4.2 Commercial and charter census
 
-The commercial and charter harvest is a day-type-stratified census expansion of the daily vessel tally, not a modeled quantity. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
+The commercial and charter harvest is not a modeled quantity, and since 2026-09-11 it is TWO estimators: the commercial vessels are an exact CENSUS summed over the tally days (`census_expansion = "none"`, because a window day with no tally is a day with no commercial operation), and the charter vessels are an EXPANSION over their trip roster stratified by vessel, with a finite-population correction, because charter trips are not fully sampled. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
 
 **Two populations, two estimators (2026-09-11).** The COMMERCIAL vessels fishing as recreational are a census: the daily tally counts them (vessel monitoring for the fleet) and the samplers are scheduled on the days those vessels are confirmed to be operating, so a window day without a tally is a day with no commercial operation. Under `census_expansion = "none"` (the shipped value) that component is the exact sum over the tally days, with the unsampled days contributing zero, and `census_daily.csv` lists every calendar day as observed or no-operation. What remains is the per-vessel catch mean, a near-census sample mean (2024-25: 141 interviews on 164 vessel-trips), reported in `census_variance.csv` and treated as a constant unless `census_uncertainty = "sampling"`. The CHARTER vessels are **not** fully sampled, so their component is an expansion: the frame is the operators' per-trip roster (`charter_trips.xlsx`: interviewed / missed / canceled) unioned per day with the tally's charter column, and the estimate is trips x mean catch per interviewed trip, stratified by vessel, with the finite-population-corrected variance `N^2 (1 - n/N) s^2 / n`. On 2024-25, 34 trips were in the frame and 20 interviewed (59%), so 14 trips carry no observation; that expansion SE is what `census_uncertainty = "charter"` (the shipped value) puts into the port interval. `charter_frame = "tally"` falls back to the tally column alone, and `charter_expansion = "pooled"` to one charter mean; the 2026-09-08 day-type expansion of the commercial part remains available as `census_expansion = "day_type"` for a season whose roster did not track operations.
 
@@ -1055,7 +1062,8 @@ pe_all$comm_charter <- estimate_comm_charter(dwg, params)
 # Review item 4 (2026-09-08): the tally is exact on the days it was taken and imputed on
 # the rest. census_daily.csv flags every calendar day observed / imputed; census_variance.csv
 # carries the per-stratum imputation variance behind Dungeness_Kept_se. Whether that SE
-# reaches the port interval is params$census_uncertainty ("none" | "imputed_days").
+# reaches the port interval is params$census_uncertainty ("charter" SHIPS | "none" |
+# "sampling"; "imputed_days" survives only as the 2026-09-08 alias for "sampling").
 if (!is.null(pe_all$comm_charter$daily_full))
   write.csv(pe_all$comm_charter$daily_full, file.path(output_dir, "census_daily.csv"), row.names = FALSE)
 if (!is.null(pe_all$comm_charter$variance_detail))
@@ -1664,7 +1672,7 @@ if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
 
 ## 6. Convergence gate and model selection
 
-The scale-aware gate decides, per fit, whether to report the Bayesian posterior or fall back to the PE. A fit passes only if R-hat is below 1.01, effective sample size is above 400, the divergent fraction is under the 15 percent backstop, and the divergent draws do not move the reported totals by more than 0.10 posterior standard deviations. **If a component reads PE here, its Bayesian fit did not clear the gate;** that is expected for data-thin components (historically the private boat) and is not an error.
+The scale-aware gate decides, per fit, whether to report the Bayesian posterior or fall back to the PE. A fit passes only if R-hat is below 1.01, effective sample size is above 400, the divergent fraction is under the 5 percent backstop, and the divergent draws do not move the reported totals by more than 0.10 posterior standard deviations. **If a component reads PE here, its Bayesian fit did not clear the gate;** that is expected for data-thin components (historically the private boat) and is not an error.
 
 ```{r gate, results='hide'}
 # ---- 7.6b SCALE-AWARE CONVERGENCE GATE (B1.8) ----
@@ -1904,10 +1912,11 @@ for(cg in bss_catch_groups) {
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
         # Fix 2 (v7.0), POOL-3 (v7.6): population-aware daily effort so the monthly
-        # PE SHARE uses the same effort definition run_pe_pooled() uses. run_pe_pooled() builds the
-        # private-boat effort series on the gear-DEPLOYMENT scale,
-        # mean_count * gear_per_group * tau_boat (day-length-free), and shore as
-        # crabber-hours, mean_count * crabbers_per_gear * day_length. The share is
+        # PE SHARE uses the same effort definition run_pe_pooled() uses: the private boat on the
+        # gear-DEPLOYMENT scale, mean_count * gear_per_group * tau_boat * f_crab(day), and the
+        # shore as mean_count * tau_shore. Both are day-length-free. (This comment described
+        # the pre-v7.7 shore formula until 2026-09-12, and omitted the per-day f, which stopped
+        # cancelling out of the normalized share when f became a monthly walk.) The share is
         # normalized, so component and port TOTALS are unaffected; only the across-
         # month distribution changes. gear_per_group is recomputed here from the same
         # sub-season interview filter run_pe_pooled() uses so the two stay consistent.
@@ -2061,9 +2070,10 @@ for(cg in bss_catch_groups) {
         summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
         # Fix 2 (v7.0), POOL-3 (v7.6): population-aware daily effort, identical
         # rationale to 7.8. Boat uses the gear-DEPLOYMENT scale
-        # (mean_count * gear_per_group * tau_boat); shore keeps crabber-hours
-        # (mean_count * crabbers_per_gear * day_length). Share is normalized so
-        # totals are unaffected; only the monthly split changes.
+        # (mean_count * gear_per_group * tau_boat * f_crab(day)); shore uses
+        # mean_count * tau_shore. Both day-length-free; see pe_monthly_effort_share.R.
+        # Share is normalized so totals are unaffected; only the monthly split changes,
+        # which is exactly why the per-day f has to be in it (2026-09-12).
         # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
         monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
 

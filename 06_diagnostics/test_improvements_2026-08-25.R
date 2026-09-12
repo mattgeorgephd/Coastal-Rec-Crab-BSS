@@ -1196,7 +1196,7 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 28. Zero-inflated catch likelihood (2026-09-02, prototype, ships OFF). Targeted from the
+# 28. Zero-inflated catch likelihood (2026-09-02; ADOPTED 2026-09-07, ships ON for shore). Targeted from the
 #     2026-09-01 zero bin: shore all-gear 676 observed zeros vs 605.4 expected (z = +3.8),
 #     shore pot closure z = +2.9, every boat stream inside |z| = 2.3.
 # ---------------------------------------------------------------------------
@@ -3340,6 +3340,19 @@ local({
         is.list(ceq) && length(ceq) >= 1 &&
         all(grepl(sprintf("^%s => %s$", .fp, .fp), names(ceq))) &&
         all(nzchar(unlist(ceq))) && all(nchar(unlist(ceq)) > 40))
+    # 2026-09-12: A DECLARATION WHOSE "=>" SIDE IS NO LONGER CURRENT IS A STALE DECLARATION,
+    # and the previous one went stale the moment an executable change landed with nothing to
+    # catch it. So: at least one entry must name the ACTUAL current fingerprint, and any entry
+    # that does not must say SUPERSEDED in its reason. That is cheap to satisfy (re-make the
+    # claim, or drop it) and it makes the list re-examined rather than inherited.
+    chk("two-pass: at least one declaration names the ACTUAL current fingerprint",
+        any(vapply(names(ceq), function(k)
+              identical(strsplit(k, " => ", fixed = TRUE)[[1]][2], a), logical(1))),
+        sprintf("(current is %s)", a))
+    chk("two-pass: every declaration that does NOT name the current fingerprint says SUPERSEDED",
+        all(vapply(names(ceq), function(k) {
+              cur <- identical(strsplit(k, " => ", fixed = TRUE)[[1]][2], a)
+              cur || grepl("SUPERSEDED", ceq[[k]], fixed = TRUE) }, logical(1))))
     # 2026-09-12: the key names BOTH ends. Keyed on the recorded side alone the entry never
     # expired -- it excused its folder against whatever the tree later became -- so a Stan
     # edit would have passed unflagged on all five committed rungs. These three assert the
@@ -3516,7 +3529,15 @@ local({
             "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
             "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md",
             "07_documentation/development_notes/adoption-review-2026-09-08.md",
-            "PULL_REQUEST.md", "README.md", "07_documentation/CLAUDE.md")
+            "PULL_REQUEST.md", "README.md", "07_documentation/CLAUDE.md",
+            # 2026-09-12: the per-folder READMEs were OUTSIDE this list, which is how
+            # 06_diagnostics/README.md carried "is the authoritative run (port 72,027)" in
+            # the present tense through two supersessions.
+            "01_BSS_models/README.md", "02_stan_models/README.md", "04_input_files/README.md",
+            "05_output/README.md", "06_diagnostics/README.md", "README-R-functions.md",
+            "07_documentation/NEW_SEASON_GUIDE.md", "07_documentation/README.md",
+            "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
+            "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md")
   bad_ptr <- Filter(function(f) {
     if (!file.exists(f)) return(FALSE)
     ln <- grep("72,027", readLines(f, warn = FALSE), value = TRUE)
@@ -3898,6 +3919,133 @@ local({
       grepl("MEANS TWO DIFFERENT THINGS under the same name", ps, fixed = TRUE))
   chk("method v2.0: neither document uses an em dash (the stated convention)",
       !any(grepl("—", P)) && !any(grepl("—", G)))
+})
+
+# ---------------------------------------------------------------------------
+# 69. THE IN-CODE DOCUMENTATION SWEEP (2026-09-12). A full audit of the comments and
+#     headers in the executable files found 34 stale claims. The dominant pattern was NOT
+#     the crabbing fraction: it was the v7.7 SHORE UNIT MOVE, which seven places still
+#     described as an effective day length in hours, each of them a defect already logged
+#     elsewhere in the repo. The pooled driver's prose was consistently behind the helpers
+#     and behind the gear driver, which is what happens when a patch updates the code and
+#     the other track's comments and stops.
+#
+#     These assertions pin the ones that would have made a reader compute or quote
+#     something wrong, and they are written against the SHIPPED VALUES so they fail again
+#     if a lever moves without the comment moving with it.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  rd  <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  flat <- function(x) gsub("[ \n]+", " ", x)
+
+  # (1) the gate backstop quoted in the report prose must be the value the driver passes
+  drv <- rd("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")
+  chk("in-code docs: the pooled report quotes the gate's ACTUAL divergence backstop",
+      grepl("max_divergence_fraction        = 0.05", drv, fixed = TRUE) &&
+      grepl("the divergent fraction is under the 5 percent backstop", drv, fixed = TRUE) &&
+      !grepl("under the 15 percent backstop", drv, fixed = TRUE))
+
+  # (2) the v7.7 shore unit: no executable file may describe the shore expansion as hours
+  bad <- character()
+  for (f in c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE),
+              list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE),
+              list.files("02_stan_models", pattern = "\\.stan$", full.names = TRUE))) {
+    if (grepl("weather_adjusted", f)) next           # the stale fork, documented as stale
+    t <- flat(rd(f))
+    if (grepl("Shore is unchanged: lambda_E = crabbers, h = crabber-hours", t, fixed = TRUE) ||
+        grepl("Shore is unchanged (crabber-hours, E_scale = 1).", t, fixed = TRUE) ||
+        grepl("SHORE : effort = crabbers x effective day length (hours). days$day_length", t, fixed = TRUE) ||
+        grepl("SHORE : effort = crabbers x effective day length (hours). days$day_length", t, fixed = TRUE) ||
+        grepl("shore: observation = crabber-hours; predicted = lambda_E * L (hours)", t, fixed = TRUE) ||
+        grepl("shore keeps crabber-hours (mean_count * crabbers_per_gear * day_length)", t, fixed = TRUE))
+      bad <- c(bad, basename(f))
+  }
+  chk("in-code docs: no executable file still states the RETIRED pre-v7.7 shore formula",
+      length(bad) == 0, sprintf("(%s)", paste(bad, collapse = ", ")))
+
+  # (3) the runtime L label is read from the spec, not hard-coded per population
+  pp <- rd("03_R_functions/prep_bss_crab_pooled.R")
+  chk("in-code docs: the run log's L label comes from bss_effort_spec, not a hard-coded string",
+      grepl("eff_spec$L_unit %||%", pp, fixed = TRUE) &&
+      !grepl('if(is_shore) "effective day length, hours" else', pp, fixed = TRUE))
+
+  # (4) the retired turnover literals must not be presented as current anywhere
+  lit <- character()
+  for (f in c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE),
+              "02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan")) {
+    t <- flat(rd(f))
+    if (grepl("the deployment turnover (~1.2)", t, fixed = TRUE) ||
+        grepl("tau_boat, the gear-deployment turnover (~1.2)", t, fixed = TRUE) ||
+        grepl("tau_boat prior (~1.2) tension; validate by run before using", t, fixed = TRUE))
+      lit <- c(lit, basename(f))
+  }
+  chk("in-code docs: the retired 1.2 boat turnover centre is nowhere presented as current",
+      length(lit) == 0, sprintf("(%s)", paste(lit, collapse = ", ")))
+
+  # (5) shipped-value comments must match the shipped values
+  chk("in-code docs: osp_scale_is_tau and shared_tau comments say PRODUCTION SHIPS 1",
+      identical(rc$osp_scale_is_tau, TRUE) && identical(rc$shared_tau, TRUE) &&
+      all(vapply(c("02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan"),
+                 function(f) { t <- flat(rd(f))
+                   grepl("PRODUCTION SHIPS 1", t, fixed = TRUE) &&
+                   grepl("production ships 1 since 2026-09-01", t, fixed = TRUE) &&
+                   !grepl("0 (default) keeps the free kappa_OSP scale", t, fixed = TRUE) }, logical(1))))
+  chk("in-code docs: the ZI block is no longer labelled OFF by default",
+      identical(rc$estimate_catch_zi, TRUE) &&
+      !grepl("Zero-inflated catch likelihood (2026-09-02, OFF by default)",
+             rd("02_stan_models/crab_bss_pooled.stan"), fixed = TRUE))
+  chk("in-code docs: both PE files name the SHIPPED empty-stratum CPUE fill",
+      identical(rc$pe_empty_stratum, "local") &&
+      all(vapply(c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R"),
+                 function(f) { t <- flat(rd(f))
+                   !grepl('pe_empty_stratum = "pooled" (default)', t, fixed = TRUE) &&
+                   !grepl('pe_empty_stratum: "pooled" (default)', t, fixed = TRUE) }, logical(1))))
+  chk("in-code docs: the census is described as a census PLUS an expansion, not one expansion",
+      identical(rc$census_expansion, "none") && identical(rc$charter_frame, "roster") &&
+      !grepl("day-type-stratified census expansion of the daily vessel tally", drv, fixed = TRUE) &&
+      !grepl("day-type-stratified commercial / charter\n# charter census expansion",
+             rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"), fixed = TRUE) &&
+      !grepl("Day-type-stratified census expansion of the commercial/charter vessel tally",
+             rd("README-R-functions.md"), fixed = TRUE))
+  chk("in-code docs: the AR-cap comment names the right population for each cap",
+      identical(rc$ar_max_resolution$pooled$private_boat, "monthly") &&
+      grepl("is capped at MONTHLY; the shore is capped at WEEKLY", flat(drv), fixed = TRUE) &&
+      !grepl("so the boat is capped at weekly", flat(drv), fixed = TRUE))
+  chk("in-code docs: census_uncertainty's options and shipped value are stated correctly",
+      identical(rc$census_uncertainty, "charter") &&
+      grepl('params$census_uncertainty ("charter" SHIPS | "none" |', flat(drv), fixed = TRUE))
+
+  # (6) the opener/f interaction advice must not send the reader to a walk-destroying value
+  chk("in-code docs: the opener advice names month_opener, and says plain opener discards the walk",
+      grepl('crab_fraction_strata = "month_opener"`, not with `"opener"`', flat(drv), fixed = TRUE) &&
+      grepl("anchors EVERY stratum to the level prior and silently discards the walk", flat(drv), fixed = TRUE) &&
+      { cf <- flat(rd("03_R_functions/crab_fraction.R"))    # the premise
+        grepl("day_type / opener / none -> every stratum anchored, no walk", cf, fixed = TRUE) })
+
+  # (7) the input-workbook count, which the README contradicted mid-sentence
+  chk("in-code docs: the input README says SIX of the nine workbooks are built, matching the builder list",
+      { r <- rd("04_input_files/README.md")
+        b <- readLines("04_input_files/build_all_inputs.R", warn = FALSE)
+        i <- grep("^builders <- c\\(", b)[1]; j <- i; while (!grepl("^\\)", b[j])) j <- j + 1L
+        nb <- sum(grepl('"build_[a-z_]+\\.R"', b[i:j]))
+        nb == 6L && grepl("six of them BUILT", r, fixed = TRUE) &&
+        grepl("Six of the nine", r, fixed = TRUE) && !grepl("Seven of the nine", r, fixed = TRUE) })
+  chk("in-code docs: the driver README points at the samplers' interview contacts for f, not the blank I/E columns",
+      { r <- flat(rd("01_BSS_models/README.md"))
+        grepl("built from the samplers' private-boat INTERVIEW CONTACTS", r, fixed = TRUE) &&
+        grepl("present but currently BLANK", r, fixed = TRUE) &&
+        !grepl("effort_combined.csv", r, fixed = TRUE) })
+  chk("in-code docs: the weather fork is no longer claimed to collapse to the production model",
+      grepl("no longer a superset of `crab_bss_pooled.stan`", rd("02_stan_models/README.md"), fixed = TRUE))
+
+  # (8) the sweep runners must not name a superseded total as production
+  chk("in-code docs: the sweep runners point at the box rather than naming a production total",
+      { a <- flat(rd("06_diagnostics/run_rg_sweep.R")); b <- flat(rd("06_diagnostics/run_tau_sweep.R"))
+        !grepl("current production total is 71,513", a, fixed = TRUE) &&
+        !grepl("1.2 = the production prior", b, fixed = TRUE) &&
+        !grepl("0.3 matches production.", b, fixed = TRUE) &&
+        grepl("COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF", a, fixed = TRUE) })
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

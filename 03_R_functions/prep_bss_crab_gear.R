@@ -123,7 +123,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
               eff_spec$unit, eff_spec$effort_scale_gear))
 
   # --- F2: I/E observation stream, population-aware ---------------------------
-  #   shore: observation = crabber-hours; predicted = lambda_E * L        (hours)
+  #   shore: observation = crabber ARRIVALS (ie_trips); predicted = lambda_E * tau_shore
+#          (trips). Crabber-hours against lambda_E * L applies only under a time unit;
+#          pairing the two was the ~4x mismatch fixed as the 2026-08-25 defect (A).
   #   boat : observation = boat trips;    predicted = (lambda_E/R_G_boat) * tau
   # The boat stream is what identifies tau. It is inert this season (no WBL days
   # inside the window) but activates automatically as WBL I/E accumulates.

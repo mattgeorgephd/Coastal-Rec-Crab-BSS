@@ -4,11 +4,11 @@ The raw season data the drivers read. These are the only inputs a local run need
 
 For what the estimate is and how these feed the PE and BSS paths, see the [root README](../README.md).
 
-## The input set (2026-09-10): nine workbooks, seven of them BUILT
+## The input set (2026-09-10): nine workbooks, six of them BUILT
 
 All inputs are `.xlsx` workbooks with a single `data` sheet. Every file carries a fishery-season column, dates are stored as ISO `yyyy-mm-dd` text, and every reader goes through `read_input_workbook()` (`03_R_functions/read_input_workbook.R`), which guesses each column's type over the whole column rather than readxl's first 1,000 rows (several columns are blank for a whole early season; see B17 in the change register).
 
-Seven of the nine are DERIVED from the per-season creel workbooks in `raw/` by the builders next to them (`Rscript 04_input_files/build_all_inputs.R` from the repository root runs all six in order; each prints its report and a comparison with the workbook it replaces). A model workbook is therefore never hand-edited: a new season is its workbook in `raw/` plus one script run.
+Six of the nine are DERIVED from the per-season creel workbooks in `raw/` by the builders next to them (`Rscript 04_input_files/build_all_inputs.R` from the repository root runs all six in order; each prints its report and a comparison with the workbook it replaces). A model workbook is therefore never hand-edited: a new season is its workbook in `raw/` plus one script run.
 
 | File | Role | Read by | Reader | Built by | Key columns |
 |---|---|---|---|---|---|
@@ -58,7 +58,7 @@ Which readers filter on it:
 
 ## Columns: modelling-relevant
 
-The 2026-07-16 trim kept only the columns the pipeline used; the 2026-09-10 rebuild reinstated the fields with a modelling use listed above (the effort vehicle/buoy/crabber/jetty counts, the interview fishing area, boat name, vehicles and released-crab fields, the tally `*_interviewed` columns and notes). Still out: the interview and effort `notes` (in `raw/`) and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model. A new `boats_crabbing` / `boats_total` classification pair (keys `ie_crab_col` / `ie_total_col`) is being added to `ingress_egress.xlsx` to update the crabbing fraction f once the WBL egress pilot lands.
+The 2026-07-16 trim kept only the columns the pipeline used; the 2026-09-10 rebuild reinstated the fields with a modelling use listed above (the effort vehicle/buoy/crabber/jetty counts, the interview fishing area, boat name, vehicles and released-crab fields, the tally `*_interviewed` columns and notes). Still out: the interview and effort `notes` (in `raw/`) and the `ingress_egress` weather/metadata columns (the weather module fetches tide/weather from external APIs, not from this file). The `ingress_egress` file still carries `crabbers_on`, `crabbers_off`, and `boats_out` (the raw ingress/egress survey tallies), though only `crabber_flow` (shore) and `boats_in` (boat) reach a model. The `boats_crabbing` / `boats_total` classification pair (present but blank today) (keys `ie_crab_col` / `ie_total_col`) is being added to `ingress_egress.xlsx` to update the crabbing fraction f once the WBL egress pilot lands.
 
 ## Input options in run_config
 
