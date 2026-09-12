@@ -3518,5 +3518,42 @@ local({
       !grepl("PE 35,292 against BSS 34,837, -1.3%", s1v, fixed = TRUE))
 })
 
+# ---------------------------------------------------------------------------
+# 63. THE TWO FRONT DOORS (2026-09-12). CLAUDE.md and the root README are what a new reader
+#     (or a new agent session) reads first, and both described a model two turnovers, one
+#     crabbing fraction and one census ago. The worst of it was operational rather than
+#     numeric: neither said that six of the nine model workbooks are BUILT from raw/, so the
+#     documented workflow was "place input data in 04_input_files/", which for those six means
+#     an edit that the next build silently discards.
+# ---------------------------------------------------------------------------
+local({
+  cl <- paste(readLines("07_documentation/CLAUDE.md", warn = FALSE), collapse = "\n")
+  rm_ <- paste(readLines("README.md", warn = FALSE), collapse = "\n")
+
+  chk("front doors: neither offers the retired 1.7 / 1.2 turnovers as current values",
+      !grepl("`L = tau_shore` (~1.7) / `tau_boat` (~1.2)", cl, fixed = TRUE) &&
+      grepl('tau_shore_prior_mu = "derived"', cl, fixed = TRUE) &&
+      grepl('tau_boat_prior_mu = "calibration"', cl, fixed = TRUE))
+  chk("front doors: CLAUDE.md describes the census as a commercial CENSUS plus a charter EXPANSION",
+      grepl("EXACT CENSUS", cl, fixed = TRUE) && grepl('charter_frame = "roster"', cl, fixed = TRUE) &&
+      !grepl("a day-type-stratified **census expansion** of the daily vessel tally", cl, fixed = TRUE))
+  chk("front doors: the built workbooks are flagged in BOTH, with the builder named",
+      grepl("build_all_inputs.R", cl, fixed = TRUE) && grepl("build_all_inputs.R", rm_, fixed = TRUE) &&
+      grepl("Never hand-edit one", cl, fixed = TRUE))
+  chk("front doors: CLAUDE.md carries the multi-season span and the PE fill levers",
+      grepl("pot_closures", cl, fixed = TRUE) && grepl("season_totals.csv", cl, fixed = TRUE) &&
+      grepl("pe_empty_effort_stratum", cl, fixed = TRUE) && grepl("pe_effort_strata.R", cl, fixed = TRUE))
+  chk("front doors: the README no longer tells the reader to place CSV inputs",
+      !grepl("effort_combined.csv", rm_, fixed = TRUE) &&
+      !grepl("interview_combined.csv", rm_, fixed = TRUE) &&
+      !grepl("wes_commercial_tally.csv", rm_, fixed = TRUE))
+  # A hard-coded assertion count goes stale every time an assertion is added, and a tripwire
+  # that fires on every patch is a tripwire nobody reads. So assert only that the figure is
+  # not one of the long-dead ones, and make the doc say the run prints the real number.
+  chk("front doors: CLAUDE.md does not quote a long-superseded harness count",
+      !grepl("452 assertions", cl, fixed = TRUE) && !grepl("725 assertions", cl, fixed = TRUE) &&
+      grepl("the run prints the count", cl, fixed = TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
