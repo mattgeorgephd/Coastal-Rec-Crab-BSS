@@ -30,13 +30,19 @@
 # WHY THIS CANNOT RUN ON THE COMMITTED CSVs
 #   The decomposition needs the JOINT posterior draws of the latent effort
 #   intensity lambda_E_S at each effort-observation day together with the r_E,
-#   R_G and R_T draws. The committed outputs carry only summaries (structural_*
+#   R_G and trailer-expansion draws (R_G_boat on the current pooled model; R_T only on a
+#   legacy fit, see below). The committed outputs carry only summaries (structural_*
 #   has r_E as a mean; bss_daily_effort_* has E = lambda_E * L as daily
 #   quantiles), so this operates on the in-memory stanfit objects.
 #
 # THE MATH (law of total variance)
 #   Each gear count is   Gear_I[i] ~ NB2(mu_i, r_E),  mu_i = lambda_E[d_i] * R_G
-#   Each trailer count is T_I[i]   ~ NB2(mu_i, r_E),  mu_i = lambda_E[d_i] * R_T
+#   Each trailer count is T_I[i]   ~ NB2(mu_i, r_E),  mu_i = lambda_E[d_i] * m
+#     where m is the trailer MULTIPLIER, which is model-dependent and is a RECIPROCAL on
+#     the current pooled model: POOL-1 retired R_T (it was pinned at 1.00 by a bernoulli on
+#     a vector of ones) in favour of R_G_boat, with mean lambda_E / R_G_boat. So
+#     m = 1 / R_G_boat where the fit declares R_G_boat, and m = R_T only on a legacy fit.
+#     bss_trailer_par() / bss_trailer_multiplier() resolve this; do not hard-code either.
 #   NB2(mu, r) has mean mu and variance mu + mu^2 / r. Integrating the predictive
 #   over the posterior of (mu_i, r_E):
 #       Var(Y_i) = E[ Var(Y_i | mu_i, r_E) ] + Var( E[Y_i | mu_i, r_E] )
@@ -100,7 +106,8 @@
 
 # Decompose one set of effort observations (a single data_type) into the three
 # variance components. obs_days is an integer vector into 1:D; Rdraws is the
-# length-nd expansion-ratio draw vector (R_G for gear, R_T for trailer); rEdraws
+# length-nd expansion-ratio draw vector (R_G for gear; the trailer MULTIPLIER, 1/R_G_boat
+# on the current pooled model, for trailer -- see bss_trailer_multiplier()); rEdraws
 # is the length-nd r_E draw vector; lamE is the [nd, D] latent-intensity matrix.
 .eod_decompose <- function(lamE, obs_days, Rdraws, rEdraws, min_valid = 20) {
   nd <- nrow(lamE)
@@ -183,7 +190,9 @@ write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
     rE <- as.numeric(ex$r_E[use])
     RG <- as.numeric(ex$R_G[use])
     # .eod_decompose computes mu = lam_obs * Rdraws, so the trailer stream needs
-    # the MULTIPLIER form: R_T (pooled) or 1/R_G_boat (gear-resolved). The
+    # the MULTIPLIER form: 1/R_G_boat wherever the fit declares R_G_boat (which is BOTH
+    # production models today; the pooled one retired R_T in POOL-1), or R_T on a legacy
+    # fit that still declares it. bss_trailer_par() picks; do not assume by model. The
     # reported R_median for the trailer is therefore that multiplier, not
     # R_G_boat itself, on the gear-resolved model.
     RT <- bss_trailer_multiplier(ex, trailer_par, use)

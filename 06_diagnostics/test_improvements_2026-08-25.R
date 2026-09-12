@@ -3555,5 +3555,33 @@ local({
       grepl("the run prints the count", cl, fixed = TRUE))
 })
 
+# ---------------------------------------------------------------------------
+# 64. THE HOW-TO DOCUMENTED A PARAMETER THE POOLED MODEL RETIRED (2026-09-12). The
+#     effort-overdispersion HOWTO stated mu_i = lambda_E * R_T for the trailer stream. POOL-1
+#     removed R_T from crab_bss_pooled.stan (a bernoulli on a vector of literal ones had
+#     pinned it at 1.00) and replaced it with R_G_boat, under which the mean is
+#     lambda_E / R_G_boat. The CODE was never wrong -- bss_trailer_par() resolves whichever
+#     parameter the fit declares -- but a reader following the document would look for a
+#     parameter that does not exist and, substituting the one that does, invert the expansion.
+# ---------------------------------------------------------------------------
+local({
+  h <- "07_documentation/effort_overdispersion_diagnostic_HOWTO.md"
+  chk("howto: the overdispersion HOWTO exists", file.exists(h)); if (!file.exists(h)) return(invisible(NULL))
+  d <- paste(readLines(h, warn = FALSE), collapse = "\n")
+  chk("howto: the trailer mean is stated as a multiplier, and the reciprocal is called out",
+      !grepl("(R is `R_G` for gear, `R_T` for trailer)", d, fixed = TRUE) &&
+      grepl("1 / R_G_boat", d, fixed = TRUE) && grepl("bss_trailer_multiplier", d, fixed = TRUE))
+  # and the premise: the pooled Stan really has retired R_T, so the doc is right to say so
+  st <- paste(readLines("02_stan_models/crab_bss_pooled.stan", warn = FALSE), collapse = "\n")
+  decl <- grep("^\\s*real(<[^>]*>)?\\s+R_T\\s*;", readLines("02_stan_models/crab_bss_pooled.stan", warn = FALSE))
+  chk("howto: the premise holds -- the pooled Stan declares R_G_boat and no longer declares R_T",
+      length(decl) == 0 && grepl("real<lower=0> R_G_boat;", st, fixed = TRUE))
+  chk("howto: the resolver the doc points at handles both parameters and inverts only R_G_boat",
+      { b <- paste(readLines("03_R_functions/bss_trailer_expansion.R", warn = FALSE), collapse = "\n")
+        grepl('if ("R_T" %in% mp) "R_T"', b, fixed = TRUE) &&
+        grepl('else if ("R_G_boat" %in% mp) "R_G_boat"', b, fixed = TRUE) &&
+        grepl('if (identical(par_name, "R_T")) v else 1 / v', b, fixed = TRUE) })
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)

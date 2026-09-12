@@ -72,7 +72,9 @@ Both call the same function. It writes only CSVs and changes nothing in the mode
 
 ## 4. The math (verified)
 
-Each effort count is `NB2(mu_i, r_E)` with `mu_i = lambda_E[d_i] * R` (R is `R_G` for gear, `R_T` for trailer). `NB2(mu, r)` has variance `mu + mu^2/r`. Integrating the predictive over the posterior of `(mu_i, r_E)` and applying the law of total variance:
+Each effort count is `NB2(mu_i, r_E)` with `mu_i = lambda_E[d_i] * m`, where `m` is the expansion MULTIPLIER for that stream. `NB2(mu, r)` has variance `mu + mu^2/r`.
+
+> **`m` is not the same parameter in both streams, and the trailer one is a RECIPROCAL.** For the gear stream `m = R_G` in both models. For the trailer stream the pooled model **no longer declares `R_T` at all**: POOL-1 replaced it with `R_G_boat` (gear per boat group) and the mean became `lambda_E / R_G_boat`, because the old `T_A_int[a] ~ bernoulli(R_T)` on a vector of literal ones pinned `R_T` at 1.00 and made the trailer expansion degenerate. So `m = 1 / R_G_boat` wherever the fit declares `R_G_boat`, and `m = R_T` only on a legacy fit that still declares it. The code does this for you: `bss_trailer_par()` picks whichever parameter the fit declares and `bss_trailer_multiplier()` returns the multiplier form (`03_R_functions/bss_trailer_expansion.R`), which is why the `R_median` the diagnostic reports for the trailer is that multiplier and NOT `R_G_boat`. **Do not apply `mu = lambda_E * R_G_boat` by hand to a current fit; it inverts the expansion.** (Corrected 2026-09-12; the formula above named `R_T` for the pooled model, a parameter the pooled Stan retired.) Integrating the predictive over the posterior of `(mu_i, r_E)` and applying the law of total variance:
 
 ```text
 Var(Y_i) = E[mu_i]            (V_poisson:  irreducible Poisson floor)
