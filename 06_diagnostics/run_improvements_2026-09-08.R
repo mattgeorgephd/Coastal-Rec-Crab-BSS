@@ -551,8 +551,26 @@ CODE_EQUIVALENT <- list(
   # those files specifically is not equivalent and must not be claimed as such. Every
   # cross-rung claim the runner actually makes rests on the per-fit posterior summaries and
   # on the component totals, and those are untouched.
+  # SUPERSEDED 2026-09-13 by the weather-module removal, which moved the stan: layer.
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:523f4e63 drivers:73a39b79 fns:747f065e" =
-    "the 2026-09-11 ladder run vs the tree after the 2026-09-12 documentation sweep: stan unchanged, drivers moved on report prose alone (purl-verified), fns moved on the monthly-share f fix and one console label, neither of which can reach a fit. Does NOT cover monthly_pe_vs_bss.csv, which changed for the boat by design"
+    "SUPERSEDED: the 2026-09-11 ladder run vs the tree after the 2026-09-12 documentation sweep: stan unchanged, drivers moved on report prose alone (purl-verified), fns moved on the monthly-share f fix and one console label, neither of which can reach a fit",
+  # The 2026-09-11 ladder run against the tree after the weather-module removal (A29).
+  #
+  #   stan:      moved 523f4e63 -> 21de7adf by the DELETION of
+  #              crab_bss_pooled_weather_adjusted.stan. The two production models are
+  #              byte-identical to the tree the rungs were fitted from, verified by sha256,
+  #              and no production driver, config key or helper ever referenced the deleted
+  #              fork (verified by git grep against the ladder-run tree). This is the one
+  #              case where the layer hash moving is honest AND the fits are untouched:
+  #              the group is hashed as a set, so removing an unread member moves it.
+  #   drivers:   unchanged from the 2026-09-12 entry (73a39b79).
+  #   fns:       unchanged from the 2026-09-12 entry (747f065e).
+  #
+  # The caveat from the previous entry still applies and is restated rather than dropped:
+  # monthly_pe_vs_bss.csv and the report's 7.8 / 7.8b monthly tables DID change for the
+  # boat, by design. A cross-rung comparison of those files is not covered here.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:21de7adf drivers:73a39b79 fns:747f065e" =
+    "the 2026-09-11 ladder run vs the tree after the weather-module removal: the stan layer moved only by deleting the weather fork, which both production models are byte-identical across and which no driver, key or helper read. Does NOT cover monthly_pe_vs_bss.csv, which changed for the boat by design"
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

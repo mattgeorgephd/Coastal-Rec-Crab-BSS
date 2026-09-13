@@ -3686,7 +3686,12 @@ local({
 
   # ---- (a) the canonical window -------------------------------------------
   chk("canonical: the shipped model is the pooled headline estimator",
-      identical(e$model, "pooled") && identical(e$run_weather, FALSE))
+      identical(e$model, "pooled"))
+  # 2026-09-13: run_weather went with the weather module. run_config.R must define exactly
+  # `model` and `run_config` and nothing else, so a stray top-level object cannot creep back.
+  chk("canonical: run_config.R defines only `model` and `run_config` (run_weather is gone)",
+      setequal(ls(e), c("model", "run_config")),
+      sprintf("(defines: %s)", paste(sort(ls(e)), collapse = ", ")))
   chk("canonical: the nine per-season keys are the single 2024-25 season",
       identical(rc$est_date_start, "2024-09-16") && identical(rc$est_date_end, "2025-09-15") &&
       identical(rc$season_filter, "2024-25") &&
@@ -3700,12 +3705,23 @@ local({
   j <- i; while (!grepl("^\\s*estimate_red_rock", t[j])) j <- j + 1L
   ev <- new.env(); eval(parse(text = paste(t[i:j], collapse = "\n")), envir = ev)
   W <- ev$WINDOW
+  # run_weather is skipped because it is no longer a config key at all (it went with the
+  # weather module on 2026-09-13). It STAYS in the ladder's WINDOW pin deliberately: the
+  # pin's key names feed .cfg_fingerprint(), so dropping it would change every stage digest
+  # and RESUME would refuse the five committed rung folders, costing ~16 h of refitting to
+  # remove one inert key from a dated runner.
   drift <- Filter(function(k) !identical(rc[[k]], W[[k]]), setdiff(names(W), "run_weather"))
   chk("canonical: run_config AGREES WITH THE LADDER'S WINDOW PIN on every key it pins",
       length(drift) == 0, sprintf("(drifted: %s)", paste(drift, collapse = ", ")))
-  chk("canonical: nothing in the file still sets the blocked two-season span",
-      !any(grepl('season_filter *= *c\\("2023-24"', src)) &&
-      !any(grepl('est_date_start *= *"2023-09-16"', src)))
+  # The paste-ready alternative windows live in this file as COMMENTS (restored 2026-09-13
+  # at Matt's request, alongside the copies in NEW_SEASON_GUIDE 7.1), so the text test has
+  # to be about what the file SETS, not about what it mentions. Read the parsed config for
+  # the substantive property, and check the mentions are commented out.
+  chk("canonical: nothing in the file SETS the blocked two-season span",
+      length(rc$season_filter) == 1L && !is.list(rc$pot_closures) && !is.list(rc$census_windows))
+  chk("canonical: the span survives as a commented block, not as live code",
+      { hits <- grep('season_filter *= *c\\("2023-24"', src, value = TRUE)
+        length(hits) >= 1 && all(grepl("^\\s*#", hits)) })
   # the desk check recorded in the box: these are the values the shipped config resolves to,
   # pinned so a lever that changes one of them cannot pass silently.
   chk("canonical: the box records the desk check that the shipped config reproduces the run's inputs",
@@ -4045,8 +4061,42 @@ local({
         grepl("built from the samplers' private-boat INTERVIEW CONTACTS", r, fixed = TRUE) &&
         grepl("present but currently BLANK", r, fixed = TRUE) &&
         !grepl("effort_combined.csv", r, fixed = TRUE) })
-  chk("in-code docs: the weather fork is no longer claimed to collapse to the production model",
-      grepl("no longer a superset of `crab_bss_pooled.stan`", rd("02_stan_models/README.md"), fixed = TRUE))
+  # 2026-09-13: the fork is gone, so the claim cannot be made at all. Assert the ABSENCE of
+  # the file and of any config surface, which is the stronger property.
+  chk("weather removal: the fork, the driver and the config toggle are all gone",
+      !file.exists("02_stan_models/crab_bss_pooled_weather_adjusted.stan") &&
+      !file.exists("06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd") &&
+      length(list.files("02_stan_models", pattern = "\\.stan$")) == 2L &&
+      { ee <- new.env(); sys.source("run_config.R", envir = ee)
+        !("run_weather" %in% ls(ee)) && !("run_weather" %in% names(ee$run_config)) })
+  chk("weather removal: the orchestrator is single-path and REFUSES the retired flags",
+      { o <- rd("run_estimation.R")
+        !grepl("weather_rmd", o, fixed = TRUE) &&
+        !grepl("if (isTRUE(run_weather))", o, fixed = TRUE) &&
+        grepl('any(c("--weather", "--no-weather") %in% .args)', o, fixed = TRUE) &&
+        grepl("were removed with the weather-tide module", o, fixed = TRUE) })
+  chk("weather removal: the FINDING is kept live and the module doc is archived",
+      file.exists("07_documentation/WEATHER_COVARIATE_ANALYSIS.md") &&
+      file.exists("07_documentation/archive/weather-tide-covariate-module-REMOVED.md") &&
+      grepl("THE MODULE IS GONE; THIS FINDING IS WHY, AND IT STANDS",
+            rd("07_documentation/WEATHER_COVARIATE_ANALYSIS.md"), fixed = TRUE) &&
+      grepl("REMOVED 2026-09-13. THE MODULE THIS DOCUMENTS NO LONGER EXISTS",
+            rd("07_documentation/archive/weather-tide-covariate-module-REMOVED.md"), fixed = TRUE))
+  chk("weather removal: the OPENER covariates are NOT removed (a different mechanism)",
+      file.exists("03_R_functions/bss_opener_covariates.R") &&
+      "opener_covariate_mode" %in% names(rc) &&
+      identical(rc$opener_covariate_mode, "off"))
+  chk("weather removal: no live doc still offers the module as something you can run",
+      { bad <- Filter(function(f) {
+            t <- flat(rd(f))
+            grepl("run_weather <- TRUE", t, fixed = TRUE) ||
+            grepl("--model pooled --weather", t, fixed = TRUE) ||
+            grepl("The three Stan models", t, fixed = TRUE) },
+          c("README.md", "07_documentation/CLAUDE.md", "07_documentation/README.md",
+            "02_stan_models/README.md", "06_diagnostics/README.md",
+            "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
+            "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md"))
+        length(bad) == 0 }, "(a doc still describes running it)")
 
   # (8) the sweep runners must not name a superseded total as production
   chk("in-code docs: the sweep runners point at the box rather than naming a production total",

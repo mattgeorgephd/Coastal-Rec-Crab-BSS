@@ -23,27 +23,29 @@
 # run_estimation.R  --  top-level orchestrator for the crab creel estimation.
 #
 # Renders the selected BSS model (pooled or gear-resolved) as a parameterized
-# report, then, if requested, the weather-tide covariate module. All run-level
-# settings come from run_config.R (edit that file, not this one).
+# report. All run-level settings come from run_config.R (edit that file, not
+# this one).
 #
 # Run it either way:
 #     source("run_estimation.R")                 # RStudio: Source (not Knit)
 #     Rscript run_estimation.R                    # terminal / unattended
 #     Rscript run_estimation.R --model gear_resolved
-#     Rscript run_estimation.R --weather          # force weather on
-#     Rscript run_estimation.R --no-weather       # force weather off
-# CLI flags override the selection in run_config.R.
+# The --model flag overrides the selection in run_config.R.
 #
-# Design notes (see the model documentation for the full rationale):
+# Design notes (see the method documentation for the full rationale):
 #   * The models stay as .Rmd reports; this script renders them via
 #     rmarkdown::render(), so the full HTML diagnostic reports are preserved.
-#   * Weather hand-off is Option A: the model and the weather module render into
-#     the SAME environment (run_env), so the objects the model builds (dwg,
-#     ie_data, L_eff_model, prep_days_crab, ...) satisfy the weather module's
-#     `if(!exists("dwg"))` guard with no disk hand-off. Consequence: the pooled
-#     model's memory is not freed before the weather module runs, and you cannot
-#     re-run the weather module without re-running the model. If that becomes a
-#     constraint, switch to the disk-bundle hand-off (documented as Phase 2).
+#   * Config reaches the driver through a shared environment, not rmarkdown
+#     `params:`. This script builds run_env, sets run_env$run_config, and renders
+#     into it; the driver then does params <- modifyList(run_config, params_model).
+#
+# REMOVED 2026-09-13: the weather-tide covariate module and its --weather /
+#   --no-weather flags. The FWC creel team advised against using weather
+#   covariates and weather on its own was not helpful; the module's own committed
+#   conclusion was already EXCLUSION, and its Stan fork had drifted about 40 data
+#   variables behind the production model. This orchestrator is now single-path.
+#   The finding is kept at 07_documentation/WEATHER_COVARIATE_ANALYSIS.md and the
+#   module's method document at 07_documentation/archive/. CHANGE_REGISTER A29.
 ###############################################################################
 
 suppressPackageStartupMessages({
@@ -60,7 +62,7 @@ purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
 
 # ---- 1. Load run configuration ------------------------------------------------
-source(here::here("run_config.R"))     # defines: model, run_weather, run_config
+source(here::here("run_config.R"))     # defines: model, run_config
 
 # ---- 2. CLI overrides (optional) ----------------------------------------------
 .args <- commandArgs(trailingOnly = TRUE)
@@ -69,8 +71,12 @@ if (length(.args)) {
     .i <- which(.args == "--model")
     if (.i < length(.args)) model <- .args[.i + 1]
   }
-  if ("--weather"    %in% .args) run_weather <- TRUE
-  if ("--no-weather" %in% .args) run_weather <- FALSE
+  # --weather / --no-weather were removed with the weather module (2026-09-13). A run
+  # that still passes one should say so rather than silently ignoring it.
+  if (any(c("--weather", "--no-weather") %in% .args))
+    stop("--weather / --no-weather were removed with the weather-tide module on 2026-09-13. ",
+         "See 07_documentation/WEATHER_COVARIATE_ANALYSIS.md for why covariates are excluded.",
+         call. = FALSE)
 }
 
 # ---- 3. Validate --------------------------------------------------------------
@@ -78,23 +84,13 @@ if (!model %in% c("pooled", "gear_resolved")) {
   stop("model must be 'pooled' or 'gear_resolved' (got '", model, "').",
        call. = FALSE)
 }
-if (isTRUE(run_weather) && model != "pooled") {
-  stop("run_weather = TRUE is only valid with model = 'pooled'. The weather ",
-       "module reuses the pooled run's objects. Set run_weather <- FALSE, or ",
-       "model <- 'pooled'.", call. = FALSE)
-}
-
 model_rmd <- switch(model,
   pooled        = here::here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd"),
   gear_resolved = here::here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd")
 )
-weather_rmd <- here::here("06_diagnostics",
-                          "BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd")
-
 stopifnot(file.exists(model_rmd))
-if (isTRUE(run_weather)) stopifnot(file.exists(weather_rmd))
 
-# ---- 4. Shared render environment (Option A hand-off) -------------------------
+# ---- 4. Shared render environment ---------------------------------------------
 run_env <- new.env(parent = globalenv())
 run_env$run_config <- run_config
 
@@ -150,7 +146,6 @@ write_manifest <- function(stages, base_dir) {
     "============",
     paste("timestamp   :", run_stamp),
     paste("model       :", model),
-    paste("run_weather :", run_weather),
     paste("git sha     :", if (length(git_sha)) git_sha else NA),
     "",
     "Stages:"), con)
@@ -170,8 +165,7 @@ write_manifest <- function(stages, base_dir) {
 }
 
 # ---- 6. Run -------------------------------------------------------------------
-banner(sprintf("CRAB CREEL ESTIMATION  |  model = %s  |  weather = %s",
-               model, run_weather))
+banner(sprintf("CRAB CREEL ESTIMATION  |  model = %s", model))
 
 stages <- list()
 
@@ -183,18 +177,7 @@ stages$model <- tryCatch(
   })
 
 if (is.null(stages$model)) {
-  stop("Model stage failed; weather stage skipped. See console output above.",
-       call. = FALSE)
-}
-
-if (isTRUE(run_weather)) {
-  stages$weather <- tryCatch(
-    render_stage(weather_rmd, "WEATHER covariates"),
-    error = function(e) {
-      message("\n*** WEATHER render FAILED (model outputs are intact): ",
-              conditionMessage(e), " ***")
-      NULL
-    })
+  stop("Model stage failed. See console output above.", call. = FALSE)
 }
 
 # ---- 7. Manifest --------------------------------------------------------------

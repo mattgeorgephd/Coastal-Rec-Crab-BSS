@@ -154,8 +154,8 @@ Rscript run_estimation.R --model gear_resolved
 ```
 
 or set `model <- "gear_resolved"` in the RUN SELECTION block at the top of `run_config.R`.
-The weather-tide module is **not** valid with this model; the orchestrator hard-stops early
-if you ask for both, before any multi-hour fit.
+There is nothing else to run alongside it: the weather-tide module, which was pooled-only
+anyway, was removed on 2026-09-13 (A29), so the orchestrator is single-path.
 
 **Run it AFTER a pooled run, on the same configuration, and compare the port totals.** That
 is what it is for. The pre-set criterion is agreement within 2%. If the gap exceeds it, the

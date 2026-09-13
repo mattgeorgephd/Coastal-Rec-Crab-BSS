@@ -1,10 +1,9 @@
 # 06_diagnostics
 
-**The validation harness and the dated batch runners**, plus the experimental weather-tide covariate module. Nothing in this folder is a production estimator; the estimate comes from the drivers in `01_BSS_models/`. What lives here is the machinery that decides whether a change to those drivers is safe and worth keeping:
+**The validation harness and the dated batch runners.** Nothing in this folder is a production estimator; the estimate comes from the drivers in `01_BSS_models/`. What lives here is the machinery that decides whether a change to those drivers is safe and worth keeping:
 
 - `test_improvements_2026-08-25.R`, the dependency-light regression harness. Run it before committing to any long fit.
 - `run_*.R`, one dated batch runner per validation campaign. Each ships `DRY_RUN <- TRUE` (asserted by the harness), resolves every stage's config and runs its pre-flight without fitting, is resumable, and writes its pass/fail verdicts to a `*_verdicts.csv` at the `05_output/` root. The convention that grew out of hard experience: pre-set the pass criteria in code BEFORE the run; compare per-fit summaries for exactness, never port totals (permuted draws move a port total ~0.2% between bit-identical fits); expect a config delta of exactly the keys the stage changes (`config_delta`); wrap every verdict block so a defect in the READING of a run can never destroy the run's output.
-- The weather-tide covariate driver, experimental and currently stale.
 
 Each runner's row below records whether it has run and where its results were reviewed. **For where the model currently stands**, read the box at the top of `07_documentation/development_notes/PIPELINE_STATUS.md` and the change register `07_documentation/development_notes/CHANGE_REGISTER.md`.
 
@@ -14,7 +13,6 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
 
 | File | Role |
 |---|---|
-| `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | The covariate module driver (module v0.2.x). Layered on the **pooled** model only. Screens candidate tide/weather covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a leave-one-week-out block-CV fallback for true sampling gaps). |
 | `run_rg_sweep.R` | The T1.3 `R_G` prior-sensitivity sweep runner (three pooled runs at `R_G_prior_mu` = 1.0/1.28/1.5). |
 | `run_osp_validation.R` | Batches the OSP validation ladder across both production models and appends to `05_output/osp_validation_summary.csv`. A validation/diagnostic runner, not a production estimator. |
 | `run_patch_validation_2026-08-25.R` | The validation ladder for the 2026-08-25 improvement batch: one change per rung, with the pass criteria written down in code BEFORE the runs. It ships `DRY_RUN <- TRUE` (it was left FALSE from 2026-08-25 until 2026-09-03, so a source started real fits); that prints every rung's resolved config and self-tests the extractor and the criteria against the two reference runs without fitting anything. Six model-runs, roughly 16-32 h; resumable. |
@@ -30,19 +28,40 @@ For the production models, see [`01_BSS_models/`](../01_BSS_models/README.md); f
 | `run_improvements_2026-09-08.R` | The improvement ladder for the 2026-09-08 patch series (the eight review items), on the single 2024-25 season against `20260904/pooled-CPUE-AD-A1-adopted`. **`F_METHOD` (2026-09-12) picks the rung set.** `"new_throughout"` (shipped, per Matt: the run uses the new f): **R0** desk, **R1** pre-patch turnover priors + item 8 + the new dynamic f, **R2** + the calibration `tau_bar` prior, **R4** + the derived shore turnover and the census split (the shipped configuration), **R5** the gear cross-check on `GEAR_FOLLOWS`; three pooled fits plus one gear fit, about 12 to 14 h, and every rung's port total is citable because none is on a retired f. Optional **R2f** is R2 with the f block rolled back, which recovers the factorization proof (f touches generated quantities only) for one extra fit. `"ladder"` restores the original cumulative design (R0, R1, R2, R3a, R3, R4, R5; five pooled fits, 20 to 25 h) in which the f change is attributed by its own rungs. The mode is in every `run_tag` and every output filename, so the two cannot mix. **Comparability is proven before the MCMC** (2026-09-12): the preflight resolves every rung's configuration, FAILS on any non-delta key differing between rungs, asserts each rung differs from its comparison rung only in declared keys, and writes `improvements_2026-09-08_manifest*.csv`; `WINDOW` pins all nine per-season keys (four were missing, `pot_open_date` among them), the three PE unsampled-cell levers and the sampler seed; and `RESUME` reuses a folder only when its `IMP_STAGE.txt` config digest matches, instead of trusting any finished-looking folder. **R0 also runs the PE under all four unsampled-cell arms** (72,224 / 81,160 / 90,861 / 85,076 on 2024-25), so D19 can be decided against R4's BSS without a refit, and reports the singleton-cell share and both effort SEs (D21). R3/R2f use `fit_agreement()` (Monte Carlo error) because the parameter vector changes; the shore rungs use `fit_exactness()` (bit-identity). **The run is TWO PASSES** (2026-09-13, `LADDER_PASS`): `1` fits R0/R1/R2/R4/R5, the four rungs whose port totals are citable (~12-14 h); `2` adds **R2f** and re-runs, whereupon `RESUME` matches the four pass-1 fits by their `IMP_STAGE.txt` config digest, skips them, fits R2f only (~4 h) and recomputes every verdict from disk. Adding R2f is verified not to change any other rung's digest. `IMP_STAGE.txt` also records a three-layer code fingerprint (Stan models / drivers / `03_R_functions`) and the rstan version: the digest covers the CONFIG, so without this a patch applied between the two passes would leave R2f fitted by different code than the R2 it is measured against; a mismatch is reported and `V1cross()` downgrades the affected bit-identity and agreement verdicts from PASS to REVIEW. Ships `DRY_RUN <- TRUE`; every verdict block wrapped; verdicts and a per-rung ladder table merged by key into `05_output/improvements_2026-09-08_*.csv`. **NOT YET RUN.** |
 | `README.md` | This file. |
 
-The augmented Stan model it fits, `crab_bss_pooled_weather_adjusted.stan`, lives in [`02_stan_models/`](../02_stan_models/README.md); it adds covariate blocks (`gamma_E` on `mu_E`, `gamma_C` on `mu_C`) and ****no longer collapses to `crab_bss_pooled.stan`** (it did when written; as of 2026-09-02 the fork is missing about 40 data variables the production model declares, including the entire `shared_tau` block that production adopted, the OSP stream, the `crab_fraction_*` block and the ZINB flags), and when `K_E = K_C = 0` it collapses only to the v6.9-era model it was forked from**, so one file serves both the baseline and augmented fits.
 
-## How it runs
+## The weather-tide covariate module: REMOVED 2026-09-13
 
-- As part of a full run: set `run_weather <- TRUE` in `run_config.R` (or pass `--weather`) with `model = "pooled"`, and `run_estimation.R` renders this module **after** the pooled model. It is only valid with the pooled model, the module reuses the pooled run's in-memory objects (`dwg`, `ie_data`, `L_eff_model`, …) via the shared render environment ("Option A" hand-off), so it cannot run without a preceding pooled run in the same session.
-- Standalone: knit `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` directly; its setup chunk auto-sources `run_config.R` when `run_config` is not already present.
+It used to live here, and this section is what replaces it so nobody goes looking.
 
-Outputs land in `05_output/<YYYYMMDD>/pooled-CPUE-covariates/` (paired `*_baseline` / `*_covariates` files, GAM smooths, and the covariate-vs-baseline LOO comparison). At runtime the module reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints for tide and weather series; results are cached under `cache/weather_tide/` at the repo root (regenerable and git-ignored).
+**Removed** (CHANGE_REGISTER A29): the driver `BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`,
+its Stan fork `02_stan_models/crab_bss_pooled_weather_adjusted.stan`, the `run_weather` toggle
+and the `--weather` / `--no-weather` flags. `run_estimation.R` is single-path now and stops with
+a message if either flag is passed.
 
-## Status
+**Why.** The FWC creel team advised against using weather covariates and weather on its own was
+not helpful. The module's own committed conclusion was already EXCLUSION: tide phase and range,
+daytime high-tide timing, wind and wave height were screened on both effort and catch rate and
+none cleared the pre-committed PSIS-LOO margin. Two practical facts settled it rather than
+continued carrying: the fork had drifted about **40 data variables** behind the production model
+(missing the whole `shared_tau` block, the OSP stream, the `crab_fraction_*` block and the
+zero-inflation flags), so it could not have been run without a re-base; and nothing depended on
+it, with no production driver, config key or helper referencing the fork and no committed run
+folder produced by it.
 
-**Experimental and currently stale.** Per `07_documentation/development_notes/PIPELINE_STATUS.md`, the module tracks an older pooled engine (~v6.9 parity, pre-deployment-scale) and has not been re-run against the current Stan models, so its boat-magnitude outputs must not be cited. Its committed conclusion is that weather/tide covariates are **excluded**, see the decision record in `07_documentation/WEATHER_COVARIATE_ANALYSIS.md` and Section 21 of the pooled-model documentation. The intent is that any covariate later shown to help is folded directly into the production pooled and gear-resolved models, rather than maintained as a separate track.
+**Where the record lives.** The finding is
+`07_documentation/WEATHER_COVARIATE_ANALYSIS.md`, kept in place because it is a decision record;
+the module's method document is archived at
+`07_documentation/archive/weather-tide-covariate-module-REMOVED.md`; and Method v2.0 states the
+conclusion in its Section 21. Read the false-precision result in the finding before running any
+future covariate screen on this pipeline: the apparent signal came from comparing a covariate
+model's `elpd_loo` against the SE of ONE model total rather than the PAIRED SE of the
+difference, and that mistake is not specific to weather.
+
+**Not the same thing, and not removed:** the OTHER-FISHERY opener covariates
+(`opener_covariate_mode`, `run_config.R` section 4.3). Built, tested, inert, still available.
 
 ## Documentation
 
-Technical write-up: `07_documentation/BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md`. Decision record (exclusion finding): `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`.
+Each runner's own header is the authoritative account of what it does. For where the model
+stands, the box at the top of `07_documentation/development_notes/PIPELINE_STATUS.md`; for what
+the model IS, `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` (Method v2.0).

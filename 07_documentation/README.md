@@ -27,7 +27,6 @@ These describe **the model that runs**. Method v2.0 was adopted 2026-09-12, repl
 |---|---|
 | `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**, the method of record and the headline estimator. Read this one. Three parts: for everyone, for whoever runs it, and the full technical reference (the generative specification, the Point Estimator, the census, the gate, the priors, the limitations). |
 | `BSS-GH-gear-type-CPUE-model-documentation.md` | **Framework v6.0**, the gear-resolved CROSS-CHECK. Deliberately short: it describes only what differs from the pooled model and defers everything shared. |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (stale; not production; its conclusion, exclusion, stands). |
 
 What changed from Method v1.0 is nine things, and they are not settings: the boat effort streams, the crabbing fraction's whole construction, both turnovers, the shore catch likelihood, the shore AR resolution, the commercial-charter component, the PE's unsampled-cell fill, and the number of seasons a window may span. The table is in the archive banner and in Section 6 of the pooled document, with what each was worth on the 2024-25 season.
 
@@ -40,6 +39,7 @@ Superseded method documents, kept unaltered below a banner because several later
 | `archive/method-v1.0-pooled-CPUE.md` | the pooled method of record, frozen against code v7.4, with a table of the nine places v1.0 and v2.0 differ |
 | `archive/method-v1.0-gear-resolved-CPUE.md` | the gear-resolved framework v5.6 |
 | `archive/method-v1.0-pooled-CPUE.html` | the rendered v1.0 pooled document |
+| `archive/weather-tide-covariate-module-REMOVED.md` | the weather-tide covariate module's method document. The module was **removed 2026-09-13** (A29); its finding, exclusion, is kept live at `WEATHER_COVARIATE_ANALYSIS.md` because it is a decision record rather than module documentation |
 
 ## Development histories (the version-by-version change log)
 
@@ -54,7 +54,7 @@ The method documents summarize the history in one screen and point here for deta
 
 | File | Content |
 |---|---|
-| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are excluded under the pre-committed PSIS-LOO margin (the false-precision result). Pairs with `06_diagnostics/`. Note: superseded in part by the deployment-scale move; the module itself is stale (see `PIPELINE_STATUS.md`, T2.4). |
+| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are **excluded** under the pre-committed PSIS-LOO margin, and the false-precision result behind it (an `elpd_loo` compared against the SE of one model total rather than the PAIRED SE of the difference; that mistake is not specific to weather). **The module was removed 2026-09-13**; this document is kept in place because the exclusion is a result, and a result is worth more written down than a module is worth carrying. |
 | `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
 
 ## development_notes/

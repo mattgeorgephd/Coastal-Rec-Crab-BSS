@@ -1,3 +1,35 @@
+> # REMOVED 2026-09-13. THE MODULE THIS DOCUMENTS NO LONGER EXISTS IN THE REPOSITORY.
+>
+> The weather-tide covariate module was removed on 2026-09-13 (CHANGE_REGISTER A29). **Its
+> finding stands and is the reason it was removed, not a reason to keep it**: tide phase and
+> range, daytime high-tide timing, wind and wave height were screened on both effort and
+> catch rate and **none cleared the pre-committed PSIS-LOO margin**. The FWC creel team
+> advised against using weather covariates, and weather on its own was not helpful.
+>
+> Two practical facts settled the removal rather than continued carrying:
+>
+> - **The module could not have been run without a re-base.** Its Stan fork,
+>   `crab_bss_pooled_weather_adjusted.stan`, had drifted roughly **40 data variables** behind
+>   the production model. It was missing the whole `shared_tau` block, the OSP effort stream,
+>   the `crab_fraction_*` block and the zero-inflation flags, so the claim that it "collapses
+>   to the pooled model at K = 0" had stopped being true on 2026-09-02.
+> - **Nothing depended on it.** No production driver, config key or helper ever referenced
+>   the fork, and no committed run folder was produced by it.
+>
+> **What was deleted:** `02_stan_models/crab_bss_pooled_weather_adjusted.stan`,
+> `06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd`, the `run_weather` toggle,
+> and the `--weather` / `--no-weather` CLI flags. `run_estimation.R` is now single-path and
+> stops with a message if either flag is passed.
+>
+> **What was kept:** this document, archived unaltered below, and the finding itself at
+> `07_documentation/WEATHER_COVARIATE_ANALYSIS.md`. The exclusion is a RESULT, and a result
+> is worth more written down than a module is worth carrying. Section 21 of
+> `BSS-GH-pooled-CPUE-model-documentation.md` (Method v2.0) states it in the method of record.
+>
+> **Not removed, and not the same thing:** the OTHER-FISHERY opener covariates
+> (`opener_covariate_mode`, section 4.3 of `run_config.R`). Those are a different mechanism,
+> built and inert, and they remain available.
+
 # BSS-GH Weather & Tide Covariate Module: Technical Documentation
 
 > **STALE MODULE (recorded 2026-09-02, banner added 2026-09-08).** This documents the weather-tide covariate module as built (~pooled v6.9 parity). The module's Stan fork now lacks ~40 data variables the production pooled model declares (the shared turnover, the OSP stream, the crab-fraction block, the zero-inflation flags among them) and has not been re-run since the deployment-scale move; do not cite its boat-magnitude numbers. Its committed CONCLUSION, that weather/tide covariates are excluded, stands (`WEATHER_COVARIATE_ANALYSIS.md`). Any covariate later shown to help is to be folded into the production models directly rather than revived here.

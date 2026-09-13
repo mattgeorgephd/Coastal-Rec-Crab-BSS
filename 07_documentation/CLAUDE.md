@@ -48,9 +48,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > disagrees with the box, the box wins.
 
 
-A WDFW recreational Dungeness crab creel-estimation pipeline for Grays Harbor / Westport (R + Stan). It estimates total seasonal harvest by fusing a design-based **Point Estimator (PE)** with a **Bayesian State-Space (BSS)** time-series model, across three crabbing populations, over two gear-regime sub-seasons. There are two production models (pooled and gear-resolved CPUE) and one experimental module (weather-tide covariates).
+A WDFW recreational Dungeness crab creel-estimation pipeline for Grays Harbor / Westport (R + Stan). It estimates total seasonal harvest by fusing a design-based **Point Estimator (PE)** with a **Bayesian State-Space (BSS)** time-series model, across three crabbing populations, over two gear-regime sub-seasons. There are two models: pooled CPUE (the headline estimator) and gear-resolved CPUE (its cross-check). The weather-tide covariate module was removed 2026-09-13 (A29); its finding, exclusion, stands.
 
-The repository is organized as a numbered stage pipeline: `01_BSS_models/` (drivers) → `02_stan_models/` (Stan code) → `03_R_functions/` (shared helpers) → `04_input_files/` (raw data) → `05_output/` (dated runs) → `06_diagnostics/` (experimental) → `07_documentation/` (reference layer). Most folders have their own `README.md` with a file inventory; this file covers what those don't, the cross-cutting architecture and the conventions that will bite you.
+The repository is organized as a numbered stage pipeline: `01_BSS_models/` (drivers) → `02_stan_models/` (Stan code) → `03_R_functions/` (shared helpers) → `04_input_files/` (raw data) → `05_output/` (dated runs) → `06_diagnostics/` (harness and batch runners) → `07_documentation/` (reference layer). Most folders have their own `README.md` with a file inventory; this file covers what those don't, the cross-cutting architecture and the conventions that will bite you.
 
 ## Running the estimation
 
@@ -62,23 +62,22 @@ source("run_estimation.R")        # RStudio: use Source, NOT Knit
 ```sh
 Rscript run_estimation.R                          # terminal / unattended
 Rscript run_estimation.R --model gear_resolved    # override the model
-Rscript run_estimation.R --model pooled --weather # also run the weather module
-Rscript run_estimation.R --no-weather             # force weather off
 ```
 
-CLI flags (`--model`, `--weather`, `--no-weather`) override `run_config.R` for that run.
+`--model` is the only CLI flag and it overrides `run_config.R` for that run. `--weather` and
+`--no-weather` were removed with the weather-tide module on 2026-09-13 (A29); passing either
+now stops the run with a message rather than being silently ignored.
 
 - **In RStudio you must _Source_ `run_estimation.R`, not _Knit_ it**, knitting would try to render the script itself.
 - A single model `.Rmd` can also be knit standalone; its setup chunk auto-sources `run_config.R` when `run_config` isn't already defined, so it uses identical toggles. You never edit the `.Rmd` for a routine run.
 - **Runtime is long** (~3-6 h on 4 cores for a full pooled run, real MCMC over many fits).
-- **Requirements:** R 4.2+, rstan 2.32+ (this uses **rstan, not cmdstanr**), plus tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. `run_estimation.R` auto-`install.packages()` anything missing, so a fresh machine's first run may trigger a long compile. The weather module additionally needs mgcv, loo, httr, jsonlite, geosphere and reaches NOAA CO-OPS / NDBC / Iowa IEM endpoints at runtime (cached under `cache/`, git-ignored).
+- **Requirements:** R 4.2+, rstan 2.32+ (this uses **rstan, not cmdstanr**), plus tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. `run_estimation.R` auto-`install.packages()` anything missing, so a fresh machine's first run may trigger a long compile. Since the weather-tide module was removed (2026-09-13) a run needs NO network access: mgcv, httr, jsonlite and geosphere, and the NOAA CO-OPS / NDBC / Iowa IEM calls, went with it.
 
 ## `run_config.R` is the single control surface
 
 This is the **one file you edit** for a routine run (do not edit `run_estimation.R`, the `.Rmd` drivers, or the `.stan` files). For a season re-run you typically change only:
 
 - `model`, `"pooled"` or `"gear_resolved"`
-- `run_weather`, `TRUE`/`FALSE` (**only valid with `model = "pooled"`**; the orchestrator hard-stops early otherwise, before any multi-hour fit, because the weather module reuses the pooled run's in-memory objects)
 - the season window: `est_date_start`, `est_date_end`, and the structural dates (`pot_closure_start/end`, `pot_open_date`, `census_*`)
 - the holiday list, now the `04_input_files/crabbing_holidays.xlsx` workbook (was the `crabbing_holiday_dates` config vector; read by `read_crabbing_holidays.R`), updated once per season
 
@@ -91,7 +90,7 @@ This is the **one file you edit** for a routine run (do not edit `run_estimation
 `run_estimation.R` sources the entire `03_R_functions/` library, sources `run_config.R`, applies CLI overrides, then renders the chosen driver `.Rmd`. Two non-obvious mechanics:
 
 - **Config is injected via a shared environment, not rmarkdown `params:`.** The orchestrator builds `run_env <- new.env(parent = globalenv())`, sets `run_env$run_config`, and calls `rmarkdown::render(rmd, envir = run_env)`. Each driver then does `params <- modifyList(run_config, params_model)`, where `params_model` holds **only** that model's internal tuning (Stan filename, per-fit sampler settings, gate/AR thresholds). `run_config` and `params_model` are *intended* to be disjoint; when a key lands in both, the driver's value wins silently. That happened with `bss_min_interviews` (fixed 2026-08-25), so treat "intended" as a rule to check, not a guarantee.
-- **The weather module shares that same `run_env`** ("Option A" hand-off): the pooled model's objects (`dwg`, `ie_data`, `L_eff_model`, …) satisfy the weather module's `if(!exists(...))` guards with no disk hand-off. Consequence: you cannot re-run the weather module without re-running the pooled model.
+- **`run_env` is now single-stage.** It used to be shared with the weather-tide module ("Option A" hand-off), which read the pooled driver's in-memory objects (`dwg`, `ie_data`, `L_eff_model`, …) rather than anything on disk. That module was removed on 2026-09-13 (A29), so the orchestrator renders exactly one driver and the coupling is gone. Note that the coupling was one-directional: no production driver ever referenced the weather module, which is why the removal touched no fit.
 
 The **driver** (not the orchestrator) creates the output folder: `run_date <- format(Sys.Date(), "%Y%m%d")`, `output_dir <- here("05_output", run_date, "<model>-<run_tag>")`. The `run_tag` is set in `run_config.R` (or by `run_rg_sweep.R`) and names the folder (e.g. `pooled-CPUE-run1`); when it is blank the driver appends an `HHMMSS` timestamp instead, so same-day re-runs of the same model land in **distinct** folders and no longer overwrite each other. The orchestrator reads `output_dir` back out of `run_env`, moves the rendered HTML into it, and writes `run_manifest_<timestamp>.txt` one level up in `05_output/<run_date>/` (recording model, `run_weather`, git SHA, per-stage timing, a `str()` dump of `run_config`, and full `sessionInfo()`). The dated folder is **today's system date at render time**.
 
@@ -168,4 +167,4 @@ Each run writes to `05_output/<YYYYMMDD>/<model>-<run_tag>/`, where the `<model>
 
   **Do not take an estimate from anywhere in this repository without checking the box at the top of `PIPELINE_STATUS.md` first**, including from the method document, whose numbers come from a named reference run that may have been superseded. Read the status document first for current state and update it in place; do not fork per-session notes.
 - **Method version ≠ code version, and since 2026-09-12 the method version is LIVE.** **Method v2.0** is the method of record and it tracks the working model: when an adopted change moves the method, `BSS-GH-pooled-CPUE-model-documentation.md` moves with it. That is a deliberate break with **Method v1.0**, which was frozen against pooled code v7.4 and which the code then outran in nine separate ways; v1.0 is archived at `07_documentation/archive/method-v1.0-pooled-CPUE.md` with the difference table, because several current decisions are only legible as departures from it. The code version (v7.x, and framework v6.0 on the gear track) still moves independently and faster. Numbers predating the 2026-07-11 refresh are labeled "pre-refresh"; do not cite them as final.
-- `06_diagnostics/` holds **the validation harness and the batch runners**, not only the weather module: `test_improvements_2026-08-25.R` is a dependency-light regression harness (**843** assertions as of 2026-09-12 and growing, seconds, no rstan; the run prints the count, so take that over this figure) that should be run before committing to any long fit, and `run_*.R` are the dated experiment batches. Every batch runner ships `DRY_RUN <- TRUE`; that is asserted by the harness. The weather-tide module in the same folder is **experimental and currently stale** (its Stan fork is missing ~40 data variables the production model now declares); its committed conclusion is that covariates are excluded, and it is not part of the official harvest estimate.
+- `06_diagnostics/` holds **the validation harness and the batch runners**, and since 2026-09-13 nothing else (the weather-tide module was removed, A29): `test_improvements_2026-08-25.R` is a dependency-light regression harness (**843** assertions as of 2026-09-12 and growing, seconds, no rstan; the run prints the count, so take that over this figure) that should be run before committing to any long fit, and `run_*.R` are the dated experiment batches. Every batch runner ships `DRY_RUN <- TRUE`; that is asserted by the harness. The weather-tide module in the same folder is **experimental and currently stale** (its Stan fork is missing ~40 data variables the production model now declares); its committed conclusion is that covariates are excluded, and it is not part of the official harvest estimate.

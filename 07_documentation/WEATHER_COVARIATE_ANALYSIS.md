@@ -1,3 +1,22 @@
+> ### THE MODULE IS GONE; THIS FINDING IS WHY, AND IT STANDS.
+>
+> The weather-tide covariate module was **removed from the repository on 2026-09-13**
+> (CHANGE_REGISTER A29): the FWC creel team advised against using weather covariates, weather
+> on its own was not helpful, and the analysis below had already concluded EXCLUSION. Its Stan
+> fork had also drifted about 40 data variables behind the production model, so it could not
+> have been re-run without a re-base first.
+>
+> **This document is kept in place, not archived**, because it is a decision record rather
+> than module documentation: it is the answer to "did you look at weather?", and the answer is
+> yes, with a pre-committed margin, and no. The module's own method document is archived at
+> `archive/weather-tide-covariate-module-REMOVED.md`. Method v2.0 states the conclusion in
+> Section 21.
+>
+> Read the false-precision result below carefully before running any future covariate screen
+> on this pipeline: the apparent signal came from comparing a covariate model's `elpd_loo`
+> against the SE of **one model total** rather than against the **paired** SE of the
+> difference. That mistake is not specific to weather.
+
 # Weather and Tide Covariate Analysis: Results and Interpretation
 
 > **DECISION RECORD; numbers pre-deployment-scale (banner added 2026-09-08).** The exclusion finding stands and is the reason the production models carry no weather/tide covariates. Every magnitude below predates the gear-deployment effort unit, the shared turnover, and the 2026-09-07 adoptions, so quote the decision, not the numbers; current totals live in the `PIPELINE_STATUS.md` box.

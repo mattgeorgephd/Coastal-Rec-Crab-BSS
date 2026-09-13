@@ -145,13 +145,12 @@
 # ---------------------------------------------------------------------------
 #
 # This is the ONE file you edit to run the estimation. Set the RUN SELECTION
-# block (which model, and whether to run the weather module), then set the
-# toggles below, then launch with either:
+# block (which model), then set the toggles below, then launch with either:
 #
 #     source("run_estimation.R")          # in RStudio (Source, not Knit)
 #   or
 #     Rscript run_estimation.R            # from a terminal, unattended
-#     Rscript run_estimation.R --model gear_resolved --weather   # CLI override
+#     Rscript run_estimation.R --model gear_resolved             # CLI override
 #
 # How it works: run_estimation.R injects `run_config` (defined below) into the
 # render environment of the chosen .Rmd. As of the 2026-07-12 restructure (P5),
@@ -182,14 +181,17 @@ model       <- "pooled"        # "pooled"  or  "gear_resolved"
                                # cross-check; run it after a pooled run and compare
                                # the port totals (criterion: within 2%).
 
-run_weather <- FALSE           # TRUE also runs the weather-tide covariate
-                               # module AFTER the model. Only valid with
-                               # model = "pooled" (the weather module reuses the
-                               # pooled run's in-memory objects). run_estimation.R
-                               # will stop early if you set TRUE with
-                               # "gear_resolved", before any multi-hour fit.
-                               # The module's committed conclusion is that covariates
-                               # are EXCLUDED, and it is stale; leave this FALSE.
+# REMOVED 2026-09-13: `run_weather`, and with it the weather-tide covariate module.
+# The FWC creel team advised against using weather covariates and weather on its own was
+# not helpful; the module's own committed conclusion was already EXCLUSION, and its Stan
+# fork had drifted about 40 data variables behind the production model, so it could not
+# have been run without a re-base first. `run_estimation.R` is now single-path and stops
+# with a message if `--weather` or `--no-weather` is passed. The finding is kept at
+# 07_documentation/WEATHER_COVARIATE_ANALYSIS.md and the module's method document at
+# 07_documentation/archive/weather-tide-covariate-module-REMOVED.md. CHANGE_REGISTER A29.
+#
+# The OTHER-fishery opener covariates are a different mechanism and are NOT removed: they
+# are built, tested and inert in section 4.3 below.
 
 # =========================================================================== #
 
@@ -292,6 +294,53 @@ run_config <- list(
   # opener. The ladder's window pin already carried the right date, so the authoritative run
   # is unaffected; the stale value would have mislabelled a run made straight from config.
   commercial_opener = "2025-02-11",
+  #
+  # -- OTHER WINDOWS, READY TO PASTE OVER THE NINE KEYS ABOVE ---------------------
+  # Swap the whole block; never one key. NEW_SEASON_GUIDE.md section 7.1 carries the same
+  # three blocks with the data prerequisites and the failure modes spelled out.
+  #
+  # -- single season 2025-26 (data through 2026-09-08; the season ends 2026-09-15) ----
+  #   est_date_start    = "2025-09-16",   est_date_end      = "2026-09-15",
+  #   season_filter     = "2025-26",
+  #   pot_closures      = NULL,
+  #   pot_closure_start = "2025-09-16",   pot_closure_end   = "2025-11-30",
+  #   pot_open_date     = "2025-12-01",
+  #   census_windows    = NULL,
+  #   census_start_date = "2025-12-01",   census_end_date   = "2026-01-03",
+  #   commercial_opener = "2026-01-04",   run_tag           = "season-2025-26",
+  #   KNOWN FIRST: no OSP rows and no WBL boat I/E days exist for 2025-26 yet (D18,
+  #   WBL_boat_counts.xlsx stops 2025-10-18), so the boat runs on the trailer counts with
+  #   per-day turnover draws and the SHARED boat turnover is REFUSED for want of overlap
+  #   days. The tally has 23 days and the charter roster 11 Westport trips.
+  #
+  # -- two-season span 2023-25 (STAGED AND BLOCKED; this is what shipped here until ----
+  #    2026-09-12, CHANGE_REGISTER D28) -------------------------------------------
+  #   est_date_start    = "2023-09-16",   est_date_end      = "2025-09-15",
+  #   season_filter     = c("2023-24", "2024-25"),
+  #   pot_closures      = list(
+  #     list(season = "2023-24", start = "2023-09-16", end = "2023-11-30"),
+  #     list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")
+  #   ),
+  #   pot_closure_start = "2024-09-16",   pot_closure_end   = "2024-11-30",
+  #   pot_open_date     = "2024-12-01",
+  #   census_windows    = list(
+  #     "2023-24" = c("2023-12-01", "2024-01-31"),
+  #     "2024-25" = c("2024-12-01", "2025-02-08")
+  #   ),
+  #   census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
+  #   commercial_opener = "2025-02-11",   run_tag           = "two-season-2023-25",
+  #   WHY IT IS BLOCKED: no vessel tally and no charter roster were ever kept for 2023-24,
+  #   so that season's commercial/charter component is 0 and estimate_comm_charter() only
+  #   WARNS (D8). A two-season port total is short by the whole 2023-24 commercial/charter
+  #   catch, and the warning arrives four hours into a knit. If you run the span, read the
+  #   census section of the report before quoting a total. The 2023-24 census window ends
+  #   Jan 31, 2024 because the coastal commercial fishery opened Feb 1, 2024 (WDFW
+  #   bulletin). What IS there after the 2026-09-10 rebuild: effort counts (4,116 on 360
+  #   days), the 2023-24 gear count (D15), and the holiday calendar. Two caveats on the
+  #   season itself: WBL_boat_counts.xlsx starts March 2024, so most of its boat runs
+  #   trailer-only; and the Grays Harbor 2023-24 shifts were shorter (median 4.1 h against
+  #   6.0 h), so the contact-based crabbing fraction covers less of the day.
+  # -------------------------------------------------------------------------------
 
   # --- 1.3 Input workbooks and sheets --------------------------------------
   # Every pipeline input is an .xlsx workbook (converted from CSV on 2026-07-16) with

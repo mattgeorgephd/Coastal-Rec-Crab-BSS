@@ -16,10 +16,11 @@
 *.Rda
 *.RDa
 
-# --- Local data caches (weather / tide / buoy API fetches) ---
-# The weather-tide covariate module caches fetched NOAA CO-OPS, NDBC, ASOS, and
-# GSOD series under cache/ (default: cache/weather_tide/) to avoid repeated API
-# calls. These are regenerable and machine-local.
+# --- Local data caches ---
+# Nothing in the pipeline fetches over the network any more: the weather-tide
+# module, which cached NOAA CO-OPS / NDBC / ASOS / GSOD series under
+# cache/weather_tide/, was removed 2026-09-13 (CHANGE_REGISTER A29). These rules
+# are kept as a generic guard so a machine-local cache can never be committed.
 cache/
 *_cache/
 *.cache
