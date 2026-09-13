@@ -53,6 +53,20 @@
 ###############################################################################
 
 build_subseasons <- function(params) {
+  # --- D3 (2026-09-13): the gear track's AR period is set HERE, not by the cap -----------
+  # period_bss is read ONLY by the gear-resolved driver, which passes it as
+  # fixed_resolution because production ships ar_adaptive = FALSE; the pooled driver passes
+  # fixed_resolution = NULL and selects adaptively. So ar_max_resolution$gear_resolved is
+  # DORMANT (run_config and the gear .Rmd both say so), and until 2026-09-13 the gear
+  # track's resolution was a LITERAL in this file with no configuration surface at all.
+  # CHANGE_REGISTER D3 is phrased as "the gear track's shore cap is still monthly", which
+  # points at the dormant key; the lever is this one. gear_period_bss exposes it, defaulting
+  # to the exact literals used before, so every existing run is reproduced byte for byte.
+  # 06_diagnostics/run_gear_ar_zi_2026-09-13.R is the run that settles what it should be.
+  .pb <- params$gear_period_bss %||% list()
+  .pb_ag <- as.character(.pb$all_gear    %||% "month")
+  .pb_cl <- as.character(.pb$pot_closure %||% "biweekly")
+
   est_start <- as.Date(params$est_date_start)
   est_end   <- as.Date(params$est_date_end)
 
@@ -90,11 +104,11 @@ build_subseasons <- function(params) {
     san <- function(x) gsub("[^A-Za-z0-9_-]", "_", x)
     mk_ag <- function(nm, s, e, disp, season) list(
       name = nm, display_name = disp, gear_regime = "all_gear", season = season,
-      start = s, end = e, period_bss = "month", gear_exclude = character(0))
+      start = s, end = e, period_bss = .pb_ag, gear_exclude = character(0))
     mk_cl <- function(x) list(
       name = paste0("ring_net_only_", san(x$season)), display_name = paste0("Pot closure ", x$season),
       gear_regime = "pot_closure", season = x$season,
-      start = x$start, end = x$end, period_bss = "biweekly", gear_exclude = c("Pot"))
+      start = x$start, end = x$end, period_bss = .pb_cl, gear_exclude = c("Pot"))
     if (length(cl) >= 2) {
       ss <- list()
       if (cl[[1]]$start > est_start)
@@ -140,7 +154,7 @@ build_subseasons <- function(params) {
     return(list(list(
       name = "all_gear", display_name = "All gear", gear_regime = "all_gear",
       season = as.character(params$season_filter %||% NA_character_)[1],
-      start = est_start, end = est_end, period_bss = "month",
+      start = est_start, end = est_end, period_bss = .pb_ag,
       gear_exclude = character(0))))
   }
 
@@ -153,11 +167,11 @@ build_subseasons <- function(params) {
   season_tag <- as.character(params$season_filter %||% NA_character_)[1]
   allgear <- function(nm, s, e, disp) list(
     name = nm, display_name = disp, gear_regime = "all_gear", season = season_tag,
-    start = s, end = e, period_bss = "month", gear_exclude = character(0))
+    start = s, end = e, period_bss = .pb_ag, gear_exclude = character(0))
   closure <- list(
     name = "ring_net_only", display_name = "Pot closure", gear_regime = "pot_closure",
     season = season_tag,
-    start = pc_start, end = pc_end, period_bss = "biweekly", gear_exclude = c("Pot"))
+    start = pc_start, end = pc_end, period_bss = .pb_cl, gear_exclude = c("Pot"))
 
   ss <- list()
   if (has_pre)

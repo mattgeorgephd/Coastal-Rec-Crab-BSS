@@ -822,13 +822,20 @@ run_config <- list(
   # fit. Compared like for like at weekly, the ZINB halves both count bins on shore
   # all-gear (zero z +3.7 -> +2.0, one z -6.1 -> -3.3) and closes both on the pot-closure
   # replicate, for +11.6 nats at 2.30 paired SE.
-  # POOLED ONLY. crab_bss_gear_resolved.stan has no theta_C and prep_bss_crab_gear.R never
-  # emits zi_catch, so the gear track silently ignores this flag and fits plain NB2. That
-  # makes the two-track cross-check compare UNLIKE shore catch likelihoods for the first
-  # time. The effect is small (about -0.3% on the pooled shore component), so it explains
-  # a sliver of the cross-track gap and none of a large one, but read the gap knowing it.
+  # WHICH TRACKS (catch_zi_tracks, added 2026-09-13 with the D6 Stan port). Until that
+  # port, crab_bss_gear_resolved.stan had no theta_C and prep_bss_crab_gear.R never emitted
+  # zi_catch, so the gear track read this flag and IGNORED it, fitting plain NB2 and making
+  # the two-track cross-check compare UNLIKE shore catch likelihoods (about -0.3% of the
+  # pooled shore component). The port removed the asymmetry from the MODEL but NOT from the
+  # shipped configuration, deliberately: catch_zi_tracks ships as "pooled", so the gear
+  # track still fits plain NB2 and the committed 20260911 R5 cross-check stays exactly
+  # reproducible. Flipping it is the D6 decision, and
+  # 06_diagnostics/run_gear_ar_zi_2026-09-13.R is the run that settles it. Do not flip it
+  # here on the strength of symmetry alone: a feature that earns its parameter on the
+  # pooled shore likelihood need not earn it on a per-gear one, which is thinner.
   estimate_catch_zi     = TRUE,
   catch_zi_populations  = c("shore"),
+  catch_zi_tracks       = c("pooled"),      # "pooled", "gear_resolved", or both
   # SEASON-DERIVED prior shape (chosen from the 2024-25 zero bin; weakly informative):
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
@@ -1536,6 +1543,32 @@ run_config <- list(
                                        #   (e.g. 0.5) lets sparsely-sampled period x day_type cells
                                        #   concentrate more on their observed gear, larger regularizes
                                        #   toward an even split. Only used when gear_share_dirichlet.
+  # --- D3 (2026-09-13): the gear track's AR PERIOD, which is the lever the cap is not ----
+  # Production ships ar_adaptive = FALSE, so the gear-resolved driver passes
+  # fixed_resolution = ss$period_bss and ar_max_resolution$gear_resolved is DORMANT. Until
+  # 2026-09-13 period_bss was a literal inside build_subseasons.R with no configuration
+  # surface, so CHANGE_REGISTER D3 ("the gear track's shore cap is still monthly") named a
+  # key that does nothing. These are the real values, and they ship at exactly the literals
+  # they replaced, so every committed gear run is reproduced byte for byte.
+  #
+  # D3 IS OPEN. The pooled shore all-gear fit is at WEEKLY; this track is at MONTHLY, which
+  # is most of the -1.39% cross-track gap (at a common monthly resolution the two tracks
+  # agree to 0.08%, the strongest agreement the cross-check has produced). Do NOT copy the
+  # pooled value across on the strength of symmetry alone, but note that the reason usually
+  # given for NOT copying it is WRONG under the shipped configuration. CHANGE_REGISTER D3
+  # and adoption-review-2026-09-08.md both say the gear shore fits carry per-gear CPUE at
+  # "G = 5", so their likelihood is thinner per gear type and they may need a coarser
+  # period. gear_resolved_G ships FALSE, and prep_bss_crab_gear then collapses the
+  # Stan-facing gear dimension and prints "4 gear types qualify; G = 1 this run". Measured
+  # 2026-09-13 on the real 2024-25 shore all-gear data: G = 1, and the committed 20260911
+  # R5 render was fitted the same way. So the two tracks fit the SAME latent dimension,
+  # P_n x S, the count in the claim is wrong as well as its consequence (four gear types
+  # qualify, not five), and the caution only becomes true if gear_resolved_G is turned on,
+  # which is GR-7 Phase 2 and a different decision. The run that settles D3 is
+  # 06_diagnostics/run_gear_ar_zi_2026-09-13.R, which ladders this key and reports adequacy
+  # per rung. Recognized values: "daily", "weekly", "biweekly", "month"/"monthly".
+  gear_period_bss            = list(all_gear = "month", pot_closure = "biweekly"),
+
   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
                                        #   season period_bss (biweekly ring-net, monthly all-
                                        #   gear) EXACTLY. TRUE hands AR choice to the data-driven

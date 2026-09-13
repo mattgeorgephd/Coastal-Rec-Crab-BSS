@@ -748,6 +748,34 @@ if (!is.null(pe_all$comm_charter$daily_full))
   write.csv(pe_all$comm_charter$daily_full, file.path(output_dir, "census_daily.csv"), row.names = FALSE)
 if (!is.null(pe_all$comm_charter$variance_detail))
   write.csv(pe_all$comm_charter$variance_detail, file.path(output_dir, "census_variance.csv"), row.names = FALSE)
+
+# --- 2026-09-13: THE CENSUS FRAME WARNINGS, IN THE REPORT --------------------------------
+# Matt, on whether estimate_comm_charter() should stop rather than warn on a missing census
+# frame: "a warning is fine - included in the html report." A bare warning() does not
+# satisfy that: knitr defers warnings to the end of a chunk, an html_document can be told to
+# hide them, and a batch runner rendering with quiet = TRUE never shows them at all, which
+# is how a run whose census component is 0 because the frame is MISSING can look like a run
+# whose census component is genuinely small. The conditions come back from the function as
+# DATA, are printed here unconditionally, and are written to census_frame_warnings.csv so a
+# verdict block can read them from the output folder without re-running anything. Identical
+# block in the pooled driver; the two tracks must not differ in what they disclose.
+.fw <- pe_all$comm_charter$frame_warnings %||% character(0)
+if (length(.fw)) {
+  cat("\n", strrep("!", 78), "\n", sep = "")
+  cat(sprintf(" CENSUS FRAME: %d condition(s) that change how the commercial/charter number\n",
+              length(.fw)))
+  cat(" should be read. None of these stops the run; every one of them is a fact about\n")
+  cat(" the FRAME, not about the catch.\n")
+  cat(strrep("!", 78), "\n", sep = "")
+  for (i in seq_along(.fw)) cat(sprintf(" %d. %s\n", i, .fw[i]))
+  cat(strrep("!", 78), "\n\n", sep = "")
+} else {
+  cat("  Census frame: no frame conditions to report.\n")
+}
+utils::write.csv(data.frame(n = seq_along(.fw), warning = if (length(.fw)) .fw else character(0),
+                            stringsAsFactors = FALSE),
+                 file.path(output_dir, "census_frame_warnings.csv"), row.names = FALSE)
+
 timer_stop("4_commercial_charter")
 
 

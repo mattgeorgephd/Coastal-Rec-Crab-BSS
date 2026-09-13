@@ -569,8 +569,53 @@ CODE_EQUIVALENT <- list(
   # The caveat from the previous entry still applies and is restated rather than dropped:
   # monthly_pe_vs_bss.csv and the report's 7.8 / 7.8b monthly tables DID change for the
   # boat, by design. A cross-rung comparison of those files is not covered here.
+  # SUPERSEDED 2026-09-13 by the D3/D6 patch, which moved all three layers.
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:21de7adf drivers:73a39b79 fns:747f065e" =
-    "the 2026-09-11 ladder run vs the tree after the weather-module removal: the stan layer moved only by deleting the weather fork, which both production models are byte-identical across and which no driver, key or helper read. Does NOT cover monthly_pe_vs_bss.csv, which changed for the boat by design"
+    "SUPERSEDED: the 2026-09-11 ladder run vs the tree after the weather-module removal: the stan layer moved only by deleting the weather fork, which both production models are byte-identical across and which no driver, key or helper read. Does NOT cover monthly_pe_vs_bss.csv, which changed for the boat by design",
+  # The 2026-09-11 ladder run against the tree after the D3/D6 patch (B28-B31). ALL THREE
+  # layers moved, and each is accounted for by diffing the STRIPPED text against bbc7c6d
+  # rather than by inspection:
+  #
+  #   stan:      moved 21de7adf -> 2f9895d1. crab_bss_pooled.stan is stripped-text
+  #              IDENTICAL. crab_bss_gear_resolved.stan gained the D6 ZI block
+  #              (+20 / -5 executable lines). For the FOUR POOLED rungs the gear model is
+  #              never read, so it cannot reach them. For the GEAR R5 rung it is read, and
+  #              the edit is MEASURED inert when off: the real 2024-25 shore all-gear
+  #              stan_data (D = 289, IntC = 1651, G = 1, zi_catch = 0) sampled at seed
+  #              20260619, 2 chains x 300 iterations under the pre-edit and post-edit
+  #              models gives BIT-IDENTICAL draws on all 4,950 shared columns, the only new
+  #              columns being theta_C_out and zi_scale. zi_catch is 0 because
+  #              catch_zi_tracks ships "pooled", and it was absent from the committed runs'
+  #              configs entirely, where the prep's %||% default resolves to the same 0.
+  #   drivers:   moved 73a39b79 -> 680f4d0e by +14 / -0 executable lines in EACH .Rmd, all
+  #              of them the census frame-warnings block (B30). It runs after
+  #              estimate_comm_charter() returns, reads $frame_warnings, cat()s it and
+  #              writes a new census_frame_warnings.csv. It touches no Stan data, no prior,
+  #              no likelihood and no reported total.
+  #   fns:       moved 747f065e -> 2df36018 from five files, none of which changes a
+  #              default path: estimate_comm_charter.R (+40/-6, the frame_warnings vector
+  #              and its multi-season concatenation, all downstream of the estimate);
+  #              prep_bss_crab_gear.R (+5, the three ZI variables, which are 0 / 1 / 9
+  #              under the shipped gate and whose inertness is the measurement above);
+  #              prep_bss_crab_pooled.R (+1, the catch_zi_tracks gate, which is TRUE both
+  #              at the shipped default and when the key is absent, so zi_catch is
+  #              unchanged for every pooled rung); build_subseasons.R (+8/-5, reading
+  #              gear_period_bss with %||% defaults equal to the literals it replaced, so
+  #              an absent key reproduces the previous sub-seasons exactly); and the new
+  #              bss_superseded_runner.R, which no driver, prep or likelihood calls.
+  #
+  # WHAT THIS DECLARATION DOES NOT COVER, restated rather than dropped. The monthly caveat
+  # from the 2026-09-12 entry still stands: monthly_pe_vs_bss.csv and the report's 7.8 /
+  # 7.8b monthly tables DID change for the boat, by design. New with this entry: every
+  # gear render now writes census_frame_warnings.csv, which the committed folders do not
+  # have, so a file-level inventory comparison against them is not equivalent. And the
+  # equivalence is for these stamps at THESE configurations: turning catch_zi_tracks on
+  # for the gear track, or moving gear_period_bss, changes fits by design, which is the
+  # whole point of run_gear_ar_zi_2026-09-13.R.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:680f4d0e fns:2df36018" =
+    paste("the 2026-09-11 ladder run vs the tree after the D3/D6 patch. stan moved by the gear-model ZI port, which is MEASURED bit-identical on 4,950 columns when off",
+          "and is unread by the four pooled rungs; drivers by the census frame-warnings block, which is downstream of every fit; fns by five files whose defaults reproduce",
+          "the previous behaviour exactly. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison (census_frame_warnings.csv is new).")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

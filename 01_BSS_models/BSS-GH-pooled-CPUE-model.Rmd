@@ -1785,6 +1785,33 @@ for(cg in bss_catch_groups) {
                 format(round(.cc$commercial_se %||% 0), big.mark = ","), format(round(sqrt(.cc$imputation_var %||% 0)), big.mark = ","),
                 .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
   }
+
+  # --- 2026-09-13: THE CENSUS FRAME WARNINGS, IN THE REPORT ------------------------------
+  # Matt, on whether estimate_comm_charter() should stop rather than warn on a missing
+  # census frame: "a warning is fine - included in the html report." A bare warning() does
+  # not satisfy that. knitr defers warnings to the end of a chunk, an html_document can be
+  # told to hide them, and a batch runner rendering with quiet = TRUE never shows them at
+  # all -- which is how a run whose census component is 0 because the frame is missing can
+  # look like a run whose census component is genuinely small. So the conditions come back
+  # from the function as DATA and are printed here unconditionally, and written to
+  # census_frame_warnings.csv so a verdict block can read them from the output folder
+  # without re-running anything.
+  .fw <- .cc$frame_warnings %||% character(0)
+  if (length(.fw)) {
+    cat("\n", strrep("!", 78), "\n", sep = "")
+    cat(sprintf(" CENSUS FRAME: %d condition(s) that change how the commercial/charter number\n",
+                length(.fw)))
+    cat(" should be read. None of these stops the run; every one of them is a fact about\n")
+    cat(" the FRAME, not about the catch.\n")
+    cat(strrep("!", 78), "\n", sep = "")
+    for (i in seq_along(.fw)) cat(sprintf(" %d. %s\n", i, .fw[i]))
+    cat(strrep("!", 78), "\n\n", sep = "")
+  } else {
+    cat("  Census frame: no frame conditions to report.\n")
+  }
+  utils::write.csv(data.frame(n = seq_along(.fw), warning = if (length(.fw)) .fw else character(0),
+                              stringsAsFactors = FALSE),
+                   file.path(output_dir, "census_frame_warnings.csv"), row.names = FALSE)
   bss_C_total <- bss_C_total + .cc_draws
   bss_C_pred_total <- bss_C_pred_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total

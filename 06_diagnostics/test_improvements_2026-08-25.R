@@ -3665,9 +3665,21 @@ local({
       !grepl("**R4 is not a variant of production: `D_R4` IS\n> `run_config.R`**", ps, fixed = TRUE))
   # the census frame guard is a warning, not a stop: assert which, so a change is deliberate
   cc <- paste(readLines("03_R_functions/estimate_comm_charter.R", warn = FALSE), collapse = "\n")
-  chk("window: the missing-census-frame condition is a warning (D28 option b would make it a stop)",
-      grepl("the frame is missing for this window and the component is 0", cc, fixed = TRUE) &&
-      grepl("warning(sprintf(paste0(\"estimate_comm_charter():", cc, fixed = TRUE))
+  # 2026-09-13: re-anchored. This asserted one exact sprintf() spelling, so wiring the
+  # condition into the report (B30) broke it without anything being wrong. What has to
+  # hold is the SUBSTANCE: it warns rather than stopping, and the condition reaches the
+  # reader. Matt settled the open question: "a warning is fine - included in the html report."
+  chk("window: the missing-census-frame condition WARNS and is not a stop (Matt's decision)",
+      grepl("NO CENSUS FRAME", cc, fixed = TRUE) &&
+      grepl("warning(paste0(\"estimate_comm_charter(): \", .m), call. = FALSE)", cc, fixed = TRUE) &&
+      !grepl("stop(paste0(\"estimate_comm_charter()", cc, fixed = TRUE))
+  chk("window: and the condition reaches the REPORT, not only the console",
+      grepl("frame_warnings", cc, fixed = TRUE) &&
+      all(vapply(c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+                   "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"),
+                 function(f) grepl("census_frame_warnings.csv",
+                                   paste(readLines(f, warn = FALSE), collapse = "\n"),
+                                   fixed = TRUE), logical(1))))
 })
 
 # ---------------------------------------------------------------------------

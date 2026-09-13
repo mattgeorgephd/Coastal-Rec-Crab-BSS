@@ -294,6 +294,37 @@ data {
   int<lower=0> c[IntC];
   vector<lower=0>[IntC] h;
 
+  // --- D6 (2026-09-13): ZERO-INFLATED INTERVIEW CATCH, ported from the pooled model ---
+  // The pooled model has carried this since 2026-09-02; the gear track did not, so the two
+  // tracks differed in the shore catch likelihood by construction (CHANGE_REGISTER D6). The
+  // port is deliberately LINE-FOR-LINE with crab_bss_pooled.stan: same flag, same Beta prior
+  // parameters, same log_mix branch, same zi_scale on the season total. Anything else would
+  // make a cross-track difference impossible to attribute.
+  //
+  // zi_catch = 1 replaces the catch pmf with a two-component mixture: with probability
+  // theta_C the interview is a structural zero, otherwise it is NB2 as before. theta_C is
+  // declared vector<lower=0,upper=1>[zi_catch], so at zi_catch = 0 it is ZERO-SIZE and the
+  // unconstrained parameter vector is unchanged from the pre-D6 model. That is what makes an
+  // OFF run bit-identical rather than merely similar, and the driver PROVES it against the
+  // committed 20260911 R5 cross-check rather than asserting it.
+  //
+  // MEASURED 2026-09-13, before this edit was committed. The real 2024-25 shore all-gear
+  // stan_data (D = 289, IntC = 1651, G = 1, zi_catch = 0) was sampled twice at seed
+  // 20260619, 2 chains x 300 iterations, once with the pre-edit model and once with this
+  // one. The draw matrices are BIT-IDENTICAL on all 4,950 shared columns; the only new
+  // columns are theta_C_out and zi_scale. That is the empirical half of the argument; the
+  // structural half is that a zero-size parameter consumes no element of the unconstrained
+  // vector and no initialization draw.
+  //
+  // IT SHIPS OFF FOR THIS TRACK. prep_bss_crab_gear.R gates it on params$catch_zi_tracks,
+  // which ships as "pooled", so estimate_catch_zi = TRUE does NOT silently change the gear
+  // track when this edit lands. Before the port, that key was read by the pooled prep and
+  // IGNORED here, which is its own small defect: the configuration said zero-inflation was
+  // on and this model did not do it.
+  int<lower=0, upper=1> zi_catch;
+  real<lower=0> zi_catch_prior_a;         // Beta(a, b) prior on theta_C
+  real<lower=0> zi_catch_prior_b;
+
   int<lower=0> IntA_gear;
   int<lower=0> Gear_A[IntA_gear];
   int<lower=1> A_A_gear[IntA_gear];
@@ -460,6 +491,10 @@ transformed data {
 }
 
 parameters {
+  // D6: structural-zero probability for the interview catch likelihood. Zero-size unless
+  // zi_catch = 1, so the OFF path is bit-identical (see the data block). Declared FIRST,
+  // as in crab_bss_pooled.stan, so the two models' parameter blocks stay comparable.
+  vector<lower=0, upper=1>[zi_catch] theta_C;
   real B1;
   real B2;
   vector[K_open] B_open;   // improvement 4: opener effort covariates (length 0 when unused)
@@ -908,11 +943,20 @@ model {
     );
   }
 
+  if (zi_catch == 1) theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b);
+
   // --- Interview CPUE ---
   for (a in 1:IntC) {
-    c[a] ~ neg_binomial_2(
-      lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
-    );
+    real mu_c = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
+    if (zi_catch == 1) {
+      // D6: log_mix(t, x, y) = log(t*exp(x) + (1-t)*exp(y)); exp(0) = 1 is the structural zero.
+      if (c[a] == 0)
+        target += log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C));
+      else
+        target += log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c, r_C);
+    } else {
+      c[a] ~ neg_binomial_2(mu_c, r_C);
+    }
   }
 
   for (a in 1:IntA_gear) {
@@ -949,6 +993,11 @@ generated quantities {
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
   real tau_bar_out;   // improvement 2.1: the shared turnover, or 0 when shared_tau = 0
+  // D6: zero-inflation reporting, matching the pooled model. theta_C_out is 0.0 and
+  // zi_scale is 1.0 when the feature is off, so both columns exist in every run and a
+  // cross-track table never has to explain a missing field.
+  real theta_C_out;
+  real<lower=0, upper=1> zi_scale;
 
   // Option B: quantities the R driver extracts. With G = 1 (see the G note in the
   // header) the "gear" dimension has length 1 and these collapse to totals.
@@ -1014,10 +1063,16 @@ generated quantities {
     );
   }
   for (a in 1:IntC) {
-    log_lik_catch[a] = neg_binomial_2_lpmf(
-      c[a] | lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a], r_C
-    );
+    real mu_c_gq = lambda_C_S[section_IntC[a]][day_IntC[a], gear_IntC[a]] * h[a];
+    if (zi_catch == 1) {
+      if (c[a] == 0) log_lik_catch[a] = log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c_gq, r_C));
+      else           log_lik_catch[a] = log1m(theta_C[1]) + neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
+    } else {
+      log_lik_catch[a] = neg_binomial_2_lpmf(c[a] | mu_c_gq, r_C);
+    }
   }
+  if (zi_catch == 1) { theta_C_out = theta_C[1]; zi_scale = 1 - theta_C[1]; }
+  else               { theta_C_out = 0.0;         zi_scale = 1.0; }
 
   C_sum = 0;
   C_expected_sum = 0;
@@ -1032,7 +1087,10 @@ generated quantities {
     for (d in 1:D) {
       for (s in 1:S) {
         // P1: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]];
+        // D6: zi_scale = 1 - theta_C, and 1.0 when the feature is off. The NB2 component
+        // rises to absorb the zeros theta_C removed, so without this the season total would
+        // inflate by 1 / (1 - theta_C) purely as an artefact of turning ZI on.
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]] * zi_scale;
         C_expected_sum = C_expected_sum + lambda_Ctot_S[s][d,g];
         C_total[d] = C_total[d] + lambda_Ctot_S[s][d,g];
         if (lambda_Ctot_S[s][d,g] < 1e9) {

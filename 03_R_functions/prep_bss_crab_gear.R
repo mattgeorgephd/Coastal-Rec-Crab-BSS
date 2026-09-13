@@ -686,6 +686,21 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
 
+    # --- D6 (2026-09-13): zero-inflated interview catch, ported from the pooled model ----
+    # SHIPS OFF FOR THIS TRACK. catch_zi_tracks defaults to "pooled", so zi_catch is 0 here
+    # under the shipped configuration and this fit is bit-identical to the pre-port model
+    # (theta_C is declared zero-size at zi_catch = 0, so the unconstrained parameter vector
+    # does not change). Before the port this prep emitted nothing at all and the Stan model
+    # had no theta_C, so estimate_catch_zi = TRUE was read and silently ignored on this
+    # track. Scoping is per FIT as on the pooled side: only the populations named in
+    # catch_zi_populations get it, which leaves the boat fits of the same run as an
+    # untouched negative control.
+    zi_catch = as.integer(isTRUE(params$estimate_catch_zi) &&
+                          "gear_resolved" %in% (params$catch_zi_tracks %||% "pooled") &&
+                          population_name %in% (params$catch_zi_populations %||% "shore")),
+    zi_catch_prior_a = as.numeric(params$zi_catch_prior_a %||% 1),
+    zi_catch_prior_b = as.numeric(params$zi_catch_prior_b %||% 9),
+
     # Metadata for output (not passed to Stan)
     .gear_type_labels = gear_type_labels,
     .ar_resolution    = ar_resolution,

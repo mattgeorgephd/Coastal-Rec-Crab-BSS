@@ -334,7 +334,13 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     # boat fits of the SAME run into an untouched negative control: they carry zi_catch = 0
     # and must come back bit-identical to a control run. That is a free control, and it is
     # why this is not a single global toggle.
+    # 2026-09-13 (D6): catch_zi_tracks gates the feature per TRACK as well as per
+    # population. It ships as "pooled", so this line is unchanged in behaviour here and the
+    # gear prep's matching line is OFF. The gate is written on both sides rather than only
+    # the gear side, so the key means one thing and a reader does not have to know which
+    # track silently ignores it -- which is exactly the confusion D6 came from.
     zi_catch = as.integer(isTRUE(params$estimate_catch_zi) &&
+                          "pooled" %in% (params$catch_zi_tracks %||% "pooled") &&
                           population_name %in% (params$catch_zi_populations %||% "shore")),
     # Beta(1, 9): mean 0.10, most mass below 0.25. Weakly informative and centred well above
     # the excess actually observed (about 71 zeros in 1,649, i.e. theta near 0.04), so it

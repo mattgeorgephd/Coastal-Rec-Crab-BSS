@@ -123,11 +123,19 @@ estimate_comm_charter <- function(dwg, params) {
                   "charter_dung", "charter_observed_dung", "charter_var", "charter_trips", "charter_interviews", "commercial_interviews",
                   "charter_roster_dung", "n_unsampled_days", "n_roster_only_days", "n_roster_trips")
     bind_keys <- c("daily_full", "daily_est", "variance_detail", "roster_reconciliation", "charter_detail", "strat_detail")
+    # 2026-09-13 (Matt: "a warning is fine - included in the html report"): frame_warnings
+    # is a character vector, so it CONCATENATES rather than sums or row-binds. A per-season
+    # window with a missing frame would otherwise have its warning dropped by the merge,
+    # which is the one place a warning about a missing frame must not go missing.
+    warn_keys <- c("frame_warnings")
     if (length(per) > 1) for (i in 2:length(per)) {
       for (k in sum_keys) if (!is.null(tot[[k]]) || !is.null(per[[i]][[k]]))
         tot[[k]] <- (tot[[k]] %||% 0) + (per[[i]][[k]] %||% 0)
       for (k in bind_keys) if (!is.null(per[[i]][[k]]))
         tot[[k]] <- if (is.null(tot[[k]])) per[[i]][[k]] else dplyr::bind_rows(tot[[k]], per[[i]][[k]])
+      for (k in warn_keys) if (length(per[[i]][[k]]))
+        tot[[k]] <- c(tot[[k]] %||% character(0),
+                      sprintf("[%s] %s", names(per)[i], per[[i]][[k]]))
     }
     tot$Dungeness_Kept_se <- sqrt(tot$Dungeness_Kept_var %||% 0)
     tot$carried_se        <- sqrt(tot$carried_var %||% 0)
@@ -177,12 +185,24 @@ estimate_comm_charter <- function(dwg, params) {
   census_calendar <- tibble(date = seq.Date(census_start, census_end, by = "day")) |>
     mutate(day_of_week = weekdays(date), day_type = .day_type(date))
 
+  # 2026-09-13: frame_warnings carries every condition a READER OF THE REPORT needs, not
+  # just the console. Matt, on whether this should stop instead: "a warning is fine -
+  # included in the html report." A bare warning() is not enough for that: knitr collects
+  # warnings at the end of a chunk, an html_document can be configured to hide them, and a
+  # batch runner that renders with quiet = TRUE never shows them at all. So the condition is
+  # ALSO returned as data, printed by both drivers in a visible block, and written to
+  # census_frame_warnings.csv so a verdict block can read it from the output folder.
+  .fw <- character(0)
   if (nrow(comm_int) == 0 || (nrow(tally) == 0 && !use_roster)) {
-    if (nrow(comm_int) > 0 && nrow(tally) == 0)
-      warning(sprintf(paste0("estimate_comm_charter(): %d commercial/charter interview(s) in the window %s to %s but NO vessel tally ",
-                             "rows (and no charter roster): the frame is missing for this window and the component is 0. A tally was ",
-                             "kept from 2024-25 on; see 04_input_files/build_comm_charter_tally.R."),
-                      nrow(comm_int), census_start, census_end), call. = FALSE)
+    if (nrow(comm_int) > 0 && nrow(tally) == 0) {
+      .m <- sprintf(paste0("NO CENSUS FRAME: %d commercial/charter interview(s) in the window %s to %s but NO vessel tally ",
+                           "rows (and no charter roster). The component is 0 and the port total is missing this population ",
+                           "entirely, which is a DOWNWARD bias of unknown size, not a small one. A tally was kept from ",
+                           "2024-25 on; see 04_input_files/build_comm_charter_tally.R."),
+                    nrow(comm_int), census_start, census_end)
+      .fw <- c(.fw, .m)
+      warning(paste0("estimate_comm_charter(): ", .m), call. = FALSE)
+    }
     cat("  No commercial/charter data available.\n")
     out <- list(effort_total = 0, Dungeness_Kept = 0, observed_dung = 0, imputed_dung = 0,
                 Dungeness_Kept_var = 0, Dungeness_Kept_se = 0, carried_var = 0, carried_se = 0, imputation_var = 0,
@@ -191,7 +211,8 @@ estimate_comm_charter <- function(dwg, params) {
                 commercial_dung = 0, commercial_vessels = 0, commercial_var = 0, commercial_se = 0,
                 charter_dung = 0, charter_observed_dung = 0, charter_var = 0, charter_se = 0,
                 charter_trips = 0, charter_interviews = 0L, charter_sampled_frac = NA_real_, commercial_interviews = 0L,
-                charter_roster_dung = 0, n_roster_only_days = 0L, n_roster_trips = 0L)
+                charter_roster_dung = 0, n_roster_only_days = 0L, n_roster_trips = 0L,
+                frame_warnings = .fw)
     # the window's days still go into census_daily.csv, flagged, so the gap is documented
     # rather than absent (a 2023-24 window has interviews but no vessel tally at all)
     out$daily_full <- census_calendar |>
@@ -486,7 +507,38 @@ estimate_comm_charter <- function(dwg, params) {
     transmute(date, day_of_week = weekdays(date), day_type, commercial_tally, charter_tally,
               charter_n = charter_trips, total_comm_charter = replace_na(commercial_tally, 0) + charter_trips, est_dung)
 
+  # 2026-09-13: the other conditions a reader of the report has to know about, collected
+  # the same way. None of these is an error and none stops the run; each one is a fact
+  # about the FRAME that changes how the census number should be read, and until now each
+  # was a console line that a rendered report never showed.
+  if (n_roster_only_days > 0) {
+    .rot <- if (!is.null(roster_recon) && nrow(roster_recon))
+      sum(roster_recon$charter_used[roster_recon$note == "no tally; roster trips"], na.rm = TRUE) else NA_real_
+    .fw <- c(.fw, sprintf(paste0("ROSTER-ONLY DAYS: %s charter trip(s) on %d day(s) with no vessel tally. They are in the ",
+                                 "frame because charter_frame = '%s' unions the roster with the tally; a tally-only frame ",
+                                 "would carry 0 crab on those days."),
+                          if (is.finite(.rot)) format(round(.rot)) else "an unrecorded number of",
+                          n_roster_only_days, charter_frame))
+  }
+  if (!is.null(roster_recon) && nrow(roster_recon) &&
+      sum(grepl("frames disagree", roster_recon$note)) > 0)
+    .fw <- c(.fw, sprintf(paste0("FRAMES DISAGREE on %d tally day(s): the vessel tally and the charter roster give different ",
+                                 "trip counts. The larger of the two is used. See roster_reconciliation in ",
+                                 "census_roster_reconciliation.csv."),
+                          sum(grepl("frames disagree", roster_recon$note))))
+  if (charter_trips > 0 && n_char / charter_trips < 0.5)
+    .fw <- c(.fw, sprintf(paste0("THIN CHARTER SAMPLE: %d of %d charter trip(s) interviewed (%.0f%%). The expansion SE is ",
+                                 "computed from that sample, so it is itself weakly determined."),
+                          n_char, charter_trips, 100 * n_char / charter_trips))
+  if (identical(census_expansion, "none") && sum(variance_detail$n_unsampled_days) > 0)
+    .fw <- c(.fw, sprintf(paste0("UNSAMPLED DAYS TREATED AS NO OPERATION: %d calendar day(s) in the census window have no ",
+                                 "tally row, and census_expansion = 'none' records them as days on which no vessel ",
+                                 "operated rather than imputing them. That is what the tally means; it is stated here ",
+                                 "because the alternative (census_expansion = 'day_type') would add catch on those days."),
+                          sum(variance_detail$n_unsampled_days)))
+
   result <- list(
+    frame_warnings = .fw,
     Dungeness_Kept = total_dung,
     effort_total = total_vessels,
     daily_est = daily_est_out,
