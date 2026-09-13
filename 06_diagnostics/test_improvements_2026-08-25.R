@@ -4292,5 +4292,170 @@ local({
       any(grepl("git rm --cached", gi, fixed = TRUE)))
 })
 
+# ---------------------------------------------------------------------------
+# 72. PULL_REQUEST.md DESCRIBES THIS MERGE (2026-09-13)
+#
+#     Matt: "Update the pull request document in preparation for the pull and merge of
+#     the two branches."
+#
+#     The old file described only the first wave of the branch, against a 67,312 total,
+#     under a banner telling the reader to go read something else. A PR description that
+#     disowns itself is worse than none, because a reviewer opens it first. It is
+#     rewritten as the merge document, and because it now carries NUMBERS it can go stale
+#     exactly the way the status box did, so it is held to the same standard: the totals
+#     it prints are read back against the run folder's own CSV.
+#
+#     DELIBERATELY NOT ASSERTED: commit SHAs. `git am` recreates commits, so the head and
+#     merge-base hashes in the document change the moment Matt applies the series. They
+#     are informational; the folder names and totals are the checkable part.
+# ---------------------------------------------------------------------------
+local({
+  f <- "PULL_REQUEST.md"
+  chk("PR: the document exists", file.exists(f))
+  L <- readLines(f, warn = FALSE); t <- paste(L, collapse = "\n")
+  flat <- function(x) gsub("[ \n]+", " ", x)
+  tf <- flat(t)
+
+  chk("PR: it is a merge document, not a superseded first-wave description",
+      grepl("Merge `OSP-boat-count-incorporation` into `main`", tf, fixed = TRUE) &&
+      !grepl("this PR description covers only the FIRST wave", tf, fixed = TRUE) &&
+      # 67,312 was the OLD file's total. It may be named, but only as the thing that is
+      # superseded, never as a current figure.
+      (!grepl("67,312", tf, fixed = TRUE) ||
+       grepl("against a 67,312 total", tf, fixed = TRUE)) &&
+      grepl("It is superseded in full", tf, fixed = TRUE))
+  chk("PR: it names Method v2.0 as the method of record and where it is specified",
+      grepl("Method v2.0", tf, fixed = TRUE) &&
+      grepl("BSS-GH-pooled-CPUE-model-documentation.md", tf, fixed = TRUE))
+  chk("PR: it states that no estimate from this pipeline has been published",
+      grepl("WDFW has published no estimate from this pipeline", tf, fixed = TRUE))
+  chk("PR: no em dash (the stated convention)", !grepl("—", t) && !grepl("–", t))
+
+  # (1) the two runs it compares must both exist, and their totals must match the file
+  runs <- unique(regmatches(t, gregexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", t))[[1]])
+  chk("PR: it names both the branch's authoritative run and main's, and both exist",
+      length(runs) >= 2 && all(dir.exists(runs)) &&
+      any(grepl("pooled-CPUE-IMP-R4-shore-tau-newf", runs)) &&
+      any(grepl("20260715/pooled-CPUE-230256", runs)),
+      sprintf("(named: %s)", paste(runs, collapse = ", ")))
+  # A total and its interval must appear TOGETHER ON ONE LINE, in median / lo / hi order.
+  # Searching the whole flattened document for each number separately is not a check: the
+  # same figures recur in several tables here, so corrupting one occurrence leaves the
+  # others and the assertion passes. Measured: a deliberately wrong port median was NOT
+  # caught by the any-occurrence form. Co-occurrence on a line is what makes it fire.
+  fm <- function(x) formatC(round(as.numeric(x)), format = "d", big.mark = ",")
+  triple_on_a_line <- function(med, lo, hi) {
+    pat <- paste0(gsub(",", "\\,", fm(med)), ".*", gsub(",", "\\,", fm(lo)),
+                  ".*", gsub(",", "\\,", fm(hi)))
+    any(grepl(pat, L, fixed = FALSE))
+  }
+  agrees <- function(folder) {
+    pt <- file.path(folder, "port_total_Dungeness_Kept.csv")
+    if (!file.exists(pt)) return(FALSE)
+    d <- utils::read.csv(pt, stringsAsFactors = FALSE)
+    # the pooled track labels this row "Expected_Catch", the gear track "Catch" (the
+    # label mismatch recorded as the 2026-09-08 defect fix in run_adoption_2026-09-07.R)
+    r <- d[grepl("^(Expected_)?Catch$", d[[2]]), , drop = FALSE]
+    if (nrow(r) != 1) return(FALSE)
+    triple_on_a_line(r$BSS_median, r$BSS_lo95, r$BSS_hi95)
+  }
+  for (r in runs[dir.exists(runs)])
+    chk(sprintf("PR: the totals it prints for %s match that folder's own CSV", basename(r)),
+        agrees(r), "(port_total_Dungeness_Kept.csv vs PULL_REQUEST.md)")
+
+  # the headline comparison ROW must carry BOTH triples, because the same figures recur
+  # elsewhere in the file and an any-line check would be satisfied by the other table
+  total_of <- function(folder) {
+    pt <- file.path(folder, "port_total_Dungeness_Kept.csv")
+    if (!file.exists(pt)) return(NULL)
+    d <- utils::read.csv(pt, stringsAsFactors = FALSE)
+    r <- d[grepl("^(Expected_)?Catch$", d[[2]]), , drop = FALSE]
+    if (nrow(r) != 1) return(NULL)
+    list(med = as.numeric(r$BSS_median), lo = as.numeric(r$BSS_lo95),
+         hi = as.numeric(r$BSS_hi95), pe = as.numeric(r$PE))
+  }
+  A <- total_of("05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf")   # this branch
+  M <- total_of("05_output/20260715/pooled-CPUE-230256")                  # main
+  G <- total_of("05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf")
+  row <- grep("\\*\\*Port total\\*\\*", L, value = TRUE)
+  seq_on <- function(line, ...) {
+    nums <- vapply(list(...), function(v) gsub(",", "\\,", fm(v)), character(1))
+    grepl(paste(nums, collapse = ".*"), line)
+  }
+  chk("PR: the headline comparison row carries BOTH runs' totals and intervals, in order",
+      length(row) == 1 && !is.null(A) && !is.null(M) &&
+      seq_on(row[1], M$med, M$lo, M$hi, A$med, A$lo, A$hi),
+      "(the **Port total** row of section 1)")
+
+  # THE ARITHMETIC IS THE REAL GUARD. A corrupted figure survives a string search (the
+  # any-occurrence form was measured NOT to catch a wrong port median) but it cannot
+  # survive the subtraction, so the stated deltas are recomputed from the two CSVs.
+  chk("PR: the stated change from main is the arithmetic of the two runs",
+      !is.null(A) && !is.null(M) &&
+      grepl(sprintf("+%s (+%.1f%%)", fm(A$med - M$med), 100 * (A$med - M$med) / M$med),
+            tf, fixed = TRUE),
+      sprintf("(expected +%s (+%.1f%%))", fm(A$med - M$med),
+              100 * (A$med - M$med) / M$med))
+  chk("PR: the stated PE change from main is the arithmetic of the two runs",
+      !is.null(A) && !is.null(M) &&
+      grepl(sprintf("+%s", fm(A$pe - M$pe)), tf, fixed = TRUE),
+      sprintf("(expected +%s)", fm(A$pe - M$pe)))
+  chk("PR: the gear cross-check gap is the arithmetic of the two runs",
+      !is.null(A) && !is.null(G) &&
+      triple_on_a_line(G$med, G$lo, G$hi) &&
+      grepl(sprintf("%.2f%% below", abs(100 * (G$med - A$med) / A$med)), tf, fixed = TRUE),
+      sprintf("(gear %s vs pooled %s = %.2f%%)", fm(G$med), fm(A$med),
+              100 * (G$med - A$med) / A$med))
+
+  # (3) the ladder table must be the ladder CSV, rung for rung
+  lf <- "05_output/improvements_2026-09-08_ladder-newf.csv"
+  chk("PR: every rung's total AND interval come from the ladder CSV, on one line each",
+      { if (!file.exists(lf)) NA else {
+          d <- utils::read.csv(lf, stringsAsFactors = FALSE)
+          all(vapply(seq_len(nrow(d)), function(i)
+            triple_on_a_line(d$port[i], d$port_lo95[i], d$port_hi95[i]), logical(1))) } },
+      sprintf("(%s)", lf))
+
+  # (5) the open decisions must be the ones the register still has OPEN or BLOCKED
+  cr <- paste(readLines("07_documentation/development_notes/CHANGE_REGISTER.md",
+                        warn = FALSE), collapse = "\n")
+  for (d in c("D14", "D2", "D24", "D19", "D8", "D18", "D3", "D6"))
+    chk(sprintf("PR: %s is carried forward and the register still knows it", d),
+        grepl(sprintf("\\*\\*[^*]*\\b%s\\b[^*]*\\*\\*", d), tf) &&
+        grepl(sprintf("\\| %s \\|", d), cr))
+  chk("PR: it does not claim the hygiene decision was made for Matt",
+      grepl("a decision, not a task", tf, fixed = TRUE) &&
+      grepl("Tier 4", tf, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 73. THE HARNESS SIZE THE DOCUMENTS ADVERTISE (2026-09-13). Last, because the total is
+#     only known here.
+#
+#     PULL_REQUEST.md tells a reviewer how many assertions this file runs, and a reviewer
+#     who runs it will see the real number. The dangerous direction is OVER-claiming, so
+#     that is what fails: a quoted count may not exceed the count actually executed. It
+#     may lag behind, because the count only ever grows and a lagging figure understates
+#     rather than misleads; asserting equality would make every new assertion a
+#     documentation edit, which is churn for no protection. A floor is still enforced
+#     against the static call sites so the figure cannot rot arbitrarily far.
+# ---------------------------------------------------------------------------
+local({
+  total <- ok + bad + 1L   # +1 for this assertion itself
+  f <- "PULL_REQUEST.md"
+  if (!file.exists(f)) { cat("NOTE  size: PULL_REQUEST.md absent; the count check is skipped\n") } else {
+    tf <- gsub("[ \n]+", " ", paste(readLines(f, warn = FALSE), collapse = "\n"))
+    n  <- regmatches(tf, gregexpr("\\*\\*[0-9,]+ assertions", tf))[[1]]
+    q  <- if (length(n)) as.numeric(gsub("[^0-9]", "", n[1])) else NA_real_
+    sites <- length(grep("^\\s*chk\\(", readLines("06_diagnostics/test_improvements_2026-08-25.R",
+                                                  warn = FALSE)))
+    chk("size: PULL_REQUEST.md does not over-claim the harness, and is not wildly stale",
+        !is.na(q) && q <= total && q >= sites,
+        sprintf("(quotes %s; executed %d; static call sites %d)",
+                if (is.na(q)) "nothing" else formatC(q, format = "d", big.mark = ","),
+                total, sites))
+  }
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
