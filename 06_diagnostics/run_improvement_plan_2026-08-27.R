@@ -72,6 +72,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 5 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_improvement_plan_2026-08-27.R",
+    question = paste("the sequenced follow-up work from the 2026-08-27 ladder review"),
+    settled_by = paste("the plan document says so itself: improvement-plan-2026-08-27.md carries \"STATUS 2026-09-08: this plan is CLOSED\""),
+    what_would_happen = paste("Five of the fifteen Method v2.0 levers are pinned, which is more than most of this generation and still not enough: the census split, both turnover resolvers and the f construction all move underneath it."),
+    levers_pinned = "5")
+
 DRY_RUN <- TRUE                   # TRUE: resolve and print everything, fit nothing. START HERE.
 #        ^^^^ reset to TRUE after the 2026-08-29 batch. RESUME skips completed stages, so
 #        sourcing this with DRY_RUN <- FALSE again would re-extract and re-judge the existing

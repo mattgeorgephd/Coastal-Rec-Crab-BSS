@@ -59,6 +59,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 1 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_ladder_zinb_2026-09-04.R",
+    question = paste("the AR escalation ladder and the ZINB, re-run after the 2026-09-03 batch failed to ladder"),
+    settled_by = paste("VALIDATION_CAMPAIGN 1j and 1k: the ladder ran, daily was shown overfitted, and the C1 configuration was adopted 2026-09-07"),
+    what_would_happen = paste("ONE of the fifteen levers is pinned. Every structural change since 2026-09-08 would enter its rungs silently."),
+    levers_pinned = "1")
+
 DRY_RUN <- TRUE                     # TRUE: desk stages run, nothing is fitted. START HERE.
 # 2026-09-06: L1 and Z2 have RUN (results at 20260903/pooled-CPUE-LZ-*). Their stage
 # definitions are kept so RESUME re-scores them without refitting. The work still to do is

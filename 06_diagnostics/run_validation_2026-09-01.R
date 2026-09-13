@@ -96,6 +96,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 2 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_validation_2026-09-01.R",
+    question = paste("does the shared-turnover adoption hold up, and does the gear track's boat component fit"),
+    settled_by = paste("VALIDATION_CAMPAIGN 1e: adoption CONFIRMED, and the gear-track boat defect it found was fixed in the same patch series"),
+    what_would_happen = paste("Two of fifteen levers pinned. Its adoption comparison is against an authoritative run that has been superseded twice since."),
+    levers_pinned = "2")
+
 DRY_RUN <- TRUE                  # TRUE: desk stages run, nothing is fitted. START HERE.
 #        ^^^^ reset to TRUE after the 2026-09-01 batch. RESUME skips completed stages, so
 #        sourcing this with DRY_RUN <- FALSE again would re-extract the existing outputs and

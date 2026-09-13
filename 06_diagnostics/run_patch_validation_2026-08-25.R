@@ -110,6 +110,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 2 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_patch_validation_2026-08-25.R",
+    question = paste("does the 2026-08-25 improvement batch change the estimate, and in which direction (shore I/E observation unit, the weekend definition, the interview floor)"),
+    settled_by = paste("CHANGE_REGISTER: the I/E unit fix VALIDATED 2026-09-01 on all four criteria (VALIDATION_CAMPAIGN 1d); the weekend definition and the interview floor adopted and superseded since"),
+    what_would_happen = paste("Its rung 1 is labelled \"pre-patch equivalent\" and sets ie_shore_obs_unit = crabber_hours, pe_empty_effort_stratum = zero and bss_min_interviews = 20. It pins NONE of the dynamic f, the calibrated turnovers or the census split, so that baseline would be fitted with today's f, today's tau and today's census and reported as the pre-patch state. The 20260825 output folders carry no run_parameters.txt, so THIS FILE is their only surviving configuration record: read it, do not re-run it."),
+    levers_pinned = "2")
+
 DRY_RUN <- TRUE           # TRUE: resolve and print everything, fit nothing. START HERE.
 #        ^^^^ reset to TRUE 2026-09-03. It had been left FALSE after the 2026-08-25 batch, so
 #        sourcing this file started real multi-hour fits for any incomplete rung and appended

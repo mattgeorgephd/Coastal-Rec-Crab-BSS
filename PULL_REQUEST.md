@@ -112,7 +112,7 @@ the reason, and the module document is archived under a banner.
 
 | check | how | current result |
 |---|---|---|
-| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **964 assertions, 0 failing**, no rstan needed, seconds |
+| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **1,009 assertions, 0 failing**, no rstan needed, seconds |
 | Shipped config reproduces the authoritative run's inputs | desk-checked 2026-09-12 | sub-seasons `ring_net_only [2024-09-16..2024-11-30]` / `all_gear [2024-12-01..2025-09-15]`, tau_shore 2.4771, tau_boat 3.0300, census 6,405 + 2,133 = 8,538 SE 73, **zero warnings** |
 | Convergence gate | `convergence_report.csv` in the run folder | 4/4 BSS; worst R-hat 1.0007, min n_eff 4,604, max divergent fraction 1.78% vs the 5% backstop |
 | PE / BSS agreement | `pe_vs_bss_comparison.csv` | shore within 2 to 4%; boat all-gear PE runs 19% below BSS, which is the turnover and `f` treatment and is expected |
@@ -134,9 +134,9 @@ inherits the questions rather than a silence.
 | **D2** | The fraction of boats OSP records as *crabbing-only*. The column is built and inert, awaiting the OSP field. | Would replace part of what `f` currently infers with a direct observation. |
 | **D24** | The derived shore turnover 2.4771 is a multi-season quantity used for one window; this window's own I/E data put it ~10% lower. | ~3,500 crab. **The existing data cannot settle it**: the gap is 0.1073 in log space against an approximate SE of 0.1295, **z = 0.83**, and the window value sits 1.07 prior SDs from the shipped centre. A window-only refit would move the number without evidence that it should. |
 | **D19** | The PE's unsampled-cell fill. Shipped as `local_day_type` / `local` / `impute_aware`. | Moves the PE cross-check by up to 18% (72,224 / 81,160 / 90,861 / 85,076 across the four arms); **does not move the BSS estimate**. |
-| **D3 / D6** | The gear track's monthly shore cap and its absent ZI block. | ~3 h of ladder to settle. Affects only the cross-check. |
+| **D3 / D6** | The gear track's shore AR period and its zero-inflated shore catch. **The run that settles both is written** (`06_diagnostics/run_gear_ar_zi_2026-09-13.R`, five rungs, about 3.4 h from measured per-fit timings). | Affects only the cross-check. Two corrections landed with the driver: the lever is `gear_period_bss`, not the dormant `ar_max_resolution$gear_resolved`; and the reason usually given for not copying the pooled period across, a per-gear likelihood at `G = 5`, is wrong, because `gear_resolved_G` ships FALSE and the measured `G` is **1**. |
 | **D8 / D18** | The 2023-25 span (no 2023-24 tally or roster) and OSP counts stopping 2025-10-18. | Blocks the multi-season run and a 2025-26 boat fit on OSP. Data requests, not code. |
-| open | Should `estimate_comm_charter()` **stop** rather than warn when the census frame is missing? | Currently warns and returns 0, which is how a silently-zero census component could ship. |
+| **CLOSED** | Should `estimate_comm_charter()` **stop** rather than warn when the census frame is missing? | **It warns** (Matt, 2026-09-13: "a warning is fine, included in the html report"). The warning now reaches the report: the function returns `frame_warnings`, both drivers print it in a visible block and write `census_frame_warnings.csv`, and five conditions are disclosed rather than one. A bare `warning()` did not satisfy the ask, because knitr defers warnings, `html_document` can hide them, and a batch runner rendering with `quiet = TRUE` never shows them. |
 
 ## 6. Not in scope, and stated plainly
 
@@ -146,6 +146,20 @@ inherits the questions rather than a silence.
 - **The gear-resolved track runs with `G = 1`**, so its per-gear CPUE machinery is inert and
   gear-type catch is PE-apportioned. Do not raise `G > 1` without adding per-gear effort shares;
   only gear 1 is observed in the effort stream.
+- **Eight superseded batch runners refuse to fit, and none is deleted.** Measured: of the fifteen levers that
+  define Method v2.0, `run_improvements_2026-09-08.R` pins 12 and every runner written before 2026-09-08
+  pins 0 to 5, while all of them still parse and complete. An unpinned "pre-patch baseline" rung is
+  therefore fitted with today's `f`, today's turnovers and today's census and labelled as the earlier
+  state, with nothing in the output to say so. They now stop with the reason
+  (`03_R_functions/bss_superseded_runner.R`; `I_KNOW_THIS_IS_SUPERSEDED <- TRUE` overrides). Deletion was
+  rejected on evidence: each is cited by 7 to 15 documents and by the harness, and the `20260825` output
+  folders carry no `run_parameters.txt` at all, so `run_patch_validation_2026-08-25.R` is the only
+  surviving record of what those five renders were configured as.
+- **The D6 Stan port is in the tree and switched off.** `crab_bss_gear_resolved.stan` now carries the
+  zero-inflation block line for line from the pooled model, gated by `catch_zi_tracks`, which ships
+  `"pooled"`. Proven inert rather than asserted: the real 2024-25 shore all-gear `stan_data` sampled
+  under the pre-edit and post-edit models at one seed gives bit-identical draws on all **4,950** shared
+  columns, the only new columns being `theta_C_out` and `zi_scale`. No committed number moves.
 - **Repository hygiene is a decision, not a task, and it is deliberately left open.**
   `.Rproj.user/` is untracked in this branch. `05_output/` is 9,942 tracked files and 835 MB, of
   which the PNG plots and rendered HTML are **218 MB, 64% of the whole history, with no reader in

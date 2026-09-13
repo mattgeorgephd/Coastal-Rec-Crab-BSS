@@ -103,6 +103,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 4 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_stage5_2026-08-30.R",
+    question = paste("the Stage 5 prerequisites and the 2x2 that settled the shared turnover"),
+    settled_by = paste("VALIDATION_CAMPAIGN 1c: the Stage 5 batch ran, the 2x2 is settled, and the shared turnover was ADOPTED boat-only on 2026-09-01 (1d)"),
+    what_would_happen = paste("It pins four of the fifteen levers. Its stages are written against a model with a constant crabbing fraction and literal turnover priors, both of which have since been replaced by resolvers."),
+    levers_pinned = "4")
+
 DRY_RUN <- TRUE                  # TRUE: resolve, print, self-test, fit nothing. START HERE.
 #        ^^^^ reset to TRUE after the 2026-08-30 batch. RESUME skips completed stages, so
 #        sourcing this with DRY_RUN <- FALSE again would re-extract and re-judge the existing

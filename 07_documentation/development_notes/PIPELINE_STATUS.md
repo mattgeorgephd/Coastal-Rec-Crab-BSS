@@ -484,7 +484,7 @@ Historical IDs are preserved in parentheses so the older notes remain traceable.
 - **[NEW, 2026-08-25] Get the OSP crab-only daily counts.** The machinery for using them as a hard lower bound on `f` is built, tested and inert (item 8). What is missing is the column: a per-day count of boats OSP labelled as crabbing ONLY, alongside the existing `WestportPrivateEffort` daily total, in `WBL_boat_counts.xlsx`. This is a data request to OSP, not code. It does NOT by itself make `f` data-driven - it bounds `f` from below and leaves the combo-trip share `theta` on a placeholder prior - so it must be paired with the egress classification item in Section 6. **Effort: a data request.**
 
 - **[CLOSED 2026-09-08] Settle the shore all-gear AR resolution.** Adopted at weekly and confirmed: the adoption render reproduces the candidate across 10,253 parameter rows, the component's adequacy went from the worst in the run to the best (`p_loo` 35.2% -> 9.5% of `n_obs`, Pareto k>0.7 41 -> 0, miscalibration flag cleared), and the port total moved +0.72%. See Section 1m.
-- **[NEW 2026-09-08, largest remaining cross-track difference] Settle the GEAR track's shore all-gear AR.** It is still capped at monthly while the pooled track is now at weekly, which accounts for most of the -1.39% cross-track gap; at a common monthly resolution the two agree to **0.08%**. Do NOT copy the pooled cap across: the gear track's shore fits carry per-gear CPUE at `G = 5`, a thinner likelihood per gear type, so it may genuinely need a coarser AR. Run a ladder on the gear track with `ar_rung_adequacy = TRUE`. **Effort: about 3 h.**
+- **[RE-SCOPED 2026-09-13, THE RUN IS WRITTEN] Settle the GEAR track's shore AR period (D3) and its zero-inflated shore catch (D6).** `06_diagnostics/run_gear_ar_zi_2026-09-13.R`, five rungs, about **3.4 h** from measured per-fit timings (the gear shore all-gear fit is 10.0 min at monthly in the committed R5 render, inside a 32-min whole render; the pooled track's 6.6x jump in periods from weekly to daily cost only 1.5x the time, so time is strongly sub-linear in `P_n`). Two corrections landed with it, both measured. **(1) The lever is not the cap.** `ar_max_resolution$gear_resolved` is dormant: production ships `ar_adaptive = FALSE`, so the gear driver passes `fixed_resolution = ss$period_bss`, and until 2026-09-13 that was a literal inside `build_subseasons.R` with no configuration surface at all, which is why changing the cap would have done nothing and why this item sat open. The lever is now `gear_period_bss$all_gear`, shipping at the old literal. **(2) The reason given for not copying the pooled period across is wrong.** This item and `adoption-review-2026-09-08.md` both said the gear shore fits carry per-gear CPUE at `G = 5`, so their likelihood is thinner per gear type and they may need a coarser period. `gear_resolved_G` ships FALSE and has since at least 2026-09-03; `prep_bss_crab_gear` collapses the gear dimension and prints, in the committed R5 render's own log, "4 gear types qualify; G = 1 this run". Built on the real 2024-25 data: **G = 1**, so both tracks fit the same latent dimension `P_n x S`, four gear types qualify rather than five, and the caution applies only under `gear_resolved_G = TRUE`, which is GR-7 Phase 2 and a separate decision. What is left between the two tracks is this period and the ZI block. **The decision rule for each item is in the driver's header, written before the run**, and two of its clauses exclude evidence deliberately: elpd is reported and never selected on, and the cross-track gap is reported and excluded because choosing the period to minimize it would be circular.
 - **[NEW 2026-09-09, D8] Generalize the closure calendar for multi-season spans.** One `pot_closure_start/end` pair per run means a span containing two pot closures cannot be expressed structurally; per-season runs combined outside the model are the supported route. The generalization is a closures table (season, start, end) feeding `build_subseasons()` an ordered list of closure windows, with the pre/closure/post naming extended to N blocks. Design only when a real multi-season request exists. **Effort: medium (builder + driver labels + tests).**
 - **[NEW 2026-09-08] Write the `ppc_draws_*.rds` recompute path.** The draws have been persisted since 2026-09-04 and nothing reads them back, so the feature that exists to turn a diagnostic defect into a recomputation is still write-only. **Effort: code, no run.**
 - **[SUPERSEDED 2026-09-08, kept for the record] Settle the shore all-gear AR resolution.** The pooled bracket is measured (Section 1k): **only daily is an outlier**; weekly, biweekly and monthly sit within 0.5 sampling SD of each other on effort coverage and span 3.6% in catch. The "monthly is also bad, 0.035 / -16.4 SD" figure I cited from 2026-08-31 onward is from the GEAR-RESOLVED model and does not apply. The agreed rule (finest rung that passes) selects **weekly**, and it is defensible because weekly is adequate on every statistic. Remaining work is the adoption render, gated on reproducing C1 bit-identically. The two superseded entries follow.
@@ -591,6 +591,31 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
   2026-08-31 review" cannot be answered from the repository; and doing it *during* a branch
   merge is the worst available timing. `git filter-repo` is what GitHub itself recommends for
   this ([same source]). **Only worth it if the clone size is actually blocking someone.**
+
+  **THE DIAGNOSTICS FOLDER, reviewed 2026-09-13, and the answer is NOT deletion.** Matt
+  asked whether any runner in `06_diagnostics/` is outdated and can be deleted. Measured:
+  of the fifteen levers that define Method v2.0, `run_improvements_2026-09-08.R` pins 12
+  (B22 gave it a `WINDOW` pin and a preflight), and **every runner written before
+  2026-09-08 pins 0 to 5**. All eleven still parse and all eleven still complete in
+  `DRY_RUN`. That is the danger, and it is worse than being broken: an unpinned "pre-patch
+  baseline" rung is fitted with today's `f`, today's turnovers and today's census and
+  labelled as the earlier state, with nothing in the output to say so.
+
+  Deletion was rejected on three counts, each checked rather than assumed. Each runner is
+  named in **7 to 15** documents and cited by the harness 1 to 4 times, so removing the
+  files dangles those references. Each records how a decision was reached, which the review
+  notes summarize but do not reproduce. And the **20260825 output folders carry no
+  `run_parameters.txt` at all** (the driver did not write one yet), so
+  `run_patch_validation_2026-08-25.R` is the only surviving description of what those five
+  renders were configured as. The saving would have been about 400 KB.
+
+  So the eight runners whose question is closed now **refuse to fit and are kept to be
+  read** (`03_R_functions/bss_superseded_runner.R`, B31; `I_KNOW_THIS_IS_SUPERSEDED <- TRUE`
+  overrides, having read why not). `06_diagnostics/README.md` labels every row **LIVE** or
+  **RECORD**. If you would still rather have them gone, the command is
+  `git rm 06_diagnostics/run_{patch_validation_2026-08-25,improvement_plan_2026-08-27,stage5_2026-08-30,validation_2026-09-01,shore_ar_zi_2026-09-03,ladder_zinb_2026-09-04,adoption_2026-09-07,osp_validation}.R`,
+  and the cost is the three things above plus about a dozen harness assertions that read
+  their text.
 
   Two things to do under any option: delete the stale `20260711/pooled-CPUE-morning` and
   `-afternoon` runs, and decide whether pre-v6 runs that current code cannot reproduce are

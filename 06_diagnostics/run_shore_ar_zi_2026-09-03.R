@@ -111,6 +111,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 2 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_shore_ar_zi_2026-09-03.R",
+    question = paste("the shore all-gear AR resolution and whether a zero-inflated shore catch likelihood earns its parameter"),
+    settled_by = paste("CHANGE_REGISTER A4 and A5: weekly shore AR and the ZINB both ADOPTED 2026-09-07 and CONFIRMED by the adoption render 2026-09-08 (VALIDATION_CAMPAIGN 1m)"),
+    what_would_happen = paste("Two of fifteen levers pinned. Both of its questions are closed for the POOLED track; the equivalents for the gear track are D3 and D6, and the run that settles those is run_gear_ar_zi_2026-09-13.R, which pins the window."),
+    levers_pinned = "2")
+
 DRY_RUN <- TRUE                  # TRUE: P1 runs, nothing is fitted. START HERE.
 STAGES  <- c("P1", "G1", "Z0", "A1", "Z1")
 RESUME  <- TRUE                  # skip a fitted stage whose output folder already looks complete

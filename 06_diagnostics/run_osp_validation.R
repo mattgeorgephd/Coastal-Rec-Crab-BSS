@@ -26,6 +26,25 @@
 # render is a full model fit (multi-hour); the full matrix is ~14 runs.
 # -----------------------------------------------------------------------------
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 2 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_osp_validation.R",
+    question = paste("does the OSP boat-count stream integrate, and what does it do to the boat component"),
+    settled_by = paste("the OSP stream is in PRODUCTION: osp_scale_is_tau ships TRUE, the dense OSP series identifies tau_bar, and the calibration is CHANGE_REGISTER A7 / phase1-osp-second-stream.md (\"EXECUTED and in production\")"),
+    what_would_happen = paste("Two of fifteen levers pinned, and it has no DRY_RUN mode at all, so sourcing it starts real fits immediately. It predates the dynamic f, the turnover calibration and the census split."),
+    levers_pinned = "2")
+
 suppressPackageStartupMessages({ library(here); library(rmarkdown) })
 
 # ---- environment: mirror run_estimation.R so renders behave identically ------

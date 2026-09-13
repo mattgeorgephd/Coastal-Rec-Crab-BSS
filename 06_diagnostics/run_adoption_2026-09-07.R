@@ -39,6 +39,25 @@
 # ============================ CONTROL BLOCK ================================ #
 #            ^^^^ the only lines you normally edit ^^^^
 
+# --- SUPERSEDED 2026-09-13. This runner refuses to FIT; it is kept to be READ. ------
+# The question below is closed. Sourced today this file would still complete, which is
+# what makes it dangerous rather than merely stale: it pins 2 of the fifteen levers that
+# define Method v2.0, so its baseline rung would be fitted with today's configuration and
+# labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
+# measurement behind that number and for the override.
+if (!exists("bss_superseded_runner")) {
+  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
+                   "03_R_functions", "bss_superseded_runner.R")
+  if (file.exists(.sr)) source(.sr)
+}
+if (exists("bss_superseded_runner"))
+  bss_superseded_runner(
+    runner   = "06_diagnostics/run_adoption_2026-09-07.R",
+    question = paste("does the C1 candidate configuration reproduce under a full render, and does the gate pass"),
+    settled_by = paste("VALIDATION_CAMPAIGN 1m: the gate passed, the render reproduced the candidate across 10,253 parameter rows, and the authoritative run moved"),
+    what_would_happen = paste("Two of fifteen levers pinned. The authoritative run it crowned (20260904 A1, 72,027) was superseded on 2026-09-11 by the ladder's R4 (94,376), so its verdicts compare against a baseline that is no longer the baseline."),
+    levers_pinned = "2")
+
 DRY_RUN <- TRUE                    # TRUE: the desk pre-flight runs, nothing is fitted. START HERE.
 STAGES  <- c("A1", "A2")
 RESUME  <- TRUE

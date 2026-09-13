@@ -35,7 +35,21 @@ for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "read_input_workbook.R")) source(file.path("03_R_functions", f))   # 2026-09-10: the workbook reader
 
 ok <- 0; bad <- 0
-chk <- function(nm, cond, extra="") { if (isTRUE(cond)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") } else { bad <<- bad+1; cat("FAIL ", nm, extra, "\n") } }
+# 2026-09-13: an ERROR while evaluating a condition is a FAIL, not the end of the run.
+# `cond` is a promise, so an error raised while computing it surfaces here. Before this,
+# any unexpected error in any one of a thousand conditions aborted the harness and threw
+# away every result after it, which is the least informative possible outcome: you learn
+# that something broke and nothing about the other 900 assertions. Found by
+# negative-testing the census guard, where turning the missing-frame warning into a stop()
+# killed the run at an exerciser 300 assertions before the assertion that was supposed to
+# catch it.
+chk <- function(nm, cond, extra="") {
+  v <- tryCatch(isTRUE(cond), error = function(e) structure(FALSE, err = conditionMessage(e)))
+  if (isTRUE(v)) { ok <<- ok+1; cat("PASS ", nm, extra, "\n") }
+  else { bad <<- bad+1
+         cat("FAIL ", nm, extra,
+             if (!is.null(attr(v, "err"))) paste0("  [ERROR while evaluating: ",
+                                                  substr(attr(v, "err"), 1, 220), "]") else "", "\n") } }
 
 mkdays <- function(start, n) {
   d <- as.Date(start) + 0:(n-1)
@@ -4438,6 +4452,219 @@ local({
   chk("PR: it does not claim the hygiene decision was made for Matt",
       grepl("a decision, not a task", tf, fixed = TRUE) &&
       grepl("Tier 4", tf, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 74. D3 / D6: THE GEAR AR PERIOD, THE GEAR ZINB, AND THE RUN THAT SETTLES THEM
+#     (2026-09-13)
+#
+#     Matt: "Write a driver for the D3/D6 gear track cap and ZI block (~3 h ladder) runs
+#     within the diagnostics folder. I want to hit run on it and have it generate all of
+#     the information to finalize D3/D6."
+#
+#     Three things have to hold for that to be true, and each is asserted below rather
+#     than described. (a) The D6 Stan port must be INERT until asked for, or landing it
+#     silently moves the committed R5 cross-check figure. (b) The D3 lever must actually
+#     reach the sampler, because the register named a DORMANT key for weeks. (c) The
+#     driver's decision rules must be in the file, before the run, including the two
+#     clauses that exclude evidence on purpose.
+# ---------------------------------------------------------------------------
+local({
+  rd  <- function(f) readLines(f, warn = FALSE)
+  flat <- function(x) gsub("[ \n]+", " ", paste(x, collapse = "\n"))
+  GS <- "02_stan_models/crab_bss_gear_resolved.stan"
+  PS <- "02_stan_models/crab_bss_pooled.stan"
+  GP <- "03_R_functions/prep_bss_crab_gear.R"
+  DR <- "06_diagnostics/run_gear_ar_zi_2026-09-13.R"
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+
+  # (a) THE D6 PORT IS SYMMETRIC WITH THE POOLED MODEL AND INERT AS SHIPPED
+  g <- rd(GS); pl <- rd(PS)
+  chk("D6: the gear Stan declares the three ZI data variables",
+      all(vapply(c("zi_catch", "zi_catch_prior_a", "zi_catch_prior_b"),
+                 function(v) any(grepl(paste0("(^|[^A-Za-z0-9_])", v, "\\s*;"), g)), logical(1))))
+  chk("D6: theta_C is zero-size when off, in BOTH models, spelled identically",
+      sum(grepl("vector<lower=0, upper=1>[zi_catch] theta_C;", g, fixed = TRUE)) == 1 &&
+      sum(grepl("vector<lower=0, upper=1>[zi_catch] theta_C;", pl, fixed = TRUE)) == 1,
+      "(this declaration is the whole basis of the OFF path being bit-identical)")
+  chk("D6: the gear model carries the log_mix branch and the beta prior, like the pooled one",
+      any(grepl("log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C))", g, fixed = TRUE)) &&
+      any(grepl("theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b)", g, fixed = TRUE)))
+  chk("D6: the gear season total is scaled by zi_scale exactly once",
+      sum(grepl("f_crab[f_stratum[d]] * zi_scale;", g, fixed = TRUE)) == 1,
+      paste("Without it, turning ZI on inflates the total by 1/(1 - theta_C) as an artefact,",
+            "because lambda_C rises to absorb the zeros theta_C removed."))
+  chk("D6: theta_C_out and zi_scale are declared unconditionally, so every run has the columns",
+      any(grepl("^\\s*real theta_C_out;", g)) && any(grepl("^\\s*real<lower=0, upper=1> zi_scale;", g)))
+  chk("D6: the gear prep builds the ZI variables and gates them on catch_zi_tracks",
+      { t <- flat(rd(GP))
+        grepl("zi_catch = as.integer(isTRUE(params$estimate_catch_zi) && \"gear_resolved\" %in%", t, fixed = TRUE) })
+  chk("D6: the POOLED prep is gated on the same key, so it means one thing on both tracks",
+      { t <- flat(rd("03_R_functions/prep_bss_crab_pooled.R"))
+        grepl("\"pooled\" %in% (params$catch_zi_tracks %||% \"pooled\")", t, fixed = TRUE) })
+  chk("D6 SHIPS OFF FOR THE GEAR TRACK: catch_zi_tracks is pooled-only",
+      identical(as.character(rc$catch_zi_tracks), "pooled"),
+      paste("If this ever ships as both without the D6 decision, the next gear render",
+            "changes and the 93,274 R5 figure in PULL_REQUEST.md goes stale with nobody",
+            "touching a number."))
+  # the contract that caught the 2026-08-25 disaster must still hold on the widened model
+  chk("D6: every variable the gear Stan now declares is still built in its prep",
+      { need <- bss_stan_data_names(GS); src <- paste(rd(GP), collapse = "\n")
+        !length(need[!vapply(need, function(v)
+          grepl(paste0("(^|[^A-Za-z0-9_.])", v, "([^A-Za-z0-9_]|$)"), src, perl = TRUE), logical(1))]) })
+
+  # (b) THE D3 LEVER REACHES THE SAMPLER, AND SHIPS UNCHANGED
+  chk("D3: gear_period_bss exists and ships at the literals it replaced",
+      identical(as.character(rc$gear_period_bss$all_gear), "month") &&
+      identical(as.character(rc$gear_period_bss$pot_closure), "biweekly"),
+      "(build_subseasons.R used exactly these before 2026-09-13)")
+  chk("D3: build_subseasons has no period_bss literal left",
+      !any(grepl('period_bss = "', rd("03_R_functions/build_subseasons.R"), fixed = TRUE)))
+  chk("D3: the key DRIVES build_subseasons, at the shipped value and at a changed one",
+      { a <- build_subseasons(rc)
+        b <- build_subseasons(modifyList(rc, list(
+               gear_period_bss = list(all_gear = "weekly", pot_closure = "biweekly"))))
+        ga <- Filter(function(x) identical(x$gear_regime, "all_gear"), a)[[1]]
+        gb <- Filter(function(x) identical(x$gear_regime, "all_gear"), b)[[1]]
+        ca <- Filter(function(x) identical(x$gear_regime, "pot_closure"), a)[[1]]
+        cb <- Filter(function(x) identical(x$gear_regime, "pot_closure"), b)[[1]]
+        identical(ga$period_bss, "month") && identical(gb$period_bss, "weekly") &&
+        identical(ca$period_bss, "biweekly") && identical(cb$period_bss, "biweekly") },
+      "(and the pot-closure sub-season does not move with it)")
+  chk("D3: the dormant cap is still documented as dormant, so nobody edits it expecting an effect",
+      { t <- flat(rd("run_config.R"))
+        grepl("ar_max_resolution$gear_resolved is DORMANT", t, fixed = TRUE) ||
+        grepl("ar_max_resolution$gear_resolved) is DORMANT", t, fixed = TRUE) ||
+        grepl("is DORMANT", t, fixed = TRUE) })
+  # the G = 5 claim, corrected. This is the one that would quietly come back.
+  chk("D3: gear_resolved_G ships FALSE, so G is 1 and the 'G = 5' caution does not apply",
+      identical(rc$gear_resolved_G, FALSE),
+      paste("Measured 2026-09-13 on the real 2024-25 shore all-gear data: G = 1. The",
+            "register and the adoption review both justified NOT copying the pooled period",
+            "across by citing a per-gear likelihood at G = 5 that the shipped configuration",
+            "does not produce."))
+  chk("D3: the corrected G finding is recorded where the claim was made",
+      { r <- flat(rd("07_documentation/development_notes/CHANGE_REGISTER.md"))
+        p2 <- flat(rd("07_documentation/development_notes/PIPELINE_STATUS.md"))
+        grepl("G = 1", r, fixed = TRUE) && grepl("G = 1", p2, fixed = TRUE) &&
+        grepl("gear_resolved_G", r, fixed = TRUE) })
+
+  # (c) THE DRIVER: ships safe, states its rules first, pins its window
+  chk("D3/D6: the driver exists and ships DRY_RUN <- TRUE", file.exists(DR) &&
+      any(grepl("^DRY_RUN <- TRUE", rd(DR))))
+  d <- rd(DR); dt <- flat(d)
+  chk("D3/D6: the driver declares all six stages",
+      all(vapply(c("G0", "G1", "G2", "G3", "G4", "G5"),
+                 function(x) grepl(paste0("\n  ", x, " = list\\(tag"), paste(d, collapse = "\n")), logical(1))))
+  chk("D3/D6: G1 is the shipped period AND the bit-identity control",
+      grepl('G1 = list(tag = "GZ-G1-month"', dt, fixed = TRUE) &&
+      grepl("bit-identity", dt, fixed = TRUE) &&
+      grepl("20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf", dt, fixed = TRUE))
+  chk("D3/D6: both decision rules are in the file, numbered, BEFORE the code",
+      { i1 <- regexpr("THE DECISION RULE FOR D3", dt, fixed = TRUE)
+        i2 <- regexpr("THE DECISION RULE FOR D6", dt, fixed = TRUE)
+        i3 <- regexpr("DRY_RUN <- TRUE", dt, fixed = TRUE)
+        i1 > 0 && i2 > 0 && i1 < i3 && i2 < i3 },
+      "(a rule written after the numbers are in is a rationalization)")
+  chk("D3/D6: the two EXCLUSION clauses are explicit (elpd, and the cross-track gap)",
+      grepl("DO NOT SELECT ON elpd", dt, fixed = TRUE) &&
+      grepl("THE CROSS-TRACK GAP IS NOT A CRITERION", dt, fixed = TRUE) &&
+      grepl("THE PORT TOTAL IS NOT A CRITERION", dt, fixed = TRUE),
+      paste("On the pooled ladder elpd favoured the daily fit every other diagnostic called",
+            "overfitted; and choosing this track's period to minimize the cross-track gap",
+            "would tune one estimate to another instead of to the data."))
+  chk("D3/D6: the driver pins a WINDOW and knows its delta keys",
+      grepl("WINDOW <- list(", dt, fixed = TRUE) &&
+      grepl("DELTA_KEYS <- unique(c(\"gear_period_bss\", \"catch_zi_tracks\"))", dt, fixed = TRUE))
+  chk("D3/D6: the pin fixes ar_adaptive, ar_force and ar_escalate, or the lever is not the lever",
+      all(vapply(c("ar_adaptive = FALSE", "ar_force = NULL", "ar_escalate = FALSE"),
+                 function(x) grepl(x, dt, fixed = TRUE), logical(1))))
+  chk("D3/D6: the driver verifies the resolution the sampler ACTUALLY used, not the one requested",
+      grepl("ar_escalation_log.csv", dt, fixed = TRUE) &&
+      grepl("the fit used the resolution the rung asked for", dt, fixed = TRUE),
+      paste("A rung that fell back would otherwise report itself as the resolution it asked",
+            "for and sit in the ladder as a duplicate of another rung."))
+  chk("D3/D6: the runtime estimate is derived from measured timings, not asserted",
+      grepl("run_timings.csv", dt, fixed = TRUE) && grepl("10.0 min", dt, fixed = TRUE) &&
+      grepl("sub-linear", dt, fixed = TRUE))
+  chk("D3/D6: every rung is wrapped, so one failed render does not cost the others",
+      length(grep("tryCatch(", d, fixed = TRUE)) >= 5)
+
+  # the census-frame disclosure Matt asked for
+  chk("census: estimate_comm_charter returns frame_warnings on BOTH return paths",
+      { t <- rd("03_R_functions/estimate_comm_charter.R")
+        length(grep("frame_warnings = .fw", t, fixed = TRUE)) >= 2 })
+  chk("census: the multi-season merge CONCATENATES the warnings instead of dropping them",
+      { t <- flat(rd("03_R_functions/estimate_comm_charter.R"))
+        grepl('warn_keys <- c("frame_warnings")', t, fixed = TRUE) &&
+        grepl("for (k in warn_keys) if (length(per[[i]][[k]]))", t, fixed = TRUE) })
+  for (f in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
+              "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+    chk(sprintf("census: %s prints the frame conditions and writes the CSV", basename(f)),
+        { t <- flat(rd(f))
+          grepl("CENSUS FRAME:", t, fixed = TRUE) &&
+          grepl("census_frame_warnings.csv", t, fixed = TRUE) },
+        paste("A bare warning() does not reach a rendered report: knitr defers warnings,",
+              "html_document can hide them, and quiet = TRUE suppresses them entirely."))
+  chk("census: the five frame conditions are all reported",
+      { t <- flat(rd("03_R_functions/estimate_comm_charter.R"))
+        all(vapply(c("NO CENSUS FRAME", "ROSTER-ONLY DAYS", "FRAMES DISAGREE",
+                     "THIN CHARTER SAMPLE", "UNSAMPLED DAYS TREATED AS NO OPERATION"),
+                   function(x) grepl(x, t, fixed = TRUE), logical(1))) })
+  # and the harness must REPORT that rather than dying on it. Negative-tested: with the
+  # warning turned into a stop(), chk() now records
+  # "FAIL census: empty window returns the zero split [ERROR while evaluating: ...]"
+  # where it previously aborted the run 300 assertions early and printed no summary at all.
+  chk("harness: an error while evaluating a condition is a FAIL, not the end of the run",
+      { r <- tryCatch({ o0 <- ok; b0 <- bad
+                        chk("(self-test, expected to FAIL)", stop("deliberate"))
+                        bad == b0 + 1 && ok == o0 }, error = function(e) FALSE)
+        # undo the self-test's own bookkeeping so it does not show in the totals twice
+        if (isTRUE(r)) { bad <<- bad - 1 }
+        isTRUE(r) },
+      "(a thousand-assertion harness that aborts on one surprise is the least useful outcome)")
+  chk("census: it WARNS rather than stopping, which is the decision Matt made",
+      { t <- flat(rd("03_R_functions/estimate_comm_charter.R"))
+        grepl("warning(paste0(\"estimate_comm_charter(): \", .m), call. = FALSE)", t, fixed = TRUE) &&
+        !grepl("stop(paste0(\"estimate_comm_charter()", t, fixed = TRUE) })
+
+  # the superseded-runner guard
+  SUP <- c("run_patch_validation_2026-08-25", "run_improvement_plan_2026-08-27",
+           "run_stage5_2026-08-30", "run_validation_2026-09-01",
+           "run_shore_ar_zi_2026-09-03", "run_ladder_zinb_2026-09-04",
+           "run_adoption_2026-09-07", "run_osp_validation")
+  LIVE <- c("run_improvements_2026-09-08", "run_gear_ar_zi_2026-09-13",
+            "run_rg_sweep", "run_tau_sweep")
+  chk("diagnostics: the superseded-runner helper exists and offers an override",
+      file.exists("03_R_functions/bss_superseded_runner.R") &&
+      { t <- flat(rd("03_R_functions/bss_superseded_runner.R"))
+        grepl("I_KNOW_THIS_IS_SUPERSEDED", t, fixed = TRUE) &&
+        grepl("bss_superseded_runner <- function", t, fixed = TRUE) })
+  chk("diagnostics: every SETTLED runner refuses to fit",
+      { miss <- SUP[!vapply(SUP, function(f)
+          any(grepl("bss_superseded_runner(", rd(file.path("06_diagnostics", paste0(f, ".R"))),
+                    fixed = TRUE)), logical(1))]
+        length(miss) == 0 },
+      "(a runner whose question is closed but which still fits is the defect this closes)")
+  chk("diagnostics: no LIVE runner is guarded",
+      { bad <- LIVE[vapply(LIVE, function(f)
+          any(grepl("bss_superseded_runner(", rd(file.path("06_diagnostics", paste0(f, ".R"))),
+                    fixed = TRUE)), logical(1))]
+        length(bad) == 0 },
+      "(guarding the current ladder would be the same mistake in reverse)")
+  chk("diagnostics: the README labels every runner LIVE or RECORD",
+      { t <- rd("06_diagnostics/README.md")
+        rows <- grep("^\\| `run_|^\\| `test_|^\\| `gear_coverage", t, value = TRUE)
+        length(rows) >= 14 && all(grepl("\\*\\*(LIVE|RECORD)\\.\\*\\*", rows)) },
+      "(so a reader can tell which is which without reading all eleven)")
+  chk("diagnostics: the README states the measured lever counts rather than an impression",
+      { t <- flat(rd("06_diagnostics/README.md"))
+        grepl("pins 12 of 15", t, fixed = TRUE) && grepl("pins 0 to 5", t, fixed = TRUE) })
+  chk("diagnostics: the deletion option is recorded WITH its cost, not silently taken",
+      { t <- flat(rd("07_documentation/development_notes/PIPELINE_STATUS.md"))
+        grepl("the answer is NOT deletion", t, fixed = TRUE) &&
+        grepl("no `run_parameters.txt` at all", t, fixed = TRUE) &&
+        grepl("git rm 06_diagnostics/run_", t, fixed = TRUE) })
 })
 
 # ---------------------------------------------------------------------------
