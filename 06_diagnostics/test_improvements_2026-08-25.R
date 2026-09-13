@@ -255,10 +255,10 @@ local({
   chk("shipped: opener_covariate_mode OFF", identical(rc$opener_covariate_mode, "off"))
   chk("shipped: razor_dig_mode no", identical(rc$razor_dig_mode, "no"))
   chk("shipped: use_osp_crab_lower OFF", identical(rc$use_osp_crab_lower, FALSE))
-  # 2026-09-12: the three unsampled-cell levers ship at their new values. "zero" is no
+  # 2026-09-10: the three unsampled-cell levers ship at their new values. "zero" is no
   # longer a neutral default; it is an assumption that 15.6% of the shore's days and 16.6%
   # of the boat's had no fishing, and its error is a bias no SE can carry.
-  chk("shipped: pe_empty_effort_stratum = local_day_type (2026-09-12)", identical(rc$pe_empty_effort_stratum, "local_day_type"))
+  chk("shipped: pe_empty_effort_stratum = local_day_type (2026-09-10)", identical(rc$pe_empty_effort_stratum, "local_day_type"))
   chk("shipped: pe_empty_stratum = local, so the CPUE fill matches the effort fill's scale", identical(rc$pe_empty_stratum, "local"))
   chk("shipped: pe_variance = impute_aware, so an imputed or singleton cell is not free", identical(rc$pe_variance, "impute_aware"))
   chk("shipped: filter_incomplete_trips still TRUE (diagnostic only)", identical(rc$filter_incomplete_trips, TRUE))
@@ -420,7 +420,7 @@ local({
   chk("empty-stratum report raises the >5%-at-zero flag",
       isTRUE(rep_df$exceeds_5pct_at_zero[rep_df$component == "private_boat_ring_net_only"]) &&
       isFALSE(rep_df$exceeds_5pct_at_zero[rep_df$component == "shore_all_gear"]))
-  # 2026-09-12: the report now carries the SINGLETON cells, both SEs and the zeroing bias.
+  # 2026-09-10: the report now carries the SINGLETON cells, both SEs and the zeroing bias.
   # The singleton count was never reported anywhere before, and it is the LARGER half of
   # the variance understatement (SE 410 -> 1,099 on shore all-gear from singletons alone).
   chk("empty-stratum report carries the singleton cells and the thin-day share",
@@ -2439,7 +2439,7 @@ local({
       grepl('merge_csv_by(do.call(rbind, V), vp, c("stage", "criterion"))', s, fixed = TRUE) && grepl('merge_csv_by(do.call(rbind, LAD), lp, "rung")', s, fixed = TRUE))
   chk("ladder: every verdict block is wrapped so a reading defect cannot destroy a result", grepl(".safe <- function(sid, expr) tryCatch", s, fixed = TRUE))
   chk("ladder: the single-season window is pinned on every rung", grepl('season_filter = "2024-25"', s, fixed = TRUE) && grepl("modifyList(BASE, WINDOW, keep.null = TRUE)", s, fixed = TRUE))
-  # 2026-09-12: the pin has to be COMPLETE. Four per-season keys were missing, so every
+  # 2026-09-10: the pin has to be COMPLETE. Four per-season keys were missing, so every
   # 2024-25 rung would have inherited the two-season config's 2023-24 values, pot_open_date
   # among them.
   for (k in c("pot_closure_start", "pot_closure_end", "pot_open_date", "census_start_date",
@@ -2448,7 +2448,7 @@ local({
     chk(sprintf("ladder: WINDOW pins %s", k), grepl(paste0(k, " = "), s, fixed = TRUE))
   chk("ladder: pot_open_date is pinned to the 2024-25 value, not the 2-season 2023-12-01",
       grepl('pot_open_date = "2024-12-01"', s, fixed = TRUE))
-  chk("ladder: F_METHOD exists and ships 'new_throughout' (Matt 2026-09-12: the run uses the new f)",
+  chk("ladder: F_METHOD exists and ships 'new_throughout' (Matt 2026-09-10: the run uses the new f)",
       any(grepl('^F_METHOD <- "new_throughout"', t)))
   chk("ladder: the preflight PROVES no non-delta key differs between rungs, before any MCMC",
       grepl("no configuration leak", s, fixed = TRUE) && grepl("DELTA_KEYS", s, fixed = TRUE))
@@ -2469,7 +2469,7 @@ local({
   # instead of grepping for lines that look like delta keys. The grep broke the moment a
   # delta gained a comment line or a key outside its list, which is the harness-fragility
   # failure mode section 43 exists to prevent.
-  # 2026-09-12: the block now starts at F_NEW (D_R1 is built from it) and F_METHOD has to
+  # 2026-09-10: the block now starts at F_NEW (D_R1 is built from it) and F_METHOD has to
   # be defined in the eval environment, because the deltas branch on it.
   e$F_METHOD <- "new_throughout"; e$modifyList <- modifyList
   .i1 <- grep("^F_NEW *<-", tt)[1]; .i2 <- grep("^D_R4 *<-", tt)[1]
@@ -2480,7 +2480,7 @@ local({
     if (!inherits(try(parse(text = .txt), silent = TRUE), "try-error")) { eval(parse(text = .txt), envir = e); .parsed <- TRUE; break }
   }
   chk("ladder: the F_NEW..D_R4 delta block parses as written", .parsed)
-  # 2026-09-12: D_R1's f block now depends on F_METHOD, so the block is evaluated under
+  # 2026-09-10: D_R1's f block now depends on F_METHOD, so the block is evaluated under
   # BOTH modes and each is asserted against its own contract.
   chk("ladder: R1 keeps the pre-patch TURNOVER priors under either F_METHOD (tau 1.2, sigma 0.3)",
       identical(e$D_R1$tau_boat_prior_mu, 1.2) && identical(e$D_R1$tau_boat_prior_sigma, 0.3) &&
@@ -2935,7 +2935,7 @@ local({
       isTRUE(all.equal(r$carried_var, r$charter_var)) &&
         isTRUE(all.equal(estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "none")))$carried_var, 0)) &&
         { z <- estimate_comm_charter(dwg, modifyList(Pc, list(census_uncertainty = "sampling"))); isTRUE(all.equal(z$carried_var, z$Dungeness_Kept_var)) })
-  # 2026-09-12: BOTH PE runners must delegate to the ONE shared implementation. Three
+  # 2026-09-10: BOTH PE runners must delegate to the ONE shared implementation. Three
   # defects lived in two copies of this code; a fix to one copy would have been a fix to
   # half the pipeline, and the pooled and gear PEs would then disagree, which is exactly
   # what run_pe_gear was extracted to prevent.
@@ -2952,7 +2952,7 @@ local({
         grepl("results$effort_se_sampled_only", src, fixed = TRUE))
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("shipped: the PE unsampled-cell levers are the 2026-09-12 set (Matt: ship local_day_type on)",
+  chk("shipped: the PE unsampled-cell levers are the 2026-09-10 set (Matt: ship local_day_type on)",
       identical(rc$pe_empty_effort_stratum, "local_day_type") && identical(rc$pe_empty_stratum, "local") &&
       identical(rc$pe_variance, "impute_aware"))
   chk("shipped: the census keys are the 2026-09-11 set", identical(rc$census_expansion, "none") && identical(rc$charter_frame, "roster") &&
@@ -2960,7 +2960,7 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 59. THE PE's UNSAMPLED AND SINGLETON CELLS (2026-09-12). Three defects, all of them in
+# 59. THE PE's UNSAMPLED AND SINGLETON CELLS (2026-09-10). Three defects, all of them in
 #     two copies of the same code, all recomputed here BY HAND on a fixture small enough
 #     to check with a calculator:
 #       - the SE was sqrt(N^2 sd^2 / max(n,1)) with sd from the cell's own sampled days,
@@ -2969,7 +2969,7 @@ local({
 #       - an IMPUTED cell did the same, so the effort SE was unchanged by imputation;
 #       - the effort fill could be month-local while the CPUE fill was sub-season-wide.
 #     The fixture is two months x two day types so every donor level is exercised, and the
-#     "sampled_only" arm must reproduce the pre-2026-09-12 arithmetic EXACTLY.
+#     "sampled_only" arm must reproduce the pre-2026-09-10 arithmetic EXACTLY.
 # ---------------------------------------------------------------------------
 local({
   source("03_R_functions/pe_effort_strata.R")
@@ -3068,7 +3068,7 @@ local({
       all(c("mean_level", "sd_level") %in% names(s2)) &&
       any(s2$mean_level != s2$sd_level | s2$n_sampled >= 2L))
 
-  # ---- 5. 'sampled_only' must reproduce the pre-2026-09-12 arithmetic EXACTLY ---------
+  # ---- 5. 'sampled_only' must reproduce the pre-2026-09-10 arithmetic EXACTLY ---------
   chk("PE strata: pe_variance = 'sampled_only' reproduces the old SE for every cell",
       isTRUE(all.equal(s1$se_total, s1$se_total_sampled_only)) &&
       isTRUE(all.equal(s0$se_total, s0$se_total_sampled_only)))
@@ -3089,7 +3089,7 @@ local({
   i_fw <- which(s2$period == feb_we & s2$day_type == "weekend")
   chk("PE CPUE fill: 'local' gives a February cell February's ratio-of-sums, not the season's",
       isTRUE(all.equal(f_loc[i_fw], 0.2)) && isTRUE(all.equal(unname(f_pool[i_fw]), 1.1)))
-  chk("PE CPUE fill: 'pooled' reproduces the pre-2026-09-12 behaviour and 'zero' the pre-2026-07-13 one",
+  chk("PE CPUE fill: 'pooled' reproduces the pre-2026-09-10 behaviour and 'zero' the pre-2026-07-13 one",
       length(unique(f_pool)) == 1L && isTRUE(all.equal(unique(as.numeric(f_pool)), 1.1)) &&
       all(f_zero == 0))
   chk("PE CPUE fill: the source string says how many cells got a month rate",
@@ -3151,7 +3151,7 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 60. THE TWO-PASS LADDER RUN (2026-09-13). Matt: "run the 4-rung version now and then
+# 60. THE TWO-PASS LADDER RUN (2026-09-10). Matt: "run the 4-rung version now and then
 #     follow up with the new R2f control rung." Three things have to hold for that to be
 #     safe, and none of them held when the plan was proposed:
 #       (a) adding R2f must not change any other rung's config digest, or pass 2 re-fits
@@ -3230,7 +3230,7 @@ local({
           length(fc) > 0 && !length(miss))
       if (length(miss)) cat("      NOT COVERED:", paste(miss, collapse = ", "), "\n")
     }
-    # THE MECHANISM THE ANALYSIS RESTS ON, pinned. A 2026-09-13 smoke fit of the boat
+    # THE MECHANISM THE ANALYSIS RESTS ON, pinned. A 2026-09-10 smoke fit of the boat
     # all-gear component under the R2f configuration showed the switched-off f/c outputs
     # reporting sd = 0 and therefore se_mean = NaN, NOT 0 -- and fit_agreement() skips any
     # row whose combined se is not finite, which is why the missing names above are
@@ -4105,6 +4105,156 @@ local({
         !grepl("1.2 = the production prior", b, fixed = TRUE) &&
         !grepl("0.3 matches production.", b, fixed = TRUE) &&
         grepl("COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF", a, fixed = TRUE) })
+})
+
+# ---------------------------------------------------------------------------
+# 70. THE CHRONOLOGY DOCUMENTS AND THEIR DATES (2026-09-10 work; written 2026-09-13)
+#
+#     Matt: "The section dates in PIPELINE_STATUS.md run backwards ... 1u's date is in
+#     the future relative to today. Several register rows carry 2026-09-13 as well. The
+#     git commit dates are the reliable record. Harmless individually, corrosive in a
+#     document whose value is being a chronology."
+#
+#     WHY THIS IS NOT A "MARKER <= ITS OWN COMMIT DATE" CHECK. That invariant was built,
+#     run over every tracked .R/.Rmd/.stan/.md via git blame, and REJECTED on the
+#     evidence. It reported 355 violations, and the distribution is the proof that the
+#     rule is wrong rather than the repository: the minimum offset is one day and there
+#     is no zero bucket at all. The cause is measurable. Several of this branch's commits
+#     carry a patch filename as their subject, so both clocks are recorded in the same
+#     string:
+#
+#       0001stage5review20260831.patch          git author date 2026-08-31   gap 0 d
+#       0001prerunaudit20260903.patch           git author date 2026-09-01   gap 2 d
+#       0005-candidate-config-2026-09-07.patch  git author date 2026-09-04   gap 3 d
+#       0012-season-portability-2026-09-09.patch git author date 2026-09-05  gap 4 d
+#       0013-multiseason-2026-09-10.patch       git author date 2026-09-05   gap 5 d
+#       run_improvements_2026-09-08.R (3fa8fde) git author date 2026-09-08   gap 0 d
+#
+#     The sessions that produced this branch ran on a clock ahead of the repository's,
+#     by zero days in late August, growing to five by 2026-09-05, closing to zero on
+#     2026-09-08. Those session dates are baked into FILENAMES
+#     (run_adoption_2026-09-07.R, adoption-review-2026-09-08.md), so honouring a
+#     tolerance would mean renaming files every pointer resolves through. The check also
+#     cannot tell a marker from a calendar fact: it flags "2027-06-18" in the Juneteenth
+#     fixture, "the season ends 2026-09-15", and a workbook coverage table's 2026-12-31.
+#     A check with a 127-entry permanent allow-list that flags data is a check that gets
+#     switched off. It is not shipped, and this comment is the record of why.
+#
+#     WHAT IS ASSERTED INSTEAD, all of it self-contained and about the three documents
+#     whose value IS being a chronology:
+#       (1) no dated MARKER in them may postdate the date the document itself declares
+#           as its last update, which is exactly the failure above;
+#       (2) the campaign's section letters must not run backwards, apart from a declared
+#           allow-list of inversions, each with its reason;
+#       (3) the git-anchor table must cover every section letter;
+#       (4) the dating convention must be stated in one place and pointed at from the
+#           other two;
+#       (5) git-conditional, one `git log` call: nothing in them may claim a date after
+#           the newest author date on the branch.
+# ---------------------------------------------------------------------------
+local({
+  rd   <- function(f) readLines(f, warn = FALSE)
+  PS   <- "07_documentation/development_notes/PIPELINE_STATUS.md"
+  CR   <- "07_documentation/development_notes/CHANGE_REGISTER.md"
+  VC   <- "07_documentation/development_notes/VALIDATION_CAMPAIGN.md"
+  DOCS <- c(PS, CR, VC)
+  chk("chronology: all three documents exist", all(file.exists(DOCS)))
+
+  # A dated MARKER, as opposed to a calendar fact or a data value: a date in a section
+  # heading, inside a status bracket, or in a "Last updated" line. Deliberately narrow.
+  markers <- function(lines) {
+    keep <- grepl("^#{1,4} ", lines) |
+            grepl("\\*\\*(NEW|CLOSED|ADOPTED|SUPERSEDED|DONE|FIXED|REMOVED|REJECTED|RUN)[^*]*20[0-9]{2}-[0-9]{2}-[0-9]{2}", lines) |
+            grepl("\\[(NEW|CLOSED|ADOPTED|SUPERSEDED|DONE|FIXED|REMOVED) 20[0-9]{2}-[0-9]{2}-[0-9]{2}", lines) |
+            grepl("Last updated", lines)
+    unlist(regmatches(lines[keep], gregexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", lines[keep])))
+  }
+  declared <- function(lines) {
+    l <- grep("Last updated", lines, value = TRUE)[1]
+    m <- regmatches(l, regexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", l))
+    if (length(m) == 1) as.Date(m) else as.Date(NA)
+  }
+
+  # (1) no marker may postdate the document's own declared last-update date
+  for (f in DOCS) {
+    L  <- rd(f); dd <- declared(L)
+    mk <- suppressWarnings(as.Date(markers(L)))
+    mk <- mk[!is.na(mk)]
+    chk(sprintf("chronology: %s declares a last-updated date", basename(f)), !is.na(dd))
+    chk(sprintf("chronology: no marker in %s postdates its own 'Last updated' (%s)",
+                basename(f), as.character(dd)),
+        !is.na(dd) && length(mk) > 0 && all(mk <= dd),
+        if (!is.na(dd) && any(mk > dd)) sprintf("(ahead: %s)",
+          paste(unique(as.character(mk[mk > dd])), collapse = ", ")) else "")
+  }
+
+  # (2) the campaign's section letters must not run backwards.
+  #     DECLARED INVERSIONS. Each entry is "<letter> => <reason>". An inversion that is
+  #     not declared FAILS; a declared one that has gone away also fails, because the
+  #     only ways to remove it are to re-date the sections from git (in which case this
+  #     list is what you update) or to invent a date (in which case you should not).
+  INVERSION_OK <- c(
+    "1p" = paste("1n and 1o were written when the session clock read 2026-09-09 and",
+                 "2026-09-10; 1p was written when it read 2026-09-08. In GIT order",
+                 "(2026-09-05, 2026-09-05, 2026-09-08) the letters are correct. No",
+                 "assignment of session dates removes this without inventing one."))
+  L   <- rd(VC)
+  hd  <- grep("^## 1[b-v]\\.", L, value = TRUE)
+  let <- sub("^## (1[b-v])\\..*$", "\\1", hd)
+  lastdate <- function(h) {
+    m <- regmatches(h, gregexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", h))[[1]]
+    if (length(m)) as.Date(tail(m, 1)) else as.Date(NA)
+  }
+  dts <- as.Date(vapply(hd, function(h) as.character(lastdate(h)), character(1)))
+  chk("chronology: the campaign has 21 sections, 1b to 1v, in ascending letter order",
+      length(let) == 21 && identical(let, let[order(let)]) &&
+      identical(let[1], "1b") && identical(let[length(let)], "1v"))
+  chk("chronology: every campaign section title carries a parseable date", !any(is.na(dts)))
+  inv <- let[-1][which(diff(as.numeric(dts)) < 0)]
+  chk("chronology: the campaign's section dates run backwards ONLY where declared",
+      setequal(inv, names(INVERSION_OK)),
+      sprintf("(found: %s; declared: %s)", paste(inv, collapse = ","),
+              paste(names(INVERSION_OK), collapse = ",")))
+  chk("chronology: every declared inversion carries a reason",
+      all(nzchar(INVERSION_OK)) && all(nchar(INVERSION_OK) > 40))
+
+  # (3) the git-anchor table must cover every section letter
+  tbl <- grep("^> \\| 1[b-v] \\|", L, value = TRUE)
+  tl  <- sub("^> \\| (1[b-v]) \\|.*$", "\\1", tbl)
+  chk("chronology: the git-anchor table covers every campaign section",
+      setequal(tl, let), sprintf("(missing: %s)",
+        paste(setdiff(let, tl), collapse = ",")))
+  chk("chronology: every git-anchor row names at least one commit hash",
+      length(tbl) > 0 && all(grepl("`[0-9a-f]{7}`", tbl)))
+
+  # (4) the convention is stated once and pointed at from the other two
+  vcx <- paste(L, collapse = "\n")
+  chk("chronology: the campaign holds the dating note, with the measured cause",
+      grepl("A NOTE ON THE DATES", vcx, fixed = TRUE) &&
+      grepl("ran on a clock that was ahead of the repository", vcx, fixed = TRUE) &&
+      grepl("git author date", vcx, fixed = TRUE))
+  for (f in c(PS, CR)) {
+    t <- gsub("[ \n]+", " ", paste(rd(f), collapse = "\n"))
+    chk(sprintf("chronology: %s points at the one dating note rather than restating it",
+                basename(f)),
+        grepl("A NOTE ON THE DATES", t, fixed = TRUE) &&
+        grepl("git author date", t, fixed = TRUE))
+  }
+
+  # (5) nothing may claim a date after the newest author date on the branch
+  tip <- tryCatch(suppressWarnings(
+           system2("git", c("log", "-1", "--format=%ad", "--date=short"),
+                   stdout = TRUE, stderr = FALSE)), error = function(e) character(0))
+  if (length(tip) == 1 && grepl("^20[0-9]{2}-[0-9]{2}-[0-9]{2}$", tip)) {
+    tipd <- as.Date(tip)
+    ahead <- unlist(lapply(DOCS, function(f) {
+      mk <- suppressWarnings(as.Date(markers(rd(f)))); mk <- mk[!is.na(mk)]
+      as.character(mk[mk > tipd]) }))
+    chk(sprintf("chronology: no marker postdates the branch tip's author date (%s)", tip),
+        length(ahead) == 0, sprintf("(ahead: %s)", paste(unique(ahead), collapse = ", ")))
+  } else {
+    cat("NOTE  chronology: git unavailable or shallow; the branch-tip check is skipped\n")
+  }
 })
 
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))

@@ -155,6 +155,21 @@ Each run writes to `05_output/<YYYYMMDD>/<model>-<run_tag>/`, where the `<model>
 
 - **Validate by run, never by reasoning alone.** A change that looks inference-neutral on paper can perturb the sampler geometry. Isolate each change, compare against a confirmed baseline run against pre-set criteria; an item is not "done" until a run confirms it. Changes that *narrow* reported uncertainty (e.g. tightening dispersion priors) need explicit sign-off because they move the headline intervals.
 - **Diagnostics are additive and `tryCatch`-wrapped** so one failing fit can't abort a run.
+- **DATING A MARKER YOU WRITE.** A dated label in this repository (a section title, a `[NEW ...]`
+  bracket, a register row, a `# 2026-mm-dd:` comment) names the **working session**, not the
+  commit. The two are not the same: the sessions that produced this branch ran on a clock that
+  was ahead of the repository's by up to five days before 2026-09-08, and the drift is baked
+  into filenames (`run_adoption_2026-09-07.R` was committed 2026-09-04), so it cannot be
+  normalized away. Two rules follow. **(a) When you write a marker into
+  `PIPELINE_STATUS.md`, `CHANGE_REGISTER.md` or `VALIDATION_CAMPAIGN.md`, use the git author
+  date of the commit that lands the work, and give the hash when it differs from the session
+  date.** Those three documents exist to be a chronology and harness section 70 enforces it:
+  no marker in them may postdate the document's own `Last updated` line or the branch tip, the
+  campaign's section letters may not run backwards except where declared, and every section
+  must appear in the git-anchor table. **(b) Everywhere else, the session date is fine and is
+  what the convention means**; do not start a repository-wide re-dating. The measurement, the
+  evidence and the reconciliation live in one place: "A NOTE ON THE DATES" at the top of
+  `VALIDATION_CAMPAIGN.md`.
 - **FIVE DOCUMENTS, FIVE JOBS. Know which one you are in before you write to it** (the layout settled 2026-09-12):
 
 | document | job | when to write to it |

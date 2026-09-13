@@ -1,5 +1,7 @@
 # The validation campaign, 2026-08 to 2026-09: the run-by-run record
 
+**Last updated:** 2026-09-13 (the git-anchor table added; Section 1s corrected to its git date).
+
 - **What this is.** The dated, run-by-run narrative of the validation and improvement
   campaign that produced Method v2.0. It was Sections 1b through 1v of
   `PIPELINE_STATUS.md` until 2026-09-12, and it is moved here unaltered so that the status
@@ -12,19 +14,80 @@
   This file is the middle layer: why each decision was taken, on what run, and what the run
   actually said.
 
-> ### A NOTE ON THE DATES, because they do not all agree
+> ### A NOTE ON THE DATES, because two clocks produced them
 >
-> **The section LETTERS are the order. The parenthetical dates are working-session dates and
-> they drifted from the git commit dates in the 1r-to-1v range**, where several sessions'
-> work landed in the same day's commits. Where a date matters, the authorities are the git
-> log and the output folders, not a section title: by git, the work in Sections 1r, 1s, 1t
-> and 1u all landed on 2026-09-10, and the full ladder run of Section 1v rendered overnight
-> on 2026-09-10 / 2026-09-11 (`IMP_STAGE.txt` in each rung folder carries the exact
-> timestamp). Two titles that read 2026-09-12 and 2026-09-13 have been corrected to
-> 2026-09-10 for that reason; the rest are left as written. The same drift appears in dated
-> comments inside `06_diagnostics/run_improvements_2026-09-08.R` and the harness, where
-> "2026-09-13" marks work the git log dates 2026-09-10. Those are left alone: they are
-> internally consistent with each other and several are load-bearing strings in assertions.
+> **The section LETTERS are the order.** The parenthetical dates are *working-session*
+> labels, and they do not all agree with the git log. The reason is not carelessness in any
+> one file, it is measurable and it is systematic: **the sessions that produced this branch
+> ran on a clock that was ahead of the repository's, by zero days in late August, growing to
+> five days by 2026-09-05, and then closing to zero on 2026-09-08.** The patch filenames
+> preserve the evidence, because Matt committed several of them under their own names:
+>
+> | Commit subject (the patch's own filename, session clock) | git author date (repository clock) | gap |
+> |---|---|---|
+> | `0001stage5review20260831.patch` | 2026-08-31 | 0 d |
+> | `0001prerunaudit20260903.patch` | 2026-09-01 | 2 d |
+> | `0002-zinb-count-bins-2026-09-05.patch` | 2026-09-03 | 2 d |
+> | `0005-candidate-config-2026-09-07.patch` | 2026-09-04 | 3 d |
+> | `0008-adoption-review-2026-09-08.patch` | 2026-09-05 | 3 d |
+> | `0012-season-portability-2026-09-09.patch` | 2026-09-05 | 4 d |
+> | `0013-multiseason-2026-09-10.patch` | 2026-09-05 | 5 d |
+> | `run_improvements_2026-09-08.R` (added by `3fa8fde`) | 2026-09-08 | 0 d |
+>
+> Two consequences follow, and they are the reason this note exists rather than a global
+> re-dating.
+>
+> **1. The session clock is not monotone, so the session dates cannot be sorted.** Sections
+> 1n and 1o were written when that clock read 2026-09-09 and 2026-09-10; Section 1p was
+> written when it read 2026-09-08. In git order 1n, 1o and 1p are in the sequence the letters
+> give. In session-date order they are not, and no assignment of session dates fixes that
+> without inventing one.
+>
+> **2. The session dates are load-bearing.** They are baked into filenames
+> (`run_adoption_2026-09-07.R`, `run_ladder_zinb_2026-09-04.R`,
+> `run_improvements_2026-09-08.R`), into the `CHANGE_REGISTER` item text, and into assertion
+> strings in `06_diagnostics/test_improvements_2026-08-25.R`. Re-dating them would rename
+> files that every pointer in the repository resolves through.
+>
+> **So the convention is stated once, here, and the reconciliation is published rather than
+> hidden:** a dated label in this repository names the working session; the **git author date
+> and the `05_output/` folder name are the authorities** for when work landed and when a run
+> rendered. The table below is the mapping, and it is re-derivable from the repository
+> (`git log --diff-filter=A -- <the section's runner>` for the additions, the commit subjects
+> for the applied patches).
+>
+> | § | Title's session date | Landed, git author date | Commits | Run output |
+> |---|---|---|---|---|
+> | 1b | 2026-08-30 | 2026-08-29 | `bd8e298` | none: the runner shipped `DRY_RUN` |
+> | 1c | 2026-08-31 | 2026-08-31 | `d9ed8ff`, `d8a7bbf` | `05_output/20260830`, `20260831` |
+> | 1d | 2026-09-01 | 2026-09-01 | `ccf2c0e`, `c3759ec` | `05_output/20260901` |
+> | 1e | 2026-09-02 | 2026-09-01 | `d7efae3` | `05_output/20260902` |
+> | 1f | 2026-09-03 | 2026-09-01 | `d7efae3` | plan only |
+> | 1g | 2026-09-03 | 2026-09-01 | `2bc04ff` | desk only |
+> | 1h | 2026-09-04 | 2026-09-03 | `daf299a`, `4456b35` | desk only |
+> | 1i | reviewed 2026-09-04 | 2026-09-03 | `2891e13` | `05_output/20260903` |
+> | 1j | reviewed 2026-09-06 | 2026-09-04 | `dabe4a5`, `542bd06` | `05_output/20260904` |
+> | 1k | reviewed 2026-09-07 | 2026-09-04 | `1e2afdd`, `4f96384` | `05_output/20260904` |
+> | 1l | 2026-09-07 | 2026-09-04 | `562816f` | config only |
+> | 1m | reviewed 2026-09-08 | 2026-09-05 | `4ca59e6`, `bad887e`, `35cd981`, `0cdab43` | `05_output/20260905` |
+> | 1n | 2026-09-09 | 2026-09-05 | `bb19ef3`, `694ca9d` | desk only |
+> | 1o | 2026-09-10 | 2026-09-05 | `69d5adb` | blocked on data |
+> | 1p | 2026-09-08 | 2026-09-08 | `bf4be01` … `aa68bc6` | desk only |
+> | 1q | 2026-09-09 | 2026-09-09 | `76b7053`, `682661a`, `93cac20`, `b2c932b` | desk only |
+> | 1r | 2026-09-10 | 2026-09-10 | `7ac324b`, `e6e0309`, `f214fb7` | inputs only |
+> | 1s | 2026-09-10 | 2026-09-10 | `049b8cc`, `5151c0b`, `b76b540` | desk only |
+> | 1t | 2026-09-10 | 2026-09-10 | `c50bc54`, `9e4ccbe`, `9a7a05d` | desk only |
+> | 1u | 2026-09-10 | 2026-09-10 | `2a28871`, `f04a772`, `627a831` | desk only |
+> | 1v | 2026-09-11 | 2026-09-11 | `3609f1d`, `36ca4cb`, `4a68546` | `05_output/20260910`, `20260911` |
+>
+> From 1p onward the two clocks agree, so for the whole block that produced Method v2.0 the
+> section dates *are* the git dates. The full ladder run of Section 1v rendered overnight on
+> 2026-09-10 / 2026-09-11: `IMP_STAGE.txt` in each rung folder carries the exact stamp
+> (`written: 2026-09-11 02:17:09` for R4).
+>
+> **Two titles corrected.** Section 1s read 2026-09-11 and is now 2026-09-10, its git date,
+> which also removes the only inversion inside the 1r-to-1v block. Two titles that read
+> 2026-09-12 and 2026-09-13 were corrected to 2026-09-10 earlier for the same reason.
 >
 > **Every total below the first section is historical.** The authoritative run lives in one
 > place, the box at the top of `PIPELINE_STATUS.md`.
@@ -641,7 +704,7 @@ Matt supplied the four per-season creel workbooks (`2223`, `2324`, `2425`, `2526
 **Not run:** the ladder (unchanged in structure; its R0 desk rung ran clean and now states both census numbers). Harness at 702 assertions; both drivers purl-parse; both Stan models unchanged since 2026-09-09.
 
 
-## 1s. The charter component becomes an expansion; three holidays; a PE question (2026-09-11)
+## 1s. The charter component becomes an expansion; three holidays; a PE question (2026-09-10)
 
 Matt's corrections after the 2026-09-10 rebuild, and one thing they exposed.
 

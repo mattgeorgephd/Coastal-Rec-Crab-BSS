@@ -1,6 +1,12 @@
 # Coastal Rec Crab BSS: Pipeline Status and Backlog
 
-- **Last updated:** 2026-09-12 (**Method v2.0 adopted as the method of record**; the authoritative run moves to the ladder's R4; `run_config.R` restructured and rolled back to the canonical 2024-25 window; the campaign narrative split out). Change register: `CHANGE_REGISTER.md`
+- **Last updated:** 2026-09-13 (**the weather-tide module removed, A29**; **Method v2.0 adopted as the method of record**; the authoritative run moves to the ladder's R4; `run_config.R` restructured and rolled back to the canonical 2024-25 window; the campaign narrative split out). Change register: `CHANGE_REGISTER.md`
+- **Dates in this repository.** A dated label names the **working session**; the **git author
+  date** is the authority for when work landed, and the `05_output/` folder name for when a run
+  rendered. The two disagree before 2026-09-08, because the sessions that produced this branch
+  ran on a clock ahead of the repository's by up to five days. The disagreement is measured,
+  tabulated and reconciled section by section under "A NOTE ON THE DATES" in
+  `VALIDATION_CAMPAIGN.md`; nothing else in this repository needs to restate it.
 - **Maintainer note:** this is the single living status document for the pipeline. It replaces the seven superseded development notes listed in Section 8, reconciling their issue IDs so nothing is lost. Update this file as work lands; do not re-fork it into per-session notes.
 - **What lives where, since 2026-09-12.** Four documents, four jobs, and keeping them apart is what stops any one of them going stale:
 

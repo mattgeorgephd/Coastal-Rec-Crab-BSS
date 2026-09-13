@@ -87,10 +87,10 @@
 # R0 row states both numbers; charter_frame = "tally" reproduces 7,884.
 #
 # =============================================================================
-# 2026-09-12: SET UP FOR THE FULL RUN. Four changes, all of them about making the
+# 2026-09-10: SET UP FOR THE FULL RUN. Four changes, all of them about making the
 # rungs comparable to each other rather than about adding a rung.
 #
-# 1. F_METHOD (new control). Matt 2026-09-12: "The full ladder rung run will only be for
+# 1. F_METHOD (new control). Matt 2026-09-10: "The full ladder rung run will only be for
 #    the 2024-25 season and will use the new method for estimating f." The ladder as
 #    designed does the opposite: R1 and R2 fit the RETIRED f (one scalar, Beta(6,14) at
 #    0.30) precisely so that R3a and R3 can attribute the f change. Both readings are
@@ -126,7 +126,7 @@
 #    whose convergence gate FAILS reports its PE point in the port total as a constant,
 #    so pe_empty_effort_stratum / pe_empty_stratum / pe_variance can reach the headline
 #    of any rung where the thin boat pot closure falls back. run_config's defaults changed
-#    on 2026-09-12 (zero -> local_day_type, pooled -> local, new impute_aware variance),
+#    on 2026-09-10 (zero -> local_day_type, pooled -> local, new impute_aware variance),
 #    which moves the 2024-25 PE port total 72,224 -> 85,076. Pinning them in WINDOW means
 #    a later edit to run_config cannot silently make one rung incomparable to the rest,
 #    and the preflight now PROVES every rung resolved to the same values.
@@ -147,7 +147,7 @@
 DRY_RUN <- TRUE                    # TRUE: pre-flight + the R0 desk rung, nothing fitted. START HERE.
 F_METHOD <- "new_throughout"       # "new_throughout" (shipped) | "ladder"  -- see note 1 above
 
-# THE TWO-PASS PLAN (Matt 2026-09-13: "run the 4-rung version now and then follow up with
+# THE TWO-PASS PLAN (Matt 2026-09-10: "run the 4-rung version now and then follow up with
 # the new R2f control rung"). Change ONE number between passes:
 #
 #   LADDER_PASS <- 1   R0, R1, R2, R4, R5.  Three pooled fits + one gear fit, ~12-14 h.
@@ -250,7 +250,7 @@ rd <- function(dir, f) {
   if (is.null(x) || !par %in% rownames(x)) return(NULL)
   as.list(x[par, , drop = FALSE])
 }
-# THE f/c EXCLUSION LIST for fit_agreement(), in ONE place (2026-09-13).
+# THE f/c EXCLUSION LIST for fit_agreement(), in ONE place (2026-09-10).
 #
 # WHY IT IS A NAMED CONSTANT, AND WHAT IT ACTUALLY BUYS. The list was typed by hand in two
 # places, and when the combo-share walk arrived on 2026-09-09 its parameters (z_c, sigma_c,
@@ -290,7 +290,7 @@ V1row <- function(stage, criterion, observed, threshold, verdict, why)
   V[[length(V) + 1]] <<- data.frame(stage = stage, criterion = criterion, observed = observed,
                                     threshold = threshold, verdict = verdict, why = why,
                                     stringsAsFactors = FALSE)
-# 2026-09-13: a cross-rung claim (bit-identity, or agreement within Monte Carlo error) is
+# 2026-09-10: a cross-rung claim (bit-identity, or agreement within Monte Carlo error) is
 # only meaningful if the two folders were produced by the same code. In the two-pass plan
 # they need not have been. This wraps such a row: it keeps the observation, appends what
 # differs, and refuses to report PASS on a comparison whose premise is broken.
@@ -323,7 +323,7 @@ REF <- list(
 # between rungs. Everything here is applied to every rung, so a run_config edit between
 # rungs cannot make one of them incomparable; the preflight proves it rung by rung.
 WINDOW <- list(
-  # -- the season, all nine per-season keys (2026-09-12: four of them were missing) ----
+  # -- the season, all nine per-season keys (2026-09-10: four of them were missing) ----
   est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25",
   pot_closures = NULL, census_windows = NULL,
   pot_closure_start = "2024-09-16", pot_closure_end = "2024-11-30",
@@ -332,7 +332,7 @@ WINDOW <- list(
   commercial_opener = "2025-02-11",          # the 2024-25 coastal commercial opener
   # -- the PE's unsampled-cell levers, PINNED (note 3) ------------------------------
   # These reach the port total of any rung whose gate fails, so they are held at the
-  # 2026-09-12 shipped values rather than read from whatever run_config says at run time.
+  # 2026-09-10 shipped values rather than read from whatever run_config says at run time.
   pe_empty_effort_stratum = "local_day_type", pe_empty_stratum = "local",
   pe_variance = "impute_aware",
   # -- run-level, held fixed so no rung differs in a way nobody declared -------------
@@ -373,7 +373,7 @@ STAGE_DEFS <- list(
   # R0 reads the SHIPPED configuration (D_R4) so the desk rows describe what production
   # does, not what the R3 rung did: since 2026-09-11 that includes the census split (the
   # commercial census plus the charter expansion over the roster trip frame), and since
-  # 2026-09-12 the PE's unsampled-cell levers.
+  # 2026-09-10 the PE's unsampled-cell levers.
   R0  = list(id = "R0",  model = "desk",   tag = .tag("R0-desk"),        delta = D_R4,
              headline = "desk: the PE fills and variance, the calibration turnover, the gear bootstrap, the census split, the f data, the holidays"),
   R1  = list(id = "R1",  model = "pooled", tag = .tag("R1-filters"),     delta = D_R1,
@@ -438,7 +438,7 @@ stage_digest <- function(sid) {
   sprintf("%s|%s|%08x", sid, F_METHOD,
           as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
 }
-# THE CODE FINGERPRINT (2026-09-13). The config digest above says a folder was built
+# THE CODE FINGERPRINT (2026-09-10). The config digest above says a folder was built
 # from this rung's CONFIGURATION. It says nothing about the CODE. That gap matters for the
 # two-pass plan Matt asked for -- fit R0/R1/R2/R4/R5 now, then come back and add R2f --
 # because R2f's whole purpose is to be compared to R2, and if a Stan model, a driver or an
@@ -626,7 +626,7 @@ code_fingerprint <- function() {
   vs <- if (!is.na(.stan_versions_of(a)) && !is.na(.stan_versions_of(b)) &&
             !identical(.stan_versions_of(a), .stan_versions_of(b)))
     sprintf("; rstan/StanHeaders differ (%s vs %s)", .stan_versions_of(a), .stan_versions_of(b)) else ""
-  cc <- if (is.na(cd %||% NA)) "; one folder records no code fingerprint (pre-2026-09-13 run)"
+  cc <- if (is.na(cd %||% NA)) "; one folder records no code fingerprint (pre-2026-09-10 run)"
         else if (nzchar(cd)) sprintf("; CODE DIFFERS between the two runs (%s)", cd) else ""
   paste0(cc, vs)
 }
@@ -680,7 +680,7 @@ preflight <- function() {
   say(GEAR_FOLLOWS %in% c("R3", "R4"), "GEAR_FOLLOWS names a pooled rung", GEAR_FOLLOWS)
   # The window is DELIBERATELY not run_config's. run_config ships the two-season span
   # (2023-24 + 2024-25); this ladder fits the single 2024-25 season so the rungs compare to
-  # the 2026-09-04 A1 baseline and to each other, per Matt 2026-09-12. Said out loud here
+  # the 2026-09-04 A1 baseline and to each other, per Matt 2026-09-10. Said out loud here
   # so nobody reads "R4 == run_config" as including the window.
   say(!identical(BASE$season_filter, WINDOW$season_filter) || length(BASE$season_filter) == 1L,
       "the window is the ladder's pin, not run_config's",
@@ -688,7 +688,7 @@ preflight <- function() {
               WINDOW$est_date_start, WINDOW$est_date_end, paste(BASE$season_filter, collapse = "+")))
   say(identical(BASE$pe_empty_effort_stratum, "local_day_type") &&
         identical(BASE$pe_empty_stratum, "local") && identical(BASE$pe_variance, "impute_aware"),
-      paste("run_config ships the 2026-09-12 PE unsampled-cell settings (local_day_type effort fill,",
+      paste("run_config ships the 2026-09-10 PE unsampled-cell settings (local_day_type effort fill,",
             "local CPUE fill, impute_aware variance)"),
       sprintf("%s / %s / %s", BASE$pe_empty_effort_stratum %||% "?", BASE$pe_empty_stratum %||% "?",
               BASE$pe_variance %||% "?"))
@@ -700,7 +700,7 @@ preflight <- function() {
   # ---- COMPARABILITY. Every rung must resolve to the SAME value for every key that is
   # not a declared delta, and each rung must differ from the previous one in the keys it
   # says it does and no others. This is the check the ladder's whole design rests on, and
-  # until 2026-09-12 nothing verified it: WINDOW was applied to every rung and then each
+  # until 2026-09-10 nothing verified it: WINDOW was applied to every rung and then each
   # rung's own values were compared only AFTER the fits, from run_parameters.txt, when the
   # MCMC had already been spent.
   .fit_stages <- setdiff(STAGES, "R0")
@@ -775,7 +775,7 @@ preflight <- function() {
                       if (is.na(dg)) "ABSENT" else dg,
                       if (keep) "matches: the fit will be SKIPPED"
                       else "does NOT match this stage's config: it will be RE-RUN",
-                      if (!keep) "" else if (is.na(cd %||% NA)) "  [no code fingerprint recorded: pre-2026-09-13 run]"
+                      if (!keep) "" else if (is.na(cd %||% NA)) "  [no code fingerprint recorded: pre-2026-09-10 run]"
                       else if (nzchar(cd)) sprintf("  *** CODE HAS CHANGED SINCE THAT FIT (%s): it is being REUSED anyway, and any cross-rung claim against it is downgraded ***", cd)
                       else if (!is.null(CODE_EQUIVALENT[[.stage_code_of(ex) %||% ""]]))
                         sprintf("  [code fingerprint declared EQUIVALENT: %s]", CODE_EQUIVALENT[[.stage_code_of(ex)]])
@@ -961,7 +961,7 @@ desk_R0 <- function() {
                   "the shift are unclassified and only OSP's all-day count can say whether their mix differs.",
                   "shift_coverage_*.csv and contact_hour_by_trip_type.csv carry the detail."))
     }
-    # ---- 2026-09-12: THE PE ITSELF, under every unsampled-cell setting. -------------
+    # ---- 2026-09-10: THE PE ITSELF, under every unsampled-cell setting. -------------
     # R0 is called "the PE and reporting changes" and until now never ran the PE. It costs
     # a minute per arm and it is the only way the D19 fill question can be settled without
     # spending 4 h of MCMC per arm; the shipped BSS reference for the comparison is R4,
@@ -1021,7 +1021,7 @@ desk_R0 <- function() {
                                                   effort = sum(effort, na.rm = TRUE) + .cc_e, .groups = "drop")
     .tot <- .tot[match(names(.arms), .tot$arm), ]          # the declared order, not alphabetical
     .base_c <- .num1(.tot$catch[grepl("^effort zero", .tot$arm)])
-    V1row("R0", "the PE's unsampled-cell settings, all four arms on the real 2024-25 inputs (D19; the CPUE half found 2026-09-12)",
+    V1row("R0", "the PE's unsampled-cell settings, all four arms on the real 2024-25 inputs (D19; the CPUE half found 2026-09-10)",
           paste(sprintf("%s: catch %s (%+.1f%% vs the retired arm), effort %s", .tot$arm, fmt(.tot$catch, 0),
                         100 * (.tot$catch - .base_c) / max(.base_c, 1), fmt(.tot$effort, 0)), collapse = "; "),
           "the shipped arm is the one the fitted rungs use; the spread between arms is the size of the D19 question",
@@ -1093,8 +1093,8 @@ run_stage <- function(sid) {
               paste(cfg$tau_shore_prior_mu, collapse = ""), cfg$census_uncertainty))
   existing <- find_outdir(st$model, st$tag)
   if (isTRUE(RESUME) && !is.na(existing) && file.exists(file.path(existing, "run_parameters.txt"))) {
-    # 2026-09-12: a matching DIGEST is now required, not just a finished-looking folder.
-    # The deltas in this file changed on 2026-09-11 and again on 2026-09-12, so reusing a
+    # 2026-09-10: a matching DIGEST is now required, not just a finished-looking folder.
+    # The deltas in this file changed twice while the ladder was set up (2026-09-10), so reusing a
     # folder on the strength of its name would have silently mixed configurations into one
     # ladder. run_parameters.txt is still checked first: it is written last by the driver,
     # so its presence is the completion marker.
@@ -1103,7 +1103,7 @@ run_stage <- function(sid) {
       .cd <- .code_delta(.stage_code_of(existing))
       cat("  RESUME: output present at", basename(existing), "with a MATCHING config digest - skipping the fit.\n")
       if (is.na(.cd %||% NA))
-        cat("          (no code fingerprint recorded in that folder: it predates 2026-09-13.)\n")
+        cat("          (no code fingerprint recorded in that folder: it predates 2026-09-10.)\n")
       else if (nzchar(.cd)) {
         cat(sprintf(paste0("          *** THE CODE HAS CHANGED SINCE THAT FIT (%s). The folder is REUSED, because\n",
                            "          re-fitting hours of MCMC over a code edit that may be a comment is worse than\n",
@@ -1121,7 +1121,7 @@ run_stage <- function(sid) {
     }
     cat(sprintf(paste0("  RESUME: output present at %s but its config digest %s does not match this stage (%s).\n",
                        "          RE-RUNNING. The old folder is overwritten by the render.\n"),
-                basename(existing), if (is.na(dg)) "is ABSENT (pre-2026-09-12 run)" else dg, stage_digest(sid)))
+                basename(existing), if (is.na(dg)) "is ABSENT (pre-2026-09-10 run)" else dg, stage_digest(sid)))
   }
   if (isTRUE(DRY_RUN)) { cat("  DRY_RUN: not fitting.\n"); return(NA_character_) }
   cfg$model <- st$model; cfg$run_tag <- st$tag; cfg$run_weather <- FALSE
@@ -1171,7 +1171,7 @@ verdict_R1 <- function(dir) {
   base <- .here("05_output", REF$A1$dir)
   sa <- .comp(dir, "shore (All gear)"); sp <- .comp(dir, "shore (Pot closure)")
   ba <- .comp(dir, "private_boat (All gear)"); bp <- .comp(dir, "private_boat (Pot closure)")
-  # 2026-09-12: under F_METHOD = "new_throughout" this rung also carries the NEW f, so the
+  # 2026-09-10: under F_METHOD = "new_throughout" this rung also carries the NEW f, so the
   # BOAT is EXPECTED to move against the baseline and cannot be a pass/fail criterion. The
   # SHORE still can: f is boat-only (crab_fraction_stan_data() sets apply_cf = 0 for shore),
   # so the shore is the clean regression test against A1 in either mode.
@@ -1472,7 +1472,7 @@ banner(sprintf("IMPROVEMENT LADDER  2026-09-08   DRY_RUN=%s  F_METHOD=%s  stages
                DRY_RUN, F_METHOD, paste(STAGES, collapse = ", "), GEAR_FOLLOWS))
 preflight()
 
-# A FAILED RUNG MUST NOT DESTROY THE OTHERS (2026-09-13). This was a bare
+# A FAILED RUNG MUST NOT DESTROY THE OTHERS (2026-09-10). This was a bare
 #   for (sid in STAGES) dirs[[sid]] <- run_stage(sid)
 # so an error inside any render -- a Stan failure, a full disk, one bad interview row --
 # propagated out of the loop and killed the script before a single verdict was written.
