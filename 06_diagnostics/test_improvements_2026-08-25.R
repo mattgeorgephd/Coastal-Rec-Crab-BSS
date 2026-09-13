@@ -4617,7 +4617,7 @@ local({
   # where it previously aborted the run 300 assertions early and printed no summary at all.
   chk("harness: an error while evaluating a condition is a FAIL, not the end of the run",
       { r <- tryCatch({ o0 <- ok; b0 <- bad
-                        chk("(self-test, expected to FAIL)", stop("deliberate"))
+                        chk("^^ IGNORE: this FAIL line is the self-test below, deliberately erroring", stop("deliberate"))
                         bad == b0 + 1 && ok == o0 }, error = function(e) FALSE)
         # undo the self-test's own bookkeeping so it does not show in the totals twice
         if (isTRUE(r)) { bad <<- bad - 1 }
