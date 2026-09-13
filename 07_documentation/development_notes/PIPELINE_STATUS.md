@@ -536,7 +536,65 @@ Status note: **P0, T1.1a, T1.3, and T1.4 are CONFIRMED.** T1.3's sweep landed on
 
 - **[CODED 2026-07-21, ACTION REQUIRED] GPL-3.0 licensing + CreelEstimates attribution.** This pipeline is a derivative of the freshwater `CreelEstimates` framework (GPL-3.0); the freshwater team asked for the license headers and attribution to be added. Added 2026-07-21: a per-file GPL-3.0 header on every R/Stan/Rmd source, a `NOTICE` file, a `LICENSE` file, and a README license section, all crediting `https://github.com/dfw-wa/CreelEstimates`. **Two actions remain before publishing:** ~~(1) the `LICENSE` file still needs the full GPL-3.0 text pasted in~~ **(1) DONE: `LICENSE` is 35,823 bytes with no placeholder, verified 2026-09-01.** (2) WDFW must confirm the exact copyright holder/year lines in `LICENSE`/`NOTICE`. GPL-3.0 is not optional here, it is inherited from CreelEstimates as a derivative work. **Effort: trivial (paste + confirm).**
 - **[DONE, 2026-08-07] renv.lock (A4 / T4.1 / ORCH-25).** A top-level `renv.lock` now pins R 4.2.2 and the ~99 CRAN packages recorded in the confirmation run's `session_info.txt` (the exact environment that produced the confirmed production estimates). Caveat: it was reconstructed from `session_info.txt`, not `renv::snapshot()`, so it carries no package hashes and covers the two production models' observed dependencies (the experimental weather module additionally needs `geosphere`). Run `renv::restore()` to validate it, or `renv::init()` + `renv::snapshot()` in your environment to regenerate the fully canonical lock with hashes. `run_estimation.R` already serves as the top-level runner.
-- **Output and repo hygiene (A1/A2 / T4.2 / ORCH-26).** `05_output/` is **6,837 tracked files / ~565 MB** (measured 2026-09-01; the earlier figure of 1,017 files / 82 MB is from 2026-07) and grows each run, including pre-v6 runs not reproducible from current code; `.Rproj.user/` (5 files) is tracked despite being gitignored. Untrack `.Rproj.user`; decide an `output/` policy (gitignore + one canonical reference run, or Releases). Delete the stale `20260711/pooled-CPUE-morning` and `-afternoon` runs.
+- **[PART DONE 2026-09-13] Output and repo hygiene (A1/A2 / T4.2 / ORCH-26).**
+  **`.Rproj.user/` is untracked** (five files, `git rm --cached`, kept on disk; `.gitignore`
+  never affects a path already in the index, which is why line 2 had no effect for the life of
+  the branch). Harness section 71 asserts that no gitignored path is tracked again.
+  **One of the five was worse than clutter:** `.Rproj.user/shared/notebooks/paths` is a table
+  of LOCAL ABSOLUTE PATHS from the maintainer's machine, one line per file opened, including
+  the account name and a working directory whose name is not this repository's. A tracked
+  file that publishes a contributor's local filesystem layout is a small leak that no
+  reviewer would ask for, and it is the reason this item is not purely cosmetic.
+
+  **`05_output/` is a DECISION, not a task, and it is Matt's.** Measured 2026-09-13, on this
+  branch: **9,942 tracked files, 835 MB in the working tree, and `.git` is 332 MB.** The split
+  is what decides the options, because two thirds of the weight is renderings that nothing in
+  the codebase ever reads:
+
+  | | files | working tree | packed in history | read by any code? |
+  |---|---|---|---|---|
+  | `*.png` diagnostic plots | 1,857 | 328 MB | **142.5 MB (42%)** | no |
+  | `*.html` rendered reports | 73 | 276 MB | **75.2 MB (22%)** | no |
+  | `*.csv` result tables | 7,809 | 230 MB | 49.9 MB (15%) | **yes**: the harness and every runner |
+  | `*.txt` / `*.log` / `*.md` | 203 | 0.7 MB | ~0 MB | **yes**: `IMP_STAGE.txt` drives ladder RESUME |
+  | everything outside `05_output/` | | | 71.0 MB (21%) | |
+
+  So PNG + HTML is **218 MB, 64% of the entire repository history, in 1,158 blobs with no
+  reader**. The CSVs, which are the citable evidence and which the harness reads, are 50 MB.
+  Nothing in the documentation cites a rendered `.html` by path (one mention, and it is about
+  a report that was overwritten). Note also that **`origin/main` already carries 82 MB of the
+  same PNG/HTML blobs**, so any option that shrinks `.git` has to be applied to `main` too.
+
+  For scale: GitHub blocks a single file over 100 MiB, warns over 50 MiB, and recommends a
+  repository stay "ideally less than 1 GB" ([GitHub Docs, *About large files on
+  GitHub*](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)).
+  The largest file here is 5.6 MB and `.git` is 332 MB, so **nothing is near a hard limit**.
+  The cost is a 1.2 GB clone and slow `git status`, not a blocked push. That is the honest case
+  against the most aggressive option.
+
+  **Option A, untrack going forward (no history rewrite).** `git rm -r --cached` the PNG and
+  HTML under `05_output/`, add `05_output/**/*.png` and `05_output/**/*.html` to `.gitignore`,
+  keep every file on disk. A fresh clone drops from ~1.17 GB to ~563 MB. `.git` stays 332 MB
+  because the blobs remain reachable from history, so nothing already pushed is lost and every
+  existing clone, SHA, patch and citation keeps working. Reversible. **Risk: none.**
+
+  **Option B, Option A plus keep the authoritative run's renderings.** As A, but `git add -f`
+  the HTML and PNG for `20260910/pooled-CPUE-IMP-R4-shore-tau-newf` and the R5 gear
+  cross-check, so the one rendering a reviewer will ask to see stays in the repository
+  (~11 MB). **Risk: none.** This is the recommended shape.
+
+  **Option C, rewrite history with `git filter-repo`.** Removes the PNG/HTML blobs from every
+  commit; `.git` falls from 332 MB to roughly 115 MB and a clone to ~350 MB. Costs, all real:
+  every SHA changes, so `main` and this branch must both be force-pushed and every clone
+  re-cloned; it has to be done on `main` as well or the 82 MB there survives; the rendered
+  reports cease to exist at any commit, so a reviewer asking "show me the render behind the
+  2026-08-31 review" cannot be answered from the repository; and doing it *during* a branch
+  merge is the worst available timing. `git filter-repo` is what GitHub itself recommends for
+  this ([same source]). **Only worth it if the clone size is actually blocking someone.**
+
+  Two things to do under any option: delete the stale `20260711/pooled-CPUE-morning` and
+  `-afternoon` runs, and decide whether pre-v6 runs that current code cannot reproduce are
+  kept as history or dropped.
 - **[DONE, item 7] A3: gear-resolved `max_divergences` doc/code reconciled.** Code and docs now agree on 5.
 - **[DONE, item 8] Stale gear-resolved output labels.** The crabber-hours labels (PE plot title, `effort_units_note`) are fixed to gear-deployments.
 - **[DONE, item 9] Global-variable coupling (T4.3), duplicated PE monthly-share blocks (T4.4).** The refactor moved functions onto `params`; item 9 consolidated the two PE monthly-share blocks into `pe_monthly_effort_share.R` and verified no residual globals.

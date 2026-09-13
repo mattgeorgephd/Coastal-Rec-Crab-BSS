@@ -4257,5 +4257,40 @@ local({
   }
 })
 
+# ---------------------------------------------------------------------------
+# 71. NO IGNORED PATH MAY BE TRACKED (2026-09-13)
+#
+#     Five .Rproj.user/ files were tracked for the life of this branch even though
+#     .gitignore line 2 is ".Rproj.user/". That is not a gitignore bug: .gitignore
+#     governs what git STARTS tracking and has no effect on a path already in the
+#     index, so adding the rule after the fact changes nothing and the only fix is
+#     `git rm --cached`. Nothing warns you, which is why it survived. One git call
+#     names every such path, so the invariant is cheap and exact.
+# ---------------------------------------------------------------------------
+local({
+  out <- tryCatch(suppressWarnings(
+           system2("git", c("ls-files", "-i", "-c", "--exclude-standard"),
+                   stdout = TRUE, stderr = FALSE)), error = function(e) NULL)
+  st <- tryCatch(suppressWarnings(
+          system2("git", c("rev-parse", "--is-inside-work-tree"),
+                  stdout = TRUE, stderr = FALSE)), error = function(e) NULL)
+  if (!identical(st, "true")) {
+    cat("NOTE  hygiene: not a git work tree; the tracked-but-ignored check is skipped\n")
+  } else {
+    out <- out[nzchar(out)]
+    chk("hygiene: no path that .gitignore excludes is tracked", length(out) == 0,
+        if (length(out)) sprintf("(tracked anyway: %s)",
+          paste(utils::head(out, 6), collapse = ", ")) else "")
+  }
+  # the rule that was there all along, plus the duplicate that was removed
+  gi <- readLines(".gitignore", warn = FALSE)
+  chk("hygiene: .gitignore still excludes the RStudio session directory",
+      any(trimws(gi) == ".Rproj.user/"))
+  chk("hygiene: the duplicated .Rproj.user notebooks rule is gone",
+      sum(grepl("^\\.Rproj\\.user/shared/notebooks/paths$", trimws(gi))) == 0)
+  chk("hygiene: .gitignore records why the untracking was needed",
+      any(grepl("git rm --cached", gi, fixed = TRUE)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
 if (bad > 0) quit(status = 1)
