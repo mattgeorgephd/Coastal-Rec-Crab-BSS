@@ -150,7 +150,7 @@
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
-DRY_RUN <- FALSE                    # TRUE prints the plan and the desk stage; fits nothing
+DRY_RUN <- TRUE                    # TRUE prints the plan and the desk stage; fits nothing
 STAGES  <- c("G0", "G1", "G3", "G2", "G4", "G5")   # G1 first after G0: it is the control
 RESUME  <- TRUE                    # reuse a rung ONLY when its GEAR_STAGE.txt digest matches
 ZI_AT   <- "weekly"                # the resolution G5 turns ZI on at; "d3" uses G3's value
@@ -294,9 +294,15 @@ WINDOW <- list(
   # the AR machinery. ar_adaptive = FALSE is what makes gear_period_bss the lever at all;
   # ar_force NULL so nothing overrides it; ar_escalate FALSE so a rung cannot quietly
   # escalate to a resolution it was not asked for and report it as the one it was.
-  ar_adaptive = FALSE, ar_force = NULL, ar_escalate = FALSE, ar_rung_adequacy = TRUE,
-  # the pot-closure sub-season's period is NOT the lever and must not move
-  gear_period_bss_pot_closure = "biweekly",
+  # ar_adaptive = FALSE is what makes the sub-season period the baseline; ar_escalate
+  # FALSE so a rung cannot quietly escalate to a resolution it was not asked for. ar_force
+  # is NOT pinned here: it is the lever (see .shore_at above).
+  ar_adaptive = FALSE, ar_escalate = FALSE, ar_rung_adequacy = TRUE,
+  # THE SUB-SEASON PERIODS ARE PINNED AT THE SHIPPED VALUES AND DO NOT MOVE. Every rung
+  # therefore fits the BOAT all-gear component at monthly, which is what the pooled track
+  # fits it at, so a rung's port total is comparable to the pooled R4 and the only thing
+  # varying across rungs is the shore.
+  gear_period_bss = list(all_gear = "month", pot_closure = "biweekly"),
   # ZI: on for the pooled track only, which is the shipped state. G5 overrides.
   estimate_catch_zi = TRUE, catch_zi_populations = "shore", catch_zi_tracks = "pooled",
   zi_catch_prior_a = 1, zi_catch_prior_b = 9
@@ -305,7 +311,35 @@ WINDOW <- list(
 # ---------------------------------------------------------------------------
 # THE RUNGS. `delta` is the ONLY thing that may differ from the pinned configuration.
 # ---------------------------------------------------------------------------
-.pb <- function(ag) list(gear_period_bss = list(all_gear = ag, pot_closure = "biweekly"))
+# THE RUNG LEVER, CORRECTED 2026-09-14 AFTER THE FIRST RUN.
+#
+# It was list(gear_period_bss = list(all_gear = <res>, pot_closure = "biweekly")), which is
+# WRONG for this question and the run proved it. period_bss is a property of the SUB-SEASON
+# and the all_gear sub-season holds BOTH populations, so that key moved the shore all-gear
+# fit AND the boat all-gear fit together:
+#
+#   shore all-gear   28,334 -> 29,266   (+3.3%)
+#   boat  all-gear   45,374 -> 53,584   (+18.1%)   <- D3 never asked about this
+#   port             93,278 -> 102,430  (+9.8%)
+#
+# so 90% of the port movement was a component the question was not about, and the
+# recommendation of "weekly" would have shipped the worst of the four configurations
+# measured (+8.62% from the pooled track, against -0.35% for the shipped one). Same class
+# of defect as the 2026-08-27 Stage C ar_force bug that forced both boat sub-seasons to
+# biweekly and "made its port total uninterpretable as the change it was supposed to
+# isolate"; one layer up, same shape.
+#
+# ar_force IS the per-population lever and it reaches this track: bss_ar_ladder() resolves
+# it first and outranks everything, and bss_select_ar_resolution() applies it AFTER both
+# the fixed and adaptive branches, so it overrides period_bss inside the prep too. Naming
+# only `shore` leaves the boat on its shipped monthly, which is also what the POOLED track
+# fits it at, so each rung's port total is directly comparable to the pooled R4.
+#
+# ar_force is an experiment toggle whose production value is NULL, which is right for a
+# ladder and wrong for an adoption. The adoption lever is the per-population form of
+# gear_period_bss (03_R_functions/bss_gear_period.R), and the recommendation block below
+# prints THAT edit, not this one.
+.shore_at <- function(res) list(ar_force = list(shore = list(all_gear = res)))
 
 STAGE_DEFS <- list(
   G0 = list(tag = "GZ-G0-desk", fit = FALSE, res = NA_character_,
@@ -313,25 +347,25 @@ STAGE_DEFS <- list(
             delta = list()),
   G1 = list(tag = "GZ-G1-month", fit = TRUE, res = "month",
             item = "D3 control: the SHIPPED period, and the bit-identity proof for the D6 Stan edit",
-            delta = .pb("month")),
+            delta = .shore_at("month")),
   G2 = list(tag = "GZ-G2-biweekly", fit = TRUE, res = "biweekly",
             item = "D3: biweekly",
-            delta = .pb("biweekly")),
+            delta = .shore_at("biweekly")),
   G3 = list(tag = "GZ-G3-weekly", fit = TRUE, res = "weekly",
             item = "D3: weekly, the pooled track's resolution",
-            delta = .pb("weekly")),
+            delta = .shore_at("weekly")),
   G4 = list(tag = "GZ-G4-daily", fit = TRUE, res = "daily",
             item = "D3: daily, completing the bracket",
-            delta = .pb("daily")),
+            delta = .shore_at("daily")),
   G5 = list(tag = "GZ-G5-zi", fit = TRUE, res = NA_character_,
             item = "D6: the zero-inflated shore catch likelihood ON for this track",
-            delta = c(.pb("PLACEHOLDER"),
+            delta = c(.shore_at("PLACEHOLDER"),
                       list(catch_zi_tracks = c("pooled", "gear_resolved"))))
 )
 # G5's resolution is resolved after ZI_AT so the pair is like for like.
 .zi_res <- function() if (identical(ZI_AT, "d3")) STAGE_DEFS$G3$res else ZI_AT
 STAGE_DEFS$G5$res <- .zi_res()
-STAGE_DEFS$G5$delta$gear_period_bss <- list(all_gear = .zi_res(), pot_closure = "biweekly")
+STAGE_DEFS$G5$delta$ar_force <- list(shore = list(all_gear = .zi_res()))
 # the rung G5 is paired against: the AR rung at the same resolution, ZI off
 .zi_control <- function() {
   r <- .zi_res()
@@ -339,13 +373,12 @@ STAGE_DEFS$G5$delta$gear_period_bss <- list(all_gear = .zi_res(), pot_closure = 
   m[[as.character(r)]] %||% "G3"
 }
 
-DELTA_KEYS <- unique(c("gear_period_bss", "catch_zi_tracks"))
+DELTA_KEYS <- unique(c("ar_force", "catch_zi_tracks"))
 
 resolve_cfg <- function(sid) {
   cfg <- BASE
-  for (k in names(WINDOW)) if (!identical(k, "gear_period_bss_pot_closure")) cfg[[k]] <- WINDOW[[k]]
-  cfg$gear_period_bss <- list(all_gear = "month",
-                              pot_closure = WINDOW$gear_period_bss_pot_closure)
+  for (k in names(WINDOW)) cfg[[k]] <- WINDOW[[k]]
+  cfg$ar_force <- NULL           # the rung's delta is the only thing that sets it
   d <- STAGE_DEFS[[sid]]$delta
   for (k in names(d)) cfg[[k]] <- d[[k]]
   cfg
@@ -356,7 +389,7 @@ resolve_cfg <- function(sid) {
 # silently mixed configurations into one ladder there on 2026-09-10.
 stage_digest <- function(sid) {
   cfg <- resolve_cfg(sid)
-  keys <- sort(unique(c(DELTA_KEYS, names(WINDOW)[names(WINDOW) != "gear_period_bss_pot_closure"])))
+  keys <- sort(unique(c(DELTA_KEYS, names(WINDOW))))
   txt <- paste(vapply(keys, function(k)
     paste0(k, "=", paste(format(unlist(cfg[[k]] %||% "NULL")), collapse = "|")), character(1)),
     collapse = ";")
@@ -476,27 +509,43 @@ stage_G0 <- function() {
                 if (length(undeclared)) paste(undeclared, collapse = ", ") else "none"))
   }
 
-  # (3) each fitted rung's requested resolution must actually reach build_subseasons()
+  # (3) THE CHECK THAT SHOULD HAVE CAUGHT THE FIRST RUN'S DEFECT, and did not exist.
+  #
+  # It asked only whether the requested period reached build_subseasons() and whether the
+  # POT CLOSURE sub-season moved. It never asked which POPULATIONS moved, so a lever that
+  # moved the shore and the boat together passed it, and the ladder spent 3 h measuring the
+  # wrong thing. This resolves the period every fit will actually be given, for both
+  # populations and both sub-seasons, and requires exactly one of the four to move.
+  #
+  # No data is needed: .bss_resolve_ar_force() is the pure function that decides the force,
+  # and build_subseasons() supplies the fallback, so the four resolutions are known before
+  # any fit. That is the whole point of putting this in a desk stage.
+  .norm <- function(x) sub("^month$", "monthly", as.character(x))
   for (sid in names(STAGE_DEFS)) {
     st_ <- STAGE_DEFS[[sid]]; if (!isTRUE(st_$fit)) next
     cfg <- resolve_cfg(sid)
     ss  <- tryCatch(build_subseasons(cfg), error = function(e) NULL)
-    got <- if (is.null(ss)) NA_character_ else {
-      ag <- Filter(function(x) identical(x$gear_regime, "all_gear"), ss)
-      if (length(ag)) as.character(ag[[1]]$period_bss) else NA_character_
+    if (is.null(ss)) { V1row(sid, "the per-fit AR periods resolve", "build_subseasons() failed",
+                             "four resolutions", "ERROR", ""); next }
+    got <- list(); for (pop in c("shore", "private_boat")) for (x in ss) {
+      forced <- tryCatch(.bss_resolve_ar_force(cfg, pop, x$gear_regime), error = function(e) NULL)
+      got[[paste(pop, x$gear_regime, sep = "/")]] <-
+        .norm(if (!is.null(forced) && !is.na(forced)) forced else
+              (bss_gear_period(cfg, pop, x$gear_regime) %||% x$period_bss))
     }
-    pc <- if (is.null(ss)) NA_character_ else {
-      cl <- Filter(function(x) identical(x$gear_regime, "pot_closure"), ss)
-      if (length(cl)) as.character(cl[[1]]$period_bss) else NA_character_
-    }
-    V1row(sid, "the requested all-gear period reaches build_subseasons(), and pot closure does not move",
-          sprintf("all_gear = %s, pot_closure = %s", got, pc),
-          sprintf("all_gear = %s, pot_closure = biweekly", st_$res),
-          if (identical(got, st_$res) && identical(pc, "biweekly")) "PASS" else "FAIL",
-          paste("gear_period_bss is read inside build_subseasons() and handed to the driver as",
-                "fixed_resolution. If it did not arrive, the rung would fit at the default and",
-                "report itself as the resolution it asked for, which is the one failure mode",
-                "of this ladder that would not announce itself."))
+    want <- list("shore/all_gear" = .norm(st_$res), "shore/pot_closure" = "biweekly",
+                 "private_boat/all_gear" = "monthly", "private_boat/pot_closure" = "biweekly")
+    ok <- identical(got[names(want)], want)
+    V1row(sid, "EXACTLY ONE FIT MOVES: the shore all-gear period, and nothing else",
+          paste(sprintf("%s = %s", names(got), unlist(got)), collapse = "; "),
+          paste(sprintf("%s = %s", names(want), unlist(want)), collapse = "; "),
+          if (ok) "PASS" else "FAIL",
+          paste("The first run's lever was gear_period_bss, a SUB-SEASON key, and the",
+                "all_gear sub-season holds BOTH populations, so every rung moved the boat",
+                "all-gear fit as well: +18.1% monthly to weekly against the shore's +3.3%,",
+                "and 90% of the port movement came from a component D3 does not ask about.",
+                "The BOAT staying at monthly is also what makes each rung's port total",
+                "comparable to the pooled R4, which fits it at monthly."))
   }
 
   # (4) the ZI pair is like for like in everything but ZI
@@ -648,10 +697,25 @@ verdict_G1 <- function(dir) {
                 "inert."))
     return(invisible(NULL))
   }
-  ex <- tryCatch(fit_exactness(dir, ref, what = "the gear fits"), error = function(e) NULL)
-  ok <- !is.null(ex) && isTRUE(ex$identical %||% FALSE)
+  # 2026-09-14 DEFECT FIX, found by reading the first run's output rather than trusting
+  # it. This read ex$identical and ex$text. fit_exactness() returns NEITHER: its fields are
+  # `observed`, `verdict` and `unexpected_delta` (03_R_functions/batch_verdict_helpers.R
+  # line 99). So `ok` was FALSE for every possible input and the observed string printed as
+  # "identical = ". Read correctly, the same comparison on the same two folders returns
+  # PASS: 11,021 shared parameter rows across 8 summaries, identical at full precision.
+  # The verdict said the D6 Stan edit was not inert when the evidence said it was.
+  #
+  # expect_delta names the keys that legitimately differ between a pre-D6 folder and this
+  # one: the two keys this patch series added, the one the weather removal retired, this
+  # rung's own lever, and three that are NULL in one dump and absent from the other.
+  ex <- tryCatch(fit_exactness(dir, ref, what = "the gear fits",
+                   expect_delta = c("catch_zi_tracks", "gear_period_bss", "run_weather",
+                                    "ar_force", "pot_closures", "census_windows",
+                                    "tau_shore_derive_window_only")),
+                 error = function(e) NULL)
+  ok <- !is.null(ex) && identical(ex$verdict, "PASS")
   V1row("G1", "THE D6 STAN EDIT IS INERT WHEN OFF: G1 is bit-identical to the pre-edit render",
-        if (is.null(ex)) "could not compare" else (ex$text %||% paste0("identical = ", ex$identical)),
+        if (is.null(ex)) "could not compare" else ex$observed,
         sprintf("every shared parameter row identical to %s", basename(REF_R5)),
         if (ok) "PASS" else "FAIL",
         paste("G1 ships the same configuration as the committed R5 cross-check and differs from",
@@ -660,12 +724,33 @@ verdict_G1 <- function(dir) {
               "consumes neither a parameter nor an initialization draw. If this FAILS, the edit",
               "is not inert, the 93,274 R5 figure in PULL_REQUEST.md is no longer reproducible,",
               "and EVERY rung in this ladder is measuring the edit as well as its own lever."))
+  # 2026-09-14 DEFECT FIX. This demanded 0.0000% on the PORT total, which is not a
+  # deterministic function of the fits: the driver adds the census as a DRAW,
+  # rnorm(n_draws_max, Dungeness_Kept, carried_se) clamped at observed_dung, so the median
+  # of the summed draws moves with the RNG state even when every fit is bit-identical.
+  # The first run failed this at 0.0043%, four crab on 93,274, while all four COMPONENTS
+  # were identical to the digit. The components are the deterministic quantity, so they are
+  # what is checked; the port is reported with a tolerance that admits the census draw.
+  cmp <- c("shore (Pot closure)", "shore (All gear)",
+           "private_boat (Pot closure)", "private_boat (All gear)")
+  dd <- vapply(cmp, function(k) .comp(dir, k), numeric(1))
+  rr <- vapply(cmp, function(k) .comp(ref, k), numeric(1))
+  V1row("G1", "every BSS component reproduces the committed R5 figure exactly",
+        paste(sprintf("%s %s vs %s", cmp, fmt(dd, 0), fmt(rr, 0)), collapse = "; "),
+        "identical, to the crab",
+        if (isTRUE(all(is.finite(dd)) && identical(dd, rr))) "PASS" else "FAIL",
+        paste("The components come straight from the fits. The port total does not: it adds",
+              "the census as a random draw, so it cannot be required to be bit-identical",
+              "and the row below reports it with a tolerance instead."))
   p  <- .num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_median)
   pr <- .num1(.port_row(rd(ref, "port_total_Dungeness_Kept.csv"))$BSS_median)
-  V1row("G1", "the port total reproduces the committed R5 figure",
+  V1row("G1", "the port total reproduces the committed R5 figure within the census draw",
         sprintf("G1 %s vs R5 %s (%.4f%%)", fmt(p, 0), fmt(pr, 0), .pct(p, pr)),
-        "0.0000%", if (isTRUE(abs(.pct(p, pr)) < 1e-6)) "PASS" else "FAIL",
-        "A weaker restatement of the row above, in the unit a reader will quote.")
+        "within 0.05%, the scale of the census draw (SE 73 on ~94,000)",
+        if (isTRUE(abs(.pct(p, pr)) < 0.05)) "PASS" else "FAIL",
+        paste("A restatement of the row above in the unit a reader will quote, with the",
+              "tolerance the census draw requires. A difference LARGER than this would mean",
+              "the fits moved, which the row above would already have caught."))
 }
 
 # Every fitted rung: did it get the resolution it asked for, and did it pass the gate?
@@ -728,23 +813,34 @@ verdict_G5 <- function(dir_zi, dir_ctl, ctl_name) {
   pb <- file.path(dir_zi,  sprintf("loo_pointwise_catch_%s.csv", lab))
   el <- tryCatch(loo_elpd_paired(pa, pb, label = sprintf("%s -> G5 (ZI on)", ctl_name)),
                  error = function(e) NULL)
+  # 2026-09-14 DEFECT FIX, and this one produced a WRONG ANSWER rather than a missing one.
+  # The fields read here were el$diff, el$se, el$zero and el$positive. loo_elpd_paired()
+  # returns NONE of those: they are elpd_diff, se_diff, ratio, zeros, positives and
+  # by_count, and the file ships two purpose-built renderers, loo_elpd_paired_str() and
+  # loo_elpd_by_count_str(), which this block ignored. So clause 2 reported "NA nats at NA
+  # paired SE", the recommendation block counted the NA row as a failure, and D6 came back
+  # "do not adopt" when the same two folders read correctly give +11.3 nats at 2.29 paired
+  # SE, which PASSES. Two lessons, both recorded rather than fixed silently: use the
+  # renderer a helper ships, and never let a non-computable clause score as a failure.
   if (is.null(el)) {
-    V1row("G5", "paired elpd on the shore all-gear catch stream", "could not compute",
+    V1row("G5", "D6 rule 2: the paired elpd gain exceeds 2 paired SE", "NOT COMPUTABLE",
           "gain > 2 paired SE", "REVIEW",
-          paste("loo_pointwise_catch_*.csv is missing or the two runs' observation vectors do",
-                "not align. Without it decision rule 2 cannot be applied and D6 stays open."))
+          paste("loo_pointwise_catch_*.csv is missing, or the two runs' observation vectors do",
+                "not align, so the statistic does not exist. This is REVIEW and not FAIL:",
+                "a clause that could not be evaluated is not a clause the feature failed,",
+                "and the recommendation block below refuses to conclude from it."))
   } else {
-    gain <- el$diff %||% NA_real_; se <- el$se %||% NA_real_
-    ratio <- if (isTRUE(is.finite(gain)) && isTRUE(is.finite(se)) && se > 0) gain / se else NA_real_
+    gain <- el$elpd_diff %||% NA_real_; se <- el$se_diff %||% NA_real_
+    ratio <- el$ratio %||% (if (isTRUE(is.finite(gain)) && isTRUE(is.finite(se)) && se > 0) gain / se else NA_real_)
     V1row("G5", "D6 rule 2: the paired elpd gain exceeds 2 paired SE",
-          sprintf("%s nats at %s paired SE (%s SE)", fmt(gain, 1), fmt(se, 2), fmt(ratio, 2)),
-          "> 2 paired SE", if (isTRUE(ratio > 2)) "PASS" else if (isTRUE(ratio > 0)) "FAIL" else "FAIL",
+          loo_elpd_paired_str(el),
+          "> 2 paired SE", if (!isTRUE(is.finite(ratio))) "REVIEW" else if (ratio > 2) "PASS" else "FAIL",
           paste("Paired, not naive: on the pooled Z1/Z0 pair the paired SE was 5.5 nats against",
                 "a naive 46.7, which is the difference between 2.69 SE and 0.32 SE. The pooled",
                 "adoption earned +11.6 nats at 2.30 SE."))
-    z <- el$zero %||% NULL; p <- el$positive %||% NULL
+    z <- el$zeros; p <- el$positives
     V1row("G5", "D6 rule 4: the gain is not bought entirely at the zeros",
-          if (is.null(z) || is.null(p)) "decomposition unavailable" else
+          if (is.null(z) || is.null(p)) "NOT COMPUTABLE" else
             sprintf("zeros %s nats (n = %s), positives %s nats (n = %s)",
                     fmt(z[["diff"]], 1), fmt(z[["n"]], 0), fmt(p[["diff"]], 1), fmt(p[["n"]], 0)),
           "the positive-count loss is smaller than the zero-count gain",
@@ -756,6 +852,14 @@ verdict_G5 <- function(dir_zi, dir_ctl, ctl_name) {
                 "improves the fit everywhere, and the aggregate number cannot tell them apart.",
                 "On the pooled pair the split was +25.2 at the zeros and -10.5 at the positives:",
                 "net positive, but bought."))
+    # The two-way split is not the informative cut and loo_elpd_paired.R says so: on the
+    # pooled comparison "positives -10.5" was y=1 at -42.0 with every bin from 3 up
+    # POSITIVE and the 3+ bins carrying 87% of the catch. Reported, not scored.
+    V1row("G5", "REPORTED: the elpd difference by observed count",
+          loo_elpd_by_count_str(el), "no threshold; read the table", "INFO",
+          paste("Where the loss sits matters more than its sign. A feature that loses at y=1",
+                "and gains across the bins that carry the catch is doing something different",
+                "from one that loses everywhere."))
   }
   La <- LAD[[ctl_name]]; Lb <- LAD[["G5"]]
   if (!is.null(La) && !is.null(Lb)) {
@@ -868,12 +972,20 @@ recommend <- function() {
     g5 <- vv[vv$stage == "G5" & grepl("^D6 rule", vv$criterion), , drop = FALSE]
     for (i in seq_len(nrow(g5)))
       cat(sprintf("     %-6s %s\n              %s\n", g5$verdict[i], g5$criterion[i], g5$observed[i]))
-    pass <- nrow(g5) > 0 && all(g5$verdict == "PASS")
+    # 2026-09-14: a REVIEW row is a clause that could not be evaluated, not one the
+    # feature failed. The first run scored an un-computable clause as a failure and
+    # returned "do not adopt" on evidence that in fact passes.
+    pass     <- nrow(g5) > 0 && all(g5$verdict == "PASS")
     any_fail <- nrow(g5) > 0 && any(g5$verdict == "FAIL")
+    any_rev  <- nrow(g5) > 0 && any(g5$verdict == "REVIEW")
     cat(sprintf("\n     %s\n", if (pass)
       sprintf("ADOPT for this track: every D6 clause passes at %s resolution.", ct$requested_res)
       else if (any_fail)
-        "DO NOT ADOPT for this track: at least one D6 clause fails."
+        "DO NOT ADOPT for this track: at least one D6 clause FAILS on the evidence."
+      else if (any_rev)
+        paste("D6 STAYS OPEN: no clause fails, but at least one could not be EVALUATED.",
+              "\n     That is a missing statistic, not a verdict against the feature. Fix the",
+              "\n     statistic before concluding anything.")
       else "D6 STAYS OPEN: no clause fails outright but not all pass."))
     if (pass)
       cat("     ADOPTION EDIT: run_config.R catch_zi_tracks <- c(\"pooled\", \"gear_resolved\").\n     Note that this MOVES the committed R5 cross-check figure, so PULL_REQUEST.md and\n     the register's -1.17% gap have to be re-derived from a fresh gear render.\n")

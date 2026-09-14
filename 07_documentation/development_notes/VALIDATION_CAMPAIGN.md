@@ -1,6 +1,6 @@
 # The validation campaign, 2026-08 to 2026-09: the run-by-run record
 
-**Last updated:** 2026-09-13 (the git-anchor table added; Section 1s corrected to its git date).
+**Last updated:** 2026-09-14 (Section 1w: the gear AR / ZINB run, and the four defects in its own driver).
 
 - **What this is.** The dated, run-by-run narrative of the validation and improvement
   campaign that produced Method v2.0. It was Sections 1b through 1v of
@@ -79,6 +79,7 @@
 > | 1t | 2026-09-10 | 2026-09-10 | `c50bc54`, `9e4ccbe`, `9a7a05d` | desk only |
 > | 1u | 2026-09-10 | 2026-09-10 | `2a28871`, `f04a772`, `627a831` | desk only |
 > | 1v | 2026-09-11 | 2026-09-11 | `3609f1d`, `36ca4cb`, `4a68546` | `05_output/20260910`, `20260911` |
+> | 1w | 2026-09-14 | 2026-09-14 | `ae795bb`, `f122338`, `7cd7400` (the code), `792c900` (the run) | `05_output/20260913`, `20260914` |
 >
 > From 1p onward the two clocks agree, so for the whole block that produced Method v2.0 the
 > section dates *are* the git dates. The full ladder run of Section 1v rendered overnight on
@@ -879,3 +880,155 @@ The code fingerprint B23 added hashes raw file text, so the very patch that reco
 **And auditing that patch the next day found two defects in it, one silent and permanent (B25).** The equivalence entry was keyed on the RECORDED fingerprint alone, and `.code_delta()` returns early on that key, so the declaration excused its folder against **whatever the tree later became**: measured, `.code_delta("stan:6e4aca2a ...", a fingerprint with a changed Stan layer)` returned `""`. A Stan edit would have gone unflagged on all five committed rungs, forever, and every bit-identity and agreement claim above would have kept its PASS on a premise that had quietly stopped being true. The key now names both ends, so a declaration lapses when either moves. Separately, B24 changed the hash function itself, so the five rung stamps can never be re-emitted and differ in ALL THREE layers from anything the current function produces, including layers whose bytes never moved; `CODE_LEGACY` maps each to `code_fingerprint()` on the same tree (627a831: `stan:523f4e63 drivers:4c2ce454 fns:30ed14fb`, verified on a worktree) before any comparison. **Verification:** harness **836** assertions, including the lapse case that would have caught it.
 
 ---
+
+---
+
+## 1w. The gear track's AR period and ZINB: the run, and four defects in the driver that ran it (2026-09-14)
+
+`06_diagnostics/run_gear_ar_zi_2026-09-13.R` was written to settle D3 and D6 and it ran to
+completion: five rungs on the gear track, 41 verdict rows, three result CSVs. It reported
+**D3: weekly** and **D6: do not adopt**.
+
+**Both conclusions were wrong, and the reason is in the driver rather than the data.** What
+follows is the review of the run. The evidence it produced is good; three of the four
+statistics it computed from that evidence were not.
+
+### What the ladder actually varied, which is not what D3 asks about
+
+The rung lever was `gear_period_bss$all_gear`. **`period_bss` is a property of the
+SUB-SEASON, and the all-gear sub-season holds BOTH populations**, so every rung moved the
+shore all-gear fit and the boat all-gear fit together:
+
+| rung | period | shore all-gear | boat all-gear | port |
+|---|---|---|---|---|
+| G1 | monthly (shipped) | 28,334 | 45,374 | 93,278 |
+| G2 | biweekly | 29,500 | 49,608 | 98,568 |
+| G3 | weekly | 29,266 | 53,584 | 102,430 |
+| G4 | daily | 29,266 | 56,822 | 105,756 |
+
+Monthly to weekly moves the shore by **+3.3%** and the boat by **+18.1%**, so **90% of the
+port movement came from a component D3 does not ask about**. Had "weekly" been adopted
+through that key it would have shipped the worst of the four configurations measured. This
+is the same class of defect as the 2026-08-27 Stage C `ar_force` bug, which forced both boat
+sub-seasons to biweekly and "made its port total uninterpretable as the change it was
+supposed to isolate"; one layer up, identical shape. The G0 desk stage asserted that the
+requested period reached `build_subseasons()` and that the pot-closure sub-season did not
+move. It never asked which POPULATIONS moved, because I did not think to.
+
+### The answer, reconstructed from the run's own draws
+
+The four fits are independent by design, and summing one rung's shore draws with another's
+boat draws is exactly the operation the driver performs within a run. So the configuration
+the ladder could not express is still measurable from what it committed. Every row below is
+built the same way, the pooled reference included, so the method offset cancels in the gap:
+
+| configuration | port | 95% | vs pooled R4 |
+|---|---|---|---|
+| pooled R4 (shore weekly + boat monthly) | 94,012 | [78,107, 117,182] | reference |
+| gear, shore monthly + boat monthly (SHIPPED) | 93,680 | [76,109, 117,705] | −0.35% |
+| gear, shore weekly + boat weekly (what G3 ran) | 102,120 | [82,998, 128,961] | **+8.62%** |
+| **gear, shore weekly + boat monthly (MATCHED)** | **94,278** | [77,291, 118,777] | **+0.28%** |
+| gear, shore weekly + ZINB + boat monthly | 94,175 | [77,221, 118,868] | +0.17% |
+
+**The pooled track fits shore all-gear at WEEKLY and boat all-gear at MONTHLY**, because it
+uses the per-population cap. The gear track could not express that at all: under
+`ar_adaptive = FALSE` its period comes from the sub-season, so both populations share it.
+
+**So the −1.39% cross-track gap that opened D3 is not a shore-resolution artefact.** At a
+matched per-population configuration the two tracks agree to **+0.28% at the PORT**, 266
+crab on 94,000. The previous best was 0.08% on the shore component alone; this is the first
+time the whole estimate has been compared like for like. Components: shore all-gear at
+weekly, gear 29,353 vs pooled 29,238 = **+0.40%**; boat all-gear at monthly, gear 45,385 vs
+pooled 45,303 = **+0.18%**.
+
+### What the run DID settle, on its own terms
+
+**The shore can take a weekly AR and cannot take a daily one.** Adequacy on the shore
+all-gear fit, which is the D3 question:
+
+| rung | period | p_loo / n_obs | Pareto k > 0.7 | cov50 deviation | verdict |
+|---|---|---|---|---|---|
+| G1 | monthly | 0.0368 | 0 | 0.0788 | adequate |
+| G2 | biweekly | 0.0568 | 0 | 0.0572 | adequate |
+| G3 | weekly | 0.0938 | 0 | 0.0627 | adequate |
+| G4 | daily | **0.3453** | **39** | **0.2010** | **rejected** |
+
+Daily fails decision-rule clause 2 exactly as the pooled daily fit did (0.352 with 41 bad k
+there, 0.3453 with 39 here), which is a replication of that finding on an independently
+parameterized model. All four rungs passed the convergence gate, 4 of 4 fits reporting BSS
+in every one, so the rejection is about adequacy and not about sampling.
+
+**And the D6 Stan port is inert when off, at production iteration counts.** G1 ships the
+same configuration as the committed R5 render and its four components reproduce it to the
+crab: 9,036 / 28,334 / 1,295 / 45,374. `fit_exactness()` on the two folders returns PASS at
+**11,021 shared parameter rows across 8 summaries, identical at full precision.**
+
+### The new question the run opened, which is worth more than D3 was
+
+**The boat all-gear component is extremely sensitive to its AR period, and nothing has ever
+tested it.** Against the pooled track's monthly fit:
+
+| gear boat period | boat all-gear | vs pooled monthly |
+|---|---|---|
+| monthly | 45,385 | +0.18% |
+| biweekly | 49,932 | +10.22% |
+| weekly | 53,228 | +17.49% |
+| daily | 56,596 | +24.93% |
+
+That is a **±12,000 crab** span on a component carrying roughly half the port total, and
+**adequacy does not settle it**: the boat fit is adequate at monthly (p_loo 0.0724, 1 bad k),
+biweekly (0.0705, 0) and weekly (0.0895, 1), and only fails at daily (0.2751, 11). The
+pooled track has never fitted the boat finer than monthly, because
+`ar_max_resolution$pooled$private_boat` caps it there, and that cap was derived in
+2026-07 on the pre-OSP model. **Agreement between the tracks at monthly is not evidence for
+monthly**; using it as such is the circularity the driver's own clause 5 excludes.
+
+### The four defects in the driver, all mine
+
+| # | defect | consequence |
+|---|---|---|
+| 1 | the rung lever was a SUB-SEASON key, so it moved the boat too | the ladder measured the wrong thing and recommended the worst configuration |
+| 2 | the bit-identity verdict read `ex$identical` and `ex$text`; `fit_exactness()` returns `verdict` and `observed` | reported FAIL where the correct reading is PASS at 11,021 rows |
+| 3 | the port-reproduction check demanded 0.0000% of a total containing a random census draw | spurious FAIL at 0.0043%, four crab, while every component was identical |
+| 4 | the paired-elpd verdict read `el$diff` / `el$se` / `el$zero` / `el$positive`; the fields are `elpd_diff` / `se_diff` / `zeros` / `positives`, and the file ships two renderers the block ignored | clause 2 reported NA, the recommendation counted the NA as a failure, and **D6 came back "do not adopt" on evidence that passes** |
+
+Defect 4 is the worst of the four, because it produced a confident wrong answer rather than
+a missing one. Read correctly, the same two folders give:
+
+> elpd −3164.3 → −3152.9, **diff +11.3 nats at 5.0 paired SE (2.29 SE)**; the naive per-fit
+> SE would have read 46.5. Split: zeros n=681 **+21.9** (11.3 SE), positives n=970 **−10.5**
+> (−2.4 SE). Pareto k>0.7: 0 → 0.
+>
+> By observed count: y=0 +21.9 | **y=1 −40.1** (−17.4 SE, 6% of catch) | y=2 −6.0 | y=3-4
+> **+13.0** (20% of catch) | y=5-8 **+16.8** (34% of catch) | y=9-16 **+5.9** (25% of catch)
+> | y=17+ −0.2 (8% of catch)
+
+**That is a near-replicate of the pooled adoption**, which earned +11.6 nats at 2.30 paired
+SE with y=1 at −42.0 and every bin from 3 up positive. Here the 3-and-up bins carry **79% of
+the catch** and all of them gain. The count bins halve in the same way: zero z 3.69 → 2.03,
+one z −6.13 → −3.33, against the pooled's +3.7 → +2.0 and −6.1 → −3.3. `theta_C` fits to
+**0.170**, clear of its Beta(1, 9) prior mean of 0.10.
+
+**So D6 is ADOPT**, on evidence indistinguishable in shape and magnitude from the adoption
+the pooled track already made.
+
+### And the sixth occurrence of the oldest recurring defect
+
+`DRY_RUN <- FALSE` was committed with the run. The harness caught it, as it has every time
+since 2026-09-03. Nothing was lost; it is recorded because the count is the point.
+
+### Where this leaves D3 and D6
+
+Neither is closed by this run, and both are one short render from being closed:
+
+- **D3** needs the per-population period the gear track did not have. `bss_gear_period()`
+  adds it (`gear_period_bss` now accepts a per-population form; the flat form still ships,
+  so nothing moves), and the corrected driver moves only the shore, via `ar_force`, with the
+  sub-season periods pinned so the boat stays at monthly. The answer is already known from
+  the draws above (+0.28%); a render makes it a citable folder, about 35 minutes.
+- **D6** needs the same render with `catch_zi_tracks = c("pooled", "gear_resolved")`, which
+  is the rung already fitted as G5 but paired against the matched control rather than the
+  confounded one.
+- **The boat period is new and open, and it is the largest sensitivity on the list after
+  D14.** It needs a ladder on the boat, on BOTH tracks, and the pooled track's monthly cap
+  needs re-deriving on the current model rather than inherited from 2026-07.

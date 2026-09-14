@@ -1567,6 +1567,22 @@ run_config <- list(
   # which is GR-7 Phase 2 and a different decision. The run that settles D3 is
   # 06_diagnostics/run_gear_ar_zi_2026-09-13.R, which ladders this key and reports adequacy
   # per rung. Recognized values: "daily", "weekly", "biweekly", "month"/"monthly".
+  # TWO SHAPES, and the flat one ships. 2026-09-14: the first D3 ladder proved the flat
+  # form cannot answer the question, because period_bss belongs to the SUB-SEASON and a
+  # sub-season holds BOTH populations, so moving it moved the boat all-gear fit as well
+  # (+18.1% monthly to weekly, against +3.3% for the shore). The pooled track fits shore
+  # all-gear at WEEKLY and boat all-gear at MONTHLY via its per-population cap; the gear
+  # track had no way to express that. Per-population form, resolved by
+  # 03_R_functions/bss_gear_period.R in the gear driver:
+  #
+  #   gear_period_bss = list(
+  #     shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
+  #     private_boat = list(all_gear = "month",  pot_closure = "biweekly"))
+  #
+  # That is the D3 adoption, and it is measured to bring the two tracks to +0.28% at the
+  # PORT (VALIDATION_CAMPAIGN 1w) against -0.35% for the shipped flat form. It is NOT
+  # adopted here because the measurement is a reconstruction from two rungs' draws rather
+  # than a rendered run; one ~35 min render makes it citable.
   gear_period_bss            = list(all_gear = "month", pot_closure = "biweekly"),
 
   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-

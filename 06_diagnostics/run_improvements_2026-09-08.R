@@ -612,10 +612,35 @@ CODE_EQUIVALENT <- list(
   # equivalence is for these stamps at THESE configurations: turning catch_zi_tracks on
   # for the gear track, or moving gear_period_bss, changes fits by design, which is the
   # whole point of run_gear_ar_zi_2026-09-13.R.
+  # SUPERSEDED 2026-09-14 by the D3 per-population-period fix, which moved the drivers and
+  # fns layers. The stan layer did NOT move (2f9895d1 on both sides), so the measured
+  # inertness of the D6 ZI port carries over unchanged.
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:680f4d0e fns:2df36018" =
-    paste("the 2026-09-11 ladder run vs the tree after the D3/D6 patch. stan moved by the gear-model ZI port, which is MEASURED bit-identical on 4,950 columns when off",
+    paste("SUPERSEDED 2026-09-14 by the D3 per-population-period fix, which moved the drivers and fns layers; the stan layer did not move, so the measured inertness of the",
+          "D6 ZI port carries into the entry below unchanged.",
+          "the 2026-09-11 ladder run vs the tree after the D3/D6 patch. stan moved by the gear-model ZI port, which is MEASURED bit-identical on 4,950 columns when off",
           "and is unread by the four pooled rungs; drivers by the census frame-warnings block, which is downstream of every fit; fns by five files whose defaults reproduce",
-          "the previous behaviour exactly. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison (census_frame_warnings.csv is new).")
+          "the previous behaviour exactly. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison (census_frame_warnings.csv is new)."),
+  # The 2026-09-11 ladder run against the tree after the D3 per-population-period fix.
+  #
+  #   stan:      UNCHANGED at 2f9895d1. The D6 ZI port is the last thing that touched this
+  #              layer, and its inertness measurement (bit-identical draws on 4,950 columns
+  #              with zi_catch = 0, and 11,021 identical summary rows against the committed
+  #              R5 render at production iterations) stands as recorded above.
+  #   drivers:   moved 680f4d0e -> 79176121 by ONE block in the gear .Rmd: the AR period is
+  #              now resolved per POPULATION via bss_gear_period() instead of being taken
+  #              from the sub-season. bss_gear_period() returns NULL under the shipped flat
+  #              configuration, so `%||% ss$period_bss` reproduces the previous value
+  #              exactly and no committed fit is affected. The pooled .Rmd is untouched.
+  #   fns:       moved 2df36018 -> 079fc15f by the addition of bss_gear_period.R, which
+  #              nothing called before this commit and which no prior run could have read.
+  #
+  # The monthly caveat from the 2026-09-12 entry still stands, as does the file-inventory
+  # caveat from the 2026-09-13 one (census_frame_warnings.csv is new).
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:79176121 fns:079fc15f" =
+    paste("the 2026-09-11 ladder run vs the tree after the D3 per-population-period fix. stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by one",
+          "block in the gear .Rmd whose helper returns NULL under the shipped configuration, reproducing the previous period exactly; fns moved by a new file nothing called",
+          "before. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison.")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

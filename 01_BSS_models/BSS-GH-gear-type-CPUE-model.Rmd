@@ -859,8 +859,19 @@ for(cg in bss_catch_groups) {
         filter(count_sequence <= params$bss_max_count_seq) |>
         left_join(days_ss |> select(event_date, day_index), by = "event_date") |>
         filter(!is.na(day_index))
+      # 2026-09-14 (D3): the AR period is resolved PER POPULATION, not per sub-season.
+      # period_bss belongs to the sub-season and a sub-season holds BOTH populations, so
+      # until now the shore all-gear fit and the boat all-gear fit were locked to the same
+      # period with no way to separate them. The first D3 ladder moved both and its port
+      # total was 90% boat movement; see 03_R_functions/bss_gear_period.R for the numbers.
+      # bss_gear_period() returns NULL under the shipped flat configuration, so this line
+      # is unchanged in behaviour until someone asks for the per-population form.
+      .period_ss <- bss_gear_period(params, pop, ss$gear_regime) %||% ss$period_bss
+      if (!identical(.period_ss, ss$period_bss))
+        message(sprintf("  AR period from gear_period_bss[[%s]][[%s]]: %s (the sub-season's own is %s)",
+                        pop, ss$gear_regime, .period_ss, ss$period_bss))
       ar_ladder <- bss_ar_ladder(days_ss, eff_d_ladder, pop, params,
-                                 fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else ss$period_bss,
+                                 fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else .period_ss,
                                  gear_regime = ss$gear_regime)
       # 2026-09-04: resolved PER FIT; see the matching block in the pooled driver.
       .esc_on <- .bss_resolve_ar_escalate(params, pop, ss$gear_regime)
@@ -886,7 +897,7 @@ for(cg in bss_catch_groups) {
         # ar_escalate, which silently refits the SAME resolution on every rung. The gear
         # track has not yet been run with a scoped ar_escalate, so this one was latent.
         force_res <- if (.esc_on) ar_ladder[attempt] else NULL
-        bss_data_try <- prep_bss_crab_gear(days_ss, summ_ss, cg, params, pop, ss$period_bss,
+        bss_data_try <- prep_bss_crab_gear(days_ss, summ_ss, cg, params, pop, .period_ss,
                                   gear_exclude = ss$gear_exclude %||% character(0),
                                   gear_regime = ss$gear_regime,
                                   ie_data = ie_data,

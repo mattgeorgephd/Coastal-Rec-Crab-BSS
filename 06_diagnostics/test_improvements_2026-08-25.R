@@ -3577,8 +3577,22 @@ local({
   chk("pointers: section 1v states which way its PE/BSS percentages run",
       grepl("PE RELATIVE TO BSS", s1v, fixed = TRUE) &&
       !grepl("PE 35,292 against BSS 34,837, -1.3%", s1v, fixed = TRUE))
-  chk("pointers: no section title in the campaign is dated in the future of the ladder run",
-      !any(grepl("\\(2026-09-1[3-9]\\)", grep("^## 1", VL, value = TRUE))))
+  # 2026-09-14: RETIRED AND REPLACED, not deleted. This forbade any campaign section title
+  # dated 2026-09-13..19, which caught the original defect (1u dated in the future) by
+  # hardcoding the window the branch happened to be in. Section 1w is legitimately dated
+  # 2026-09-14, so the check now fires on correct content, which is the signature of an
+  # assertion written against a snapshot rather than an invariant. Harness section 70
+  # already asserts the real invariants and maintains itself: no dated marker in any of the
+  # three chronology documents may postdate that document's own "Last updated" line or the
+  # branch tip's author date, and the section letters may not run backwards except against
+  # a declared allow-list. This row asserts that the stronger check is still present, so
+  # retiring this one cannot silently reduce coverage.
+  chk("pointers: the campaign's future-date guard is section 70's, which maintains itself",
+      { h <- paste(readLines("06_diagnostics/test_improvements_2026-08-25.R", warn = FALSE),
+                   collapse = "\n")
+        grepl("no marker in %s postdates its own 'Last updated'", h, fixed = TRUE) &&
+        grepl("no marker postdates the branch tip's author date", h, fixed = TRUE) },
+      "(the hardcoded 2026-09-13..19 window it replaced fired on Section 1w, which is correct)")
 })
 
 # ---------------------------------------------------------------------------
@@ -4575,10 +4589,56 @@ local({
             "would tune one estimate to another instead of to the data."))
   chk("D3/D6: the driver pins a WINDOW and knows its delta keys",
       grepl("WINDOW <- list(", dt, fixed = TRUE) &&
-      grepl("DELTA_KEYS <- unique(c(\"gear_period_bss\", \"catch_zi_tracks\"))", dt, fixed = TRUE))
-  chk("D3/D6: the pin fixes ar_adaptive, ar_force and ar_escalate, or the lever is not the lever",
-      all(vapply(c("ar_adaptive = FALSE", "ar_force = NULL", "ar_escalate = FALSE"),
-                 function(x) grepl(x, dt, fixed = TRUE), logical(1))))
+      grepl("DELTA_KEYS <- unique(c(\"ar_force\", \"catch_zi_tracks\"))", dt, fixed = TRUE))
+  # 2026-09-14: the lever is ar_force on the SHORE ONLY, and the sub-season periods are
+  # pinned instead. The first run used gear_period_bss, which is a SUB-SEASON key, so it
+  # moved the boat all-gear fit as well and 90% of the port movement came from a component
+  # D3 does not ask about. This asserts the corrected shape: ar_adaptive and ar_escalate
+  # pinned so nothing else can select a resolution, the sub-season periods pinned at the
+  # shipped values so the BOAT stays at monthly (which is what the pooled track fits it
+  # at, making each rung's port comparable to the pooled R4), and ar_force NOT pinned,
+  # because it is the lever.
+  chk("D3/D6: the pin fixes the selection mode and the SUB-SEASON periods, and leaves ar_force free",
+      all(vapply(c("ar_adaptive = FALSE", "ar_escalate = FALSE",
+                   'gear_period_bss = list(all_gear = "month", pot_closure = "biweekly")'),
+                 function(x) grepl(x, dt, fixed = TRUE), logical(1))) &&
+      !grepl("ar_force = NULL,", dt, fixed = TRUE))
+  chk("D3/D6: the rung lever moves the SHORE only, so the boat cannot ride along",
+      grepl(".shore_at <- function(res) list(ar_force = list(shore = list(all_gear = res)))",
+            dt, fixed = TRUE) &&
+      !grepl(".pb <- function(ag)", dt, fixed = TRUE),
+      paste("Same class of defect as the 2026-08-27 Stage C ar_force bug, which forced both",
+            "boat sub-seasons to biweekly and made its port total uninterpretable as the",
+            "change it was meant to isolate."))
+  chk("D3/D6: the verdicts read the fields the helpers actually return",
+      grepl("el$elpd_diff", dt, fixed = TRUE) && grepl("el$se_diff", dt, fixed = TRUE) &&
+      grepl("loo_elpd_paired_str(el)", dt, fixed = TRUE) &&
+      grepl("loo_elpd_by_count_str(el)", dt, fixed = TRUE) &&
+      grepl('identical(ex$verdict, "PASS")', dt, fixed = TRUE) &&
+      # the CODE patterns, not the strings: the comment above the fix names the old
+      # fields on purpose, and an assertion that forbade mentioning them would forbid
+      # recording why they were wrong
+      !grepl("isTRUE(ex$identical", dt, fixed = TRUE) &&
+      !grepl("gain <- el$diff", dt, fixed = TRUE),
+      paste("The first run read el$diff / el$se / ex$identical, none of which exist.",
+            "loo_elpd_paired() returns elpd_diff / se_diff / zeros / positives / by_count and",
+            "ships two renderers; fit_exactness() returns observed / verdict. The wrong names",
+            "turned a PASS into a FAIL and a +11.3-nat gain into NA, and the recommendation",
+            "then said 'do not adopt' on evidence that passes."))
+  chk("D3/D6: the desk stage asserts EXACTLY ONE FIT MOVES, per population and sub-season",
+      grepl("EXACTLY ONE FIT MOVES", dt, fixed = TRUE) &&
+      grepl(".bss_resolve_ar_force(cfg, pop, x$gear_regime)", dt, fixed = TRUE) &&
+      grepl('"private_boat/all_gear" = "monthly"', dt, fixed = TRUE),
+      paste("The check it replaces asked only whether the requested period reached",
+            "build_subseasons() and whether the POT CLOSURE moved. It never asked which",
+            "POPULATIONS moved, so the lever that moved shore and boat together passed it",
+            "and the ladder spent 3 h measuring the wrong thing. Negative-tested: restoring",
+            "the sub-season lever fails this row on all four rungs."))
+  chk("D3/D6: a clause that cannot be EVALUATED is REVIEW, never FAIL",
+      grepl("NOT COMPUTABLE", dt, fixed = TRUE) && grepl("any_rev", dt, fixed = TRUE) &&
+      grepl("could not be EVALUATED", dt, fixed = TRUE),
+      paste("The first run scored an un-computable clause as a failure, which is how a",
+            "missing statistic became a verdict against the feature."))
   chk("D3/D6: the driver verifies the resolution the sampler ACTUALLY used, not the one requested",
       grepl("ar_escalation_log.csv", dt, fixed = TRUE) &&
       grepl("the fit used the resolution the rung asked for", dt, fixed = TRUE),
@@ -4665,6 +4725,177 @@ local({
         grepl("the answer is NOT deletion", t, fixed = TRUE) &&
         grepl("no `run_parameters.txt` at all", t, fixed = TRUE) &&
         grepl("git rm 06_diagnostics/run_", t, fixed = TRUE) })
+})
+
+# ---------------------------------------------------------------------------
+# 75. THE GEAR AR / ZINB RUN: ITS RESULTS, AND THE FOUR DEFECTS IT EXPOSED (2026-09-14)
+#
+#     The run completed and reported "D3 weekly, D6 do not adopt". Both were wrong, in the
+#     driver rather than the data, and the fixes are pinned in section 74. What is pinned
+#     HERE is the EVIDENCE, because every number the register and the status document now
+#     rest on was read out of committed CSVs and can be re-read. A conclusion drawn from a
+#     folder that no longer says what the document claims is worse than no conclusion.
+#
+#     THE CONFOUND IS THE THING TO REMEMBER. gear_period_bss$all_gear moved the shore AND
+#     the boat all-gear fits, because period_bss is a sub-season key. 90% of the port
+#     movement was the boat. This asserts the confound is real in the committed folders,
+#     so nobody re-reads that ladder as if it had isolated the shore.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
+  R <- c(G1 = "05_output/20260913/gear-type-CPUE-model-GZ-G1-month",
+         G2 = "05_output/20260914/gear-type-CPUE-model-GZ-G2-biweekly",
+         G3 = "05_output/20260914/gear-type-CPUE-model-GZ-G3-weekly",
+         G4 = "05_output/20260914/gear-type-CPUE-model-GZ-G4-daily",
+         G5 = "05_output/20260914/gear-type-CPUE-model-GZ-G5-zi")
+  R5 <- "05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf"
+  P4 <- "05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf"
+  have <- all(dir.exists(c(R, R5, P4)))
+  chk("1w: all five rungs and both references are committed", have,
+      sprintf("(missing: %s)", paste(basename(c(R, R5, P4))[!dir.exists(c(R, R5, P4))], collapse = ", ")))
+  if (!have) { cat("NOTE  1w: rung folders absent; the evidence assertions are skipped\n") } else {
+
+  comp <- function(d, key) { x <- rd(file.path(d, "pe_vs_bss_comparison.csv"))
+    if (is.null(x)) NA_real_ else suppressWarnings(as.numeric(x$BSS_catch[x$component == key])[1]) }
+  ar <- function(d, fit) { x <- rd(file.path(d, "ar_escalation_log.csv"))
+    if (is.null(x)) NA_character_ else as.character(x$ar_resolution[grepl(fit, x$fit)])[1] }
+  adq <- function(d, fit, col) { x <- rd(file.path(d, "model_adequacy.csv"))
+    if (is.null(x)) NA_real_ else suppressWarnings(as.numeric(x[[col]][x$fit == fit])[1]) }
+
+  # (1) THE CONFOUND. Both all-gear fits moved together in every rung.
+  chk("1w: the ladder moved BOTH all-gear fits, which is why it did not isolate D3",
+      all(vapply(names(R), function(k)
+        identical(ar(R[[k]], "shore_all_gear"), ar(R[[k]], "private_boat_all_gear")), logical(1))),
+      paste("period_bss is a SUB-SEASON key and the all_gear sub-season holds both",
+            "populations. If this ever comes back FALSE the folders have changed, not the",
+            "finding."))
+  sh <- vapply(c("G1","G3"), function(k) comp(R[[k]], "shore (All gear)"), numeric(1))
+  bo <- vapply(c("G1","G3"), function(k) comp(R[[k]], "private_boat (All gear)"), numeric(1))
+  chk("1w: 90% of the port movement was the BOAT, not the shore",
+      isTRUE(all(is.finite(c(sh, bo)))) &&
+      isTRUE(abs((bo[2] - bo[1]) / (bo[2] - bo[1] + sh[2] - sh[1]) - 0.90) < 0.03),
+      sprintf("(shore %+.0f, boat %+.0f; boat share %.0f%%)",
+              sh[2] - sh[1], bo[2] - bo[1],
+              100 * (bo[2] - bo[1]) / (bo[2] - bo[1] + sh[2] - sh[1])))
+
+  # (2) WHAT THE RUN DID SETTLE: the shore takes weekly and not daily.
+  for (k in c("G1","G2","G3"))
+    chk(sprintf("1w: the shore fit is ADEQUATE at %s", ar(R[[k]], "shore_all_gear")),
+        isTRUE(adq(R[[k]], "shore_all_gear_Dungeness_Kept", "p_loo_frac") <= 0.15) &&
+        isTRUE(adq(R[[k]], "shore_all_gear_Dungeness_Kept", "n_pareto_bad") == 0),
+        sprintf("(p_loo %.4f, %.0f bad k)",
+                adq(R[[k]], "shore_all_gear_Dungeness_Kept", "p_loo_frac"),
+                adq(R[[k]], "shore_all_gear_Dungeness_Kept", "n_pareto_bad")))
+  chk("1w: the shore fit FAILS at daily, replicating the pooled daily rejection",
+      isTRUE(adq(R[["G4"]], "shore_all_gear_Dungeness_Kept", "p_loo_frac") > 0.15) &&
+      isTRUE(adq(R[["G4"]], "shore_all_gear_Dungeness_Kept", "n_pareto_bad") >= 30),
+      sprintf("(p_loo %.4f, %.0f bad k; the pooled daily fit was 0.352 with 41)",
+              adq(R[["G4"]], "shore_all_gear_Dungeness_Kept", "p_loo_frac"),
+              adq(R[["G4"]], "shore_all_gear_Dungeness_Kept", "n_pareto_bad")))
+
+  # (3) D29: the boat is adequate at three periods and moves ~25% across them.
+  chk("1w / D29: the BOAT fit is adequate at monthly, biweekly AND weekly, so adequacy does not settle its period",
+      all(vapply(c("G1","G2","G3"), function(k)
+        isTRUE(adq(R[[k]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac") <= 0.15), logical(1))) &&
+      isTRUE(adq(R[["G4"]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac") > 0.15),
+      sprintf("(p_loo monthly %.4f, biweekly %.4f, weekly %.4f, daily %.4f)",
+              adq(R[["G1"]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac"),
+              adq(R[["G2"]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac"),
+              adq(R[["G3"]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac"),
+              adq(R[["G4"]], "private_boat_all_gear_Dungeness_Kept", "p_loo_frac")))
+  pb <- comp(P4, "private_boat (All gear)")
+  spread <- range(vapply(names(R)[1:4], function(k) comp(R[[k]], "private_boat (All gear)"), numeric(1)))
+  chk("1w / D29: the boat component spans more than 20% across the four periods",
+      isTRUE(is.finite(pb)) && isTRUE((spread[2] - spread[1]) / pb > 0.20),
+      sprintf("(%s to %s, %.1f%% of the pooled monthly fit %s)",
+              format(round(spread[1]), big.mark = ","), format(round(spread[2]), big.mark = ","),
+              100 * (spread[2] - spread[1]) / pb, format(round(pb), big.mark = ",")))
+
+  # (4) THE D6 STAN PORT IS INERT, at production iterations, in the committed folders.
+  ex <- tryCatch(fit_exactness(R[["G1"]], R5, what = "the gear fits",
+          expect_delta = c("catch_zi_tracks","gear_period_bss","run_weather","ar_force",
+                           "pot_closures","census_windows","tau_shore_derive_window_only")),
+        error = function(e) NULL)
+  chk("1w: the D6 Stan port is INERT when off, proven against the committed R5 render",
+      !is.null(ex) && identical(ex$verdict, "PASS"),
+      if (is.null(ex)) "(could not compare)" else substr(ex$observed, 1, 150))
+  cmpk <- c("shore (Pot closure)","shore (All gear)","private_boat (Pot closure)","private_boat (All gear)")
+  chk("1w: and every BSS component of G1 equals R5 to the crab",
+      identical(vapply(cmpk, function(k) comp(R[["G1"]], k), numeric(1)),
+                vapply(cmpk, function(k) comp(R5, k), numeric(1))),
+      paste("The port totals differ by four crab because the driver adds the census as a",
+            "random draw. The components are the deterministic quantity."))
+
+  # (5) D6 IS ADOPT. The statistic the driver failed to read, recomputed from the folders.
+  el <- tryCatch(loo_elpd_paired(
+          file.path(R[["G3"]], "loo_pointwise_catch_shore_all_gear_Dungeness_Kept.csv"),
+          file.path(R[["G5"]], "loo_pointwise_catch_shore_all_gear_Dungeness_Kept.csv")),
+        error = function(e) NULL)
+  chk("1w / D6: the paired elpd is COMPUTABLE from the committed folders (the driver reported NA)",
+      !is.null(el) && isTRUE(is.finite(el$elpd_diff)) && isTRUE(is.finite(el$se_diff)),
+      if (is.null(el)) "(NULL)" else sprintf("(%+.1f nats at %.1f paired SE)", el$elpd_diff, el$se_diff))
+  chk("1w / D6: the gain exceeds 2 paired SE, so clause 2 PASSES",
+      !is.null(el) && isTRUE(el$ratio > 2),
+      if (is.null(el)) "" else sprintf("(%.2f SE; the naive SE would have read %.1f)", el$ratio, el$se_naive_b))
+  chk("1w / D6: the positive-count loss is smaller than the zero-count gain, so clause 4 PASSES",
+      !is.null(el) && isTRUE(abs(el$positives[["diff"]]) < el$zeros[["diff"]]),
+      if (is.null(el)) "" else sprintf("(zeros %+.1f, positives %+.1f)",
+                                       el$zeros[["diff"]], el$positives[["diff"]]))
+  chk("1w / D6: the bins carrying most of the catch all GAIN, which the two-way split hides",
+      !is.null(el) && { b <- el$by_count
+        rs <- rownames(b) %in% c("3-4","5-8","9-16")
+        all(b[rs, "diff"] > 0) && sum(b[rs, "catch_share"]) > 0.7 },
+      if (is.null(el)) "" else loo_elpd_by_count_str(el))
+  zi <- function(d, col) { x <- rd(file.path(d, "ppc_byobs_shore_all_gear_Dungeness_Kept.csv"))
+    if (is.null(x)) NA_real_ else { y <- x[x$data_type == "catch", , drop = FALSE]
+      p <- suppressWarnings(as.numeric(y[[col]])); ok <- is.finite(p); p <- p[ok]
+      k <- if (col == "p_zero") 0L else 1L
+      (sum(y$observed[ok] == k) - sum(p)) / sqrt(sum(p * (1 - p))) } }
+  chk("1w / D6: BOTH count bins improve, so clause 3 PASSES",
+      isTRUE(abs(zi(R[["G5"]], "p_zero")) < abs(zi(R[["G3"]], "p_zero"))) &&
+      isTRUE(abs(zi(R[["G5"]], "p_one"))  < abs(zi(R[["G3"]], "p_one"))),
+      sprintf("(zero z %.2f -> %.2f ; one z %.2f -> %.2f; the pooled adoption went +3.7 -> +2.0 and -6.1 -> -3.3)",
+              zi(R[["G3"]], "p_zero"), zi(R[["G5"]], "p_zero"),
+              zi(R[["G3"]], "p_one"),  zi(R[["G5"]], "p_one")))
+
+  # (6) the documents must carry the corrected conclusions, not the driver's wrong ones
+  fl <- function(f) gsub("[ \n]+", " ", paste(readLines(f, warn = FALSE), collapse = "\n"))
+  cr <- fl("07_documentation/development_notes/CHANGE_REGISTER.md")
+  ps <- fl("07_documentation/development_notes/PIPELINE_STATUS.md")
+  vc <- fl("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  chk("1w: the campaign carries Section 1w with the four defects and the matched configuration",
+      grepl("## 1w.", vc, fixed = TRUE) && grepl("+0.28%", vc, fixed = TRUE) &&
+      grepl("four defects", vc) && grepl("11,021", vc, fixed = TRUE))
+  chk("1w: the register records D6 as ADOPT and says the driver's verdict was a DEFECT",
+      grepl("D6 | **The gear-track ZINB EARNS its parameter", cr, fixed = TRUE) &&
+      grepl("was a DEFECT, not a finding", cr, fixed = TRUE))
+  chk("1w: D29 exists, is flagged above D3, and carries the measured span",
+      grepl("| D29 |", cr, fixed = TRUE) && grepl("it should outrank D3", cr, fixed = TRUE) &&
+      grepl("+24.93%", cr, fixed = TRUE) && grepl("D29", ps, fixed = TRUE))
+  # The documents DO quote the driver's conclusions, which they must: a review that does
+  # not say what it is correcting cannot be checked against the output it corrects. What
+  # must hold is that every quotation is marked wrong in the same breath, so the crude
+  # "the phrase is absent" form is replaced by "the phrase never stands unqualified".
+  chk("1w: the driver's wrong conclusions appear ONLY as quotations marked wrong",
+      { bad <- character()
+        for (nm in c(CHANGE_REGISTER = cr, PIPELINE_STATUS = ps)) {
+          for (ph in c("D3: weekly", "D3 weekly", "D6: do not adopt", "D6 do not adopt")) {
+            k <- gregexpr(ph, nm, fixed = TRUE)[[1]]
+            if (k[1] < 0) next
+            for (pos in k) {
+              ctx <- substr(nm, pos, pos + 320)
+              if (!grepl("were wrong|was wrong|was a DEFECT|not a finding", ctx))
+                bad <- c(bad, substr(ctx, 1, 60)) } } }
+        length(bad) == 0 },
+      "(a quotation must carry its correction within the same sentence or two)")
+  chk("1w: and the corrected answers are the ones stated as current",
+      grepl("D6 is ADOPT", ps, fixed = TRUE) &&
+      grepl("D3 is not a shore-resolution question", ps, fixed = TRUE))
+  chk("1w: the recommendation CSV is kept as the record of what the driver said",
+      file.exists("05_output/gear_ar_zi_2026-09-13_recommendation.csv"),
+      paste("It is wrong and it stays: a review that deletes the output it corrects cannot",
+            "be checked."))
+  }
 })
 
 # ---------------------------------------------------------------------------

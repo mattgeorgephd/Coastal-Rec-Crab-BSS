@@ -112,7 +112,7 @@ the reason, and the module document is archived under a banner.
 
 | check | how | current result |
 |---|---|---|
-| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **1,009 assertions, 0 failing**, no rstan needed, seconds |
+| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **1,036 assertions, 0 failing**, no rstan needed, seconds |
 | Shipped config reproduces the authoritative run's inputs | desk-checked 2026-09-12 | sub-seasons `ring_net_only [2024-09-16..2024-11-30]` / `all_gear [2024-12-01..2025-09-15]`, tau_shore 2.4771, tau_boat 3.0300, census 6,405 + 2,133 = 8,538 SE 73, **zero warnings** |
 | Convergence gate | `convergence_report.csv` in the run folder | 4/4 BSS; worst R-hat 1.0007, min n_eff 4,604, max divergent fraction 1.78% vs the 5% backstop |
 | PE / BSS agreement | `pe_vs_bss_comparison.csv` | shore within 2 to 4%; boat all-gear PE runs 19% below BSS, which is the turnover and `f` treatment and is expected |
@@ -134,7 +134,9 @@ inherits the questions rather than a silence.
 | **D2** | The fraction of boats OSP records as *crabbing-only*. The column is built and inert, awaiting the OSP field. | Would replace part of what `f` currently infers with a direct observation. |
 | **D24** | The derived shore turnover 2.4771 is a multi-season quantity used for one window; this window's own I/E data put it ~10% lower. | ~3,500 crab. **The existing data cannot settle it**: the gap is 0.1073 in log space against an approximate SE of 0.1295, **z = 0.83**, and the window value sits 1.07 prior SDs from the shipped centre. A window-only refit would move the number without evidence that it should. |
 | **D19** | The PE's unsampled-cell fill. Shipped as `local_day_type` / `local` / `impute_aware`. | Moves the PE cross-check by up to 18% (72,224 / 81,160 / 90,861 / 85,076 across the four arms); **does not move the BSS estimate**. |
-| **D3 / D6** | The gear track's shore AR period and its zero-inflated shore catch. **The run that settles both is written** (`06_diagnostics/run_gear_ar_zi_2026-09-13.R`, five rungs, about 3.4 h from measured per-fit timings). | Affects only the cross-check. Two corrections landed with the driver: the lever is `gear_period_bss`, not the dormant `ar_max_resolution$gear_resolved`; and the reason usually given for not copying the pooled period across, a per-gear likelihood at `G = 5`, is wrong, because `gear_resolved_G` ships FALSE and the measured `G` is **1**. |
+| **D6** | The gear track's zero-inflated shore catch. | **ADOPT**, on evidence indistinguishable from the pooled adoption: +11.3 nats at 2.29 paired SE (pooled: +11.6 at 2.30), count bins halving 3.69 to 2.03 and −6.13 to −3.33 (pooled: 3.7 to 2.0, −6.1 to −3.3), `theta_C` 0.170, Pareto k 0 to 0. One ~35 min render at the matched configuration makes it citable. |
+| **D3** | The gear track cannot express a PER-POPULATION AR period, which is what the cross-track gap was. | At a matched configuration (shore weekly, boat monthly, as the pooled track fits them) the two tracks agree to **+0.28% at the PORT**, the first like-for-like comparison of the whole estimate. `bss_gear_period()` adds the lever; one ~35 min render closes it. |
+| **D29** | The BOAT all-gear AR period, untested on either track and opened accidentally by the D3 ladder. | **±12,000 crab**, and adequacy does not settle it: the boat fit is adequate at monthly, biweekly and weekly, failing only at daily, while the estimate moves +0.18% / +10.22% / +17.49% / +24.93% against the pooled monthly fit. The pooled cap was derived in 2026-07 on the pre-OSP model. **This should outrank D3.** |
 | **D8 / D18** | The 2023-25 span (no 2023-24 tally or roster) and OSP counts stopping 2025-10-18. | Blocks the multi-season run and a 2025-26 boat fit on OSP. Data requests, not code. |
 | **CLOSED** | Should `estimate_comm_charter()` **stop** rather than warn when the census frame is missing? | **It warns** (Matt, 2026-09-13: "a warning is fine, included in the html report"). The warning now reaches the report: the function returns `frame_warnings`, both drivers print it in a visible block and write `census_frame_warnings.csv`, and five conditions are disclosed rather than one. A bare `warning()` did not satisfy the ask, because knitr defers warnings, `html_document` can hide them, and a batch runner rendering with `quiet = TRUE` never shows them. |
 
@@ -155,6 +157,11 @@ inherits the questions rather than a silence.
   rejected on evidence: each is cited by 7 to 15 documents and by the harness, and the `20260825` output
   folders carry no `run_parameters.txt` at all, so `run_patch_validation_2026-08-25.R` is the only
   surviving record of what those five renders were configured as.
+- **The gear AR / ZINB run completed on 2026-09-14 and its review is `VALIDATION_CAMPAIGN.md` Section 1w.** It reported
+  "D3 weekly, D6 do not adopt" and both were wrong, in the driver rather than the data: four defects, the worst of
+  which read four non-existent fields off `loo_elpd_paired()` and so turned a +11.3-nat gain into NA, which the
+  recommendation then counted as a failure. All four are fixed and harness-pinned. The run's evidence stands and is
+  what the D3, D6 and D29 rows above rest on.
 - **The D6 Stan port is in the tree and switched off.** `crab_bss_gear_resolved.stan` now carries the
   zero-inflation block line for line from the pooled model, gated by `catch_zi_tracks`, which ships
   `"pooled"`. Proven inert rather than asserted: the real 2024-25 shore all-gear `stan_data` sampled
