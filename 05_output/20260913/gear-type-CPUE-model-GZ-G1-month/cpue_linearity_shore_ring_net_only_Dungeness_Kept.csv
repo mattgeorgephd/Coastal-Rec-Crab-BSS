@@ -1,0 +1,2 @@
+"fit","n_obs","beta_h","beta_h_se","beta_h_lo95","beta_h_hi95","assumed_beta_h","linearity_flag","effort_unit","status"
+"shore_ring_net_only_Dungeness_Kept",628,0.899452388462032,0.0581440426947884,0.785490064780247,1.01341471214382,1,FALSE,"gear-deployments","estimated"

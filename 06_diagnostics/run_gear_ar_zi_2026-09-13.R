@@ -150,7 +150,7 @@
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
-DRY_RUN <- TRUE                    # TRUE prints the plan and the desk stage; fits nothing
+DRY_RUN <- FALSE                    # TRUE prints the plan and the desk stage; fits nothing
 STAGES  <- c("G0", "G1", "G3", "G2", "G4", "G5")   # G1 first after G0: it is the control
 RESUME  <- TRUE                    # reuse a rung ONLY when its GEAR_STAGE.txt digest matches
 ZI_AT   <- "weekly"                # the resolution G5 turns ZI on at; "d3" uses G3's value

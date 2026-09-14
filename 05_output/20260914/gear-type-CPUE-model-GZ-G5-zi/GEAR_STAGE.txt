@@ -1,0 +1,10 @@
+stage: G5
+resolution: weekly
+ZI_AT: weekly
+digest: 5220bef8
+code: stan:65b5adeb drivers:6a105fe0 fns:30eb04f0
+rstan: 2.32.7 / StanHeaders 2.32.10
+written: 2026-09-14 03:57:28
+
+# run_gear_ar_zi_2026-09-13.R writes this after a rung renders. RESUME
+# reuses a folder ONLY when its digest matches the rung being requested.

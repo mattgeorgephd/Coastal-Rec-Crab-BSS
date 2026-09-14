@@ -1,0 +1,3 @@
+"day_type","n_total_days","n_calendar_days","n_expand_days","n_sampled_days","n_imputed_days","mean_daily_dung","s2_day","s2_source","n_unsampled_days","imputed_dung","observed_dung","var_imputed"
+"weekday",48,48,33,33,0,139.657425317,9632.15806072647,"stratum",15,0,4608.69503546099,0
+"weekend",22,22,14,14,0,128.32928064843,11599.9636894467,"stratum",8,0,1796.60992907801,0
