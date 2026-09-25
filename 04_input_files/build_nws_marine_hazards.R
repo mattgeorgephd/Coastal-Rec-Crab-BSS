@@ -60,12 +60,17 @@
 # are the archive's coverage, which the reader checks against the estimation window (the
 # absence of an event is not evidence of coverage).
 #
-# PROVENANCE OF THE COMMITTED WORKBOOK (2026-09-25). The IEM host was not reachable from the
-# session that built the covariate machinery, so the committed workbook was rebuilt with
-# --from-csv from raw/nws_marine_hazards_iem_transcription_2026-09-25.csv: the JSON rows
-# transcribed twice, in different window partitions, with the two copies agreeing row for
-# row (147 PZZ110 rows, 470 PZZ156 rows; 2023-01-01 to 2026-09-26). Its `source` column says
-# so. A direct pull with this script replaces it; compare_with_previous() prints the diff.
+# PROVENANCE OF THE COMMITTED WORKBOOK. The first copy (2026-09-25, morning) was rebuilt
+# with --from-csv from raw/nws_marine_hazards_iem_transcription_2026-09-25.csv because the
+# IEM host was not reachable from the session that built the covariate machinery: the JSON
+# rows transcribed twice, in different window partitions, the two copies agreeing row for
+# row (147 PZZ110 rows, 470 PZZ156 rows; 2023-01-01 to 2026-09-26). The committed copy is
+# now a LIVE PULL with this script's default window (2008-01-01 to the pull day; 4,387 rows,
+# 790 bar and 3,597 coastal), made the same day. Checked against the transcription: 615 of
+# 617 rows identical on every field; the other two are one gale segment carrying the 22:17
+# product id where the transcription had the 10:58 one (same start and end), and one gale in
+# progress on the pull day that ended earlier than first announced. Neither moves a flag.
+# The `source` column of every row says which kind of copy it is.
 #
 # USAGE (from the repository root; needs jsonlite, network access to mesonet.agron.iastate.edu)
 #   Rscript 04_input_files/build_nws_marine_hazards.R                      # 2008-01-01 to today
@@ -95,7 +100,7 @@ if (is.na(START) || is.na(END) || END < START) stop("--start / --end must be ISO
 # rows do not cover would then get silently-zero flags instead of the coverage stop.
 if (!is.null(FROM_CSV) && (is.null(.arg("--start")) || is.null(.arg("--end"))))
   stop("--from-csv needs an explicit --start and --end: the window the rows were pulled for, ",
-       "which becomes the coverage the reader enforces (the committed transcription is 2023-01-01 to 2026-09-26)")
+       "which becomes the coverage the reader enforces (the transcription in raw/ is 2023-01-01 to 2026-09-26)")
 
 ZONE_NAMES <- c(PZZ110 = "Grays Harbor Bar",
                 PZZ153 = "Coastal Waters from James Island to Point Grenville out 10 NM",

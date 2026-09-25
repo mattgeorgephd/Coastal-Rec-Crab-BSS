@@ -5148,7 +5148,7 @@ local({
   chk("workbook: times are ISO-8601 UTC text and in_effect is end > start",
       all(grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", c(wb$start_utc, wb$end_utc))) &&
       identical(as.integer(wb$in_effect), as.integer(.mh_parse_utc(wb$end_utc) > .mh_parse_utc(wb$start_utc))))
-  chk("workbook: its provenance is stated on every row (a transcription until a live pull replaces it)",
+  chk("workbook: its provenance is stated on every row (a live pull, or the transcription it replaced), and the transcription is kept as the verification record",
       all(grepl("transcription|IEM", wb$source)) && file.exists("04_input_files/raw/nws_marine_hazards_iem_transcription_2026-09-25.csv"))
   chk("workbook: the reader's coverage attribute comes from the pull window, not inferred",
       { evw <- marine_hazard_events(list(marine_hazard_file = "nws_marine_hazards.xlsx")); isFALSE(attr(evw, "coverage_inferred")) && nrow(attr(evw, "coverage")) == 2 })
