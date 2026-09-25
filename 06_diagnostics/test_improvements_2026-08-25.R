@@ -3793,7 +3793,8 @@ local({
   in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
-                "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C")
+                "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C",
+                "marine_hazard_mode", "bar_restriction_impute")   # 2026-09-25: A30, section 4.4b
   in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive", "use_boat_ie")
   chk("ordered: every method-of-record key sits in section 2",
       all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
@@ -4694,7 +4695,8 @@ local({
            "run_shore_ar_zi_2026-09-03", "run_ladder_zinb_2026-09-04",
            "run_adoption_2026-09-07", "run_osp_validation")
   LIVE <- c("run_improvements_2026-09-08", "run_gear_ar_zi_2026-09-13",
-            "run_rg_sweep", "run_tau_sweep")
+            "run_rg_sweep", "run_tau_sweep",
+            "run_marine_hazard_batch_2026-09-25")   # 2026-09-25: A30 / B35
   chk("diagnostics: the superseded-runner helper exists and offers an override",
       file.exists("03_R_functions/bss_superseded_runner.R") &&
       { t <- flat(rd("03_R_functions/bss_superseded_runner.R"))
@@ -4896,6 +4898,306 @@ local({
       paste("It is wrong and it stays: a review that deletes the output it corrects cannot",
             "be checked."))
   }
+})
+
+# ---------------------------------------------------------------------------
+# 76. MARINE HAZARD EFFORT COVARIATES: SMALL CRAFT ADVISORIES AND BAR RESTRICTIONS
+#     (2026-09-25, CHANGE_REGISTER A30 / B35 / B36).
+#
+#     The NWS VTEC archive for the Grays Harbor Bar and the coastal waters off Westport
+#     becomes a per-day SCA-or-higher flag known on EVERY day of the window; the samplers'
+#     "Bar Restrictions" tick becomes a per-day covariate observed on sampled days and
+#     imputed on the rest. Both ride on the K_open block, so the assertions here are about
+#     the R side only: the time arithmetic (DST-exact, half-open edges), the archive reader
+#     and its coverage stop, the imputation and its fallback, the log-link screen, the
+#     four modes, the collinearity guard, the design-matrix hand-off with a FRACTIONAL
+#     column, the preps' wiring, the drivers' call, the shipped defaults (OFF), the
+#     workbook, the builder's parser on the service's real JSON, and the batch runner's
+#     stated rule. Every fixture is synthetic except the committed workbook and the JSON,
+#     which is the text the service returned on 2026-09-25.
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/bss_marine_hazard_covariates.R")
+  TZ <- "America/Los_Angeles"
+  utc <- function(x) as.POSIXct(x, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+
+  # (a) time helpers: ISO parsing, DST-exact local windows, half-open overlap
+  pu <- .mh_parse_utc(c("2025-01-03T21:00:00Z", "2025-01-03 21:00:00", "2025-01-03T21:00Z", "junk", NA))
+  chk("mh: ISO 'Z', space and hour-minute forms parse to the same UTC instant; junk is NA",
+      isTRUE(all.equal(as.numeric(pu[1]), as.numeric(utc("2025-01-03T21:00:00Z")))) &&
+      isTRUE(all.equal(as.numeric(pu[2]), as.numeric(pu[1]))) && isTRUE(all.equal(as.numeric(pu[3]), as.numeric(pu[1]))) &&
+      all(is.na(pu[4:5])))
+  lt <- .mh_local_time(as.Date(c("2024-03-09", "2024-03-10", "2024-11-03")), 4, TZ)
+  chk("mh: 04:00 local is 12Z in PST and 11Z in PDT, across both DST changes",
+      identical(format(lt, "%H:%M", tz = "UTC"), c("12:00", "11:00", "12:00")))
+  chk("mh: hour 24 is midnight starting the NEXT day",
+      identical(format(.mh_local_time(as.Date("2024-06-01"), 24, TZ), "%Y-%m-%d %H:%M", tz = TZ), "2024-06-02 00:00"))
+  chk("mh: a non-existent spring-forward time is moved FORWARD by the gap (02:30 -> 03:30 PDT = 10:30Z), whatever the platform returns for it",
+      identical(format(.mh_local_time(as.Date(c("2024-03-09", "2024-03-10", "2024-03-11")), 2.5, TZ), "%Y-%m-%d %H:%M", tz = "UTC"),
+                c("2024-03-09 10:30", "2024-03-10 10:30", "2024-03-11 09:30")))
+  a <- utc("2025-01-10T12:00:00Z"); b <- utc("2025-01-11T00:00:00Z")
+  chk("mh: overlap is half-open on both edges (start == end-of-window and end == start-of-window do not count)",
+      identical(.mh_any_overlap(a, b, utc("2025-01-11T00:00:00Z"), utc("2025-01-12T00:00:00Z")), 0L) &&
+      identical(.mh_any_overlap(a, b, utc("2025-01-09T00:00:00Z"), utc("2025-01-10T12:00:00Z")), 0L) &&
+      identical(.mh_any_overlap(a, b, utc("2025-01-10T23:59:00Z"), utc("2025-01-12T00:00:00Z")), 1L) &&
+      identical(.mh_any_overlap(a, b, utc("2025-01-09T00:00:00Z"), utc("2025-01-12T00:00:00Z")), 1L))
+  chk("mh: no events -> all zeros, one per window", identical(.mh_any_overlap(c(a, a), c(b, b), utc(character(0)), utc(character(0))), c(0L, 0L)))
+
+  # (b) the flag series on a synthetic archive: definition, zones, codes, coverage stop
+  ev <- tibble::tibble(ugc = c("PZZ110", "PZZ156", "PZZ156", "PZZ156", "PZZ110"),
+                       phenomena = c("SC", "GL", "MF", "SC", "SC"), significance = c("Y", "W", "Y", "Y", "Y"),
+                       eventid = 1:5,
+                       start = utc(c("2025-01-03T21:00:00Z", "2025-01-05T23:00:00Z", "2025-01-08T12:00:00Z", "2025-01-10T00:30:00Z", "2025-01-12T00:00:00Z")),
+                       end   = utc(c("2025-01-04T12:00:00Z", "2025-01-07T00:00:00Z", "2025-01-08T20:00:00Z", "2025-01-10T00:20:00Z", "2025-01-12T06:00:00Z")),
+                       product_id = NA_character_)
+  ev$ps <- paste0(ev$phenomena, ".", ev$significance); ev$in_effect <- ev$end > ev$start
+  attr(ev, "coverage") <- tibble::tibble(ugc = c("PZZ110", "PZZ156"), pull_start = as.Date("2025-01-01"), pull_end = as.Date("2025-01-31"))
+  attr(ev, "coverage_inferred") <- FALSE
+  Pm <- list(marine_hazard_window = c(4, 16), marine_hazard_tz = TZ)
+  fl <- marine_hazard_flag_series(Pm, "2025-01-01", "2025-01-14", events = ev)
+  # Jan 3: SCA on the bar 13:00 to Jan 4 04:00 PST -> Jan 3 flagged in the 04-16 window, Jan 4 NOT
+  # (04:00 PST is 12Z, the event ends at 12Z, half-open); gale (coastal) 15:00 Jan 5 to
+  # 16:00 Jan 6 PST -> Jan 5 and Jan 6; Jan 8 dense fog is not a hazard code; Jan 9/10 event
+  # cancelled before it began (in_effect FALSE); Jan 11 16:00 to 22:00 PST -> outside the window.
+  want <- setNames(rep(0L, 14), format(as.Date("2025-01-01") + 0:13))
+  want[c("2025-01-03", "2025-01-05", "2025-01-06")] <- 1L
+  chk("mh: the any-zone flag follows the codes, the window, the half-open edges and in_effect",
+      identical(as.integer(fl$nws_sca_any), unname(want)), paste(fl$nws_sca_any, collapse = ""))
+  chk("mh: single-zone flags split by zone", sum(fl$nws_sca_bar) == 1 && sum(fl$nws_sca_coastal) == 2)
+  chk("mh: the all-day window catches the Jan 11 evening event",
+      marine_hazard_flag_series(Pm, "2025-01-11", "2025-01-11", events = ev, window = c(0, 24))$nws_sca_any == 1)
+  chk("mh: a window the archive does not cover STOPS with a message naming the builder",
+      inherits(try(marine_hazard_flag_series(Pm, "2025-01-20", "2025-02-05", events = ev), silent = TRUE), "try-error") &&
+      grepl("build_nws_marine_hazards", geterrmessage(), fixed = TRUE))
+  chk("mh: an invalid window or unnamed zones are refused",
+      inherits(try(marine_hazard_flag_series(Pm, "2025-01-01", "2025-01-02", events = ev, window = c(16, 4)), silent = TRUE), "try-error") &&
+      inherits(try(marine_hazard_flag_series(modifyList(Pm, list(marine_hazard_zones = c("PZZ110", "PZZ156"))), "2025-01-01", "2025-01-02", events = ev), silent = TRUE), "try-error"))
+  chk("mh: a non-default code set is honoured (gale-only sees only the gale)",
+      sum(marine_hazard_flag_series(modifyList(Pm, list(marine_hazard_codes = "GL.W")), "2025-01-01", "2025-01-14", events = ev)$nws_sca_any) == 2)
+
+  # (c) the bar-restriction tick: field start, observation rule, imputation, fallback
+  dts <- as.Date("2025-01-01") + 0:99
+  set.seed(7)
+  shifts <- tibble::tibble(date = format(rep(dts, 2)), creel_location = rep(c("Grays Harbor", "Willapa Bay"), each = 100),
+                           special_conditions = NA_character_)
+  # Grays Harbor sampled on even days only (plus Jan 5); the option "appears" on Jan 5, when
+  # the first marine token is written; restrictions tick on days 10, 12, 20, 22, 30, 40, 50.
+  # Jan 2 and Jan 4 are sampled days BEFORE the field start: their blanks are not
+  # observations of "no restriction", because the option did not yet exist on the form.
+  gh_rows <- which(shifts$creel_location == "Grays Harbor")
+  # ticks on every sampled day that carries a coastal SCA (days divisible by 6 from 12 on) plus
+  # a few dry ones, so the logistic has a signal to find; days 10, 20, ... are the dry ticks
+  shifts$special_conditions[gh_rows[c(10, 20, 30, 40, 50)]] <- "Cold, Bar Restrictions"
+  shifts$special_conditions[gh_rows[c(12, 22)]] <- "bar restrictions, Razor Clam Opener"
+  shifts$special_conditions[gh_rows[seq(18, 96, by = 6)]] <- "Bar Restrictions, Small Craft Advisory"
+  shifts$special_conditions[gh_rows[5]] <- "Small Craft Advisory"       # the first appearance of a form token
+  odd <- gh_rows[seq(1, 100, by = 2)]; shifts <- shifts[-odd[odd != gh_rows[5]], ]  # unsampled odd days (keep day 5)
+  nd <- tibble::tibble(event_date = dts, nws_sca_any = as.integer(seq_along(dts) %% 3 == 0),
+                       nws_sca_bar = as.integer(seq_along(dts) %% 4 == 0), nws_sca_coastal = as.integer(seq_along(dts) %% 3 == 0))
+  Pb <- list(gh_creel_location = "Grays Harbor", bar_restriction_impute = "nws")
+  br <- bar_restriction_series(Pb, dts, nws_day = nd, shifts = shifts)
+  chk("bar: the option's first appearance on the form is detected from any marine token",
+      identical(attr(br, "field_start"), as.Date("2025-01-05")))
+  chk("bar: a sampled day before the field start is NA, not 0 (a blank before the option existed is not an observation)",
+      all(is.na(br$bar_restriction_obs[c(2, 4)])) && all(br$bar_restriction_source[c(2, 4)] != "observed"))
+  chk("bar: sampled days are 0 (blank) or 1 (any survey ticked, any case)",
+      identical(br$bar_restriction_obs[c(10, 12, 20, 22, 6)], c(1L, 1L, 1L, 1L, 0L)))
+  chk("bar: unsampled days are NA observations with an imputed value in [0, 1] and a source label",
+      all(is.na(br$bar_restriction_obs[c(7, 9, 11)])) && all(br$bar_restriction[c(7, 9, 11)] >= 0 & br$bar_restriction[c(7, 9, 11)] <= 1) &&
+      all(br$bar_restriction_source[c(7, 9, 11)] %in% c("imputed_nws", "imputed_mean")) &&
+      all(br$bar_restriction_source[c(10, 6)] == "observed"))
+  chk("bar: with 30 or more observed days the NWS logistic IS fitted, every unsampled day is 'imputed_nws', and an SCA day imputes higher than a dry one",
+      { fit <- attr(br, "fit"); todo <- is.na(br$bar_restriction_obs)
+        attr(br, "n_observed") >= 30 && !is.null(fit) && identical(fit$term, c("(Intercept)", "nws_sca_bar", "nws_sca_coastal", "winter")) &&
+        all(br$bar_restriction_source[todo] == "imputed_nws") && any(grepl("imputed from logit", attr(br, "note"))) &&
+        mean(br$bar_restriction[todo & nd$nws_sca_coastal == 1]) > mean(br$bar_restriction[todo & nd$nws_sca_coastal == 0]) },
+      sprintf("(observed %s)", attr(br, "n_observed")))
+  chk("bar: too few observed days for the logistic (under 30) falls back to the observed rate, with a note",
+      { b2 <- bar_restriction_series(Pb, dts[1:20], nws_day = nd, shifts = shifts[as.Date(shifts$date) <= as.Date("2025-02-09"), ])
+        attr(b2, "n_observed") < 30 && is.null(attr(b2, "fit")) &&
+        all(b2$bar_restriction_source[is.na(b2$bar_restriction_obs)] == "imputed_mean") && any(grepl("observed rate", attr(b2, "note"))) })
+  chk("bar: impute = 'mean' never fits the logistic",
+      { b3 <- bar_restriction_series(modifyList(Pb, list(bar_restriction_impute = "mean")), dts, nws_day = nd, shifts = shifts)
+        is.null(attr(b3, "fit")) && all(b3$bar_restriction_source[is.na(b3$bar_restriction_obs)] == "imputed_mean") })
+  chk("bar: an unknown impute mode is refused",
+      inherits(try(bar_restriction_series(modifyList(Pb, list(bar_restriction_impute = "zero")), dts, nws_day = nd, shifts = shifts), silent = TRUE), "try-error"))
+  chk("bar: an explicit field start overrides detection",
+      is.na(bar_restriction_series(modifyList(Pb, list(bar_restriction_field_start = "2025-01-15")), dts, nws_day = nd, shifts = shifts)$bar_restriction_obs[10]))
+
+  # (d) the screen is log-link and finds a multiplicative effect the additive lm hides
+  set.seed(11)
+  d90 <- as.Date("2024-12-01") + 0:89
+  flag <- as.integer(seq_along(d90) %% 3 == 0)
+  mu <- 30 * exp(-1.2 * flag) * ifelse(weekdays(d90) %in% c("Saturday", "Sunday"), 2, 1)
+  dwg <- list(shore_effort = tibble::tibble(event_date = d90, count_quantity = rpois(90, mu)),
+              boat_effort  = tibble::tibble(event_date = d90, count_quantity = rpois(90, mu / 2)))
+  flags <- tibble::tibble(event_date = d90, nws_sca_any = flag, bar_restriction_obs = ifelse(seq_along(d90) %% 2 == 0, flag, NA_integer_),
+                          bar_restriction = flag)
+  Psc <- list(days_wkend = c("Saturday", "Sunday"), crabbing_holiday_dates = as.Date(character(0)),
+              marine_hazard_candidates_shore = "nws_sca_any", marine_hazard_candidates_boat = c("nws_sca_any", "bar_restriction"))
+  sc <- marine_hazard_screen(dwg, flags, Psc)
+  chk("screen: one row per candidate x population, carrying a rate ratio and an adjusted p",
+      nrow(sc) == 3 && all(c("rate_ratio", "adj_p", "n_flag") %in% names(sc)) && all(is.finite(sc$rate_ratio)))
+  chk("screen: the log-link recovers a multiplicative effect of exp(-1.2) = 0.30 within 0.10",
+      all(abs(sc$rate_ratio[sc$covariate == "nws_sca_any"] - exp(-1.2)) < 0.10), paste(round(sc$rate_ratio, 3), collapse = ","))
+  chk("screen: bar_restriction is screened on its OBSERVED days only",
+      sc$n_days[sc$covariate == "bar_restriction"] == sum(!is.na(flags$bar_restriction_obs)))
+  chk("screen: the per-count sensitivity columns are carried, and with one count per day they equal the daily-sum fit",
+      all(c("n_counts", "rate_ratio_per_count", "adj_p_per_count") %in% names(sc)) &&
+      identical(sc$n_counts, sc$n_days) && isTRUE(all.equal(sc$rate_ratio_per_count, sc$rate_ratio, tolerance = 1e-8)) &&
+      isTRUE(all.equal(sc$adj_p_per_count, sc$adj_p, tolerance = 1e-8)))
+  chk("screen: with two counts on every day the daily-sum and per-count rate ratios still agree (no count-frequency confound in the fixture)",
+      { dwg2 <- list(shore_effort = dplyr::bind_rows(dwg$shore_effort, dwg$shore_effort), boat_effort = dplyr::bind_rows(dwg$boat_effort, dwg$boat_effort))
+        s3 <- marine_hazard_screen(dwg2, flags, Psc)
+        identical(s3$n_counts, 2L * s3$n_days) && isTRUE(all.equal(s3$rate_ratio_per_count, s3$rate_ratio, tolerance = 1e-6)) })
+  chk("screen: a constant flag is reported, not fitted",
+      { f2 <- flags; f2$nws_sca_any <- 0L
+        s2 <- marine_hazard_screen(dwg, f2, Psc); all(grepl("constant", s2$note[s2$covariate == "nws_sca_any"])) })
+
+  # (e) the four modes, the BH family, the one-NWS-per-population guard
+  scr <- tibble::tibble(population = c("shore", "private_boat", "private_boat", "private_boat"),
+                        covariate = c("nws_sca_any", "nws_sca_any", "nws_sca_bar", "bar_restriction"),
+                        label = unname(.mh_labels[c("nws_sca_any", "nws_sca_any", "nws_sca_bar", "bar_restriction")]),
+                        adj_estimate = c(-0.1, -1.2, -0.7, -0.9), rate_ratio = exp(c(-0.1, -1.2, -0.7, -0.9)),
+                        adj_p = c(0.25, 0.0006, 0.004, 0.0003), note = "")
+  Pa <- list(marine_hazard_mode = "auto", marine_hazard_auto_p = 0.05, marine_hazard_auto_p_adjust = "BH",
+             marine_hazard_candidates_shore = "nws_sca_any",
+             marine_hazard_candidates_boat = c("nws_sca_any", "nws_sca_bar", "bar_restriction"))
+  sa <- marine_hazard_select(scr, Pa)
+  chk("select auto: BH over the offered family keeps the boat terms and drops the shore one",
+      length(sa$shore) == 0 && setequal(sa$private_boat, c("nws_sca_any", "bar_restriction")))
+  chk("select auto: two NWS definitions clearing the screen -> the smaller adjusted p is kept and the other says why",
+      !"nws_sca_bar" %in% sa$private_boat &&
+      any(grepl("one NWS definition", sa$table$reason[sa$table$covariate == "nws_sca_bar"])))
+  chk("select auto: the family size is pinned to what was offered (an NA test does not shrink it)",
+      { s2 <- scr; s2$adj_p[3] <- NA_real_; s3 <- marine_hazard_select(s2, Pa)
+        setequal(s3$private_boat, c("nws_sca_any", "bar_restriction")) && grepl("4 effort test", s3$note[1]) })
+  chk("select auto: no screen -> nothing selected, with a note",
+      length(marine_hazard_select(NULL, Pa)$private_boat) == 0 && length(marine_hazard_select(NULL, Pa)$note) > 0)
+  chk("select off: nothing, regardless of the screen",
+      length(marine_hazard_select(scr, modifyList(Pa, list(marine_hazard_mode = "off")))$private_boat) == 0)
+  so <- marine_hazard_select(scr, modifyList(Pa, list(marine_hazard_mode = "on")))
+  chk("select on: every candidate, still one NWS definition per population (the first in candidate order)",
+      identical(so$shore, "nws_sca_any") && setequal(so$private_boat, c("nws_sca_any", "bar_restriction")))
+  sm <- marine_hazard_select(scr, modifyList(Pa, list(marine_hazard_mode = "manual", marine_hazard_manual_boat = c("bar_restriction", "razor_nearby_dig"),
+                                                       marine_hazard_manual_shore = character(0))))
+  chk("select manual: honours the list, ignores an unknown name, leaves the shore empty",
+      identical(sm$private_boat, "bar_restriction") && length(sm$shore) == 0)
+  chk("select manual: a candidate not named is reported as 'not named'",
+      any(sm$table$reason[sm$table$covariate == "nws_sca_any" & sm$table$population == "private_boat"] == "not named"))
+  chk("select: an unknown candidate or mode is refused",
+      inherits(try(marine_hazard_select(scr, modifyList(Pa, list(marine_hazard_candidates_boat = "wave_height"))), silent = TRUE), "try-error") &&
+      inherits(try(marine_hazard_select(scr, modifyList(Pa, list(marine_hazard_mode = "yes"))), silent = TRUE), "try-error"))
+
+  # (f) the hand-off to the K_open block: a fractional (imputed) column survives, and the
+  #     identifiability rule counts observed 0/1 days only
+  source("03_R_functions/bss_opener_covariates.R")
+  dd <- mkdays("2024-12-01", 60)
+  fl2 <- tibble::tibble(event_date = dd$event_date, nws_sca_any = as.integer(seq_len(60) %% 4 == 0),
+                        bar_restriction = ifelse(seq_len(60) %% 2 == 0, as.numeric(seq_len(60) %% 4 == 0), 0.37))
+  om <- opener_design_matrix(dd, character(0), fl2, list(opener_min_days = 10), extra = c("nws_sca_any", "bar_restriction"))
+  X <- matrix(om$X_open, nrow = 60)
+  chk("hand-off: two marine columns enter X_open with their labels, the imputed values intact",
+      om$K_open == 2 && identical(om$labels, c("nws_sca_any", "bar_restriction")) && sum(X[, 2] == 0.37) == 30)
+  chk("hand-off: a column with fewer than opener_min_days observed days on a side is dropped",
+      opener_design_matrix(dd, character(0), fl2, list(opener_min_days = 20), extra = "bar_restriction")$K_open == 0)
+
+  # (g) both preps carry the wiring; both drivers call the orchestration; the pooled Stan is untouched
+  for (f in c("03_R_functions/prep_bss_crab_pooled.R", "03_R_functions/prep_bss_crab_gear.R")) {
+    src <- readLines(f, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
+    chk(sprintf("%s: adds the marine selection to the K_open extras", basename(f)),
+        any(grepl("marine_extra <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)", src, fixed = TRUE)) &&
+        any(grepl("extra = c(razor_extra, marine_extra)", src, fixed = TRUE)))
+  }
+  for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
+    d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
+    chk(sprintf("%s: calls marine_hazard_prepare() and takes its params back", basename(drv)),
+        any(grepl("marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)", d, fixed = TRUE)) &&
+        any(grepl("params <- marine_hazard$params", d, fixed = TRUE)))
+  }
+  chk("no Stan model mentions the marine covariates: they are columns of X_open, not new terms",
+      !any(grepl("marine|nws_sca|bar_restriction", unlist(lapply(list.files("02_stan_models", pattern = "\\.stan$", full.names = TRUE), readLines, warn = FALSE)))))
+
+  # (h) the orchestration reads NOTHING when off, and stops when on without an archive
+  Poff <- list(marine_hazard_mode = "off", marine_hazard_file = "no-such-workbook.xlsx")
+  moff <- marine_hazard_prepare(NULL, Poff, quiet = TRUE)
+  chk("prepare off: reads nothing (a missing archive is not even noticed) and installs an empty selection",
+      isFALSE(moff$active) && identical(moff$params$marine_hazard_selected, list(shore = character(0), private_boat = character(0))))
+  chk("prepare on: a missing archive STOPS rather than fitting without the covariate",
+      inherits(try(marine_hazard_prepare(NULL, modifyList(Poff, list(marine_hazard_mode = "on", est_date_start = "2024-09-16", est_date_end = "2025-09-15")), quiet = TRUE), silent = TRUE), "try-error"))
+
+  # (i) the shipped defaults
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("shipped: marine_hazard_mode OFF", identical(rc$marine_hazard_mode, "off"))
+  chk("shipped: the candidates are SCA (any zone) for both populations and the bar tick for the boat",
+      identical(rc$marine_hazard_candidates_shore, "nws_sca_any") && identical(rc$marine_hazard_candidates_boat, c("nws_sca_any", "bar_restriction")))
+  chk("shipped: the window is 04:00-16:00 local, the zones are named bar/coastal, the codes are SCA-or-higher incl. the pre-2019 SCA codes",
+      identical(rc$marine_hazard_window, c(4, 16)) && identical(names(rc$marine_hazard_zones), c("bar", "coastal")) &&
+      all(c("SC.Y", "RB.Y", "SW.Y", "SI.Y", "GL.W", "SR.W") %in% rc$marine_hazard_codes))
+  chk("shipped: bar restrictions impute from the archive ('nws'), BH over the marine family",
+      identical(rc$bar_restriction_impute, "nws") && identical(rc$marine_hazard_auto_p_adjust, "BH"))
+
+  # (j) the committed workbook and its builder
+  wbp <- "04_input_files/nws_marine_hazards.xlsx"
+  chk("workbook: nws_marine_hazards.xlsx exists with the reader's columns",
+      file.exists(wbp) && all(c("ugc", "phenomena", "significance", "start_utc", "end_utc", "product_id", "in_effect", "pull_start", "pull_end", "source") %in%
+                              names(read_input_workbook(wbp, sheet = "data"))))
+  wb <- as.data.frame(read_input_workbook(wbp, sheet = "data"))
+  chk("workbook: both zones, and the pull window covers the canonical 2024-25 season",
+      setequal(unique(wb$ugc), c("PZZ110", "PZZ156")) && all(as.Date(wb$pull_start) <= as.Date("2024-09-16")) && all(as.Date(wb$pull_end) >= as.Date("2025-09-15")))
+  chk("workbook: times are ISO-8601 UTC text and in_effect is end > start",
+      all(grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", c(wb$start_utc, wb$end_utc))) &&
+      identical(as.integer(wb$in_effect), as.integer(.mh_parse_utc(wb$end_utc) > .mh_parse_utc(wb$start_utc))))
+  chk("workbook: its provenance is stated on every row (a transcription until a live pull replaces it)",
+      all(grepl("transcription|IEM", wb$source)) && file.exists("04_input_files/raw/nws_marine_hazards_iem_transcription_2026-09-25.csv"))
+  chk("workbook: the reader's coverage attribute comes from the pull window, not inferred",
+      { evw <- marine_hazard_events(list(marine_hazard_file = "nws_marine_hazards.xlsx")); isFALSE(attr(evw, "coverage_inferred")) && nrow(attr(evw, "coverage")) == 2 })
+  # the builder's parser on the text the service actually returned (2026-09-25)
+  if (requireNamespace("jsonlite", quietly = TRUE) && requireNamespace("writexl", quietly = TRUE)) {
+    eb <- new.env(); sys.source("04_input_files/build_nws_marine_hazards.R", envir = eb)
+    js <- paste0('{"events": [{"url": "/vtec/?year=2024&wfo=KSEW&phenomena=SC&significance=Y&eventid=0189", "issue": "2025-01-03T21:00:00Z", ',
+                 '"expire": "2025-01-04T12:00:00Z", "eventid": 189, "phenomena": "SC", "hvtec_nwsli": null, "significance": "Y", "wfo": "SEW", ',
+                 '"name": "Small Craft Advisory", "ph_name": "Small Craft", "sig_name": "Advisory", "ugc": "PZZ110", "product_id": "202501031046-KSEW-WHUS76-MWWSEW"}, ',
+                 '{"url": "/vtec/?year=2025&wfo=KSEW&phenomena=SC&significance=Y&eventid=0003", "issue": "2025-01-10T12:00:00Z", "expire": "2025-01-12T11:01:00Z", ',
+                 '"eventid": 3, "phenomena": "SC", "hvtec_nwsli": null, "significance": "Y", "wfo": "SEW", "name": "Small Craft Advisory", "ph_name": "Small Craft", ',
+                 '"sig_name": "Advisory", "ugc": "PZZ110", "product_id": "202501092254-KSEW-WHUS76-MWWSEW"}], "generated_at": "2026-09-25T18:24:30Z"}')
+    pr <- eb$parse_iem_vtec(js, "PZZ110")
+    chk("builder: parses the service's JSON into one row per segment with issue / expire / product_id",
+        nrow(pr) == 2 && identical(pr$issue, c("2025-01-03T21:00:00Z", "2025-01-10T12:00:00Z")) && identical(pr$eventid, c(189L, 3L)) &&
+        identical(pr$product_id[1], "202501031046-KSEW-WHUS76-MWWSEW"))
+    chk("builder: an empty events array is zero rows, not an error", nrow(eb$parse_iem_vtec('{"events": [], "generated_at": "x"}', "PZZ110")) == 0)
+    wb2 <- eb$build_nws_workbook(pr, "PZZ110", as.Date("2025-01-01"), as.Date("2025-01-31"), "test")
+    chk("builder: the workbook carries the announcement time from product_id, in_effect, and the pull window on every row",
+        identical(wb2$product_issued_utc[1], "2025-01-03T10:46:00Z") && all(wb2$in_effect == 1L) &&
+        all(wb2$pull_start == "2025-01-01") && identical(wb2$hazard[1], "Small Craft Advisory") && identical(wb2$zone_name[1], "Grays Harbor Bar"))
+    chk("builder: pulls by calendar year and never de-duplicates by eventid alone",
+        { src <- readLines("04_input_files/build_nws_marine_hazards.R", warn = FALSE)
+          any(grepl("seq(as.integer(format(sdate", src, fixed = TRUE)) && any(grepl("distinct(ugc, phenomena, significance, eventid, issue, expire, product_id", src, fixed = TRUE)) })
+  } else cat("NOTE  builder: jsonlite or writexl absent; the parser assertions are skipped\n")
+
+  # (k) the batch runner: the rule before the run, the pin, the reference, the covariate clauses
+  rf <- "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"
+  src <- readLines(rf, warn = FALSE)
+  chk("runner: exists, ships DRY_RUN <- TRUE and RESUME by digest", file.exists(rf) && any(grepl("^DRY_RUN <- TRUE", src)) && any(grepl("MH_STAGE.txt", src, fixed = TRUE)))
+  chk("runner: the decision rule is stated in the header BEFORE the run, including what LOO cannot measure",
+      any(grepl("THE DECISION RULE, STATED HERE BEFORE THE RUN", src, fixed = TRUE)) && any(grepl("WHAT THIS RUN CANNOT MEASURE", src, fixed = TRUE)))
+  chk("runner: the pin carries all nine per-season keys and the flag definition",
+      all(vapply(c("est_date_start", "season_filter", "pot_open_date", "census_end_date", "commercial_opener",
+                   "marine_hazard_window", "marine_hazard_codes", "bar_restriction_impute"),
+                 function(k) any(grepl(paste0("(^|[ ,(])", k, " = "), src)), logical(1))))
+  chk("runner: the baseline is judged bit-identical to R4 and the bar term against the SCA rung (rule 6)",
+      any(grepl("REF_R4 <- \"20260910/pooled-CPUE-IMP-R4-shore-tau-newf\"", src, fixed = TRUE)) &&
+      any(grepl('list(sid = "M4", ctl = "M2", fit = FIT_BOAT,  cov = "bar_restriction")', src, fixed = TRUE)))
+  chk("runner: a paired elpd inside +-2 SE is REVIEW, never FAIL",
+      any(grepl('if (ratio > 2) "PASS" else if (ratio < -2) "FAIL" else "REVIEW"', src, fixed = TRUE)))
+  chk("runner: the recommendation needs every one of rules 1 to 5 PRESENT and EVALUATED; an absent or non-computable clause is 'open', never adoptable (B33)",
+      any(grepl("present <- vapply(1:5, function(n) any(grepl(paste0(\"^rule \", n), rows$criterion)), logical(1))", src, fixed = TRUE)) &&
+      any(grepl("open: rule(s) %s not evaluated", src, fixed = TRUE)) &&
+      any(grepl("^NOT COMPUTABLE|^term not in this fit", src, fixed = TRUE)) &&
+      !any(grepl("\"adoptable, no sampled-day gain\"", src, fixed = TRUE)))
+  chk("runner: a missing convergence report, AR log or adequacy row is REVIEW in rules 1 and 2, not PASS or FAIL",
+      any(grepl('if (is.na(L$gate_all_pass)) "REVIEW" else if (isTRUE(L$gate_all_pass)) "PASS" else "FAIL"', src, fixed = TRUE)) &&
+      any(grepl('if (!known) "REVIEW" else if (pf <= 0.15 && share <= 0.05) "PASS" else "FAIL"', src, fixed = TRUE)))
 })
 
 # ---------------------------------------------------------------------------

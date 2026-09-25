@@ -1,0 +1,856 @@
+# -----------------------------------------------------------------------------
+# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
+# for Grays Harbor / Westport (WDFW).
+# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+#
+# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
+#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
+# Substantial portions of the methodology, structure, and R/Stan code originate
+# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
+# recreational crab are by WDFW.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License, version 3, as published by the Free
+# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
+# implied
+# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details. You should have received a copy of
+# the GNU General Public License along with this program (see the LICENSE file);
+# if not, see <https://www.gnu.org/licenses/>.
+# -----------------------------------------------------------------------------
+###############################################################################
+# MARINE HAZARD EFFORT COVARIATES: SMALL CRAFT ADVISORIES AND BAR RESTRICTIONS (2026-09-25)
+# -----------------------------------------------------------------------------
+# WHY THIS RUN EXISTS
+#   The samplers record "Small Craft Advisory" and "Bar Restrictions" on their survey form.
+#   On 2026-09-25 the NWS VTEC archive was pulled for the Grays Harbor Bar (PZZ110) and the
+#   coastal waters off Westport (PZZ156) and compared with those ticks: the sampler SCA tick
+#   is a noisy copy of the archive (it misses about a third of the advisories in effect
+#   during a shift), while the bar-restriction tick carries information no NWS product has
+#   (a USCG closure of the bar to recreational vessels). Offline, on the 2023-24 to 2025-26
+#   Westport Boat Launch trailer counts after season, month and day type, an SCA-or-higher
+#   in the 04:00-16:00 window carried a rate ratio of about 0.25 and the bar tick about 0.67
+#   beyond every archived NWS product. Those are associations on sampled days in a
+#   quasi-Poisson regression. The question this run answers is different: does either EARN
+#   a term in the BSS effort process, whose whole purpose is to carry effort across the
+#   unsampled days?
+#
+#   The machinery landed with this file (03_R_functions/bss_marine_hazard_covariates.R,
+#   run_config.R section 4.4b): the covariates ride on the existing K_open / X_open / B_open
+#   block, so NEITHER STAN MODEL CHANGED and marine_hazard_mode = "off" (the shipped value)
+#   builds the Stan data it built before. M1 below proves that empirically.
+#
+# THE RUNGS. One lever moves per rung; everything else is pinned by WINDOW below.
+#   M0   desk, seconds. No fit. The archive covers the window; the flags and the screen
+#        build; each rung differs from M1 in declared keys only; the Stan data of M4 differs
+#        from M1's in K_open and X_open_flat ONLY (built for real, for the shore all-gear and
+#        the boat all-gear components); the shipped config is still off.
+#   M1   marine_hazard_mode = "off"      the baseline AND the inertness proof: must be
+#        bit-identical to the committed R4 render (20260910/pooled-CPUE-IMP-R4-shore-tau-newf)
+#   M2   SCA only    nws_sca_any forced on BOTH populations (manual)
+#   M3   bar only    bar_restriction forced on the boat (manual)
+#   M4   both        nws_sca_any on both populations + bar_restriction on the boat
+#   M5   auto        marine_hazard_mode = "auto": what production would do with the screen
+#
+# THE DECISION RULE, STATED HERE BEFORE THE RUN so it cannot be fitted to the answer.
+#   1. A rung is ELIGIBLE only if every fit in it passes the convergence gate, and every fit
+#      used the SAME AR resolution as M1 (a covariate that only changes a resolution is not
+#      a covariate result).
+#   2. Adequacy must not degrade: shore all-gear and boat all-gear p_loo_frac <= 0.15 and
+#      bad Pareto k <= 5% of the catch-stream n_obs, the same clauses as the D3 run.
+#   3. A covariate is IDENTIFIED in a fit if the 95% interval of its B_open_out excludes 0.
+#      A term that is not identified is not adopted, whatever the elpd says.
+#   4. THE PAIRED EFFORT-STREAM elpd against M1 (gear stream for shore fits, trailer stream
+#      for boat fits; loo_elpd_paired(), Vehtari et al. 2017 s3.3): a gain above +2 paired
+#      SE on at least one fit where the term is active, and no fit worse than -2 SE, is
+#      "earns its term ON THE SAMPLED DAYS". Between -2 and +2 SE is "no evidence either
+#      way", and that is REVIEW, not FAIL.
+#   5. The CATCH stream's paired elpd must sit within +-2 SE of M1: an effort covariate has
+#      no business moving the catch fit. Outside that band is REVIEW.
+#   6. bar_restriction is judged in M4 AGAINST M2, not against M1: on unsampled days it is an
+#      expected value driven by the archived advisories, so against M1 it would be credited
+#      with the SCA term's work. Its increment beyond the archive is what the offline screen
+#      claimed (0.67) and what M4-vs-M2 measures.
+#   7. THE PORT TOTAL IS NOT A CRITERION. It is reported at every rung because it is what a
+#      reader will quote, and a covariate that moves it is the thing to investigate, not a
+#      reason to prefer or reject the rung.
+#   8. WHAT THIS RUN CANNOT MEASURE, stated up front. Observation-level LOO scores the
+#      SAMPLED days. The covariate's value to the estimate is on the UNSAMPLED days, where
+#      the AR process interpolates and an advisory flag is the only information that a day
+#      was not an ordinary day; nothing in a PSIS-LOO on sampled observations tests that
+#      ("LOO can't test what it never held out"). So this run can say a term is identified,
+#      harmless to the catch fit and better on the sampled days; it cannot say the
+#      unsampled-day interpolation improved. A leave-one-week-out block CV (CHANGE_REGISTER
+#      D31) is the test that could, and it is not built. The recommendation block below
+#      says which of the two it is resting on.
+#
+# WHAT IT WRITES, merged by key so a partial re-run updates rather than truncates:
+#   05_output/marine_hazard_2026-09-25_ladder.csv          per-rung totals, adequacy, B_open
+#   05_output/marine_hazard_2026-09-25_verdicts.csv        every criterion, PASS/FAIL/REVIEW/INFO
+#   05_output/marine_hazard_2026-09-25_recommendation.csv  SCA and bar, with the rule applied
+#
+# RUNTIME. The R4 render took 207 minutes (run_timings.csv: shore all-gear 150 min at
+# weekly, boat all-gear 36 min at monthly). A covariate adds one parameter per active fit
+# and does not change P_n, so budget the same per rung: about 3.5 h x 5 fitted rungs, 17 to
+# 18 h. STAGES below can drop rungs; M1 and M2 are the minimum that answers anything.
+#
+# SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
+###############################################################################
+
+DRY_RUN <- TRUE                    # TRUE prints the plan and runs M0; fits nothing
+STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5")
+RESUME  <- TRUE                    # reuse a rung ONLY when its MH_STAGE.txt digest matches
+
+# =========================================================================== #
+
+.root <- getwd()
+if (!dir.exists(file.path(.root, "03_R_functions")) &&
+    dir.exists(file.path(.root, "..", "03_R_functions")))
+  .root <- normalizePath(file.path(.root, ".."))
+if (!dir.exists(file.path(.root, "03_R_functions")))
+  stop("Run this from the repository root (or from 06_diagnostics/): 03_R_functions not found.")
+.here <- function(...) file.path(.root, ...)
+setwd(.root)
+
+`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+banner <- function(msg) cat("\n", strrep("=", 78), "\n ", msg, "\n", strrep("=", 78), "\n", sep = "")
+rule   <- function() cat(strrep("-", 78), "\n")
+fmt <- function(x, d = 1) {
+  if (length(x) == 0) return("NA")
+  out <- formatC(suppressWarnings(as.numeric(x)), format = "f", digits = d, big.mark = ",")
+  out[is.na(suppressWarnings(as.numeric(x)))] <- "NA"
+  out
+}
+.num1 <- function(x) { v <- suppressWarnings(as.numeric(x)); if (length(v)) v[1] else NA_real_ }
+
+if (!isTRUE(DRY_RUN)) {
+  suppressPackageStartupMessages({ library(here); library(rmarkdown) })
+  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
+  install.lib <- load.lib[!load.lib %in% installed.packages()]
+  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
+  invisible(sapply(load.lib, require, character.only = TRUE))
+  rstan_options(auto_write = TRUE)
+} else {
+  suppressWarnings(suppressPackageStartupMessages(
+    try({ library(dplyr); library(tidyr); library(readr); library(lubridate)
+          library(readxl); library(here); library(purrr); library(stringr); library(tibble) },
+        silent = TRUE)))
+}
+invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE),
+                 function(f) try(source(f), silent = TRUE)))
+source(.here("run_config.R"))
+BASE <- run_config
+
+POOLED_RMD  <- .here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd")
+POOLED_STAN <- .here("02_stan_models", "crab_bss_pooled.stan")
+POOLED_PREP <- .here("03_R_functions", "prep_bss_crab_pooled.R")
+MH_MODULE   <- .here("03_R_functions", "bss_marine_hazard_covariates.R")
+PREFIX <- "pooled-CPUE-"
+stopifnot(file.exists(POOLED_RMD), file.exists(POOLED_STAN), file.exists(POOLED_PREP), file.exists(MH_MODULE))
+
+# THE REFERENCE the inertness control compares against: the authoritative R4 render, on the
+# shipped configuration, made before this file and the covariate machinery existed.
+REF_R4 <- "20260910/pooled-CPUE-IMP-R4-shore-tau-newf"
+
+# the two fits the adequacy clauses read, and the fit each covariate is active in
+FIT_SHORE <- "shore_all_gear_Dungeness_Kept"
+FIT_BOAT  <- "private_boat_all_gear_Dungeness_Kept"
+FITS_ALL  <- c("shore_ring_net_only_Dungeness_Kept", FIT_SHORE,
+               "private_boat_ring_net_only_Dungeness_Kept", FIT_BOAT)
+.stream_of <- function(fit) if (startsWith(fit, "shore")) "gear" else "trailer"
+
+rd <- function(dir, f) {
+  p <- file.path(dir %||% "", f); if (!file.exists(p)) return(NULL)
+  tryCatch(utils::read.csv(p, stringsAsFactors = FALSE, check.names = FALSE), error = function(e) NULL)
+}
+.port_row <- function(x) {
+  if (is.null(x) || !all(c("Estimate", "BSS_median") %in% names(x))) return(NULL)
+  i <- which(grepl("^(Expected_)?Catch$", x$Estimate))
+  if (!length(i)) return(NULL)
+  as.list(x[i[1], , drop = FALSE])
+}
+.comp <- function(dir, key, col = "BSS_catch") {
+  x <- rd(dir, "pe_vs_bss_comparison.csv"); if (is.null(x)) return(NA_real_)
+  .num1(x[[col]][x$component == key])
+}
+.full <- function(dir, fit) {
+  f <- file.path(dir %||% "", sprintf("bss_full_summary_%s.csv", fit))
+  if (!file.exists(f)) return(NULL)
+  tryCatch(utils::read.csv(f, row.names = 1, check.names = FALSE), error = function(e) NULL)
+}
+.adq <- function(dir, fit) {
+  x <- rd(dir, "model_adequacy.csv"); if (is.null(x) || !"fit" %in% names(x)) return(NULL)
+  i <- which(x$fit == fit); if (!length(i)) return(NULL)
+  as.list(x[i[1], , drop = FALSE])
+}
+.arlog <- function(dir, fit) {
+  x <- rd(dir, "ar_escalation_log.csv"); if (is.null(x) || !"fit" %in% names(x)) return(NULL)
+  i <- which(x$fit == fit); if (!length(i)) return(NULL)
+  as.list(x[i[length(i)], , drop = FALSE])
+}
+.gate <- function(dir) rd(dir, "convergence_report.csv")
+.loo_summ <- function(dir, fit, stream) {
+  x <- rd(dir, sprintf("loo_summary_%s.csv", fit)); if (is.null(x)) return(NULL)
+  i <- which(x$stream == stream); if (!length(i)) return(NULL)
+  as.list(x[i[1], , drop = FALSE])
+}
+# The covariate labels behind B_open_out[k] for one fit: opener_covariates_<fit>.csv, written
+# by the driver whenever K_open > 0 (index, parameter, opener).
+.cov_labels <- function(dir, fit) {
+  x <- rd(dir, sprintf("opener_covariates_%s.csv", fit))
+  if (is.null(x) || !all(c("parameter", "opener") %in% names(x))) return(NULL)
+  stats::setNames(as.character(x$opener), as.character(x$parameter))
+}
+# B_open_out posterior for a named covariate in one fit: mean, 2.5%, 97.5%, and whether the
+# interval excludes 0. NULL when the term is not in that fit.
+.b_open <- function(dir, fit, covariate) {
+  lab <- .cov_labels(dir, fit); fs <- .full(dir, fit)
+  if (is.null(lab) || is.null(fs) || !covariate %in% lab) return(NULL)
+  par <- names(lab)[match(covariate, lab)]
+  if (!par %in% rownames(fs)) return(NULL)
+  r <- fs[par, , drop = FALSE]
+  list(parameter = par, mean = .num1(r[["mean"]]), lo = .num1(r[["2.5%"]]), hi = .num1(r[["97.5%"]]),
+       rhat = .num1(r[["Rhat"]]), n_eff = .num1(r[["n_eff"]]),
+       identified = isTRUE(is.finite(.num1(r[["2.5%"]])) && is.finite(.num1(r[["97.5%"]])) &&
+                             (.num1(r[["2.5%"]]) > 0 || .num1(r[["97.5%"]]) < 0)))
+}
+.pct <- function(a, b) if (isTRUE(is.finite(a)) && isTRUE(is.finite(b)) && b != 0) 100 * (a - b) / b else NA_real_
+
+V <- list()
+V1row <- function(stage, criterion, observed, threshold, verdict, why)
+  V[[length(V) + 1]] <<- data.frame(stage = stage, criterion = criterion, observed = observed,
+                                    threshold = threshold, verdict = verdict, why = why,
+                                    stringsAsFactors = FALSE)
+
+# ---------------------------------------------------------------------------
+# THE PIN. Every key that is NOT a declared delta is fixed here AT THE SHIPPED VALUE, so a
+# rung differs from M1 in exactly the marine lever it names, and M1 differs from the
+# committed R4 render in nothing but the keys that did not exist when R4 rendered.
+# ---------------------------------------------------------------------------
+WINDOW <- list(
+  # the season, all nine per-season keys
+  est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25",
+  pot_closures = NULL, census_windows = NULL,
+  pot_closure_start = "2024-09-16", pot_closure_end = "2024-11-30", pot_open_date = "2024-12-01",
+  census_start_date = "2024-12-01", census_end_date = "2025-02-08", commercial_opener = "2025-02-11",
+  # the census and PE levers (they enter the port total)
+  census_expansion = "none", census_uncertainty = "charter", charter_expansion = "vessel", charter_frame = "roster",
+  pe_empty_effort_stratum = "local_day_type", pe_empty_stratum = "local", pe_variance = "impute_aware",
+  # the turnover and f levers, at the shipped RESOLVERS (not resolved numbers)
+  tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived",
+  tau_boat_prior_mu = "calibration", tau_boat_prior_sigma = 0.5,
+  shared_tau = TRUE, shared_tau_sigma = 0.15, shared_tau_min_obs = 15, osp_scale_is_tau = TRUE,
+  use_osp_boat_counts = TRUE, use_crab_fraction = TRUE,
+  crab_fraction_strata = "month", crab_fraction_source = "both", crab_fraction_dynamic = TRUE,
+  use_osp_crab_lower = FALSE,
+  # the shore catch likelihood
+  estimate_catch_zi = TRUE, catch_zi_populations = "shore", catch_zi_tracks = "pooled",
+  zi_catch_prior_a = 1, zi_catch_prior_b = 9,
+  # the OTHER day covariates stay off: the K_open block must carry the marine columns alone
+  opener_covariate_mode = "off", razor_dig_mode = "no",
+  # sampler and AR: one seed, the shipped caps, no ladder, no override
+  bss_seed = 20260619, bss_chains = 4, bss_cores = 4, bss_sampler_override = NULL,
+  ar_force = NULL, ar_escalate = FALSE, ar_rung_adequacy = TRUE, estimate_red_rock = FALSE,
+  # the flag definition, pinned so a run_config edit cannot redefine the covariate mid-batch
+  marine_hazard_candidates_shore = c("nws_sca_any"),
+  marine_hazard_candidates_boat  = c("nws_sca_any", "bar_restriction"),
+  marine_hazard_auto_p = 0.05, marine_hazard_auto_p_adjust = "BH",
+  marine_hazard_file = "nws_marine_hazards.xlsx", marine_hazard_sheet = "data",
+  marine_hazard_zones = c(bar = "PZZ110", coastal = "PZZ156"),
+  marine_hazard_codes = c("SC.Y", "RB.Y", "SW.Y", "SI.Y", "GL.W", "SR.W", "SE.W", "HF.W"),
+  marine_hazard_window = c(4, 16), marine_hazard_tz = "America/Los_Angeles",
+  bar_restriction_impute = "nws", bar_restriction_field_start = NULL
+)
+
+# ---------------------------------------------------------------------------
+# THE RUNGS. `delta` is the ONLY thing that may differ from the pinned configuration.
+# ---------------------------------------------------------------------------
+STAGE_DEFS <- list(
+  M0 = list(tag = "MH-M0-desk", fit = FALSE, item = "prerequisites; no fit", delta = list()),
+  M1 = list(tag = "MH-M1-off",  fit = TRUE,  item = "baseline: marine_hazard_mode = off (the shipped value); must reproduce R4 bit for bit",
+            delta = list(marine_hazard_mode = "off")),
+  M2 = list(tag = "MH-M2-sca",  fit = TRUE,  item = "SCA only: nws_sca_any on shore AND boat",
+            delta = list(marine_hazard_mode = "manual", marine_hazard_manual_shore = "nws_sca_any",
+                         marine_hazard_manual_boat = "nws_sca_any")),
+  M3 = list(tag = "MH-M3-bar",  fit = TRUE,  item = "bar only: bar_restriction on the boat",
+            delta = list(marine_hazard_mode = "manual", marine_hazard_manual_shore = character(0),
+                         marine_hazard_manual_boat = "bar_restriction")),
+  M4 = list(tag = "MH-M4-both", fit = TRUE,  item = "both: nws_sca_any on shore and boat, bar_restriction on the boat",
+            delta = list(marine_hazard_mode = "manual", marine_hazard_manual_shore = "nws_sca_any",
+                         marine_hazard_manual_boat = c("nws_sca_any", "bar_restriction"))),
+  M5 = list(tag = "MH-M5-auto", fit = TRUE,  item = "auto: the screen decides (what production would do with marine_hazard_mode = auto)",
+            delta = list(marine_hazard_mode = "auto", marine_hazard_manual_shore = character(0),
+                         marine_hazard_manual_boat = character(0)))
+)
+if (!all(STAGES %in% names(STAGE_DEFS)))
+  stop("STAGES names a stage that does not exist: ", paste(setdiff(STAGES, names(STAGE_DEFS)), collapse = ", "))
+DELTA_KEYS <- c("marine_hazard_mode", "marine_hazard_manual_shore", "marine_hazard_manual_boat")
+# keys the driver ADDS to params at run time (data, not configuration) that config_delta()
+# would otherwise report between two folders
+RUNTIME_KEYS <- c("run_tag", "model", "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates",
+                  "crab_fraction_rows", "osp_crab_rows", "tau_boat_prior_source",
+                  "tau_boat_prior_calibration_table", "tau_shore_prior_source", "opener_flags",
+                  "opener_selected", "razor_dig_active", "marine_hazard_selected")
+
+resolve_cfg <- function(sid) {
+  cfg <- BASE
+  for (k in names(WINDOW)) cfg[[k]] <- WINDOW[[k]]
+  cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)
+  d <- STAGE_DEFS[[sid]]$delta
+  for (k in names(d)) cfg[[k]] <- d[[k]]
+  cfg
+}
+# A digest over the delta keys and the pinned window, so RESUME cannot reuse a folder whose
+# configuration is not this rung's (the 2026-09-10 lesson: reusing on a folder NAME mixed
+# configurations into one ladder).
+digest_or_hash <- function(x) {
+  if (requireNamespace("digest", quietly = TRUE)) return(digest::digest(x))
+  v <- utf8ToInt(x); h <- 2166136261
+  for (b in v) { h <- bitwXor(h, b %% 256); h <- (h * 16777619) %% 2^32 }
+  sprintf("%08x%08x", h %% 2^32, (sum(v) * 2654435761) %% 2^32)
+}
+stage_digest <- function(sid) {
+  cfg <- resolve_cfg(sid)
+  keys <- sort(unique(c(DELTA_KEYS, names(WINDOW))))
+  txt <- paste(vapply(keys, function(k)
+    paste0(k, "=", paste(format(unlist(cfg[[k]] %||% "NULL")), collapse = "|")), character(1)),
+    collapse = ";")
+  substr(digest_or_hash(txt), 1, 8)
+}
+.code_fingerprint <- function() {
+  .g <- function(paths) {
+    fs <- sort(unlist(lapply(paths, function(p)
+      if (dir.exists(p)) list.files(p, pattern = "[.](R|Rmd|stan)$", full.names = TRUE) else p)))
+    txt <- unlist(lapply(fs, function(f) {
+      l <- readLines(f, warn = FALSE)
+      l <- sub("#.*$", "", l); l <- sub("//.*$", "", l); l[nzchar(trimws(l))]
+    }))
+    substr(digest_or_hash(paste(txt, collapse = "\n")), 1, 8)
+  }
+  sprintf("stan:%s drivers:%s fns:%s",
+          .g(.here("02_stan_models")), .g(c(POOLED_RMD)), .g(.here("03_R_functions")))
+}
+.stage_stamp <- function(dir, sid) {
+  writeLines(c(sprintf("stage: %s", sid),
+               sprintf("digest: %s", stage_digest(sid)),
+               sprintf("code: %s", .code_fingerprint()),
+               sprintf("rstan: %s / StanHeaders %s",
+                       as.character(utils::packageVersion("rstan")),
+                       as.character(utils::packageVersion("StanHeaders"))),
+               sprintf("written: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+               "", "# run_marine_hazard_batch_2026-09-25.R writes this after a rung renders. RESUME",
+               "# reuses a folder ONLY when its digest matches the rung being requested."),
+             file.path(dir, "MH_STAGE.txt"))
+}
+.stamp_field <- function(dir, key) {
+  p <- file.path(dir %||% "", "MH_STAGE.txt")
+  if (!file.exists(p)) return(NA_character_)
+  l <- grep(paste0("^", key, ":"), readLines(p, warn = FALSE), value = TRUE)
+  if (!length(l)) return(NA_character_) else trimws(sub(paste0("^", key, ":"), "", l[1]))
+}
+find_outdir <- function(tag) {
+  dirs <- list.dirs(.here("05_output"), recursive = FALSE)
+  hits <- unlist(lapply(dirs, function(d)
+    list.dirs(d, recursive = FALSE)[basename(list.dirs(d, recursive = FALSE)) == paste0(PREFIX, tag)]))
+  if (!length(hits)) return(NA_character_)
+  hits[order(basename(dirname(hits)), decreasing = TRUE)][1]
+}
+
+# ---------------------------------------------------------------------------
+# M0: THE DESK STAGE. Everything that can be proven without MCMC is proven here.
+# ---------------------------------------------------------------------------
+stage_M0 <- function() {
+  banner("M0  DESK: prerequisites, before any MCMC")
+  q <- function(e) { s <- tempfile(); sink(s); on.exit(sink()); force(e) }
+
+  # (1) the module and its entry points exist; the preps read the selection
+  fns <- c("marine_hazard_events", "marine_hazard_flag_series", "bar_restriction_series",
+           "marine_hazard_screen", "marine_hazard_select", "marine_hazard_prepare")
+  have <- vapply(fns, exists, logical(1))
+  V1row("M0", "the marine hazard module is sourced and complete",
+        sprintf("%d of %d functions present", sum(have), length(fns)), "all present",
+        if (all(have)) "PASS" else "FAIL", "Nothing below can run without them.")
+  for (f in c(POOLED_PREP, .here("03_R_functions", "prep_bss_crab_gear.R"))) {
+    src <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    V1row("M0", sprintf("%s passes the marine selection into the K_open block", basename(f)),
+          if (grepl("marine_hazard_selected", src, fixed = TRUE) && grepl("c(razor_extra, marine_extra)", src, fixed = TRUE)) "yes" else "NO",
+          "reads params$marine_hazard_selected and adds it to opener_design_matrix()'s extra",
+          if (grepl("marine_hazard_selected", src, fixed = TRUE) && grepl("c(razor_extra, marine_extra)", src, fixed = TRUE)) "PASS" else "FAIL",
+          "The driver installs the selection; the prep is where it becomes a column. Both tracks.")
+  }
+  st <- readLines(POOLED_STAN, warn = FALSE)
+  V1row("M0", "the pooled Stan carries the K_open / X_open_flat / B_open block (unchanged)",
+        paste(c("K_open", "X_open_flat", "B_open", "B_open_out")[vapply(c("K_open", "X_open_flat", "B_open", "B_open_out"),
+              function(v) any(grepl(paste0("(^|[^A-Za-z0-9_])", v, "([^A-Za-z0-9_]|$)"), st)), logical(1))], collapse = ", "),
+        "all four", if (all(vapply(c("K_open", "X_open_flat", "B_open", "B_open_out"),
+                                  function(v) any(grepl(paste0("(^|[^A-Za-z0-9_])", v, "([^A-Za-z0-9_]|$)"), st)), logical(1)))) "PASS" else "FAIL",
+        "The covariates are columns of this block; no Stan edit was made for them.")
+
+  # (2) the shipped configuration is untouched by the patch
+  V1row("M0", "the SHIPPED config still fits without a marine covariate",
+        sprintf("marine_hazard_mode = %s", BASE$marine_hazard_mode %||% "NULL"), "off",
+        if (identical(BASE$marine_hazard_mode, "off")) "PASS" else "FAIL",
+        "The machinery is BUILT, INERT until this run and its review say otherwise.")
+
+  # (3) the archive covers the window; the flags and the screen build on the real data
+  ok <- tryCatch({
+    p <- resolve_cfg("M5"); p <- modifyList(p, list(bss_model_file = "crab_bss_pooled.stan", boat_require_gear_time = TRUE))
+    p$ar_max_resolution <- p$ar_max_resolution$pooled
+    p$crabbing_holiday_dates <- read_crabbing_holidays(p)
+    ev <- marine_hazard_events(p); cov <- attr(ev, "coverage")
+    V1row("M0", "the NWS archive covers the window for both zones",
+          paste(sprintf("%s %s to %s", cov$ugc, cov$pull_start, cov$pull_end), collapse = "; "),
+          sprintf("%s to %s", WINDOW$est_date_start, WINDOW$est_date_end),
+          if (all(cov$pull_start <= as.Date(WINDOW$est_date_start)) && all(cov$pull_end >= as.Date(WINDOW$est_date_end)) &&
+              all(c(WINDOW$marine_hazard_zones) %in% cov$ugc)) "PASS" else "FAIL",
+          paste("marine_hazard_flag_series() stops on an uncovered window, so without this every",
+                "covariate rung would error at the driver. The committed workbook is a transcription",
+                "of the IEM rows (see build_nws_marine_hazards.R); a live re-pull replaces it."))
+    dwg <- q(fetch_crab_data(p))
+    mh <- q(marine_hazard_prepare(dwg, p, output_dir = NULL, quiet = TRUE))
+    fl <- mh$flags
+    cat(sprintf("  definition: %s\n", mh$definition))
+    cat(sprintf("  flag days in the window: nws_sca_any %d, nws_sca_bar %d, nws_sca_coastal %d of %d; bar restriction observed on %d days (%d restricted), imputed on %d\n",
+                sum(fl$nws_sca_any), sum(fl$nws_sca_bar), sum(fl$nws_sca_coastal), nrow(fl),
+                sum(!is.na(fl$bar_restriction_obs)), sum(fl$bar_restriction_obs %in% 1), sum(is.na(fl$bar_restriction_obs))))
+    if (!is.null(mh$screen)) { cat("  the screen on this window:\n"); print(as.data.frame(mh$screen[, c("population", "covariate", "n_days", "n_flag", "rate_ratio", "adj_p")]), row.names = FALSE) }
+    if (!is.null(mh$sel$table)) { cat("  auto selection:\n"); print(as.data.frame(mh$sel$table[, c("population", "covariate", "rate_ratio", "p_adj", "selected")]), row.names = FALSE) }
+    V1row("M0", "the flags, the bar imputation and the screen build on the window's data",
+          sprintf("SCA on %d of %d days; bar observed %d / imputed %d; screen rows %d; auto selects shore {%s} boat {%s}",
+                  sum(fl$nws_sca_any), nrow(fl), sum(!is.na(fl$bar_restriction_obs)), sum(is.na(fl$bar_restriction_obs)),
+                  if (is.null(mh$screen)) 0L else nrow(mh$screen),
+                  paste(mh$sel$shore, collapse = ","), paste(mh$sel$private_boat, collapse = ",")),
+          "no error; every flag in [0, 1]",
+          if (all(fl$nws_sca_any %in% c(0, 1)) && all(is.finite(fl$bar_restriction)) &&
+              all(fl$bar_restriction >= 0 & fl$bar_restriction <= 1)) "PASS" else "FAIL",
+          "The M5 rung reads exactly this selection; the screen table is what its report will show.")
+    V1row("M0", "REPORTED: what the auto screen selects on 2024-25",
+          sprintf("shore: %s | boat: %s", if (length(mh$sel$shore)) paste(mh$sel$shore, collapse = ", ") else "(none)",
+                  if (length(mh$sel$private_boat)) paste(mh$sel$private_boat, collapse = ", ") else "(none)"),
+          "no threshold", "INFO",
+          "Offline (2026-09-25) the boat SCA and bar terms cleared the BH screen and the shore SCA did not.")
+
+    # (4) THE STAN DATA PROOF. M4 against M1, built for real for the two all-gear fits: the
+    #     only entries that may differ are K_open and X_open_flat.
+    ie <- q(fetch_ie_data(p))
+    p$crab_fraction_rows <- q(crab_fraction_source_rows(dwg, ie, p))
+    stt <- q(estimate_shore_turnover(attr(ie, "ie_intervals"), dwg$shore_effort, p))
+    osp <- tryCatch(q(fetch_osp_boat_counts(p)), error = function(e) NULL)
+    ov  <- tryCatch(q(diagnose_osp_trailer_overlap(osp, p, output_dir = NULL)), error = function(e) NULL)
+    p$osp_crab_rows <- attr(osp, "osp_crab_rows")
+    p <- q(bss_resolve_tau_boat_prior(p, ov)); p <- q(bss_resolve_tau_shore_prior(p, stt))
+    Le <- if (isTRUE(p$use_ie_day_length) && nrow(ie) > 0) tryCatch(q(estimate_L_effective(ie, p)), error = function(e) NULL) else NULL
+    sub <- build_subseasons(p)
+    ss  <- sub[[which(vapply(sub, function(x) x$gear_regime == "all_gear", logical(1)))[1]]]
+    days <- q(prep_days_crab(ss$start, ss$end, p, L_eff_model = Le))
+    build <- function(sid, pop) {
+      pp <- p; d <- STAGE_DEFS[[sid]]$delta; for (k in names(d)) pp[[k]] <- d[[k]]
+      pp$marine_hazard_manual_shore <- d$marine_hazard_manual_shore %||% character(0)
+      pp$marine_hazard_manual_boat  <- d$marine_hazard_manual_boat  %||% character(0)
+      pp <- q(marine_hazard_prepare(dwg, pp, output_dir = NULL, quiet = TRUE))$params
+      summ <- q(prep_population_summary(dwg, pop, ss$start, ss$end, pp))
+      q(prep_bss_crab_pooled(days, summ, "Dungeness_Kept", pp, pop, gear_regime = ss$gear_regime, ie_data = ie))
+    }
+    expect <- list(shore = "nws_sca_any", private_boat = c("nws_sca_any", "bar_restriction"))
+    for (pop in c("shore", "private_boat")) {
+      a <- build("M1", pop); b <- build("M4", pop)
+      keys <- union(names(a), names(b))
+      diff <- keys[!vapply(keys, function(k) isTRUE(all.equal(a[[k]], b[[k]], tolerance = 0)), logical(1))]
+      lab_b <- attr(b, "opener_labels")
+      xb <- matrix(b$X_open_flat, nrow = b$D)
+      ok_cols <- b$K_open == length(expect[[pop]]) && identical(lab_b, expect[[pop]])
+      V1row("M0", sprintf("%s all-gear: M4's Stan data differs from M1's in K_open and X_open_flat ONLY", pop),
+            sprintf("M1 K_open %d; M4 K_open %d [%s]; entries differing: %s", a$K_open, b$K_open,
+                    paste(lab_b, collapse = ","), if (length(diff)) paste(diff, collapse = ", ") else "NONE"),
+            "differing entries = {K_open, X_open_flat}; M1 K_open = 0; M4 labels as declared",
+            if (setequal(diff, c("K_open", "X_open_flat")) && a$K_open == 0 && ok_cols) "PASS" else "FAIL",
+            paste("This is the whole basis of the covariate being a covariate and nothing else: the",
+                  "day set, the AR period, the counts, the interviews, the priors and the f data are",
+                  "byte-identical between the two rungs, and the term enters through one block."))
+      if (b$K_open > 0) {
+        in01 <- all(xb >= 0 & xb <= 1)
+        frac_days <- if ("bar_restriction" %in% lab_b) days$event_date[xb[, match("bar_restriction", lab_b)] %% 1 != 0] else as.Date(character(0))
+        unsampled <- fl$event_date[is.na(fl$bar_restriction_obs)]
+        frac_ok <- all(frac_days %in% unsampled)
+        V1row("M0", sprintf("%s all-gear: the X_open columns are flags in [0, 1]; the bar column carries imputed days", pop),
+              sprintf("D = %d; column sums %s; bar days with a fractional (imputed) value %d, all of them unsampled: %s", b$D,
+                      paste(sprintf("%s = %.1f", lab_b, colSums(xb)), collapse = ", "), length(frac_days), frac_ok),
+              "all in [0, 1]; every fractional bar value on a day with no observed tick",
+              if (in01 && frac_ok) "PASS" else "FAIL",
+              "An imputed expected value is the documented approximation (bss_marine_hazard_covariates.R header).")
+      }
+    }
+    TRUE
+  }, error = function(e) {
+    V1row("M0", "the flags, the screen and the Stan data proof were evaluated", conditionMessage(e), "no error", "ERROR",
+          "Needs the data-reading packages and the input files; it is not a Stan check.")
+    FALSE
+  })
+
+  # (5) COMPARABILITY. Each rung's resolved configuration must differ from M1's in declared keys only.
+  base_cfg <- resolve_cfg("M1")
+  for (sid in setdiff(names(STAGE_DEFS), c("M0", "M1"))) {
+    cfg <- resolve_cfg(sid)
+    ks  <- setdiff(union(names(base_cfg), names(cfg)), RUNTIME_KEYS)
+    diff <- ks[!vapply(ks, function(k)
+      identical(format(unlist(cfg[[k]] %||% "NULL")), format(unlist(base_cfg[[k]] %||% "NULL"))), logical(1))]
+    undeclared <- setdiff(diff, DELTA_KEYS)
+    V1row(sid, "differs from M1 in DECLARED keys only",
+          sprintf("differs in: %s", if (length(diff)) paste(diff, collapse = ", ") else "nothing"),
+          sprintf("a subset of {%s}", paste(DELTA_KEYS, collapse = ", ")),
+          if (!length(undeclared)) "PASS" else "FAIL",
+          paste("A rung that differs in an undeclared key measures that key as well as its own.",
+                "Undeclared here:", if (length(undeclared)) paste(undeclared, collapse = ", ") else "none"))
+  }
+  # (6) the reference render for the inertness verdict
+  V1row("M0", sprintf("the reference render %s is present", basename(REF_R4)),
+        if (dir.exists(.here("05_output", REF_R4))) "present" else "MISSING", "present",
+        if (dir.exists(.here("05_output", REF_R4))) "PASS" else "FAIL",
+        "M1's bit-identity verdict reads it. Without it the inertness proof is structural only (M0's Stan-data row).")
+  invisible(ok)
+}
+
+# ---------------------------------------------------------------------------
+# RUNNING ONE RUNG
+# ---------------------------------------------------------------------------
+run_one <- function(sid) {
+  st <- STAGE_DEFS[[sid]]
+  rule()
+  cat(sprintf("  %-3s %-12s  %s\n", sid, st$tag, st$item))
+  cfg <- resolve_cfg(sid)
+  cat(sprintf("       marine_hazard_mode = %-7s shore = {%s}  boat = {%s}  digest %s\n",
+              cfg$marine_hazard_mode, paste(cfg$marine_hazard_manual_shore, collapse = ","),
+              paste(cfg$marine_hazard_manual_boat, collapse = ","), stage_digest(sid)))
+  existing <- find_outdir(st$tag)
+  if (isTRUE(RESUME) && !is.na(existing) && file.exists(file.path(existing, "run_parameters.txt"))) {
+    dg <- .stamp_field(existing, "digest")
+    if (identical(dg, stage_digest(sid))) {
+      cd <- .stamp_field(existing, "code")
+      cat("  RESUME: output present at", basename(existing), "with a MATCHING digest - skipping the fit.\n")
+      if (!is.na(cd) && !identical(cd, .code_fingerprint())) {
+        cat(sprintf("          *** THE CODE HAS CHANGED SINCE THAT FIT.\n              recorded %s\n              now      %s\n", cd, .code_fingerprint()))
+        V1row(sid, "the reused fit was produced by DIFFERENT code than this run",
+              sprintf("recorded %s; now %s", cd, .code_fingerprint()), "the fingerprints match", "REVIEW",
+              "RESUME matched the CONFIG digest; any cross-rung claim involving this rung is indicative only.")
+      }
+      return(existing)
+    }
+    cat(sprintf("  RESUME: %s exists but its digest %s does not match (%s). RE-RUNNING.\n",
+                basename(existing), if (is.na(dg)) "is ABSENT" else dg, stage_digest(sid)))
+  }
+  if (isTRUE(DRY_RUN)) { cat("  DRY_RUN: not fitting.\n"); return(NA_character_) }
+  cfg$model <- "pooled"; cfg$run_tag <- st$tag
+  run_env <- new.env(parent = globalenv()); run_env$run_config <- cfg
+  t0 <- Sys.time()
+  html <- rmarkdown::render(POOLED_RMD, envir = run_env, quiet = FALSE)
+  od <- tryCatch(get("output_dir", envir = run_env, inherits = FALSE), error = function(e) NA_character_)
+  if (!is.na(od) && dir.exists(od) && file.exists(html) && normalizePath(dirname(html)) != normalizePath(od)) {
+    if (isTRUE(file.copy(html, file.path(od, basename(html)), overwrite = TRUE))) suppressWarnings(file.remove(html))
+    else cat("  WARNING: could not move the rendered HTML; the NEXT rung will overwrite it.\n")
+  }
+  done <- find_outdir(st$tag)
+  cat(sprintf("  %s finished in %.1f min -> %s\n", sid, as.numeric(difftime(Sys.time(), t0, units = "mins")),
+              if (is.na(done)) "OUTPUT FOLDER NOT FOUND" else basename(done)))
+  if (is.na(done)) stop(sprintf("%s rendered but no folder named %s%s exists under 05_output", sid, PREFIX, st$tag))
+  .stage_stamp(done, sid)
+  done
+}
+
+# ---------------------------------------------------------------------------
+# THE LADDER TABLE. One row per rung with every column the rule reads.
+# ---------------------------------------------------------------------------
+LAD <- list()
+ladder_row <- function(sid, dir) {
+  if (is.na(dir %||% NA) || !dir.exists(dir %||% "")) return(invisible(NULL))
+  pt <- .port_row(rd(dir, "port_total_Dungeness_Kept.csv")); gt <- .gate(dir)
+  aqs <- .adq(dir, FIT_SHORE); aqb <- .adq(dir, FIT_BOAT)
+  als <- .arlog(dir, FIT_SHORE); alb <- .arlog(dir, FIT_BOAT)
+  bs <- .b_open(dir, FIT_SHORE, "nws_sca_any"); bb <- .b_open(dir, FIT_BOAT, "nws_sca_any"); bbar <- .b_open(dir, FIT_BOAT, "bar_restriction")
+  ls <- .loo_summ(dir, FIT_SHORE, "gear"); lb <- .loo_summ(dir, FIT_BOAT, "trailer")
+  lsc <- .loo_summ(dir, FIT_SHORE, "catch"); lbc <- .loo_summ(dir, FIT_BOAT, "catch")
+  nobs <- function(fit) { d <- rd(dir, sprintf("ppc_byobs_%s.csv", fit)); if (is.null(d)) NA_integer_ else sum(d$data_type == "catch", na.rm = TRUE) }
+  LAD[[sid]] <<- data.frame(
+    rung = sid, folder = basename(dir), mode = resolve_cfg(sid)$marine_hazard_mode,
+    shore_cov = paste(.cov_labels(dir, FIT_SHORE) %||% character(0), collapse = "+"),
+    boat_cov  = paste(.cov_labels(dir, FIT_BOAT) %||% character(0), collapse = "+"),
+    shore_pc = .comp(dir, "shore (Pot closure)"), shore_ag = .comp(dir, "shore (All gear)"),
+    boat_pc = .comp(dir, "private_boat (Pot closure)"), boat_ag = .comp(dir, "private_boat (All gear)"),
+    shore_ag_effort = .comp(dir, "shore (All gear)", "BSS_effort"), boat_ag_effort = .comp(dir, "private_boat (All gear)", "BSS_effort"),
+    census = .comp(dir, "comm_charter (census)", "PE_catch"),
+    port = .num1(pt$BSS_median), port_lo95 = .num1(pt$BSS_lo95), port_hi95 = .num1(pt$BSS_hi95),
+    n_fits_bss = if (is.null(gt)) NA_integer_ else sum(gt$method_selected == "BSS", na.rm = TRUE),
+    n_fits = if (is.null(gt)) NA_integer_ else nrow(gt),
+    gate_all_pass = if (is.null(gt)) NA else all(as.logical(gt$pass_convergence), na.rm = TRUE),
+    shore_res = as.character(als$ar_resolution %||% NA), shore_P_n = .num1(als$P_n),
+    boat_res = as.character(alb$ar_resolution %||% NA), boat_P_n = .num1(alb$P_n),
+    shore_p_loo_frac = .num1(aqs$p_loo_frac), shore_pareto_bad = .num1(aqs$n_pareto_bad), shore_catch_n = nobs(FIT_SHORE),
+    boat_p_loo_frac = .num1(aqb$p_loo_frac), boat_pareto_bad = .num1(aqb$n_pareto_bad), boat_catch_n = nobs(FIT_BOAT),
+    shore_div = .num1(als$divergences), boat_div = .num1(alb$divergences),
+    B_sca_shore = .num1(bs$mean), B_sca_shore_lo = .num1(bs$lo), B_sca_shore_hi = .num1(bs$hi),
+    B_sca_boat = .num1(bb$mean), B_sca_boat_lo = .num1(bb$lo), B_sca_boat_hi = .num1(bb$hi),
+    B_bar_boat = .num1(bbar$mean), B_bar_boat_lo = .num1(bbar$lo), B_bar_boat_hi = .num1(bbar$hi),
+    elpd_shore_gear = .num1(ls$elpd_loo), elpd_boat_trailer = .num1(lb$elpd_loo),
+    elpd_shore_catch = .num1(lsc$elpd_loo), elpd_boat_catch = .num1(lbc$elpd_loo),
+    stringsAsFactors = FALSE)
+}
+
+# ---------------------------------------------------------------------------
+# PER-RUNG VERDICTS
+# ---------------------------------------------------------------------------
+verdict_M1 <- function(dir) {
+  if (is.na(dir %||% NA)) return(invisible(NULL))
+  ref <- .here("05_output", REF_R4)
+  if (!dir.exists(ref)) {
+    V1row("M1", "bit-identity against the pre-covariate R4 render", "reference folder absent", REF_R4, "REVIEW",
+          "Without it the inertness proof is M0's structural row only.")
+    return(invisible(NULL))
+  }
+  # keys that legitimately differ between the R4 folder and this one: the block this patch
+  # added (absent from R4's dump), the rung's own lever, and the NULL-vs-absent keys
+  new_keys <- grep("^(marine_hazard_|bar_restriction_)", names(BASE), value = TRUE)
+  # ar_force and bss_sampler_override are NULL in run_config and resolve_cfg()'s `cfg[[k]] <-`
+  # DROPS a NULL-valued key, while R4's dump carries them as NULL: absent-vs-NULL, not a change
+  ex <- tryCatch(fit_exactness(dir, ref, what = "the four fits",
+                   expect_delta = unique(c(new_keys, DELTA_KEYS, RUNTIME_KEYS, "run_weather", "pot_closures",
+                                           "census_windows", "ar_force", "bss_sampler_override",
+                                           "tau_shore_derive_window_only", "gear_period_bss", "catch_zi_tracks"))),
+                 error = function(e) NULL)
+  ok <- !is.null(ex) && identical(ex$verdict, "PASS")
+  V1row("M1", "THE MARINE CODE IS INERT WHEN OFF: M1 is bit-identical to the pre-covariate R4 render",
+        if (is.null(ex)) "could not compare" else ex$observed,
+        sprintf("every shared parameter row identical to %s", basename(REF_R4)),
+        if (ok) "PASS" else "FAIL",
+        paste("M1 ships R4's configuration and differs from it only in carrying the marine module",
+              "(which reads nothing when off) and a prep that adds an empty vector to the K_open",
+              "extras. If this FAILS, look at the unexpected-delta list and at rstan's version",
+              "before reading any other rung: a baseline that is not the baseline measures the",
+              "patch as well as the covariate."))
+  cmp <- c("shore (Pot closure)", "shore (All gear)", "private_boat (Pot closure)", "private_boat (All gear)")
+  dd <- vapply(cmp, function(k) .comp(dir, k), numeric(1)); rr <- vapply(cmp, function(k) .comp(ref, k), numeric(1))
+  V1row("M1", "every BSS component reproduces the committed R4 figure exactly",
+        paste(sprintf("%s %s vs %s", cmp, fmt(dd, 0), fmt(rr, 0)), collapse = "; "), "identical, to the crab",
+        if (isTRUE(all(is.finite(dd)) && identical(dd, rr))) "PASS" else "FAIL",
+        "The components come straight from the fits; the port adds the census as a random draw and is reported with a tolerance below.")
+  p <- .num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_median)
+  pr <- .num1(.port_row(rd(ref, "port_total_Dungeness_Kept.csv"))$BSS_median)
+  V1row("M1", "the port total reproduces R4 within the census draw",
+        sprintf("M1 %s vs R4 %s (%.4f%%)", fmt(p, 0), fmt(pr, 0), .pct(p, pr)), "within 0.05%",
+        if (isTRUE(abs(.pct(p, pr)) < 0.05)) "PASS" else "FAIL",
+        "The 2026-09-14 lesson: the port carries a random census draw and cannot be required to be bit-identical.")
+}
+
+# every fitted rung: the gate, the resolution, the adequacy (rules 1 and 2)
+verdict_rung <- function(sid, dir) {
+  if (is.na(dir %||% NA)) return(invisible(NULL))
+  L <- LAD[[sid]]; B <- LAD[["M1"]]; if (is.null(L)) return(invisible(NULL))
+  V1row(sid, "rule 1: every fit in the rung passes the convergence gate",
+        if (is.na(L$gate_all_pass)) "NOT COMPUTABLE (convergence_report.csv missing)"
+        else sprintf("%s of %s fits report BSS; gate all-pass = %s", fmt(L$n_fits_bss, 0), fmt(L$n_fits, 0), L$gate_all_pass),
+        "all fits pass", if (is.na(L$gate_all_pass)) "REVIEW" else if (isTRUE(L$gate_all_pass)) "PASS" else "FAIL",
+        "A rung with a PE fallback inside it reports a different estimator from the other rungs'. A missing statistic is REVIEW, never a verdict (B33).")
+  if (!is.null(B) && !identical(sid, "M1")) {
+    known <- !any(is.na(c(L$shore_res, B$shore_res, L$boat_res, B$boat_res, L$shore_P_n, B$shore_P_n, L$boat_P_n, B$boat_P_n)))
+    same <- identical(L$shore_res, B$shore_res) && identical(L$boat_res, B$boat_res) &&
+            isTRUE(L$shore_P_n == B$shore_P_n) && isTRUE(L$boat_P_n == B$boat_P_n)
+    V1row(sid, "rule 1: the all-gear fits used the SAME AR resolution as M1",
+          if (!known) "NOT COMPUTABLE (ar_escalation_log.csv missing in one of the two folders)" else
+          sprintf("shore %s (P_n %s) vs M1 %s (%s); boat %s (P_n %s) vs M1 %s (%s)",
+                  L$shore_res, fmt(L$shore_P_n, 0), B$shore_res, fmt(B$shore_P_n, 0),
+                  L$boat_res, fmt(L$boat_P_n, 0), B$boat_res, fmt(B$boat_P_n, 0)),
+          "identical resolutions", if (!known) "REVIEW" else if (same) "PASS" else "FAIL",
+          "The caps are pinned, so a change here would mean the covariate moved the data-driven selector; the comparison would then be two things at once.")
+  }
+  for (side in c("shore", "boat")) {
+    pf <- L[[paste0(side, "_p_loo_frac")]]; nb <- L[[paste0(side, "_pareto_bad")]]; nn <- L[[paste0(side, "_catch_n")]]
+    share <- if (isTRUE(is.finite(nb)) && isTRUE(is.finite(nn)) && nn > 0) nb / nn else NA_real_
+    known <- isTRUE(is.finite(pf)) && isTRUE(is.finite(share))
+    V1row(sid, sprintf("rule 2: %s all-gear adequacy is not degraded", side),
+          if (!known) sprintf("NOT COMPUTABLE (p_loo_frac %s from model_adequacy.csv; bad k %s of %s catch obs from ppc_byobs)", fmt(pf, 4), fmt(nb, 0), fmt(nn, 0)) else
+          sprintf("p_loo_frac %s; %s bad k of %s catch obs (%s%%)%s", fmt(pf, 4), fmt(nb, 0), fmt(nn, 0), fmt(100 * share, 1),
+                  if (!is.null(B) && !identical(sid, "M1")) sprintf("; M1 p_loo_frac %s", fmt(B[[paste0(side, "_p_loo_frac")]], 4)) else ""),
+          "p_loo_frac <= 0.15 and bad k <= 5% of n_obs",
+          if (!known) "REVIEW" else if (pf <= 0.15 && share <= 0.05) "PASS" else "FAIL",
+          "The D3 run's calibration: the overfitted pooled daily fit sat at 0.352 with 41 bad k; the adopted weekly fit at 0.095 with 0.")
+  }
+}
+
+# the covariate clauses (rules 3, 4, 5) for one covariate in one fit, `ctl` being the rung it
+# is measured against (M1 for SCA; M2 for the bar's increment beyond the archive)
+verdict_covariate <- function(sid, dir, ctl, dir_ctl, fit, covariate) {
+  if (is.na(dir %||% NA) || is.na(dir_ctl %||% NA)) return(invisible(NULL))
+  side <- if (startsWith(fit, "shore")) "shore" else "boat"
+  b <- .b_open(dir, fit, covariate)
+  V1row(sid, sprintf("rule 3: %s is IDENTIFIED in the %s all-gear fit (95%% interval excludes 0)", covariate, side),
+        if (is.null(b)) "term not in this fit (dropped as unidentifiable in the window, or not selected)"
+        else sprintf("%s = %s [%s, %s], rate ratio %s; Rhat %s, n_eff %s", b$parameter, fmt(b$mean, 3), fmt(b$lo, 3), fmt(b$hi, 3),
+                     fmt(exp(b$mean), 3), fmt(b$rhat, 3), fmt(b$n_eff, 0)),
+        "interval excludes 0", if (is.null(b)) "REVIEW" else if (isTRUE(b$identified)) "PASS" else "FAIL",
+        paste("A term the data cannot place on one side of zero is a free parameter widening the level,",
+              "which is what the razor-dig B3 was (elpd within 1 SE, port +0.6%)."))
+  stream <- .stream_of(fit)
+  pa <- file.path(dir_ctl, sprintf("loo_pointwise_%s_%s.csv", stream, fit))
+  pb <- file.path(dir, sprintf("loo_pointwise_%s_%s.csv", stream, fit))
+  el <- tryCatch(loo_elpd_paired(pa, pb, label = sprintf("%s -> %s (%s)", ctl, sid, covariate)), error = function(e) NULL)
+  ratio <- if (is.null(el)) NA_real_ else el$ratio %||% NA_real_
+  V1row(sid, sprintf("rule 4: %s, %s all-gear %s stream: paired elpd against %s", covariate, side, stream, ctl),
+        if (is.null(el)) "NOT COMPUTABLE (loo_pointwise files missing or misaligned)" else loo_elpd_paired_str(el),
+        "> +2 paired SE = better on the sampled days; within +-2 SE = no evidence; < -2 SE = worse",
+        if (!isTRUE(is.finite(ratio))) "REVIEW" else if (ratio > 2) "PASS" else if (ratio < -2) "FAIL" else "REVIEW",
+        paste("Paired, not naive (loo_elpd_paired.R). REVIEW between the bands is 'no evidence either way',",
+              "not a failure. And rule 8: this scores the SAMPLED days only."))
+  pa <- file.path(dir_ctl, sprintf("loo_pointwise_catch_%s.csv", fit)); pb <- file.path(dir, sprintf("loo_pointwise_catch_%s.csv", fit))
+  ec <- tryCatch(loo_elpd_paired(pa, pb, label = sprintf("%s -> %s catch", ctl, sid)), error = function(e) NULL)
+  rc <- if (is.null(ec)) NA_real_ else ec$ratio %||% NA_real_
+  V1row(sid, sprintf("rule 5: %s, %s all-gear CATCH stream unmoved (paired elpd within +-2 SE of %s)", covariate, side, ctl),
+        if (is.null(ec)) "NOT COMPUTABLE" else loo_elpd_paired_str(ec), "within +-2 paired SE",
+        if (!isTRUE(is.finite(rc))) "REVIEW" else if (abs(rc) <= 2) "PASS" else "REVIEW",
+        "An effort covariate has no business moving the catch fit; a move is something to understand, not a verdict.")
+}
+
+verdict_port <- function(sid, dir) {
+  L <- LAD[[sid]]; B <- LAD[["M1"]]; if (is.null(L) || is.null(B) || identical(sid, "M1")) return(invisible(NULL))
+  V1row(sid, "REPORTED, NOT A CRITERION: the estimate under the covariate(s)",
+        sprintf("shore all-gear %s -> %s (%s%%); boat all-gear %s -> %s (%s%%); port %s -> %s (%s%%) [%s, %s]",
+                fmt(B$shore_ag, 0), fmt(L$shore_ag, 0), fmt(.pct(L$shore_ag, B$shore_ag), 2),
+                fmt(B$boat_ag, 0), fmt(L$boat_ag, 0), fmt(.pct(L$boat_ag, B$boat_ag), 2),
+                fmt(B$port, 0), fmt(L$port, 0), fmt(.pct(L$port, B$port), 2), fmt(L$port_lo95, 0), fmt(L$port_hi95, 0)),
+        "no threshold; rule 7", "INFO",
+        "The direction to expect: a covariate that lowers effort on advisory days lowers the unsampled-day interpolation on those days, so the total moves DOWN if anything.")
+}
+
+verdict_M5 <- function(dir) {
+  if (is.na(dir %||% NA)) return(invisible(NULL))
+  sel <- rd(dir, "marine_hazard_selection.csv")
+  V1row("M5", "REPORTED: what the auto screen selected in the rendered run",
+        if (is.null(sel)) "marine_hazard_selection.csv missing" else
+          paste(sprintf("%s/%s p_adj %s -> %s", sel$population, sel$covariate, fmt(.num1(sel$p_adj), 4), sel$selected), collapse = "; "),
+        "no threshold", "INFO", "Compare with the forced rungs: auto should land on the terms the rule adopts, or say why not.")
+}
+
+# ---------------------------------------------------------------------------
+# THE RECOMMENDATION, from the ladder and the verdicts, by the rule in the header.
+# ---------------------------------------------------------------------------
+REC <- list()
+recommend <- function() {
+  banner("RECOMMENDATION: the SCA term and the bar-restriction term")
+  if (!length(LAD)) { cat("  No fitted rungs to read. Nothing recommended.\n"); return(invisible(NULL)) }
+  VV <- do.call(rbind, V)
+  # the rows that bear on ONE covariate in ONE fit: rule 1 (the rung), rule 2 (that side's
+  # adequacy), rules 3 to 5 (that covariate in that side's all-gear fit)
+  # B33's lesson, applied here: a clause that is ABSENT (a rung or its control did not render)
+  # or NOT COMPUTABLE (a file missing, the term not in the fit) is an open question, never a
+  # verdict in either direction. Only when every one of rules 1 to 5 is present and evaluated
+  # does the ladder get to say adopt, and rule 4's REVIEW inside +-2 SE (an evaluated "no
+  # evidence either way") is named as such rather than lumped with "could not be evaluated".
+  judge <- function(sid, covariate, side) {
+    rows <- VV[VV$stage == sid & grepl("^rule ", VV$criterion), , drop = FALSE]
+    keep <- grepl("^rule 1", rows$criterion) |
+            (grepl("^rule 2", rows$criterion) & grepl(paste0(": ", side, " all-gear"), rows$criterion, fixed = TRUE)) |
+            (grepl("^rule [345]", rows$criterion) & grepl(covariate, rows$criterion, fixed = TRUE) &
+               grepl(paste0(side, " all-gear"), rows$criterion, fixed = TRUE))
+    rows <- rows[keep, , drop = FALSE]
+    if (!nrow(rows)) return(list(verdict = "not fitted", rows = rows))
+    present <- vapply(1:5, function(n) any(grepl(paste0("^rule ", n), rows$criterion)), logical(1))
+    if (!all(present))
+      return(list(verdict = sprintf("open: rule(s) %s not evaluated (the rung or its control did not render)",
+                                    paste(which(!present), collapse = ", ")), rows = rows))
+    if (any(rows$verdict == "FAIL"))  return(list(verdict = "do not adopt", rows = rows))
+    if (any(rows$verdict == "ERROR")) return(list(verdict = "open: a clause errored; read the verdicts table", rows = rows))
+    not_computable <- grepl("^NOT COMPUTABLE|^term not in this fit", rows$observed)
+    if (any(not_computable | (rows$verdict == "REVIEW" & grepl("^rule [123]", rows$criterion))))
+      return(list(verdict = "open: a clause could not be evaluated (a file missing, or the term absent from the fit)", rows = rows))
+    r4 <- rows[grepl("^rule 4", rows$criterion), , drop = FALSE]
+    r5 <- rows[grepl("^rule 5", rows$criterion), , drop = FALSE]
+    if (any(r5$verdict != "PASS"))
+      return(list(verdict = "open: the catch stream moved (rule 5); understand why before adopting", rows = rows))
+    list(verdict = if (all(r4$verdict == "PASS")) "adopt (sampled-day evidence)"
+                   else "identified and harmless, no sampled-day gain (rule 4 within +-2 SE): adoption would rest on the mechanism, not on this run",
+         rows = rows)
+  }
+  cat("\n  The ladder:\n")
+  ladder <- do.call(rbind, LAD)
+  print(ladder[, c("rung", "mode", "shore_cov", "boat_cov", "shore_ag", "boat_ag", "port", "gate_all_pass",
+              "B_sca_shore", "B_sca_boat", "B_bar_boat", "elpd_shore_gear", "elpd_boat_trailer")], row.names = FALSE)
+  for (item in list(list(name = "SCA on the shore", sid = "M2", cov = "nws_sca_any", side = "shore"),
+                    list(name = "SCA on the boat",  sid = "M2", cov = "nws_sca_any", side = "boat"),
+                    list(name = "bar restriction on the boat (beyond the archive, M4 vs M2)", sid = "M4", cov = "bar_restriction", side = "boat"))) {
+    j <- judge(item$sid, item$cov, item$side)
+    cat(sprintf("\n  %s: %s\n", item$name, toupper(j$verdict)))
+    for (i in seq_len(nrow(j$rows))) cat(sprintf("     %-6s %s\n", j$rows$verdict[i], j$rows$criterion[i]))
+    REC[[item$name]] <<- j$verdict
+  }
+  cat("\n  RULE 8, restated because it bounds everything above. Every elpd here is on the SAMPLED\n")
+  cat("  days. The term's value to the ESTIMATE is on the unsampled days, and no clause above\n")
+  cat("  measures that. 'adopt (sampled-day evidence)' means: identified, harmless to the catch\n")
+  cat("  fit, better on the sampled days. Before the mode ships 'auto' or 'on' in run_config.R,\n")
+  cat("  the leave-one-week-out block CV (CHANGE_REGISTER D31) is the test that would show the\n")
+  cat("  interpolation improved; until it exists, that part of the case is reasoning, not a run.\n")
+  cat("\n  ADOPTION EDIT, if you take it: run_config.R marine_hazard_mode <- \"auto\" (the screen)\n")
+  cat("  or \"manual\" with marine_hazard_manual_shore / _boat set to the adopted terms.\n")
+  invisible(TRUE)
+}
+
+# ---------------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------------
+banner(sprintf("MARINE HAZARD EFFORT COVARIATES  |  DRY_RUN = %s", DRY_RUN))
+cat(sprintf("  stages: %s\n", paste(STAGES, collapse = ", ")))
+cat(sprintf("  code   %s\n", .code_fingerprint()))
+if (isTRUE(DRY_RUN))
+  cat("\n  DRY RUN. M0 runs; no rung is fitted. Set DRY_RUN <- FALSE and source again.\n")
+
+DIRS <- list()
+for (sid in STAGES) {
+  if (identical(sid, "M0")) { tryCatch(stage_M0(), error = function(e)
+    V1row("M0", "the desk stage completed", conditionMessage(e), "no error", "ERROR",
+          "M0 is pure desk work; an error here is a bug in this file, not a run failure.")); next }
+  DIRS[[sid]] <- tryCatch(run_one(sid), error = function(e) {
+    V1row(sid, "the rung completed", conditionMessage(e), "the render runs to completion", "ERROR",
+          "The render errored. The other rungs are separate renders; RESUME = TRUE retries this one.")
+    NA_character_ })
+  if (!is.na(DIRS[[sid]] %||% NA)) tryCatch(ladder_row(sid, DIRS[[sid]]), error = function(e)
+    V1row(sid, "the ladder row was extracted", conditionMessage(e), "no error", "ERROR", "The fit survived; only the extraction failed."))
+}
+fitted <- intersect(STAGES, names(STAGE_DEFS)[vapply(STAGE_DEFS, function(s) isTRUE(s$fit), logical(1))])
+for (sid in fitted) tryCatch(verdict_rung(sid, DIRS[[sid]] %||% NA_character_), error = function(e)
+  V1row(sid, "the rung verdicts were computed", conditionMessage(e), "no error", "ERROR", ""))
+if ("M1" %in% STAGES) tryCatch(verdict_M1(DIRS$M1 %||% NA_character_), error = function(e)
+  V1row("M1", "the bit-identity verdict was computed", conditionMessage(e), "no error", "ERROR", ""))
+# the covariate clauses: SCA in M2 against M1 (both fits), bar in M3 against M1 and in M4 against M2
+.cov_pairs <- list(
+  list(sid = "M2", ctl = "M1", fit = FIT_SHORE, cov = "nws_sca_any"),
+  list(sid = "M2", ctl = "M1", fit = FIT_BOAT,  cov = "nws_sca_any"),
+  list(sid = "M3", ctl = "M1", fit = FIT_BOAT,  cov = "bar_restriction"),
+  list(sid = "M4", ctl = "M2", fit = FIT_BOAT,  cov = "bar_restriction"),
+  list(sid = "M4", ctl = "M1", fit = FIT_SHORE, cov = "nws_sca_any"),
+  list(sid = "M4", ctl = "M1", fit = FIT_BOAT,  cov = "nws_sca_any"))
+for (cp in .cov_pairs) if (cp$sid %in% STAGES && cp$ctl %in% STAGES)
+  tryCatch(verdict_covariate(cp$sid, DIRS[[cp$sid]] %||% NA_character_, cp$ctl, DIRS[[cp$ctl]] %||% NA_character_, cp$fit, cp$cov),
+           error = function(e) V1row(cp$sid, sprintf("the %s verdicts were computed", cp$cov), conditionMessage(e), "no error", "ERROR", ""))
+for (sid in setdiff(fitted, "M1")) tryCatch(verdict_port(sid, DIRS[[sid]] %||% NA_character_), error = function(e) NULL)
+if ("M5" %in% STAGES) tryCatch(verdict_M5(DIRS$M5 %||% NA_character_), error = function(e) NULL)
+
+if (length(V)) {
+  banner("VERDICTS")
+  VV <- do.call(rbind, V)
+  for (i in seq_len(nrow(VV)))
+    cat(sprintf("  %-6s %-4s %s\n         observed : %s\n         threshold: %s\n",
+                VV$verdict[i], VV$stage[i], VV$criterion[i], VV$observed[i], VV$threshold[i]))
+  cat(sprintf("\n  %d PASS  %d FAIL  %d REVIEW  %d INFO  %d ERROR\n",
+              sum(VV$verdict == "PASS"), sum(VV$verdict == "FAIL"),
+              sum(VV$verdict == "REVIEW"), sum(VV$verdict == "INFO"), sum(VV$verdict == "ERROR")))
+}
+tryCatch(recommend(), error = function(e) cat("  recommendation failed:", conditionMessage(e), "\n"))
+
+if (!isTRUE(DRY_RUN)) {
+  op <- .here("05_output")
+  if (length(LAD)) merge_csv_by(do.call(rbind, LAD), file.path(op, "marine_hazard_2026-09-25_ladder.csv"), key = "rung")
+  if (length(V))   merge_csv_by(do.call(rbind, V), file.path(op, "marine_hazard_2026-09-25_verdicts.csv"), key = c("stage", "criterion"))
+  if (length(REC)) merge_csv_by(data.frame(item = names(REC), recommendation = unlist(REC),
+                                           written = format(Sys.time(), "%Y-%m-%d %H:%M:%S"), code = .code_fingerprint(),
+                                           stringsAsFactors = FALSE),
+                                file.path(op, "marine_hazard_2026-09-25_recommendation.csv"), key = "item")
+  cat("\n  wrote marine_hazard_2026-09-25_{ladder,verdicts,recommendation}.csv to 05_output/\n")
+} else {
+  cat("\n  DRY_RUN: nothing written. Set DRY_RUN <- FALSE and source again to start.\n")
+}

@@ -637,10 +637,54 @@ CODE_EQUIVALENT <- list(
   #
   # The monthly caveat from the 2026-09-12 entry still stands, as does the file-inventory
   # caveat from the 2026-09-13 one (census_frame_warnings.csv is new).
+  # SUPERSEDED 2026-09-25 by the marine hazard covariates (A30), which moved the drivers and
+  # fns layers. The stan layer did NOT move (2f9895d1 on both sides).
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:79176121 fns:079fc15f" =
-    paste("the 2026-09-11 ladder run vs the tree after the D3 per-population-period fix. stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by one",
+    paste("SUPERSEDED 2026-09-25 by the marine hazard covariates (A30), which moved the drivers and fns layers; the stan layer did not move.",
+          "the 2026-09-11 ladder run vs the tree after the D3 per-population-period fix. stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by one",
           "block in the gear .Rmd whose helper returns NULL under the shipped configuration, reproducing the previous period exactly; fns moved by a new file nothing called",
-          "before. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison.")
+          "before. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison."),
+  # The 2026-09-11 ladder run against the tree after the marine hazard covariates
+  # (2026-09-25, CHANGE_REGISTER A30 / B35 / B36). Two layers moved; each is accounted for
+  # by diffing the STRIPPED text against 3954a29, and the inertness is MEASURED, not argued:
+  #
+  #   stan:      UNCHANGED at 2f9895d1. No Stan file was touched: the covariates are extra
+  #              columns of the existing K_open / X_open_flat / B_open block, and the harness
+  #              asserts that no Stan model mentions them.
+  #   drivers:   moved 79176121 -> 7ae75209 by +31 / -0 stripped lines in the pooled .Rmd
+  #              (section 3.7: two prose paragraphs, one header, the two-line
+  #              `marine_hazard_prepare()` chunk and the report_table chunk) and +2 / -0 in
+  #              the gear .Rmd (the same two-line chunk). Under the shipped
+  #              marine_hazard_mode = "off", marine_hazard_prepare() reads nothing, not even
+  #              the archive, and installs marine_hazard_selected = list(shore = character(0),
+  #              private_boat = character(0)); the report chunk prints one sentence.
+  #   fns:       moved 079fc15f -> 22df9297 by the new bss_marine_hazard_covariates.R
+  #              (438 stripped lines, called only from the two driver chunks above) and
+  #              +4 / -3 in EACH prep: one line reading the selection, `extra =
+  #              c(razor_extra, marine_extra)` in place of `extra = razor_extra`, and two
+  #              cat() labels. With an empty selection c(razor_extra, character(0)) IS
+  #              razor_extra, and opener_design_matrix() takes unique(c(selected, extra)),
+  #              so K_open and X_open_flat cannot move.
+  #
+  # MEASURED 2026-09-25 on the real 2024-25 all-gear sub-season (D = 289), for BOTH
+  # populations and BOTH preps: the stan_data list built by the patched
+  # prep_bss_crab_pooled() / prep_bss_crab_gear() under the shipped "off" (after
+  # marine_hazard_prepare() has run) is identical() entry by entry, attributes included, to
+  # the list built by the 3954a29 preps from the same inputs, and also to the 3954a29 preps
+  # fed a params list with every marine_hazard_* / bar_restriction_* key removed (the
+  # pre-patch run_config shape). K_open = 0 in every case. Any mode other than "off" changes
+  # fits BY DESIGN and is the subject of run_marine_hazard_batch_2026-09-25.R (M1 there is
+  # the live bit-identity check against the R4 render).
+  #
+  # The monthly caveat from the 2026-09-12 entry still stands, as does the file-inventory
+  # caveat from the 2026-09-13 one (census_frame_warnings.csv is new). New with this entry:
+  # a driver run under any mode other than "off" writes marine_hazard_*.csv files the
+  # committed folders do not have, so a file-level inventory comparison is not covered.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:7ae75209 fns:22df9297" =
+    paste("the 2026-09-11 ladder run vs the tree after the marine hazard covariates (A30). stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by",
+          "the marine_hazard_prepare() chunk and its report section, which under the shipped mode 'off' read nothing and install an empty selection; fns moved by the new",
+          "module and by one selection line plus two console labels in each prep. MEASURED: under 'off' both preps build stan_data identical() entry by entry to the",
+          "3954a29 preps on the real 2024-25 all-gear data for both populations. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison.")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),
