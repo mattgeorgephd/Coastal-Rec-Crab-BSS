@@ -108,6 +108,16 @@ weather alone was not informative. Its Stan fork, its driver and the `run_weathe
 gone; `WEATHER_COVARIATE_ANALYSIS.md` keeps the exclusion finding live, because the finding is
 the reason, and the module document is archived under a banner.
 
+**Marine hazard effort covariates are built and inert** (A30, 2026-09-25). An NWS Small Craft
+Advisory-or-higher day flag (from an archive of the NWS's own VTEC products for the bar and the
+coastal zone, so known on every day) and the samplers' USCG bar-restriction tick (observed on
+sampled days, imputed on the rest) can enter the effort process as extra columns of the existing
+`K_open` block; `marine_hazard_mode` ships `"off"`, under which both preps build Stan data
+identical to the pre-patch preps (measured, `CODE_EQUIVALENT`). On 2024-25 sampled days the boat
+responds (rate ratios 0.29 and 0.39, BH p 0.0008) and the shore does not (0.905). Whether a term
+improves the estimate is the job of `06_diagnostics/run_marine_hazard_batch_2026-09-25.R`, not
+yet run, and D31 states what that run cannot measure.
+
 ## 4. Evidence a reviewer can run
 
 | check | how | current result |
