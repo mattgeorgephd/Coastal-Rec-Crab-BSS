@@ -25,12 +25,16 @@ What each sheet is, and which builder reads it:
 
 Known blemishes in the sources, all handled by the builders without editing the files: one 2023-24 Dungeness-kept cell holds a formula fragment ("3+N6847:N13622"); one 2023-24 completed-trip value is 24; one 2023-24 red-rock-returned value is "unknown"; a stray fifth column of notes in the 2025-26 harvest sheet; dates and clock times stored as Excel cells in some rows and as text in others; a duplicated survey id (1677) in 2023-24; eight check-outs typed on a 12-hour clock.
 
+## The NWS marine hazard transcription (2026-09-25)
+
+`nws_marine_hazards_iem_transcription_2026-09-25.csv` (617 rows: 147 for PZZ110 Grays Harbor Bar, 470 for PZZ156 the coastal waters off Westport) is the row export of the Iowa Environmental Mesonet's NWS VTEC archive for the two zones, 2023-01-01 to 2026-09-26, as served by `https://mesonet.agron.iastate.edu/json/vtec_events_byugc.py` on 2026-09-25. It exists because the environment that built `../nws_marine_hazards.xlsx` could not reach that service directly: the service's pages were read and the rows transcribed twice, independently, and the two transcriptions agree row for row on every field (`ugc, phenomena, significance, eventid, issue, expire, product_id`). It is the source `../build_nws_marine_hazards.R --from-csv` rebuilds the workbook from, and it is superseded the moment a live pull over the same window is committed; keep it until then, because it is the only record of what the workbook was built from. Nothing in the pipeline reads it directly.
+
 ## Retired (2026-09-10)
 
 `interviewdata20222026.xlsx` and `surveydata20222026.xlsx` (received 2026-09-09) were column-pasted compilations of the season workbooks. The pasting had left the 2023-24 gear count under a second, differently-capitalised header, and the 2025-26 rows stopped at 2026-08-01. They are in the git history and are no longer read.
 
 ## Not here
 
-`ingress_egress.xlsx` is maintained from the I/E database export (`ingressegressdata<YYYY><YYYY>.xlsx`); the copy in the repository (through 2026-08-28) is newer than the last export supplied and was verified identical to it on every shared interval on 2026-09-10. When a newer I/E export arrives, add it here and rebuild that workbook (see `../README.md`). `WBL_boat_counts.xlsx` (OSP) and `fishery_opener_dates.xlsx` have their own sources.
+`ingress_egress.xlsx` is maintained from the I/E database export (`ingressegressdata<YYYY><YYYY>.xlsx`); the copy in the repository (through 2026-08-28) is newer than the last export supplied and was verified identical to it on every shared interval on 2026-09-10. When a newer I/E export arrives, add it here and rebuild that workbook (see `../README.md`). `WBL_boat_counts.xlsx` (OSP) and `fishery_opener_dates.xlsx` have their own sources; `nws_marine_hazards.xlsx` is built from the NWS archive (above), not from a creel workbook.
 
 Keep the workbooks as received (the builders never modify them). A new season is: add its workbook here under the same naming pattern, run `Rscript 04_input_files/build_all_inputs.R` from the repository root, read the builders' reports, and commit the workbook and the rebuilt inputs together.
