@@ -489,14 +489,18 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # per-date flags in params$opener_flags. Columns that are not identifiable inside this
   # window are dropped here and reported. K_open = 0 reproduces the pre-2026-08-25 model.
   razor_extra <- if (is_shore && isTRUE(params$razor_dig_active)) "razor_nearby_dig" else character(0)
+  # 2026-09-25: the marine hazard covariates (NWS SCA-or-higher, USCG bar restriction) ride
+  # on the same block as extra columns; marine_hazard_prepare() in the driver joined their
+  # per-date values onto params$opener_flags and stored the selection. Inert when "off".
+  marine_extra <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)
   open_sel    <- (params$opener_selected %||% list())[[population_name]] %||% character(0)
   open_spec   <- opener_design_matrix(days, open_sel, params$opener_flags, params,
-                                      extra = razor_extra)
+                                      extra = c(razor_extra, marine_extra))
   if (open_spec$K_open > 0)
-    cat(sprintf("  Opener effort covariates (%d): %s\n", open_spec$K_open,
+    cat(sprintf("  Effort day covariates on the K_open block (%d): %s\n", open_spec$K_open,
                 paste(open_spec$labels, collapse = ", ")))
   for (msg in open_spec$dropped)
-    cat(sprintf("  Opener covariate DROPPED for this fit: %s\n", msg))
+    cat(sprintf("  Effort day covariate DROPPED for this fit: %s\n", msg))
 
   # v5.3: Defensive check. Stan declares Gear_A_boat as int<lower=1>.
   # number_of_gear is stored as numeric (load_creel_data line ~305), so a

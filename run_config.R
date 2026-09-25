@@ -1498,6 +1498,93 @@ run_config <- list(
   razor_dig_mode   = "no",       # "no" | "yes" | "auto"
   razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
 
+  # --- 4.4b Marine hazard effort covariates: NWS Small Craft Advisories and USCG bar
+  #          restrictions (BUILT, INERT; 2026-09-25) ------------------------------------
+  # Two day covariates for the EFFORT process, riding on the same K_open / X_open / B_open
+  # block as the opener covariates above (one more column each; NEITHER Stan model changes,
+  # and "off" builds the Stan data it built before this block existed):
+  #
+  #   nws_sca_any        an NWS Small Craft Advisory OR a gale / storm / hazardous-seas /
+  #                      hurricane-force warning was in effect for the Grays Harbor Bar zone
+  #                      (PZZ110) or the coastal waters zone off Westport (PZZ156) at any
+  #                      moment of the local window below. From the NWS VTEC archive in
+  #                      04_input_files/nws_marine_hazards.xlsx (Iowa Environmental Mesonet;
+  #                      built by 04_input_files/build_nws_marine_hazards.R), so it is KNOWN
+  #                      ON EVERY DAY, sampled or not, which is what a covariate on a daily
+  #                      latent process needs. nws_sca_bar / nws_sca_coastal are the
+  #                      single-zone variants; one NWS definition per population at most.
+  #   bar_restriction    the samplers' "Bar Restrictions" tick (sampler_shifts.xlsx
+  #                      special_conditions): a USCG closure of the bar to recreational
+  #                      vessels (33 CFR 165.1325), which no NWS product records. OBSERVED
+  #                      ON SAMPLED DAYS ONLY, from the day the option first appears on the
+  #                      form (detected: 2023-11-18); on an unsampled day it is IMPUTED as an
+  #                      expected value (bar_restriction_impute). The unsampled-day
+  #                      contribution of this term therefore rests on the archived advisories
+  #                      and on a plug-in approximation (bss_marine_hazard_covariates.R header),
+  #                      not on an observation.
+  #
+  # WHY THESE ARE NOT THE WEATHER MODULE THAT WAS REMOVED (A29). That module screened
+  # CONTINUOUS weather and tide and excluded them on its own evidence. An advisory is the
+  # categorical product a skipper reads before deciding to go, issued for the bar the boats
+  # cross. Offline screen on 2023-11-18 to 2026-09-08 (2026-09-25, negative-binomial GLM on
+  # the 1,000 launch trailer counts after season, month and weekend/holiday): SCA-or-higher
+  # in the 04:00-16:00 window, rate ratio 0.25 [0.21, 0.30]; the bar tick adds about 0.67
+  # beyond every archived NWS product (the project note of the same date); on the 2,117
+  # dock gear counts the SCA rate ratio is 0.74 [0.67, 0.82]. Within the single 2024-25
+  # window, after day type and month, the screen below finds the boat effect (0.29) and
+  # not the shore one (0.905, p 0.25). Whether either EARNS a term in the BSS is measured by
+  # 06_diagnostics/run_marine_hazard_batch_2026-09-25.R (baseline / SCA / bar / both /
+  # auto, paired effort-stream elpd against the baseline). Until that has run and been
+  # reviewed the mode ships "off".
+  #
+  #   "off"     nothing is read; no covariate (production).
+  #   "auto"    each candidate enters a population's effort model only if its quasi-Poisson
+  #             day-type + month adjusted effect on THAT population's sampled daily counts
+  #             clears marine_hazard_auto_p after the multiplicity adjustment over the
+  #             marine family (every candidate x population offered; 3 tests as shipped),
+  #             AND it is identifiable in the fit's window (opener_min_days each side).
+  #             A screen, not a verdict (see bss_opener_covariates.R): confirm against the
+  #             batch runner's paired elpd before citing a selected term.
+  #   "on"      every candidate enters, no screen (the toggle).
+  #   "manual"  exactly marine_hazard_manual_shore / marine_hazard_manual_boat.
+  # Any mode but "off" STOPS on a missing archive, or one that does not cover the
+  # estimation window, rather than running without the covariate that was asked for.
+  #
+  # TWO THINGS TO HOLD when a BOAT term is on. (1) Boat effort is ALL private boats: if
+  # crabbing boats respond to an advisory differently from the finfish boats (a bay crabber
+  # does not cross the bar; a salmon boat must), the crabbing fraction f differs on those
+  # days and the monthly f cannot see it; not measured (CHANGE_REGISTER D30). (2) A
+  # covariate on the daily process changes the interpolation across the unsampled days,
+  # which is the part observation-level LOO cannot test (D31); the block cross-validation
+  # that could is not built.
+  marine_hazard_mode             = "off",     # "off" | "auto" | "on" | "manual"
+  marine_hazard_candidates_shore = c("nws_sca_any"),
+  marine_hazard_candidates_boat  = c("nws_sca_any", "bar_restriction"),
+  marine_hazard_manual_shore     = character(0),
+  marine_hazard_manual_boat      = character(0),
+  marine_hazard_auto_p           = 0.05,      # threshold on the ADJUSTED p
+  marine_hazard_auto_p_adjust    = "BH",      # "BH" | "bonferroni" | "none" (over the marine family)
+  # the archive and the flag definition
+  marine_hazard_file   = "nws_marine_hazards.xlsx",   # built by 04_input_files/build_nws_marine_hazards.R
+  marine_hazard_sheet  = "data",
+  marine_hazard_zones  = c(bar = "PZZ110", coastal = "PZZ156"),   # NAMED; "bar" and "coastal" feed the single-zone flags
+  # SCA or higher. RB.Y / SW.Y / SI.Y are the pre-2019-12-03 rough-bar / seas / winds SCAs
+  # (NWS SCN 19-83 merged them); GL.W / SR.W / SE.W / HF.W supersede an SCA.
+  marine_hazard_codes  = c("SC.Y", "RB.Y", "SW.Y", "SI.Y", "GL.W", "SR.W", "SE.W", "HF.W"),
+  # in effect at any moment between these local clock hours; c(0, 24) = any time that day.
+  # 04:00-16:00 covers the launch decision and the counts; on 2023-11-18 to 2026-09-08 the
+  # 04:00-16:00, all-day and 06:00-14:00 definitions fit the trailer counts about equally
+  # (negative-binomial AIC within 4 of each other, all about 200 below the no-flag model)
+  # and the 04:00-10:00 and 10:00-16:00 halves worse (by 8 and 11).
+  marine_hazard_window = c(4, 16),
+  marine_hazard_tz     = "America/Los_Angeles",
+  # bar_restriction on unsampled days: "nws" = the expected value from a logistic regression
+  # of the observed tick on the bar-zone SCA, the coastal SCA and a winter (Oct-Mar)
+  # indicator, fitted on every observed day in the shifts workbook (falls back to "mean"
+  # with a note if it cannot be fitted); "mean" = the window's observed rate.
+  bar_restriction_impute      = "nws",        # "nws" | "mean"
+  bar_restriction_field_start = NULL,         # NULL = detect the option's first appearance on the form
+
   # --- 4.5 Structural alternatives, tried and not kept ---------------------
   # B2_C (holiday CPUE effect, analogous to the effort B2) is ALWAYS on now (effort had
   # weekend + holiday terms, CPUE previously had only weekend). estimate_cpue_density adds

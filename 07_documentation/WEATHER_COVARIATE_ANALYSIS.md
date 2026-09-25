@@ -16,6 +16,13 @@
 > on this pipeline: the apparent signal came from comparing a covariate model's `elpd_loo`
 > against the SE of **one model total** rather than against the **paired** SE of the
 > difference. That mistake is not specific to weather.
+>
+> **See also (2026-09-25):** the marine hazard covariates, CHANGE_REGISTER A30 and
+> `development_notes/marine-hazard-covariates-2026-09-25.md`. They are a different question
+> from the one answered here: not whether wind, waves or tide predict effort, but whether the
+> NWS's Small Craft Advisory (archived, known on every day) and the Coast Guard's bar restriction
+> (the samplers' tick, observed on sampled days and imputed on the rest), both binary, do. They ride on the production model with no fork, ship OFF, and their runner judges them by
+> the paired SE this finding insists on. This document's conclusion is unchanged by them.
 
 # Weather and Tide Covariate Analysis: Results and Interpretation
 

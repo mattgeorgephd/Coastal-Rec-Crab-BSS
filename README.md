@@ -51,7 +51,7 @@ Coastal-Rec-Crab-BSS/
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
 | `02_stan_models/` | The two Stan models (pooled, gear-resolved) | [02_stan_models/README.md](02_stan_models/README.md) |
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
-| `04_input_files/` | Nine `.xlsx` model inputs plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/` | [04_input_files/README.md](04_input_files/README.md) |
+| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read only when `marine_hazard_mode` is on) | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
 | `06_diagnostics/` | The regression harness and the dated validation batch runners | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
@@ -134,6 +134,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` parameter. Ear
    - `ingress_egress.xlsx` (I/E surveys; the shore turnover and `L_effective`)
    - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when `use_osp_boat_counts = TRUE`)
    - `fishery_opener_dates.xlsx` (the other-fishery opener calendar; pooled report diagnostic only)
+   - `nws_marine_hazards.xlsx` (the NWS Small Craft Advisory archive for the bar and coastal zones; read only when `marine_hazard_mode` is not `"off"`, which is the shipped value; rebuilt by `Rscript 04_input_files/build_nws_marine_hazards.R`, which needs the network and is not part of `build_all_inputs.R`)
 3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
 4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.

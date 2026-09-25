@@ -9,7 +9,7 @@ The one-sentence version: **configure the season, run naively with the AR ladder
 
 ## 0. What a season needs before anything runs
 
-All inputs live in `04_input_files/` and carry a `season` column, so multiple seasons coexist in one workbook and a new season is rows added, not files replaced. Since 2026-09-10 seven of the nine workbooks are BUILT from the per-season creel workbooks: **drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` (e.g. `2627_...`) and run `Rscript 04_input_files/build_all_inputs.R` from the repository root**; read each builder's report (rows by season, the flagged rows, the comparison with the previous workbook) before committing the workbook and the rebuilt inputs together.
+All inputs live in `04_input_files/` and carry a `season` column, so multiple seasons coexist in one workbook and a new season is rows added, not files replaced. Since 2026-09-10 six of the nine model and diagnostic workbooks are BUILT from the per-season creel workbooks (the tenth, the NWS marine hazard archive, has its own builder and is only read when its covariates are switched on; last row of the table): **drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` (e.g. `2627_...`) and run `Rscript 04_input_files/build_all_inputs.R` from the repository root**; read each builder's report (rows by season, the flagged rows, the comparison with the previous workbook) before committing the workbook and the rebuilt inputs together.
 
 | Input | New-season action |
 |---|---|
@@ -22,6 +22,7 @@ All inputs live in `04_input_files/` and carry a `season` column, so multiple se
 | `ingress_egress.xlsx` | Hand-maintained from the I/E database export (put the export in `raw/`; keep the `time` column). **Zero I/E rows is survivable**: `L_effective` falls back down the civil-twilight ladder, and the run says so. |
 | `WBL_boat_counts.xlsx` | Add OSP daily boat totals if available. **Absent dates are non-sampled, not zero**; with no OSP rows in the window the stream is simply absent and the boat runs trailer-only, and the shared boat turnover is refused for want of overlap days (2025-26 as of 2026-09-10). |
 | `fishery_opener_dates.xlsx` | Add the season's opener rows if you use the opener diagnostics (production covariate mode is off). |
+| `nws_marine_hazards.xlsx` | **Only if `marine_hazard_mode` is not `"off"`** (production ships off; CHANGE_REGISTER A30). The archive must COVER the window, or the run stops naming this step: `Rscript 04_input_files/build_nws_marine_hazards.R --start 2023-01-01 --end <the day after the window>` re-pulls both NWS zones from the IEM VTEC service (network; not part of `build_all_inputs.R`). The bar-restriction tick needs nothing extra: it is read from `sampler_shifts.xlsx`, which the standard rebuild produces. |
 
 ## 1. The per-season config checklist
 
@@ -198,6 +199,8 @@ against 6.0 h in 2024-25), so the contact-based crabbing fraction covers less of
 | A fit reports "PE fallback" with post-filter interviews below the floor | Too thin to fit | A measured outcome; the PE carries the component |
 | Every ladder rung fails the gate for one fit | The component cannot support ANY AR on this data | PE fallback is the answer this season; collect more data |
 | Gate passes but `flag_miscalibrated` is TRUE / `p_loo` is a large fraction of `n_obs` | Sampled fine, model too flexible at this resolution | Coarsen via the ladder evidence (section 3) |
+| Run stops at "NWS marine hazard archive does not cover zone ... over ..." | `marine_hazard_mode` is on and the committed archive ends before the window does | Re-pull with `build_nws_marine_hazards.R` (section 0), or set `marine_hazard_mode = "off"` |
+| "bar_restriction: the NWS logistic imputation was not used (...)" in the run log | Fewer than 30 observed sampler-tick days with archive flags, no variation, or a separated fit | Not a stop: unsampled days take the observed rate (`bar_restriction_source = imputed_mean` in `marine_hazard_flags.csv`, and no `marine_hazard_bar_imputation.csv` is written); read the note before citing the term |
 
 ## 9. What this guide does not cover
 

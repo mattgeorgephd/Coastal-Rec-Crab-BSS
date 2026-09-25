@@ -544,6 +544,13 @@ if (length(opener_sel$private_boat) > 0 && isTRUE(params$use_crab_fraction) &&
                  "by a constant f converts boats we know are not crabbing into crab effort. Use ",
                  "crab_fraction_strata = 'opener' or 'month_opener'. ***"))
 
+# --- 2026-09-25: marine hazard effort covariates (NWS SCA-or-higher, USCG bar restriction) --
+# Same mechanism as the pooled driver (03_R_functions/bss_marine_hazard_covariates.R): the
+# selected covariates become extra columns of the K_open block, so the gear Stan model is
+# unchanged. "off" reads nothing; any other mode stops on a missing or non-covering archive.
+marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)
+params <- marine_hazard$params
+
 timer_stop("1_load_data")
 
 

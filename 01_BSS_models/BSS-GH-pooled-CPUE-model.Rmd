@@ -865,6 +865,46 @@ if (!is.null(opener_sel$table) && nrow(opener_sel$table) > 0) {
 }
 ```
 
+### 3.7 Marine hazard effort covariates (2026-09-25)
+
+Whether an NWS **Small Craft Advisory or higher** for the Grays Harbor Bar or the coastal waters off Westport, and whether a **USCG bar restriction** as ticked by the samplers, enter the EFFORT model this run. `params$marine_hazard_mode` selects `"off"` (production; nothing is read), `"auto"` (a candidate enters a population's effort model only if its quasi-Poisson day-type + month adjusted effect on that population's sampled daily counts clears `params$marine_hazard_auto_p` after a multiplicity adjustment over the marine family), `"on"` (every candidate) or `"manual"`. Both ride on the `K_open / X_open / B_open` block above as extra columns, so the Stan model is unchanged and their coefficients appear as `B_open_out[k]`, labelled in `opener_covariates_<fit>.csv`.
+
+**Two asymmetries to read before trusting a selected term.** The NWS flag is known on every day of the window, sampled or not, from the archive in `04_input_files/nws_marine_hazards.xlsx`; the bar-restriction tick is observed on sampled days only and **imputed** on the rest (an expected value from a logistic regression on the archived advisories, `bar_restriction_impute`), so its unsampled-day contribution rests on the NWS flags, not on an observation. And a boat term describes ALL private boats: if crabbing boats respond to an advisory differently from finfish boats, the crabbing fraction `f` differs on those days and the monthly `f` cannot see it. The screen is a screen; the arbiter is the paired effort-stream `elpd_loo` against a covariate-free run (`06_diagnostics/run_marine_hazard_batch_2026-09-25.R`).
+
+```{r marine-hazard-decision, echo=TRUE}
+# --- 2026-09-25: marine hazard effort covariates (03_R_functions/bss_marine_hazard_covariates.R)
+# With marine_hazard_mode = "off" this reads nothing and only installs an empty selection.
+# Any other mode STOPS on a missing or non-covering archive rather than running without the
+# covariate the user asked for, so a fit can never silently lack a term the config names.
+marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)
+params <- marine_hazard$params
+```
+
+```{r marine-hazard-show, echo=FALSE}
+if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
+  report_table(
+    dplyr::transmute(marine_hazard$sel$table,
+      Population    = gsub("_", " ", population),
+      Covariate     = label,
+      `Rate ratio`  = round(rate_ratio, 3),
+      `Rate ratio (per count)` = if ("rate_ratio_per_count" %in% names(marine_hazard$sel$table)) round(rate_ratio_per_count, 3) else NA_real_,
+      `p (raw)`     = signif(p_raw, 3),
+      `p (adjusted)` = if ("p_adj" %in% names(marine_hazard$sel$table)) signif(p_adj, 3) else NA_real_,
+      Selected      = selected,
+      Reason        = reason),
+    caption = paste("Marine hazard effort-covariate screen. 'Rate ratio' is exp(coefficient) from",
+                    "glm(daily count ~ day-type + month + covariate, quasipoisson) on the window's sampled",
+                    "days (bar restriction: observed days only); 'Rate ratio (per count)' is the same GLM",
+                    "fitted per count rather than per daily sum, a sensitivity check nothing selects on;",
+                    "'p (adjusted)' applies the configured multiplicity correction across the marine family. Definition:",
+                    marine_hazard$definition %||% "", ". Selection is a SCREEN: confirm any selected term",
+                    "against a covariate-free run's paired effort elpd_loo before citing it."))
+} else {
+  cat(sprintf("_No marine hazard covariates considered this run (`marine_hazard_mode = '%s'`)._",
+              params$marine_hazard_mode %||% "off"))
+}
+```
+
 ### 3.1 Ingress/egress and effective day length
 
 The I/E surveys measure crabber arrivals and presence through the day, which sets the shore deployment TURNOVER `tau_shore` that expands the snapshot gear counts: 2.477 on 2024-25, derived from the `time` column at the hours the creel counts were actually taken. They also give the effective day length `L_effective` in hours, which is computed every run and is a DIAGNOSTIC: since the v7.7 move to gear-deployments the shore expansion is `lambda_E * R_G * tau_shore` and no day length appears in it. `L_effective` becomes the expansion factor only if the shore effort unit is set back to a time unit, and civil twilight (9 to 17 hours) is the fallback below it, which would overstate active fishing time by roughly a factor of two.

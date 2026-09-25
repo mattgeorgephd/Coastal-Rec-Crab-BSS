@@ -264,14 +264,19 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # The compatibility razor_dig_mode switch contributes its column through `extra`, and
   # opener_design_matrix() de-duplicates, so razor can never be counted twice.
   razor_extra <- if (is_shore && isTRUE(params$razor_dig_active)) "razor_nearby_dig" else character(0)
+  # 2026-09-25: the marine hazard covariates (NWS SCA-or-higher, USCG bar restriction) ride
+  # on the same block as extra columns. marine_hazard_prepare() (both drivers) has already
+  # joined their per-date values onto params$opener_flags and stored the per-population
+  # selection; nothing here changes when marine_hazard_mode = "off" (an empty selection).
+  marine_extra <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)
   open_sel    <- (params$opener_selected %||% list())[[population_name]] %||% character(0)
   open_spec   <- opener_design_matrix(days, open_sel, params$opener_flags, params,
-                                      extra = razor_extra)
+                                      extra = c(razor_extra, marine_extra))
   if (open_spec$K_open > 0)
-    cat(sprintf("  Opener effort covariates (%d): %s\n", open_spec$K_open,
+    cat(sprintf("  Effort day covariates on the K_open block (%d): %s\n", open_spec$K_open,
                 paste(open_spec$labels, collapse = ", ")))
   for (msg in open_spec$dropped)
-    cat(sprintf("  Opener covariate DROPPED for this fit: %s\n", msg))
+    cat(sprintf("  Effort day covariate DROPPED for this fit: %s\n", msg))
 
   # Days that can inform L in THIS fit: the I/E days always, plus the OSP days when
   # osp_scale_is_tau puts L into the OSP mean. This is what the shared-turnover floor gates on.

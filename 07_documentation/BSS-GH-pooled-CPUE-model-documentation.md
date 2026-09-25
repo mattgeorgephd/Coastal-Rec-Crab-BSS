@@ -524,6 +524,17 @@ eps_E        ~ std_normal()
 `period[d] = d`; weekly, biweekly and monthly give the corresponding calendar index. **The
 Stan code is unchanged across resolutions**; only the index and `P_n` change.
 
+**The `X_open` columns are whatever day covariates the R prep hands over, and in production
+there are none** (`K_open = 0`). The block was built for the other-fishery openers
+(`opener_covariate_mode`, Section 21) and since 2026-09-25 it also carries, when
+`marine_hazard_mode` is not `"off"`, the marine hazard covariates (Section 21a): an NWS
+Small-Craft-Advisory-or-higher day flag and the samplers' bar-restriction tick. Two
+properties of the block matter for reading a fit that has them. The columns are real-valued,
+not integer: an imputed bar-restriction day carries a probability, so `X_open[d] . B_open` on
+that day is an expected log-effect. And `B_open ~ normal(0, 1)` is per column with no
+selection inside Stan, so which columns are present is decided entirely in R before the fit,
+and `opener_covariates_<fit>.csv` is the only record of what `B_open_out[k]` means.
+
 **The day-type effects are NESTED, not mutually exclusive, and this is easy to get wrong.**
 The R prep builds `w[d] = 1` on weekends **and** holidays, and `holiday[d] = 1` only on
 holidays. So the multiplicative day-type effect is `1` on a weekday, `exp(B1)` on a weekend,
@@ -1306,6 +1317,34 @@ a crabbing fraction that is not opener-aware then converts that surge to crab ef
 same rate as a closed-opener day. Pair the two or the bias gets worse, not better. CPUE is
 deliberately offered no opener covariate at all: all eight opener-versus-catch-rate tests on
 2024-25 came back null (p 0.29 to 0.90).
+
+### 21a. Marine hazard covariates: built 2026-09-25, off, not the same question
+
+The weather module asked whether CONTINUOUS conditions (wind speed, wave height, tide) predict
+effort or catch rate, and the answer was no under a fair test. A different question is
+whether the two BINARY decisions other agencies make about those conditions predict effort:
+the NWS Small Craft Advisory (or a higher warning) for the Grays Harbor Bar and the coastal
+waters off Westport, and the Coast Guard's bar restriction. Both are known on every day of the
+window: the advisories from the archived VTEC events (`04_input_files/nws_marine_hazards.xlsx`),
+the restriction from the samplers' tick on sampled days and, on unsampled days, as the expected
+value of a logistic regression on the archived advisories. They enter the effort process as
+extra `X_open` columns (Section 14.2), so no Stan model changed.
+
+On 2024-25 sampled days the boat responds and the shore does not: adjusted for day type and
+month on the multiplicative scale, boat trailers on an SCA-or-higher day are 0.29 of the
+expectation (p_adj 0.0008), on a bar-restriction day 0.39 (p_adj 0.0008); shore gear 0.905
+(p_adj 0.25). Production ships `marine_hazard_mode = "off"`, and the term is not adopted,
+because the sampled-day association is not the question that matters. The boat is 79.8%
+extrapolated, so a day covariate earns its place by improving the interpolation on days with
+no count, and the effort-stream `elpd_loo` can only score days that have one. The run that
+tests what CAN be measured is `06_diagnostics/run_marine_hazard_batch_2026-09-25.R` (rule
+stated in its header: identified, adequate, better on the PAIRED sampled-day `elpd_loo`,
+catch stream unmoved); the diagnostic that would test what matters, a leave-one-week-out block
+cross-validation of the effort stream, does not exist yet (CHANGE_REGISTER D31). The BOAT
+caution stated above for opener terms applies here unchanged: a boat term describes all
+private vessels, and the monthly crabbing fraction cannot see whether crabbing boats stay in
+port on an advisory day at a different rate from finfish boats (D30). Design, evidence and
+caveats: `development_notes/marine-hazard-covariates-2026-09-25.md`.
 
 ## 22. Glossary
 
