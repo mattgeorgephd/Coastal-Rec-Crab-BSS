@@ -86,7 +86,7 @@
 # compute (minutes).
 ###############################################################################
 
-DRY_RUN <- TRUE
+DRY_RUN <- FALSE
 RUNGS   <- c(M1 = "MH-M1-off", M2 = "MH-M2-sca", M3 = "MH-M3-bar", M4 = "MH-M4-both", M5 = "MH-M5-auto")
 K_MAX   <- 0.7          # PSIS reliability threshold
 MIN_REL <- 0.70         # R2: reliable share needed for a comparison to be evaluable
