@@ -97,7 +97,7 @@
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
-DRY_RUN <- TRUE                    # TRUE prints the plan and runs M0; fits nothing
+DRY_RUN <- FALSE                    # TRUE prints the plan and runs M0; fits nothing
 STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5")
 RESUME  <- TRUE                    # reuse a rung ONLY when its MH_STAGE.txt digest matches
 
