@@ -1817,6 +1817,10 @@ for(cg in bss_catch_groups) {
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
   if (cg == "Dungeness_Kept" && is.finite(.cc$carried_se %||% NA) && (.cc$carried_se %||% 0) > 0) {
+    # 2026-09-26 (B38): seeded, so the port total is reproducible between identical runs.
+    # Together with the draw permutation bss_stan_fit() rebuilds from the Stan seed, this removes the ~0.1-0.2%
+    # Monte Carlo jitter the port median carried between bit-identical fits.
+    set.seed(as.integer(params$bss_seed %||% 1L))
     .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se), .cc$observed_dung %||% 0)
     cat(sprintf(paste0("  Census enters the port interval with SE %s under census_uncertainty = '%s' (total SE %s: charter expansion %s, ",
                        "commercial per-vessel mean %s, imputation %s; census_expansion = '%s', %d unsampled calendar days).\n"),
@@ -2628,6 +2632,10 @@ for(label in names(bss_all)) {
   write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir,
                                  seed = params$bss_seed %||% 1L)
   write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  # 2026-09-26 (D31 -> B39): leave-one-WEEK-out PSIS block CV of the effort streams, the
+  # interpolation test pointwise LOO cannot make. Writes loo_block_<stream>_<label>.csv;
+  # tryCatch-wrapped per stream; changes no estimate (03_R_functions/bss_block_cv.R).
+  write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
   # POOL-5: CPUE estimator triad, saturation exponent, effort-linearity, and the
   # E/h unit assertion (03_R_functions/bss_cpue_diagnostics.R). Diagnostic-only:
   # writes cpue_estimators_/cpue_saturation_/cpue_linearity_<label>.csv and changes

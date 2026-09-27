@@ -1287,6 +1287,7 @@ for(cg in bss_catch_groups) {
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
   if (cg == "Dungeness_Kept" && is.finite(.cc$carried_se %||% NA) && (.cc$carried_se %||% 0) > 0) {
+    set.seed(as.integer(params$bss_seed %||% 1L))   # 2026-09-26 (B38): a reproducible port total
     .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se), .cc$observed_dung %||% 0)
     message(sprintf(paste0("  Census enters the port interval with SE %s under census_uncertainty = '%s' (total SE %s: charter expansion %s, ",
                            "commercial per-vessel mean %s; census_expansion = '%s', %d unsampled calendar days)."),
@@ -1875,6 +1876,9 @@ for(label in names(bss_all)) {
   write_fit_extended_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir,
                                  seed = params$bss_seed %||% 1L)
   write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
+  # 2026-09-26 (D31 -> B39): leave-one-WEEK-out PSIS block CV of the effort streams; writes
+  # loo_block_<stream>_<label>.csv, tryCatch-wrapped, changes no estimate (bss_block_cv.R).
+  write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
   # F4: CPUE estimator triad, saturation exponent, and the E/h unit assertion.
   write_cpue_diagnostics(b, label, output_dir)
 }

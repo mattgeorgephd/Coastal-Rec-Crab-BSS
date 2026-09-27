@@ -280,5 +280,52 @@ bss_stan_fit <- function(file, data, label = NULL, log_file = NULL,
     try(writeLines(sub("\n+$", "", console), log_file), silent = TRUE)
 
   bss_assert_fit_usable(fit, label = label, console = console)
+  bss_seed_permutation(fit, list(...)$seed)
+}
+
+# ---------------------------------------------------------------------------
+# 2026-09-26 (CHANGE_REGISTER B38). THE DRAW PERMUTATION IS REBUILT FROM THE STAN SEED.
+#
+# rstan's sampling() builds the permutation behind rstan::extract(permuted = TRUE) with
+# sample.int() from R's RNG, not from the Stan `seed` (rstan/R/stanmodel-class.R:
+# "sample_int is a little bit faster than our own rstan_seq_perm ... but without
+# controlling the seed"). With cores > 1 each chain samples in its OWN process and its
+# permutation is drawn from that worker's RNG, which no set.seed() in this process reaches
+# (verified: parLapply and mclapply workers give different sample.int() results under an
+# identical parent seed). So two runs with bit-identical posteriors return their draws in
+# DIFFERENT orders, and every quantity assembled by pairing draws ACROSS fits moves: the
+# port total (component E_sum / C_sum draws summed row by row) drifted 0.13% between the R4
+# render and its bit-identical re-render M1 (94,376 against 94,497), the "about 0.2%"
+# batch_verdict_helpers.R has recorded since 2026-09-07.
+#
+# The permutation is applied by extract() at read time, per chain, from fit@sim$permutation
+# (rstan's get_kept_samples2), so it can be REPLACED after the fit returns, whatever process
+# drew the original: one sample.int() per chain of the same length, from R's RNG seeded
+# with the Stan seed. The Stan seed governs the sampler and the inits; the permutation
+# governs the ORDER only, so no posterior, summary or per-fit statistic can change, and
+# every extract(permuted = TRUE) downstream becomes reproducible between identical runs.
+# The caller's RNG state is restored so nothing else changes stream. A fit without draws,
+# or a call without a seed, is returned untouched.
+# ---------------------------------------------------------------------------
+# The pure part: one seeded permutation per chain, each the length of the one it replaces,
+# with the caller's RNG state restored. NULL when the seed is unusable.
+.bss_seeded_perm <- function(perm, seed) {
+  seed <- suppressWarnings(as.numeric(seed))
+  if (length(seed) != 1L || !is.finite(seed) || abs(seed) > .Machine$integer.max) return(NULL)
+  if (!is.list(perm) || !length(perm)) return(NULL)
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (had) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit({
+    if (had) assign(".Random.seed", old, envir = globalenv())
+    else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv())
+  }, add = TRUE)
+  set.seed(as.integer(seed))
+  lapply(perm, function(p) sample.int(length(p)))
+}
+bss_seed_permutation <- function(fit, seed) {
+  if (is.null(seed) || !bss_fit_has_draws(fit)) return(fit)
+  new <- .bss_seeded_perm(fit@sim$permutation, seed)
+  if (is.null(new)) return(fit)
+  fit@sim$permutation <- new
   fit
 }
