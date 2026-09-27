@@ -1,12 +1,12 @@
 # Marine hazard effort covariates: NWS Small Craft Advisories and the USCG bar-restriction tick
 
-**Date:** 2026-09-25. **Status:** BUILT, INERT (`marine_hazard_mode = "off"` ships). **Register:** A30 (the method), B35 (the runner), B36 (the archive), D30 and D31 (the two open items). **Target branch:** `OSP-boat-count-incorporation` (delivered as a patch series on top of 3954a29).
+**Date:** 2026-09-25; results added 2026-09-26 (Section 10). **Status:** BUILT, INERT (`marine_hazard_mode = "off"` ships); RUN 2026-09-25/26 and NOT ADOPTED under the pre-committed rule; the block cross-validation that decides adoption is built (B39) and not yet run. **Register:** A30 (the method), B35 (the runner), B36 (the archive), D30 and D31 (the two open items), B38 and B39 (from the results). **Target branch:** `OSP-boat-count-incorporation` (delivered as a patch series on top of 3954a29).
 
 **What was asked.** Incorporate Small Craft Advisories and bar restrictions into the estimation as a co-factor that can help with estimation, the way the razor-clam digs and the other fishery openers were incorporated: an auto option in the config that tests the correlation and applies it, with a toggle; and a batch runner that measures the impact of SCA and bar restrictions separately and in combination against the baseline.
 
 **What was built, in one paragraph.** Two per-day covariates for the EFFORT process, entering both Stan models through the `K_open / X_open / B_open` block the opener covariates already use, so no Stan file changed and the shipped configuration builds Stan data identical to the pre-patch preps (measured, Section 6). `nws_sca_any` is 1 on a day when an NWS Small Craft Advisory or a higher warning was in effect for the Grays Harbor Bar or the coastal waters off Westport at any moment between 04:00 and 16:00 local time, read from an archive of the NWS's own VTEC events, so it is known on every day of the window. `bar_restriction` is the samplers' "Bar Restrictions" tick, observed on sampled days and imputed on the rest from the archived advisories. `marine_hazard_mode` is `off` / `auto` / `on` / `manual`; `auto` screens each candidate per population with a log-link GLM on the sampled days and BH over the marine family. `06_diagnostics/run_marine_hazard_batch_2026-09-25.R` is the ladder (baseline, SCA, bar, both, auto) with its decision rule stated before the run.
 
-**What was not done, stated first.** The ladder has NOT been run (about 17 h of MCMC). Nothing here is evidence that the covariates improve the estimate; the sampled-day association is strong for the boat and absent for the shore, and Section 7 says why that is not the question that decides adoption.
+**What was not done, stated first (2026-09-25).** The ladder had not been run when Sections 1 to 9 were written. It ran on 2026-09-25/26; Section 10 reads it. Nothing in Sections 1 to 9 is evidence that the covariates improve the estimate; the sampled-day association is strong for the boat and absent for the shore, and Section 7 says why that is not the question that decides adoption.
 
 ---
 
@@ -124,3 +124,30 @@ The rule, in the header before the run: (1) a rung is eligible only if every fit
 - `04_input_files/build_nws_marine_hazards.R` (new), `04_input_files/nws_marine_hazards.xlsx` (new), `04_input_files/raw/nws_marine_hazards_iem_transcription_2026-09-25.csv` (new).
 - `06_diagnostics/run_marine_hazard_batch_2026-09-25.R` (new); harness section 76; `run_improvements_2026-09-08.R` `CODE_EQUIVALENT` entry.
 - Documentation: this note; CHANGE_REGISTER A30 / B35 / B36 / D30 / D31; PIPELINE_STATUS; method document 14.2 and 21a; `04_input_files/README.md`, `raw/README.md`, `README-R-functions.md`, `06_diagnostics/README.md`, `NEW_SEASON_GUIDE.md`, `CLAUDE.md`, `WEATHER_COVARIATE_ANALYSIS.md`, root README.
+
+## 10. What the run said (2026-09-25/26), and what follows
+
+The full reading is `VALIDATION_CAMPAIGN.md` Section 1x; this is the summary for a reader of the design.
+
+**Inertness proven.** M1 (`off`) against R4: 10,442 parameter rows across 8 summaries identical at full precision, every component identical. The port total read 94,497 against 94,376 (0.128%), which the runner FAILED at the 0.05% tolerance I had written; that was my defect, not the model's. The jitter is rstan's unseeded draw permutation (`sample.int()` in `sampling()`), which reorders bit-identical draws between runs and moves anything paired ACROSS fits, the port median included. Fixed at both ends: the runner reads the port at the documented 0.3%, and B38 rebuilds each fit's draw permutation from the Stan seed after the fit returns (rstan draws the original in each chain's own process, so a seed set before the call would not reach it) and seeds the census draw in the port block, so the port total is now reproducible between identical renders (and will move once, by the jitter it removes, on the next render of the R4 configuration).
+
+**Per term.**
+
+| term | identified? | adequacy, catch | paired effort elpd (sampled days) | estimate | rule's reading |
+|---|---|---|---|---|---|
+| shore SCA | no: +0.038 [-0.140, +0.214]; divergences 178 to 329 (1.8% to 3.3%) | adequacy same; catch +0.17 nats over 1,651 obs (2.5 paired SE, nil) | gear -0.6, -1.33 SE | shore all-gear +0.18% | **do not adopt**; `auto` agrees |
+| boat SCA | yes, 8 SE: -1.163 [-1.452, -0.868], rate ratio 0.31 (pot-closure fit 0.43) | unchanged; catch -0.03 nats | trailer +7.6, SE 5.2, **1.46 SE** | boat all-gear +3.76%, port +1.57% | identified and harmless, **no sampled-day gain** |
+| bar alone | yes: -0.660 [-1.019, -0.297], 0.52 | unchanged | trailer +1.6, 0.51 SE | boat -0.05% | proxies the advisory |
+| bar beyond SCA (M4 vs M2) | by 0.004: -0.364 [-0.717, -0.004], 0.70 | unchanged | trailer +0.3, 0.20 SE | boat +3.44%, port +1.38% | **redundant with the archive** for the model |
+| auto (M5) | selected boat SCA + bar, shore none | | boat fits bit-identical to M4's | port +1.41% | auto and manual agree |
+
+**Where the boat gain sits.** M2 against M1 on the 195 trailer counts: +5.3 nats over the 63 advisory-day counts (1.3 SE), +2.3 over the 132 others (0.7 SE); the biggest single moves are days that misbehaved (8 trailers on a restriction day without an advisory, +2.4; 7 trailers on an advisory day, -2.2). A coefficient at eight standard errors with a predictive gain at 1.5 is what a covariate looks like when it re-explains variance the sampled days already constrain; whether it helps where there is NO count is Section 8's item 1, and now B39's job.
+
+**Why the boat went UP.** Section 8 and the register had said "expect the total DOWN". It rose, because the sampled boat days were advisory days 41% of the time (77 of 186) and the unsampled days 35% (63 of 179): the covariate explains the advisory-day deficit, the level the non-advisory days inherit rises, and most unsampled days are non-advisory. The sign is that ratio's, and it can flip in another season.
+
+**Decision.** By the rule stated before the run, nothing is adopted and `marine_hazard_mode` stays `"off"`. The three defensible readings (keep off pending the block CV; adopt boat SCA on mechanism plus identification, +3.4% boat; adopt `auto`) are set out in Section 1x.5 with what each rests on. My recommendation is the first: the tool that answers the only open question costs minutes.
+
+**The next run: B39.** `Rscript 06_diagnostics/run_marine_block_cv_2026-09-26.R` on the machine that rendered the rungs (the saved `ppc_draws_<fit>.rds` are git-ignored): dry run first (inventory and the reconstruction check against each rung's own pointwise LOO), then `DRY_RUN <- FALSE`. It holds out each week's trailer AND OSP counts together (35% of trailer days also carry an OSP count; holding out one stream alone would leave the other anchoring the very days being predicted), scores each stream under those shared weights (the OSP stream's first predictive read in this pipeline), and pairs the rungs under a rule in its header. Expect the shore fits to lose weeks to Pareto k > 0.7 (their AR period equals the block); the boat, at monthly AR, is where the answer should be readable. If the boat's held-out weeks clear +2 paired SE on both streams, adopt `marine_hazard_manual_boat = "nws_sca_any"` (the bar column adds nothing beyond the archive); if PSIS cannot carry the comparison, the refit path for the unreliable weeks is the next diagnostic, not a verdict.
+
+**Also changed by the results (Section 1x.3):** the runner's M5 "REPORTED" row printed the first candidate's adjusted p for every row (display only); fixed. Future renders write `loo_block_<stream>_<fit>.csv` per fit alongside the pointwise LOO, so the next ladder carries the interpolation clause without a post-hoc step.
+

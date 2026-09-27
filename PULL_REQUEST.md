@@ -113,10 +113,17 @@ Advisory-or-higher day flag (from an archive of the NWS's own VTEC products for 
 coastal zone, so known on every day) and the samplers' USCG bar-restriction tick (observed on
 sampled days, imputed on the rest) can enter the effort process as extra columns of the existing
 `K_open` block; `marine_hazard_mode` ships `"off"`, under which both preps build Stan data
-identical to the pre-patch preps (measured, `CODE_EQUIVALENT`). On 2024-25 sampled days the boat
-responds (rate ratios 0.29 and 0.39, BH p 0.0008) and the shore does not (0.905). Whether a term
-improves the estimate is the job of `06_diagnostics/run_marine_hazard_batch_2026-09-25.R`, not
-yet run, and D31 states what that run cannot measure.
+identical to the pre-patch preps (measured, `CODE_EQUIVALENT`). The ladder
+`06_diagnostics/run_marine_hazard_batch_2026-09-25.R` ran on 2026-09-25/26
+(`VALIDATION_CAMPAIGN.md` Section 1x): the `off` rung is bit-identical to R4; the boat SCA term
+is identified at eight standard errors (rate ratio 0.31) and gains +7.6 nats on the trailer
+stream at 1.46 paired SE, short of the +2 SE rule, so nothing is adopted; the shore term is not
+identified; the bar tick adds nothing beyond the archive. Under the boat term the port would
+read about +1.4%. The leave-one-week-out block cross-validation that decides the open question
+(D31) is built (B39) and is the next run. Also from that review: the port total was not
+reproducible between bit-identical fits (rstan's unseeded draw permutation, about 0.1 to 0.2%);
+B38 rebuilds it from the Stan seed after each fit, so the next render of the R4 configuration
+will differ from 94,376 once, by that jitter, with every component identical.
 
 ## 4. Evidence a reviewer can run
 

@@ -1534,8 +1534,18 @@ run_config <- list(
   # window, after day type and month, the screen below finds the boat effect (0.29) and
   # not the shore one (0.905, p 0.25). Whether either EARNS a term in the BSS is measured by
   # 06_diagnostics/run_marine_hazard_batch_2026-09-25.R (baseline / SCA / bar / both /
-  # auto, paired effort-stream elpd against the baseline). Until that has run and been
-  # reviewed the mode ships "off".
+  # auto, paired effort-stream elpd against the baseline).
+  # THAT LADDER RAN 2026-09-25/26 (VALIDATION_CAMPAIGN.md Section 1x). "off" is bit-identical
+  # to the R4 render. Boat SCA: identified at 8 SE (B_open -1.16 [-1.45, -0.87], rate ratio
+  # 0.31), adequacy and catch unmoved, +7.6 nats on the trailer stream at 1.46 paired SE, so
+  # short of the +2 SE the rule asked for; boat all-gear +3.4 to +3.8%, port +1.4 to +1.6%
+  # (UP: the sampled boat days were advisory days more often than the unsampled ones). Shore
+  # SCA: not identified, doubles the shore fits' divergences; do not adopt. Bar tick beyond
+  # the archive: 0.70 [0.49, 1.00], +0.3 nats; redundant with the archive for the model.
+  # NOTHING ADOPTED under the pre-committed rule; the mode ships "off". What decides it is the
+  # unsampled-day interpolation, and its test is 06_diagnostics/run_marine_block_cv_2026-09-26.R
+  # (B39), not yet run on the rungs. If it passes for the boat: marine_hazard_mode = "manual"
+  # with marine_hazard_manual_boat = "nws_sca_any" is the adoption edit.
   #
   #   "off"     nothing is read; no covariate (production).
   #   "auto"    each candidate enters a population's effort model only if its quasi-Poisson

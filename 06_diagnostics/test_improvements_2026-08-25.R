@@ -4240,16 +4240,16 @@ local({
                  "(2026-09-05, 2026-09-05, 2026-09-08) the letters are correct. No",
                  "assignment of session dates removes this without inventing one."))
   L   <- rd(VC)
-  hd  <- grep("^## 1[b-v]\\.", L, value = TRUE)
-  let <- sub("^## (1[b-v])\\..*$", "\\1", hd)
+  hd  <- grep("^## 1[b-x]\\.", L, value = TRUE)   # 2026-09-26: 1w and 1x joined the campaign
+  let <- sub("^## (1[b-x])\\..*$", "\\1", hd)
   lastdate <- function(h) {
     m <- regmatches(h, gregexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", h))[[1]]
     if (length(m)) as.Date(tail(m, 1)) else as.Date(NA)
   }
   dts <- as.Date(vapply(hd, function(h) as.character(lastdate(h)), character(1)))
-  chk("chronology: the campaign has 21 sections, 1b to 1v, in ascending letter order",
-      length(let) == 21 && identical(let, let[order(let)]) &&
-      identical(let[1], "1b") && identical(let[length(let)], "1v"))
+  chk("chronology: the campaign has 23 sections, 1b to 1x, in ascending letter order",
+      length(let) == 23 && identical(let, let[order(let)]) &&
+      identical(let[1], "1b") && identical(let[length(let)], "1x"))
   chk("chronology: every campaign section title carries a parseable date", !any(is.na(dts)))
   inv <- let[-1][which(diff(as.numeric(dts)) < 0)]
   chk("chronology: the campaign's section dates run backwards ONLY where declared",
@@ -4260,8 +4260,8 @@ local({
       all(nzchar(INVERSION_OK)) && all(nchar(INVERSION_OK) > 40))
 
   # (3) the git-anchor table must cover every section letter
-  tbl <- grep("^> \\| 1[b-v] \\|", L, value = TRUE)
-  tl  <- sub("^> \\| (1[b-v]) \\|.*$", "\\1", tbl)
+  tbl <- grep("^> \\| 1[b-x] \\|", L, value = TRUE)
+  tl  <- sub("^> \\| (1[b-x]) \\|.*$", "\\1", tbl)
   chk("chronology: the git-anchor table covers every campaign section",
       setequal(tl, let), sprintf("(missing: %s)",
         paste(setdiff(let, tl), collapse = ",")))
@@ -5198,6 +5198,255 @@ local({
   chk("runner: a missing convergence report, AR log or adequacy row is REVIEW in rules 1 and 2, not PASS or FAIL",
       any(grepl('if (is.na(L$gate_all_pass)) "REVIEW" else if (isTRUE(L$gate_all_pass)) "PASS" else "FAIL"', src, fixed = TRUE)) &&
       any(grepl('if (!known) "REVIEW" else if (pf <= 0.15 && share <= 0.05) "PASS" else "FAIL"', src, fixed = TRUE)))
+})
+
+# ---------------------------------------------------------------------------
+# 77. THE MARINE HAZARD LADDER RAN: ITS EVIDENCE, THE TWO DEFECTS IT EXPOSED IN ITS OWN
+#     DRIVER, THE REPRODUCIBLE PORT TOTAL, AND THE BLOCK CROSS-VALIDATION (2026-09-26;
+#     CHANGE_REGISTER Section 1x, B38, B39, two C rows).
+#
+#     Three things are pinned. (1) THE EVIDENCE, read from the committed rung folders and
+#     the ladder CSVs, so that every number the register and the campaign quote can be
+#     re-read: M1's components identical to R4, the boat SCA coefficient and its interval,
+#     the paired trailer elpd recomputed from the pointwise files, the shore term's interval
+#     containing zero, the port totals. Skipped with a NOTE where the folders are absent (a
+#     sparse checkout), exactly as section 75 does. (2) THE FIXES: the port tolerance reads
+#     the documented jitter with the mechanism beside it, the M5 row is vectorised, the
+#     runner declares the post-run code equivalent by naming the ACTUAL current fingerprint,
+#     bss_stan_fit() rebuilds the draw permutation from the Stan seed after each fit and
+#     restores the caller's RNG (the pure helper exercised), both drivers seed the census draw. (3) THE BLOCK CV,
+#     against an exact answer: PSIS leave-block-out on a conjugate Poisson-gamma model within
+#     0.01 nats of the closed form, single-observation blocks equal to loo::loo pointwise, the
+#     log-likelihood rebuild equal to direct arithmetic for gear, trailer and OSP under both
+#     scalings, the self-check accepting a matching file and refusing a mismatched one, the
+#     comparison excluding unreliable weeks, the drivers calling it, the runner shipping
+#     DRY_RUN TRUE with its rule stated.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  flat <- function(t) gsub("[ \n]+", " ", t)
+  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+  source("03_R_functions/bss_block_cv.R")
+
+  # ---- (1) the evidence, from the committed folders ---------------------------------
+  R4 <- "05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf"
+  MH <- c(M1 = "05_output/20260925/pooled-CPUE-MH-M1-off", M2 = "05_output/20260925/pooled-CPUE-MH-M2-sca",
+          M3 = "05_output/20260925/pooled-CPUE-MH-M3-bar", M4 = "05_output/20260926/pooled-CPUE-MH-M4-both",
+          M5 = "05_output/20260926/pooled-CPUE-MH-M5-auto")
+  BAG <- "private_boat_all_gear_Dungeness_Kept"; SAG <- "shore_all_gear_Dungeness_Kept"
+  lad_f <- "05_output/marine_hazard_2026-09-25_ladder.csv"; rec_f <- "05_output/marine_hazard_2026-09-25_recommendation.csv"
+  chk("1x: the ladder, verdicts and recommendation CSVs are committed",
+      file.exists(lad_f) && file.exists("05_output/marine_hazard_2026-09-25_verdicts.csv") && file.exists(rec_f))
+  if (all(dir.exists(c(R4, MH))) && file.exists(lad_f)) {
+    lad <- read.csv(lad_f, stringsAsFactors = FALSE); rownames(lad) <- lad$rung
+    comp <- function(dir, key) { x <- read.csv(file.path(dir, "pe_vs_bss_comparison.csv"), stringsAsFactors = FALSE); x$BSS_catch[x$component == key] }
+    keys <- c("shore (Pot closure)", "shore (All gear)", "private_boat (Pot closure)", "private_boat (All gear)")
+    chk("1x: M1's four BSS components are identical to R4's, to the crab",
+        identical(vapply(keys, function(k) comp(MH["M1"], k), numeric(1)), vapply(keys, function(k) comp(R4, k), numeric(1))))
+    pt <- function(dir) read.csv(file.path(dir, "port_total_Dungeness_Kept.csv"))$BSS_median[2]
+    chk("1x: M1's port total differs from R4's by the documented draw-permutation jitter (under 0.3%), with identical components",
+        { d <- abs(pt(MH["M1"]) - pt(R4)) / pt(R4); d > 0 && d < 0.003 }, sprintf("(%.4f%%)", 100 * abs(pt(MH["M1"]) - pt(R4)) / pt(R4)))
+    bo <- function(dir, fit, cov) { lab <- read.csv(file.path(dir, sprintf("opener_covariates_%s.csv", fit)), stringsAsFactors = FALSE)
+      fs <- read.csv(file.path(dir, sprintf("bss_full_summary_%s.csv", fit)), row.names = 1, check.names = FALSE)
+      fs[lab$parameter[lab$opener == cov], c("mean", "2.5%", "97.5%")] }
+    b2 <- bo(MH["M2"], BAG, "nws_sca_any"); s2 <- bo(MH["M2"], SAG, "nws_sca_any"); bar4 <- bo(MH["M4"], BAG, "bar_restriction")
+    chk("1x: the boat SCA term in M2 is identified with the quoted interval (-1.16 [-1.45, -0.87])",
+        abs(b2$mean + 1.163) < 0.005 && abs(b2[["2.5%"]] + 1.452) < 0.005 && abs(b2[["97.5%"]] + 0.868) < 0.005)
+    chk("1x: the shore SCA term's interval contains zero (the FAIL the runner reported is correct)",
+        s2[["2.5%"]] < 0 && s2[["97.5%"]] > 0 && abs(s2$mean - 0.038) < 0.005)
+    chk("1x: the bar term beyond the archive is identified by a hair (upper bound -0.004) at rate ratio 0.70",
+        abs(bar4[["97.5%"]] + 0.004) < 0.002 && abs(exp(bar4$mean) - 0.695) < 0.005)
+    pw <- function(dir, stream, fit) read.csv(file.path(dir, sprintf("loo_pointwise_%s_%s.csv", stream, fit)))
+    a <- pw(MH["M1"], "trailer", BAG); b <- pw(MH["M2"], "trailer", BAG); d <- b$elpd_loo - a$elpd_loo
+    chk("1x: the paired trailer elpd of M2 against M1 recomputes to +7.6 at 5.2 SE (1.46 SE): real, and short of +2",
+        identical(a$obs_index, b$obs_index) && abs(sum(d) - 7.55) < 0.05 && abs(sqrt(length(d)) * sd(d) - 5.18) < 0.05 &&
+        sum(d) / (sqrt(length(d)) * sd(d)) < 2)
+    chk("1x: the boat all-gear estimate ROSE under the SCA term (+3.8% M2, +3.4% M4) and the port with it (+1.6%, +1.4%)",
+        abs(lad["M2", "boat_ag"] / lad["M1", "boat_ag"] - 1.0376) < 0.001 && abs(lad["M4", "boat_ag"] / lad["M1", "boat_ag"] - 1.0344) < 0.001 &&
+        abs(lad["M2", "port"] / lad["M1", "port"] - 1.0157) < 0.001)
+    chk("1x: M5 (auto) reproduces M4's boat fit bit for bit: its boat components and B_open are M4's",
+        lad["M5", "boat_ag"] == lad["M4", "boat_ag"] && lad["M5", "B_sca_boat"] == lad["M4", "B_sca_boat"] &&
+        lad["M5", "B_bar_boat"] == lad["M4", "B_bar_boat"])
+    chk("1x: every rung passed the gate on all four fits at M1's resolutions",
+        all(lad$gate_all_pass) && all(lad$n_fits_bss == 4) && all(lad$shore_res == "weekly") && all(lad$boat_res == "monthly"))
+    ar <- function(dir) read.csv(file.path(dir, "ar_escalation_log.csv"), stringsAsFactors = FALSE)
+    chk("1x: the unidentified shore term doubled the shore fits' divergences (178 -> 329 all-gear; 76 -> 158 pot-closure)",
+        { a1 <- ar(MH["M1"]); a2 <- ar(MH["M2"])
+          a1$divergences[a1$fit == SAG] == 178 && a2$divergences[a2$fit == SAG] == 329 &&
+          a1$divergences[a1$fit == "shore_ring_net_only_Dungeness_Kept"] == 76 && a2$divergences[a2$fit == "shore_ring_net_only_Dungeness_Kept"] == 158 })
+    rec <- read.csv(rec_f, stringsAsFactors = FALSE)
+    chk("1x: the recommendation CSV says what the rule says: shore do not adopt; boat SCA and bar 'no sampled-day gain'",
+        grepl("do not adopt", rec$recommendation[grepl("shore", rec$item)]) &&
+        all(grepl("no sampled-day gain", rec$recommendation[grepl("boat", rec$item)])))
+    # the permutation is what moved: identical seeded subsample indices, different values
+    ds <- function(dir) read.csv(file.path(dir, sprintf("bss_draws_summed_%s.csv", BAG)))
+    chk("1x: bss_draws_summed_* carries the SAME draw indices in R4 and M1 and DIFFERENT values at them (the permutation, not the fit)",
+        identical(ds(R4)$draw, ds(MH["M1"])$draw) && !identical(ds(R4)$E_sum, ds(MH["M1"])$E_sum))
+  } else cat("NOTE  1x: the marine rung folders or the ladder CSVs are absent; the evidence assertions are skipped\n")
+
+  # ---- (2) the fixes ----------------------------------------------------------------
+  rf <- "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"; rsrc <- readLines(rf, warn = FALSE)
+  chk("1x fix: the port reproduction is judged at the documented jitter (0.3%), with the mechanism written beside the threshold",
+      any(grepl('"within 0.3%"', rsrc, fixed = TRUE)) && any(grepl("if (isTRUE(abs(.pct(p, pr)) < 0.3)) \"PASS\" else \"FAIL\"", rsrc, fixed = TRUE)) &&
+      any(grepl("UNSEEDED sample.int()", rsrc, fixed = TRUE)) && !any(grepl('"within 0.05%"', rsrc, fixed = TRUE)))
+  chk("1x fix: the M5 REPORTED row formats every candidate's adjusted p, not the first one recycled",
+      any(grepl("fmt(suppressWarnings(as.numeric(sel$p_adj)), 4)", rsrc, fixed = TRUE)) && !any(grepl("fmt(.num1(sel$p_adj), 4)", rsrc, fixed = TRUE)))
+  chk("1x fix: the M0 coverage row no longer calls the committed workbook a transcription",
+      !any(grepl("The committed workbook is a transcription", rsrc, fixed = TRUE)))
+  # the runner's own fingerprint, lifted from its text, so CODE_EQUIVALENT_MH can be checked against the real tree
+  eR <- new.env(); eR$.here <- function(...) file.path(getwd(), ...); eR$POOLED_RMD <- file.path(getwd(), "01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd")
+  lift <- function(name) { i <- grep(sprintf("^%s <- function", gsub(".", "\\.", name, fixed = TRUE)), rsrc); j <- i; while (!grepl("^\\}", rsrc[j])) j <- j + 1L; eval(parse(text = rsrc[i:j]), envir = eR) }
+  lift("digest_or_hash"); lift(".code_fingerprint")
+  i <- grep("^CODE_EQUIVALENT_MH <- list\\(", rsrc); j <- i; while (!grepl("^\\)", rsrc[j])) j <- j + 1L
+  eval(parse(text = rsrc[i:j]), envir = eR)
+  cur <- eR$.code_fingerprint()
+  chk("1x fix: CODE_EQUIVALENT_MH declares the five rungs' recorded fingerprint against the ACTUAL current one, with a reason",
+      length(eR$CODE_EQUIVALENT_MH) >= 1 &&
+      any(vapply(names(eR$CODE_EQUIVALENT_MH), function(k) identical(strsplit(k, " => ", fixed = TRUE)[[1]], c("stan:65b5adeb drivers:ae200663 fns:094c314f", cur)), logical(1))) &&
+      all(nchar(unlist(eR$CODE_EQUIVALENT_MH)) > 60),
+      sprintf("(current is %s)", cur))
+  chk("1x fix: the run's stamps carry the recorded fingerprint the declaration names",
+      { st <- file.path(MH, "MH_STAGE.txt"); if (!all(file.exists(st))) TRUE else
+          all(vapply(st, function(f) any(grepl("^code: stan:65b5adeb drivers:ae200663 fns:094c314f$", readLines(f, warn = FALSE))), logical(1))) })
+  chk("1x fix: the runner honours a declared-equivalent pair (INFO, not REVIEW) on RESUME",
+      any(grepl("eq <- CODE_EQUIVALENT_MH[[paste(cd, .code_fingerprint(), sep = \" => \")]]", rsrc, fixed = TRUE)) &&
+      any(grepl("declared EQUIVALENT", rsrc, fixed = TRUE)))
+
+  # B38: the permutation is REBUILT after the fit returns (rstan draws it in the chain's own
+  # process with cores > 1, so seeding this process before the call reaches nothing), one
+  # seeded sample.int() per chain of the length it replaces, caller's RNG restored.
+  fsrc <- readLines("03_R_functions/bss_stan_fit.R", warn = FALSE)
+  chk("B38: bss_stan_fit() returns bss_seed_permutation(fit, list(...)$seed), after the usability assert",
+      { a <- grep("bss_assert_fit_usable(fit, label = label, console = console)", fsrc, fixed = TRUE)
+        b <- which(fsrc == "  bss_seed_permutation(fit, list(...)$seed)")
+        length(a) == 1 && length(b) == 1 && b == a + 1 })
+  chk("B38: the rebuild is applied per chain to fit@sim$permutation, which is what rstan's extract(permuted = TRUE) indexes",
+      any(grepl("fit@sim$permutation <- new", fsrc, fixed = TRUE)) && any(grepl("lapply(perm, function(p) sample.int(length(p)))", fsrc, fixed = TRUE)))
+  source("03_R_functions/bss_stan_fit.R")
+  perm <- list(sample.int(2500), sample.int(2500), sample.int(2500), sample.int(2500))
+  set.seed(999); runif(1); p1 <- .bss_seeded_perm(perm, 20260619); a1 <- runif(1)
+  set.seed(999); runif(1); p2 <- .bss_seeded_perm(perm, 20260619); b1 <- runif(1)
+  set.seed(999); runif(1); c1 <- runif(1)
+  chk("B38: the same Stan seed gives the same per-chain permutations every time, each a permutation of the length it replaces",
+      identical(p1, p2) && identical(lengths(p1), lengths(perm)) && all(vapply(p1, function(x) identical(sort(x), 1:2500), logical(1))))
+  chk("B38: the caller's RNG stream is restored exactly (the next draw is what it would have been without the call)",
+      identical(a1, b1) && identical(a1, c1))
+  chk("B38: a different seed gives different permutations; an unusable seed or an empty list gives NULL and the fit is returned untouched",
+      !identical(p1, .bss_seeded_perm(perm, 1)) && is.null(.bss_seeded_perm(perm, NA)) && is.null(.bss_seeded_perm(perm, 1e12)) &&
+      is.null(.bss_seeded_perm(list(), 5)) && identical(bss_seed_permutation(list(x = 1), 5), list(x = 1)))
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    d <- readLines(drv, warn = FALSE)
+    ii <- grep("set.seed(as.integer(params$bss_seed %||% 1L))", d, fixed = TRUE)
+    jj <- grep(".cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se)", d, fixed = TRUE)
+    chk(sprintf("B38: %s seeds the census draw immediately before it", basename(drv)), length(ii) >= 1 && length(jj) == 1 && any(jj - ii == 1))
+    chk(sprintf("B39: %s calls write_block_cv_diagnostics() after write_loo_diagnostics()", basename(drv)),
+        { a <- grep("write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)", d, fixed = TRUE)
+          b <- grep("write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)", d, fixed = TRUE)
+          length(a) == 1 && length(b) == 1 && b > a })
+  }
+
+  # ---- (3) the block CV against exact answers ----------------------------------------
+  set.seed(1)
+  a0 <- 2; b0 <- 0.5; n <- 60; y <- rpois(n, 4); block <- rep(sprintf("W%02d", 1:12), each = 5); S <- 20000
+  lam_s <- rgamma(S, a0 + sum(y), b0 + n)
+  ll <- sapply(y, function(yi) dpois(yi, lam_s, log = TRUE))
+  tab <- bss_block_psis_loo(ll, block)
+  exact <- sapply(unique(block), function(bk) { j <- block == bk; m <- sum(j); sk <- sum(y[j]); a2 <- a0 + sum(y[!j]); b2 <- b0 + sum(!j)
+    lgamma(a2 + sk) - lgamma(a2) - sum(lgamma(y[j] + 1)) + a2 * log(b2) - (a2 + sk) * log(b2 + m) })
+  chk("block CV: PSIS leave-block-out equals the EXACT conjugate leave-block-out predictive within 0.01 nats on every block, all k small",
+      nrow(tab) == 12 && max(abs(tab$elpd_block - exact)) < 0.01 && max(tab$pareto_k) < 0.5, sprintf("(max |diff| %.4f)", max(abs(tab$elpd_block - exact))))
+  chk("block CV: the in-sample joint lpd exceeds the held-out elpd on every block (p_eff > 0)", all(tab$p_eff > 0))
+  lo <- suppressWarnings(loo::loo(ll, r_eff = rep(1, n)))
+  chk("block CV: single-observation blocks reproduce loo::loo's pointwise elpd_loo",
+      max(abs(bss_block_psis_loo(ll, as.character(seq_len(n)))$elpd_block - lo$pointwise[, "elpd_loo"])) < 1e-8)
+  tb <- tab; tb$elpd_block <- tab$elpd_block + c(0.4, 0.6); cmp <- bss_block_cv_compare(tab, tb)
+  chk("block CV: the paired comparison sums the per-block differences over reliable blocks, with a paired SE",
+      cmp$n_used == 12 && abs(cmp$diff - 6.0) < 1e-9 && abs(cmp$se - sqrt(12) * sd(rep(c(0.4, 0.6), 6))) < 1e-9)
+  tb$pareto_k[1:5] <- 0.9; cmp2 <- bss_block_cv_compare(tab, tb)
+  chk("block CV: a block unreliable in EITHER table is excluded and counted", cmp2$n_used == 7 && cmp2$n_dropped == 5 && abs(cmp2$reliable_share - 7 / 12) < 1e-9)
+  chk("block CV: tables with different observations per block are refused",
+      { tc <- tb; tc$n_obs[1] <- tc$n_obs[1] + 1L; inherits(try(bss_block_cv_compare(tab, tc), silent = TRUE), "try-error") })
+  # the log-likelihood rebuild against direct arithmetic, all three streams, both OSP scalings, both trailer forms
+  D <- 25; nd <- 300
+  lamE <- array(exp(rnorm(nd * D, log(20), 0.3)), c(nd, 1, D, 1))
+  dr <- list(lambda_E_S = lamE, r_E = rgamma(nd, 20, 2), R_G = runif(nd, 2, 3), R_G_boat = runif(nd, 1.5, 2.5),
+             L_out = matrix(runif(nd * D, 2, 3), nd, D), r_OSP = rgamma(nd, 10, 1), kappa_OSP = runif(nd, 0.3, 0.5))
+  sdt <- list(Gear_n = 10L, Gear_I = rpois(10, 40), day_Gear = sample(D, 10, TRUE), section_Gear = rep(1L, 10),
+              T_n = 8L, T_I = rpois(8, 8), day_T = sample(D, 8, TRUE), section_T = rep(1L, 8),
+              OSP_n = 6L, OSP_I = rpois(6, 25), day_OSP = sample(D, 6, TRUE), section_OSP = rep(1L, 6), osp_scale_is_tau = 1L)
+  g <- bss_effort_loglik(dr, sdt, "gear"); tr <- bss_effort_loglik(dr, sdt, "trailer"); o <- bss_effort_loglik(dr, sdt, "osp")
+  chk("block CV: the gear log-likelihood rebuild is NB2(lambda_E * R_G, r_E) to machine precision",
+      max(abs(g$ll - sapply(1:10, function(i) dnbinom(sdt$Gear_I[i], mu = lamE[, 1, sdt$day_Gear[i], 1] * dr$R_G, size = dr$r_E, log = TRUE)))) < 1e-10)
+  chk("block CV: the trailer rebuild is NB2(lambda_E / R_G_boat, r_E), and R_T fits use lambda_E * R_T",
+      max(abs(tr$ll - sapply(1:8, function(i) dnbinom(sdt$T_I[i], mu = lamE[, 1, sdt$day_T[i], 1] / dr$R_G_boat, size = dr$r_E, log = TRUE)))) < 1e-10 &&
+      { d3 <- dr; d3$R_G_boat <- NULL; d3$R_T <- runif(nd, 0.4, 0.6); t3 <- bss_effort_loglik(d3, sdt, "trailer")
+        max(abs(t3$ll - sapply(1:8, function(i) dnbinom(sdt$T_I[i], mu = lamE[, 1, sdt$day_T[i], 1] * d3$R_T, size = dr$r_E, log = TRUE)))) < 1e-10 })
+  chk("block CV: the OSP rebuild is NB2((lambda_E / R_G_boat) * L[day], r_OSP) under osp_scale_is_tau and * kappa_OSP otherwise",
+      max(abs(o$ll - sapply(1:6, function(i) dnbinom(sdt$OSP_I[i], mu = lamE[, 1, sdt$day_OSP[i], 1] / dr$R_G_boat * dr$L_out[, sdt$day_OSP[i]], size = dr$r_OSP, log = TRUE)))) < 1e-10 &&
+      { s2 <- sdt; s2$osp_scale_is_tau <- 0L; o2 <- bss_effort_loglik(dr, s2, "osp")
+        max(abs(o2$ll - sapply(1:6, function(i) dnbinom(sdt$OSP_I[i], mu = lamE[, 1, sdt$day_OSP[i], 1] / dr$R_G_boat * dr$kappa_OSP, size = dr$r_OSP, log = TRUE)))) < 1e-10 })
+  chk("block CV: an empty stream is a zero-column matrix, not an error", ncol(bss_effort_loglik(dr, list(Gear_n = 0L), "gear")$ll) == 0)
+  chk("block CV: the self-check accepts a pointwise file written from the same draws and refuses one that is not",
+      { lpd <- apply(tr$ll, 2, function(col) { m <- max(col); m + log(mean(exp(col - m))) })
+        f1 <- tempfile(fileext = ".csv"); write.csv(data.frame(obs_index = 1:8, lpd = round(lpd, 4)), f1, row.names = FALSE)
+        f2 <- tempfile(fileext = ".csv"); write.csv(data.frame(obs_index = 1:8, lpd = round(lpd + 0.01, 4)), f2, row.names = FALSE)
+        f3 <- tempfile(fileext = ".csv"); write.csv(data.frame(obs_index = 1:7, lpd = round(lpd[1:7], 4)), f3, row.names = FALSE)
+        isTRUE(bss_block_cv_check(tr$ll, f1)$ok) && isFALSE(bss_block_cv_check(tr$ll, f2)$ok) && isFALSE(bss_block_cv_check(tr$ll, f3)$ok) })
+  chk("block CV: blocks are ISO weeks, Monday to Sunday (2024-12-30 to 2025-01-05 is one week)",
+      identical(bss_block_weeks(as.Date(c("2024-12-30", "2025-01-05", "2025-01-06"))), c("2025-W01", "2025-W01", "2025-W02")))
+  # the JOINT leave-out set: a second stream's observations of the week join the importance
+  # ratios; checked against the exact conjugate leave-week-out predictive with both streams removed
+  set.seed(2)
+  yA <- rpois(60, 4); yB <- rpois(36, 10); bA <- rep(sprintf("W%02d", 1:12), each = 5); bB <- rep(sprintf("W%02d", 1:12), each = 3)
+  lam2 <- rgamma(20000, a0 + sum(yA) + sum(yB), b0 + 60 + 2.5 * 36)
+  llA <- sapply(yA, function(yi) dpois(yi, lam2, log = TRUE)); llB <- sapply(yB, function(yi) dpois(yi, 2.5 * lam2, log = TRUE))
+  exj <- sapply(unique(bA), function(bk) { jA <- bA == bk; jB <- bB == bk; a2 <- a0 + sum(yA[!jA]) + sum(yB[!jB]); b2 <- b0 + sum(!jA) + 2.5 * sum(!jB)
+    m <- sum(jA); sk <- sum(yA[jA]); lgamma(a2 + sk) - lgamma(a2) - sum(lgamma(yA[jA] + 1)) + a2 * log(b2) - (a2 + sk) * log(b2 + m) })
+  tj <- bss_block_psis_loo(llA, bA, weight_ll = list(llB), weight_block = list(bB))
+  chk("block CV: with a second stream in the leave-out set, PSIS equals the EXACT leave-week-out predictive with both streams removed (within 0.01 nats)",
+      max(abs(tj$elpd_block - exj)) < 0.01 && all(tj$n_leaveout == 8L), sprintf("(max |diff| %.4f)", max(abs(tj$elpd_block - exj))))
+  fab <- bss_block_cv_fit(list(A = list(ll = llA, block = bA), B = list(ll = llB, block = bB)))
+  chk("block CV: bss_block_cv_fit() scores each stream under the joint leave-out set of all of them and labels it",
+      isTRUE(all.equal(fab$A$elpd_block, tj$elpd_block)) && identical(fab$A$leaveout_streams[1], "A+B") && nrow(fab$B) == 12)
+  chk("block CV: a block with a non-finite log-likelihood is NA with k = Inf and unreliable, the rest of the table intact",
+      { llx <- llA; llx[1, 3] <- -Inf; tx <- bss_block_psis_loo(llx, bA)
+        is.na(tx$elpd_block[1]) && is.infinite(tx$pareto_k[1]) && !tx$reliable[1] && all(is.finite(tx$elpd_block[-1])) })
+  chk("block CV: with G = 2 the rebuild SUMS lambda_E_S over the gear groups (the gear-resolved model's likelihood), and a wrong D is refused",
+      { nd2 <- 200; D2 <- 10; l2 <- array(exp(rnorm(nd2 * 2 * D2, log(10), 0.2)), c(nd2, 1, D2, 2))
+        dr2 <- list(lambda_E_S = l2, r_E = rgamma(nd2, 20, 2), R_G = runif(nd2, 2, 3))
+        sd2 <- list(D = D2, S = 1L, G = 2L, Gear_n = 5L, Gear_I = rpois(5, 50), day_Gear = 1:5, section_Gear = rep(1L, 5))
+        g2 <- bss_effort_loglik(dr2, sd2, "gear")
+        ref <- sapply(1:5, function(i) dnbinom(sd2$Gear_I[i], mu = (l2[, 1, i, 1] + l2[, 1, i, 2]) * dr2$R_G, size = dr2$r_E, log = TRUE))
+        max(abs(g2$ll - ref)) < 1e-12 && inherits(try(bss_effort_loglik(dr2, modifyList(sd2, list(D = 11)), "gear"), silent = TRUE), "try-error") })
+  # the post-hoc runner
+  bf <- "06_diagnostics/run_marine_block_cv_2026-09-26.R"; bsrc <- readLines(bf, warn = FALSE)
+  chk("block CV runner: exists, ships DRY_RUN <- TRUE, states rules R1 to R6 before the run, and can be pointed at a fixture",
+      file.exists(bf) && any(grepl("^DRY_RUN <- TRUE", bsrc)) && all(vapply(sprintf("#   R%d.", 1:6), function(r) any(grepl(r, bsrc, fixed = TRUE)), logical(1))) &&
+      any(grepl('Sys.getenv("MH_BLOCKCV_ROOT"', bsrc, fixed = TRUE)))
+  chk("block CV runner: a fit is scored only after every gear / trailer stream matches its committed pointwise lpd and the OSP means match ppc_byobs (R1); an unevaluable comparison is REVIEW (R2)",
+      any(grepl("if (!isTRUE(ck$ok)) { out$ok <- FALSE; break }", bsrc, fixed = TRUE)) &&
+      any(grepl("no gear or trailer stream could be checked against a committed file (R1); nothing scored", bsrc, fixed = TRUE)) &&
+      any(grepl("evaluable <- isTRUE(cmp$reliable_share >= MIN_REL) && isTRUE(cmp$n_used >= MIN_WKS)", bsrc, fixed = TRUE)) &&
+      any(grepl("PSIS cannot carry this comparison", bsrc, fixed = TRUE)))
+  chk("block CV runner: the leave-out set is the whole week's effort data across streams (bss_block_cv_fit), and a pair with a missing side is a REVIEW row, not a missing row",
+      any(grepl("tabs <- tryCatch(bss_block_cv_fit(recs, k_max = K_MAX)", bsrc, fixed = TRUE)) &&
+      any(grepl("not computable: a side has no block table", bsrc, fixed = TRUE)))
+  chk("block CV runner: it never quits the session on a dry run (a sourced runner must not close RStudio)", !any(grepl("quit(", bsrc, fixed = TRUE)))
+
+  # ---- (4) the documents ---------------------------------------------------------------
+  cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  chk("1x docs: the register carries B38, B39 and two 2026-09-26 defect rows, and A30 says RUN and NOT ADOPTED",
+      grepl("| B38 |", cr, fixed = TRUE) && grepl("| B39 |", cr, fixed = TRUE) && length(gregexpr("| 2026-09-26 |", cr, fixed = TRUE)[[1]]) == 2 &&
+      grepl("RUN 2026-09-25/26 (Section 1x); NOT ADOPTED under the pre-committed rule", cr, fixed = TRUE))
+  chk("1x docs: the campaign has Section 1x with its git anchor, and the status document's box records the port jitter and B38",
+      grepl("## 1x. The marine hazard ladder", vc, fixed = TRUE) && grepl("> | 1x | 2026-09-26 |", vc, fixed = TRUE) &&
+      grepl("8b3f661", vc, fixed = TRUE) && grepl("The last three digits of the port total are Monte Carlo", ps, fixed = TRUE))
+  chk("1x docs: the method document's reproducibility section no longer says the port total resamples without qualification",
+      grepl("The port total used to resample; since 2026-09-26 it does not.", md, fixed = TRUE) &&
+      !grepl("**The port total resamples.**", md, fixed = TRUE))
+  chk("1x docs: the register's A30 effect cell records the measured direction (UP) and corrects the earlier 'DOWN'",
+      grepl("Measured 2026-09-26: UP, not down as first written here", cr, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------

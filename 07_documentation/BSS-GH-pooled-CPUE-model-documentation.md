@@ -457,9 +457,16 @@ switching them off leaves the unconstrained parameter vector unchanged and a fix
 reproduces byte for byte (Section 14.9 lists which). Some features do not, and for those a
 baseline reproduction has to be judged on medians and intervals within Monte Carlo error.
 
-**The port total resamples.** Component draws are permuted when the port is assembled, so the
-port total moves by about 0.2% between bit-identical fits. The gate is judged on per-fit
-posterior summaries, never on the port line.
+**The port total used to resample; since 2026-09-26 it does not.** rstan permutes each fit's
+draws with an unseeded `sample.int()` when it samples, so the row-by-row pairing of component
+draws behind the port median differed between bit-identical fits and the port total moved by
+about 0.1 to 0.2% between them (measured 0.128% on 2026-09-26: 94,376 against 94,497 with
+every parameter row identical). `bss_stan_fit()` now rebuilds each fit's permutation from the
+Stan seed after the fit returns (rstan draws the original in each chain's own process, so it has
+to be replaced rather than pre-seeded), and the drivers seed the census draw in the port block
+(CHANGE_REGISTER B38), so two renders of one configuration give one port total. The gate is
+still judged on per-fit posterior summaries, never on the port line, and a comparison against a
+render made before B38 keeps the 0.2% allowance.
 
 Every run records its git SHA, its full config and its session info (Section 11). The
 improvement ladder additionally records a three-layer **code fingerprint** (Stan models,
@@ -1336,15 +1343,29 @@ expectation (p_adj 0.0008), on a bar-restriction day 0.39 (p_adj 0.0008); shore 
 (p_adj 0.25). Production ships `marine_hazard_mode = "off"`, and the term is not adopted,
 because the sampled-day association is not the question that matters. The boat is 79.8%
 extrapolated, so a day covariate earns its place by improving the interpolation on days with
-no count, and the effort-stream `elpd_loo` can only score days that have one. The run that
-tests what CAN be measured is `06_diagnostics/run_marine_hazard_batch_2026-09-25.R` (rule
-stated in its header: identified, adequate, better on the PAIRED sampled-day `elpd_loo`,
-catch stream unmoved); the diagnostic that would test what matters, a leave-one-week-out block
-cross-validation of the effort stream, does not exist yet (CHANGE_REGISTER D31). The BOAT
-caution stated above for opener terms applies here unchanged: a boat term describes all
-private vessels, and the monthly crabbing fraction cannot see whether crabbing boats stay in
-port on an advisory day at a different rate from finfish boats (D30). Design, evidence and
-caveats: `development_notes/marine-hazard-covariates-2026-09-25.md`.
+no count, and the effort-stream `elpd_loo` can only score days that have one.
+
+**The ladder ran on 2026-09-25/26** (`06_diagnostics/run_marine_hazard_batch_2026-09-25.R`;
+`VALIDATION_CAMPAIGN.md` Section 1x). The machinery is inert as shipped: the `off` rung is
+bit-identical to the R4 render on every parameter row and component. In the fitted model the
+boat SCA term is identified at eight standard errors (`B_open` -1.16 [-1.45, -0.87], rate
+ratio 0.31), leaves adequacy and the catch fit unmoved, and gains +7.6 nats on the trailer
+stream at 1.46 paired SE: short of the +2 SE the rule asked for, so "identified and harmless,
+no sampled-day gain". Under it the boat all-gear estimate rises 3.4 to 3.8% and the port 1.4
+to 1.6%, upward because the sampled boat days were advisory days more often than the unsampled
+ones. The shore term is not identified (+0.04 [-0.14, +0.21]) and doubles the divergences of
+both shore fits. The bar-restriction tick beyond the archive is 0.70 [0.49, 1.00] and adds
++0.3 nats: for the model it is redundant with the archive. Nothing is adopted under the rule.
+
+The diagnostic that tests what matters, a leave-one-week-out block cross-validation of the
+effort streams by PSIS on the saved draws, exists since 2026-09-26
+(`06_diagnostics/run_marine_block_cv_2026-09-26.R`, CHANGE_REGISTER B39) and has not yet been
+run on the rungs; its result is what an adoption would rest on. The BOAT caution stated above
+for opener terms applies here unchanged, and is now the caveat on a measured +3.4% rather than
+a hypothetical: a boat term describes all private vessels, and the monthly crabbing fraction
+cannot see whether crabbing boats stay in port on an advisory day at a different rate from
+finfish boats (D30). Design, evidence and caveats:
+`development_notes/marine-hazard-covariates-2026-09-25.md`.
 
 ## 22. Glossary
 

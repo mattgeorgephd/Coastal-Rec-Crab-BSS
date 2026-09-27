@@ -1,6 +1,6 @@
 # The validation campaign, 2026-08 to 2026-09: the run-by-run record
 
-**Last updated:** 2026-09-14 (Section 1w: the gear AR / ZINB run, and the four defects in its own driver).
+**Last updated:** 2026-09-26 (Section 1x: the marine hazard ladder run and read; the block cross-validation built).
 
 - **What this is.** The dated, run-by-run narrative of the validation and improvement
   campaign that produced Method v2.0. It was Sections 1b through 1v of
@@ -80,6 +80,7 @@
 > | 1u | 2026-09-10 | 2026-09-10 | `2a28871`, `f04a772`, `627a831` | desk only |
 > | 1v | 2026-09-11 | 2026-09-11 | `3609f1d`, `36ca4cb`, `4a68546` | `05_output/20260910`, `20260911` |
 > | 1w | 2026-09-14 | 2026-09-14 | `ae795bb`, `f122338`, `7cd7400` (the code), `792c900` (the run) | `05_output/20260913`, `20260914` |
+> | 1x | 2026-09-26 | 2026-09-25 (code), 2026-09-26 (run) | `61b48ba`, `ce473b1`, `0b50d0e`, `dfd48ce` (the code), `590b5c3` (the live archive), `8b3f661` (the run) | `05_output/20260925`, `20260926` |
 >
 > From 1p onward the two clocks agree, so for the whole block that produced Method v2.0 the
 > section dates *are* the git dates. The full ladder run of Section 1v rendered overnight on
@@ -1032,3 +1033,65 @@ Neither is closed by this run, and both are one short render from being closed:
 - **The boat period is new and open, and it is the largest sensitivity on the list after
   D14.** It needs a ladder on the boat, on BOTH tracks, and the pooled track's monthly cap
   needs re-deriving on the current model rather than inherited from 2026-07.
+
+## 1x. The marine hazard ladder: SCA and bar restrictions as effort covariates, run and read (2026-09-26)
+
+`06_diagnostics/run_marine_hazard_batch_2026-09-25.R` ran overnight 2026-09-25 to 2026-09-26 (`8b3f661`): five rungs on the pooled track at the R4 configuration, 62 verdict rows, three result CSVs, about 17 h. The question, stated in the header before the run: does an NWS Small-Craft-Advisory-or-higher day flag, or the samplers' USCG bar-restriction tick, earn a place on the effort process as a covariate (CHANGE_REGISTER A30)? The rule was also stated before the run: identified (`B_open` interval excludes 0), adequate, harmless to the catch fit, and better on the PAIRED effort-stream `elpd_loo` by more than +2 SE; the bar term judged against the SCA rung; the port reported and never judged.
+
+**The short answer.** The machinery is inert as shipped and stable when on; the boat responds to advisories exactly as the desk screen said and the shore does not; nothing clears the pre-committed predictive bar; `marine_hazard_mode` stays `"off"`. The one clause the rule could not evaluate, the unsampled-day interpolation (D31), now has its diagnostic (B39, Section 1x.6), and that is the next run.
+
+### 1x.1 The baseline is the baseline
+
+M1 (`marine_hazard_mode = "off"`) against the committed R4 render: **10,442 shared parameter rows across 8 summaries identical at full precision**, every component identical to the crab (shore pot-closure 8,963, shore all-gear 29,210, boat pot-closure 1,372, boat all-gear 45,604). The port total read 94,497 against R4's 94,376 (0.128%) and the runner **FAILED** that row, because I had written the tolerance as 0.05%.
+
+That FAIL was the runner's defect, not the model's, and it is worth recording because it is exactly the class of mistake B33 warned about: a rule that cites a lesson and then sets a threshold the lesson contradicts. `batch_verdict_helpers.R` has said since 2026-09-07 that "a port total assembled by resampling component draws moves by about 0.2% between bit-identical fits", and `save_run_diagnostics.R` that "the PORT TOTAL remains RNG-sensitive regardless, because it is built from rstan::extract(permuted = TRUE)". The cause is in rstan itself: `sampling()` builds the permutation behind `extract(permuted = TRUE)` with `sample.int()` from R's RNG, not from the Stan seed (rstan's own source: "sample_int is a little bit faster than our own rstan_seq_perm ... but without controlling the seed"). Two bit-identical fits therefore return their draws in different orders, and any quantity assembled by pairing draws ACROSS fits, which is what the port median is, carries a Monte Carlo jitter of order 0.1 to 0.2%. The measurable proof is in the run: the seeded subsample indices in `bss_draws_summed_*.csv` are identical between R4 and M1 (draw 6, 9, ...) and the VALUES at those indices are not. The port Effort median, which has no census draw in it at all, moved 58,557 to 58,615.
+
+Two fixes, both in the results patch: the runner reads the port at 0.3% with the reason written beside the number (a re-source with `RESUME` regenerates the verdicts from the committed folders in a minute and the row reads PASS); and **B38** rebuilds each fit's draw permutation from the Stan seed after the fit returns (`bss_seed_permutation()`; rstan draws the original in each chain's own process when `cores > 1`, so a seed set in the parent before the call reaches nothing, which is why the rebuild is post-fit) and seeds the census draw in the port block, so from the next render on, the port total is reproducible bit for bit between identical runs. B38 changes no fit (the Stan seed governs the sampler and the inits; the permutation governs only the order) and will move the port median ONCE, by the jitter it removes, relative to R4.
+
+### 1x.2 What each rung found
+
+| rung | terms (shore / boat) | shore all-gear | boat all-gear | port | boat `B_open` (rate ratio) | paired trailer elpd vs control |
+|---|---|---|---|---|---|---|
+| M1 | none | 29,210 | 45,604 | 94,497 [77,531, 119,352] | | |
+| M2 | SCA / SCA | 29,263 (+0.18%) | 47,319 (+3.76%) | 95,980 (+1.57%) | -1.163 [-1.452, -0.868] (0.31) | +7.6, SE 5.2 (1.46 SE) vs M1 |
+| M3 | none / bar | 29,210 | 45,582 (-0.05%) | 94,520 (+0.02%) | -0.660 [-1.019, -0.297] (0.52) | +1.6, SE 3.1 (0.51 SE) vs M1 |
+| M4 | SCA / SCA + bar | 29,263 | 47,171 (+3.44%) | 95,804 (+1.38%) | SCA -1.081 [-1.378, -0.777] (0.34); bar -0.364 [-0.717, -0.004] (0.70) | bar: +0.3, SE 1.7 (0.20 SE) vs M2; both: +7.9, SE 5.2 (1.52 SE) vs M1 |
+| M5 | auto: none / SCA + bar | 29,210 | 47,171 | 95,831 (+1.41%) | as M4 | as M4 |
+
+Every rung passed the gate on all four fits at the same AR resolutions as M1 (shore weekly, boat monthly); adequacy is unchanged (all-gear p_loo fractions 0.094 to 0.096 shore, 0.074 to 0.076 boat, bad k 0 or 1). M5's boat fits are bit-identical to M4's (paired elpd difference 0.00), which is what `auto` and `manual` agreeing looks like.
+
+**The shore.** The SCA term is not identified (+0.038 [-0.140, +0.214]), it doubles the divergences on both shore fits (all-gear 178 to 329, 1.8% to 3.3% of draws; pot-closure 76 to 158; the gate's 5% still holds), and it buys nothing on the gear stream (-0.6 nats, -1.33 SE). The catch stream shifted +0.17 nats over 1,651 observations, which reads as 2.48 paired SE because the paired SE is 0.07: a systematic, practically nil shift of the level, flagged REVIEW as the rule says and worth nothing more. **Do not adopt**, and the `auto` screen agrees (p_adj 0.25). This is also the answer to whether an unidentified term is free: it is not; it costs sampler geometry.
+
+**The boat SCA term.** Identified at about eight standard errors, in the all-gear fit (0.31) and the pot-closure fit alike (-0.85 [-1.32, -0.38]); adequacy and the catch stream unmoved. The paired trailer elpd gain is +7.6 nats, 1.46 SE: real, and short of the bar. Where it comes from (M2 against M1, from the pointwise files): +5.3 nats over the 63 advisory-day counts (mean +0.084, 1.3 SE) and +2.3 over the 132 others (mean +0.017, 0.7 SE); the single largest gains and losses are days that did not behave (2025-03-25, 8 trailers on a restriction day without an advisory, +2.4 nats; 2025-04-25, 7 trailers on an advisory day, -2.2). A coefficient this well determined with a predictive gain this modest is the signature of a covariate that mostly re-explains variance the sampled days already constrain; whether it helps where the model has NO count is the question Section 1x.6 is for. The rule's reading: **identified and harmless, no sampled-day gain; adoption would rest on the mechanism, not on this run.**
+
+**The boat total went UP, not down.** I had written "expect the boat total DOWN if the term is adopted". It rose 3.4 to 3.8% (about +1,600 crab; port +1.4 to +1.6%). The arithmetic: the sampled boat days were advisory days 41% of the time (77 of 186) and the window's days 38% (140 of 365), so the UNSAMPLED days were advisory days only 35% of the time (63 of 179). Explaining the advisory-day deficit with the covariate raises the level the non-advisory days inherit, and most unsampled days are non-advisory. The direction depends on that ratio and nothing else; write it down before the next season, because it can flip.
+
+**The bar-restriction tick.** Alone (M3) it is identified (0.52) and gains +1.6 nats (0.51 SE), because on sampled days it proxies the advisory. Beyond the archive (M4 against M2) it is identified by 0.004 on the upper bound (0.695 [0.49, 1.00], the same magnitude as the 0.67 the offline multi-season screen found, recorded in `run_config.R` section 4.4b) and gains +0.3 nats (0.20 SE). On unsampled days it is imputed FROM the archive, so it cannot add information there by construction. **For the model the tick is redundant with the archive.** Its value, if any, is as a field record, and that is a protocol decision, not a modelling one.
+
+### 1x.3 Two defects in the runner, found by reading its output
+
+1. The port tolerance (Section 1x.1). Cost: one FAIL row on a correct baseline, and a C row.
+2. The M5 "REPORTED" row printed the FIRST candidate's adjusted p for all three rows (`.num1()` on a vector), so it read "p_adj 0.2454" for the boat terms the screen had selected at 0.0008. Display only; `marine_hazard_selection.csv` in the rung folder is correct. Fixed.
+
+Neither touched a verdict. Both are pinned in the harness.
+
+### 1x.4 What the run settled, in the register's terms
+
+- A30: **RUN; NOT ADOPTED under the pre-committed rule.** Machinery inert as shipped (M1), fits stable when on, boat SCA effect real (identified at 8 SE), shore null, bar redundant with the archive on sampled days. Mode stays `"off"`.
+- B35: RAN; re-read with the tolerance fix, 46 PASS / 2 FAIL (both the shore identification, correct) / 8 REVIEW / 11 INFO (five of the INFO rows say the code moved since the fits, by B38 and B39, declared equivalent in `CODE_EQUIVALENT_MH`).
+- D30 (the boat term describes all private boats) stands and is now the caveat on a measured +3.4%, not on a hypothetical.
+- D31 (LOO scores sampled days) is the clause that decides adoption and it now has a runner.
+
+### 1x.5 The decision this leaves with Matt
+
+Three defensible readings of the same evidence, with what each rests on:
+
+1. **Keep `off` until the block CV has run** (my recommendation). The pre-committed rule was not met; the interpolation claim is untested; the tool to test it exists and costs minutes.
+2. **Adopt the boat SCA term now** (`marine_hazard_mode = "manual"`, `marine_hazard_manual_boat = "nws_sca_any"`), on the mechanism plus an eight-SE coefficient. Cost: +3.4% boat, +1.4% port, resting on an untested interpolation, with D30 unresolved.
+3. **Adopt `auto`.** Same fits as M4 for the boat this season (it selected SCA + bar), a different set possibly next season; the bar term adds a second, redundant column.
+
+### 1x.6 The block cross-validation (B39), built and not yet run
+
+`03_R_functions/bss_block_cv.R` and `06_diagnostics/run_marine_block_cv_2026-09-26.R`. Hold out one calendar WEEK of sampled effort counts at a time, every effort stream of the fit together (for the boat the trailer AND OSP counts: 35% of the 2024-25 trailer days also carry an OSP count, and holding out one stream alone would leave the other anchoring `lambda_E` on the very days being predicted), so for those streams every day in the week is unsampled, and score each stream's joint predictive density for the week under the posterior without it by Pareto-smoothed importance sampling (no refit). What still anchors a held-out week: the shore fit's four I/E observations (no `log_lik_ie` exists), nothing else in production. The effort log-likelihoods are rebuilt from each rung's saved `ppc_draws_<fit>.rds` exactly as the Stan generated quantities form them, and the rebuild is CHECKED against the run's own `loo_pointwise_*.csv` on every observation before anything is scored. The reliability of each held-out week is its Pareto k; weeks with k > 0.7 are excluded and the share excluded is part of the answer (fewer than 70% reliable, or fewer than 8 weeks: the comparison is REVIEW and the refit path is named). Both boat effort streams are scored, trailer and OSP; the OSP stream has never been in any LOO here. Rule stated in the header; verified in the harness against the exact leave-block-out predictive of a conjugate model, one stream and two streams held out together (PSIS within 0.01 nats, 0.001 to 0.003 measured, k below 0.2) and against `loo::loo` on single-observation blocks (1e-12). The `.rds` files are git-ignored, so it runs on the machine that rendered the rungs: `Rscript 06_diagnostics/run_marine_block_cv_2026-09-26.R` (dry run, inventory and the reconstruction check), then `DRY_RUN <- FALSE`. Expect the shore's weekly-AR fits to lose weeks to k > 0.7 (a held-out week removes the period's only anchor); the boat, at monthly AR, is where the answer is likely to be readable.
+
+Future renders write `loo_block_<stream>_<fit>.csv` per fit alongside the pointwise LOO (both drivers call `write_block_cv_diagnostics()` after `write_loo_diagnostics()`), so the next ladder carries this clause without a post-hoc step.

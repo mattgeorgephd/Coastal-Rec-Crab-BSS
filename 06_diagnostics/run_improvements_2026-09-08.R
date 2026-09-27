@@ -680,11 +680,47 @@ CODE_EQUIVALENT <- list(
   # caveat from the 2026-09-13 one (census_frame_warnings.csv is new). New with this entry:
   # a driver run under any mode other than "off" writes marine_hazard_*.csv files the
   # committed folders do not have, so a file-level inventory comparison is not covered.
+  # SUPERSEDED 2026-09-26 by B38 / B39 (the rebuilt draw permutation and the block CV), which moved
+  # the drivers and fns layers. The stan layer did NOT move (2f9895d1 on both sides).
   "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:7ae75209 fns:22df9297" =
-    paste("the 2026-09-11 ladder run vs the tree after the marine hazard covariates (A30). stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by",
+    paste("SUPERSEDED 2026-09-26 by B38 / B39, which moved the drivers and fns layers; the stan layer did not move.",
+          "the 2026-09-11 ladder run vs the tree after the marine hazard covariates (A30). stan UNCHANGED, so the D6 inertness measurement carries over; drivers moved by",
           "the marine_hazard_prepare() chunk and its report section, which under the shipped mode 'off' read nothing and install an empty selection; fns moved by the new",
           "module and by one selection line plus two console labels in each prep. MEASURED: under 'off' both preps build stan_data identical() entry by entry to the",
-          "3954a29 preps on the real 2024-25 all-gear data for both populations. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison.")
+          "3954a29 preps on the real 2024-25 all-gear data for both populations. Does NOT cover monthly_pe_vs_bss.csv (changed by design) or a file-level inventory comparison."),
+  # The 2026-09-11 ladder run against the tree after the marine hazard RESULTS patch
+  # (2026-09-26, B38 and B39). Two layers moved; the stripped-text diffs against 8b3f661:
+  #
+  #   stan:      UNCHANGED at 2f9895d1.
+  #   drivers:   moved 7ae75209 -> 04bf7498 by +2 / -0 stripped lines in EACH .Rmd: a
+  #              `set.seed(as.integer(params$bss_seed %||% 1L))` immediately before the
+  #              census rnorm() in the port block (B38), and the
+  #              write_block_cv_diagnostics() call in the per-fit diagnostics loop (B39),
+  #              which runs after every fit and writes loo_block_*.csv.
+  #   fns:       moved 22df9297 -> 3d201236 by the new bss_block_cv.R (177 stripped lines, called only from
+  #              that diagnostics call) and by +20 / -0 in bss_stan_fit.R (B38): after the fit returns,
+  #              bss_seed_permutation() replaces fit@sim$permutation, one sample.int() per
+  #              chain of the length it replaces, drawn from R's RNG seeded with the Stan
+  #              `seed`, with the caller's .Random.seed restored. Applied AFTER the fit
+  #              because with cores > 1 rstan draws the original permutation in each
+  #              chain's own process, where no set.seed() here would reach.
+  #
+  # WHY NO FIT IS AFFECTED. The Stan seed governs the sampler and the inits; R's RNG entered
+  # a fit's RESULT only through rstan's sample.int() permutation, which orders the draws
+  # extract(permuted = TRUE) returns and touches no posterior. Every per-fit summary, every
+  # component and every parameter row is unchanged; fit_exactness() compares exactly those.
+  #
+  # WHAT THIS DECLARATION DOES NOT COVER, and it is a new item: THE PORT TOTAL. It is the
+  # median of component draws paired row by row, and the pairing was the unseeded
+  # permutation, so a render under this tree will give a port median that differs from
+  # R4's 94,376 by the Monte Carlo jitter B38 removes (measured 0.128% on M1, documented
+  # "about 0.2%" since 2026-09-07), once, and then stays put. The monthly caveat (2026-09-12)
+  # and the file-inventory caveat (2026-09-13; now also loo_block_*.csv) still stand.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:04bf7498 fns:3d201236" =
+    paste("the 2026-09-11 ladder run vs the tree after the marine hazard results patch (B38, B39). stan UNCHANGED; drivers moved by a seeded census draw and a",
+          "post-fit diagnostics call; fns by the new block-CV module and the draw permutation bss_stan_fit() rebuilds from the Stan seed after each fit. No posterior, component or per-fit",
+          "summary can change: the Stan seed governs the sampler, R's RNG governed only the ORDER of extracted draws. Does NOT cover the PORT TOTAL, whose",
+          "median will move once by the jitter B38 removes (about 0.1%), nor monthly_pe_vs_bss.csv (changed by design) nor a file-level inventory comparison.")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

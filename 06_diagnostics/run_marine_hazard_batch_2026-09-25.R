@@ -97,7 +97,7 @@
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
-DRY_RUN <- FALSE                    # TRUE prints the plan and runs M0; fits nothing
+DRY_RUN <- TRUE                    # TRUE prints the plan and runs M0; fits nothing
 STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5")
 RESUME  <- TRUE                    # reuse a rung ONLY when its MH_STAGE.txt digest matches
 
@@ -330,6 +330,21 @@ stage_digest <- function(sid) {
   sprintf("stan:%s drivers:%s fns:%s",
           .g(.here("02_stan_models")), .g(c(POOLED_RMD)), .g(.here("03_R_functions")))
 }
+# FINGERPRINT PAIRS DECLARED EQUIVALENT for RESUME, "<recorded> => <current>" with the reason,
+# the same audit-trail idea as run_improvements_2026-09-08.R's CODE_EQUIVALENT: a pair is
+# only defensible when the change cannot reach a fit. The key names BOTH ends, so the
+# declaration lapses the moment the tree moves again (the harness asserts the current side).
+CODE_EQUIVALENT_MH <- list(
+  # The 2026-09-25/26 ladder (five rungs stamped stan:65b5adeb drivers:ae200663 fns:094c314f)
+  # against the tree after the results patch: fns moved by bss_block_cv.R (new; called only
+  # from the drivers' per-fit diagnostics loop AFTER every fit) and by bss_stan_fit()
+  # rebuilding fit@sim$permutation from the Stan seed after each fit (B38: the permutation
+  # governs only the ORDER of extract()'s draws, so no posterior can change); drivers moved by the block-CV
+  # call in the diagnostics loop and by the seeded census draw in the port block (B38),
+  # both downstream of every fit. The stan layer did not move.
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:8022c96c" =
+    "B38 (the draw permutation rebuilt from the Stan seed after each fit, and the seeded census draw) and B39 (block-CV diagnostics) landed after the run; neither reaches a likelihood, a prior or the Stan data, so every per-fit summary the verdicts read is the run's own. The port median is the one number B38 would change on a re-render (once, by the MC jitter it removes)."
+)
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),
                sprintf("digest: %s", stage_digest(sid)),
@@ -404,8 +419,8 @@ stage_M0 <- function() {
           if (all(cov$pull_start <= as.Date(WINDOW$est_date_start)) && all(cov$pull_end >= as.Date(WINDOW$est_date_end)) &&
               all(c(WINDOW$marine_hazard_zones) %in% cov$ugc)) "PASS" else "FAIL",
           paste("marine_hazard_flag_series() stops on an uncovered window, so without this every",
-                "covariate rung would error at the driver. The committed workbook is a transcription",
-                "of the IEM rows (see build_nws_marine_hazards.R); a live re-pull replaces it."))
+                "covariate rung would error at the driver. The committed workbook is a live pull (2026-09-25)",
+                "of the IEM archive (see build_nws_marine_hazards.R); re-pull before a window past its pull_end."))
     dwg <- q(fetch_crab_data(p))
     mh <- q(marine_hazard_prepare(dwg, p, output_dir = NULL, quiet = TRUE))
     fl <- mh$flags
@@ -528,10 +543,17 @@ run_one <- function(sid) {
       cd <- .stamp_field(existing, "code")
       cat("  RESUME: output present at", basename(existing), "with a MATCHING digest - skipping the fit.\n")
       if (!is.na(cd) && !identical(cd, .code_fingerprint())) {
-        cat(sprintf("          *** THE CODE HAS CHANGED SINCE THAT FIT.\n              recorded %s\n              now      %s\n", cd, .code_fingerprint()))
-        V1row(sid, "the reused fit was produced by DIFFERENT code than this run",
-              sprintf("recorded %s; now %s", cd, .code_fingerprint()), "the fingerprints match", "REVIEW",
-              "RESUME matched the CONFIG digest; any cross-rung claim involving this rung is indicative only.")
+        eq <- CODE_EQUIVALENT_MH[[paste(cd, .code_fingerprint(), sep = " => ")]]
+        if (!is.null(eq)) {
+          cat(sprintf("          code moved since that fit (%s -> %s), DECLARED EQUIVALENT: %s\n", cd, .code_fingerprint(), eq))
+          V1row(sid, "the reused fit was produced by code declared EQUIVALENT to this run's",
+                sprintf("recorded %s; now %s", cd, .code_fingerprint()), "a declared pair", "INFO", eq)
+        } else {
+          cat(sprintf("          *** THE CODE HAS CHANGED SINCE THAT FIT.\n              recorded %s\n              now      %s\n", cd, .code_fingerprint()))
+          V1row(sid, "the reused fit was produced by DIFFERENT code than this run",
+                sprintf("recorded %s; now %s", cd, .code_fingerprint()), "the fingerprints match", "REVIEW",
+                "RESUME matched the CONFIG digest; any cross-rung claim involving this rung is indicative only.")
+        }
       }
       return(existing)
     }
@@ -634,9 +656,15 @@ verdict_M1 <- function(dir) {
   p <- .num1(.port_row(rd(dir, "port_total_Dungeness_Kept.csv"))$BSS_median)
   pr <- .num1(.port_row(rd(ref, "port_total_Dungeness_Kept.csv"))$BSS_median)
   V1row("M1", "the port total reproduces R4 within the census draw",
-        sprintf("M1 %s vs R4 %s (%.4f%%)", fmt(p, 0), fmt(pr, 0), .pct(p, pr)), "within 0.05%",
-        if (isTRUE(abs(.pct(p, pr)) < 0.05)) "PASS" else "FAIL",
-        "The 2026-09-14 lesson: the port carries a random census draw and cannot be required to be bit-identical.")
+        sprintf("M1 %s vs R4 %s (%.4f%%)", fmt(p, 0), fmt(pr, 0), .pct(p, pr)), "within 0.3%",
+        if (isTRUE(abs(.pct(p, pr)) < 0.3)) "PASS" else "FAIL",
+        paste("The port median is assembled by pairing each component's posterior draws row by row, and",
+              "rstan permutes draws with an UNSEEDED sample.int(), so bit-identical fits gave a port that",
+              "moved 0.128% here (94,497 vs 94,376) and 'about 0.2%' in batch_verdict_helpers.R's record;",
+              "the census draw adds a little more. The first version of this rule asked for 0.05% and",
+              "FAILED a correct baseline (C row, 2026-09-26). 0.3% is the documented jitter with room;",
+              "the components above are the exact test. B38 rebuilds the permutation from the Stan seed",
+              "and seeds the census draw, so two post-B38 renders can be compared exactly; R4 predates it."))
 }
 
 # every fitted rung: the gate, the resolution, the adequacy (rules 1 and 2)
@@ -723,7 +751,8 @@ verdict_M5 <- function(dir) {
   sel <- rd(dir, "marine_hazard_selection.csv")
   V1row("M5", "REPORTED: what the auto screen selected in the rendered run",
         if (is.null(sel)) "marine_hazard_selection.csv missing" else
-          paste(sprintf("%s/%s p_adj %s -> %s", sel$population, sel$covariate, fmt(.num1(sel$p_adj), 4), sel$selected), collapse = "; "),
+          paste(sprintf("%s/%s p_adj %s -> %s", sel$population, sel$covariate,
+                        fmt(suppressWarnings(as.numeric(sel$p_adj)), 4), sel$selected), collapse = "; "),
         "no threshold", "INFO", "Compare with the forced rungs: auto should land on the terms the rule adopts, or say why not.")
 }
 
@@ -783,8 +812,9 @@ recommend <- function() {
   cat("  days. The term's value to the ESTIMATE is on the unsampled days, and no clause above\n")
   cat("  measures that. 'adopt (sampled-day evidence)' means: identified, harmless to the catch\n")
   cat("  fit, better on the sampled days. Before the mode ships 'auto' or 'on' in run_config.R,\n")
-  cat("  the leave-one-week-out block CV (CHANGE_REGISTER D31) is the test that would show the\n")
-  cat("  interpolation improved; until it exists, that part of the case is reasoning, not a run.\n")
+  cat("  the leave-one-week-out block CV (CHANGE_REGISTER D31 -> B39) is the test that would show\n")
+  cat("  the interpolation improved: 06_diagnostics/run_marine_block_cv_2026-09-26.R scores the\n")
+  cat("  rendered rungs' saved draws (ppc_draws_<fit>.rds) without a refit. Run it next.\n")
   cat("\n  ADOPTION EDIT, if you take it: run_config.R marine_hazard_mode <- \"auto\" (the screen)\n")
   cat("  or \"manual\" with marine_hazard_manual_shore / _boat set to the adopted terms.\n")
   invisible(TRUE)
