@@ -510,9 +510,15 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
   lpd_point <- function(ll) apply(ll, 2, function(col) {   # logsumexp-stable lpd
     m <- max(col); m + log(mean(exp(col - m)))
   })
+  # 2026-09-27: the OSP stream joins. log_lik_osp has been a generated quantity of both Stan
+  # models since Phase 1 and was never written out, so the boat's denser effort stream had
+  # no pointwise LOO, no Pareto k, and (Section 1y) no EXACT reconstruction check in the
+  # block cross-validation, which had to settle for a posterior-mean check against the
+  # 1,500-draw ppc_byobs subsample. Additive: a fit without OSP data skips it as before.
   streams <- list(
     gear    = list(par = "log_lik_gear",    n = stan_data$Gear_n %||% 0, days = stan_data$day_Gear,  y = stan_data$Gear_I),
     trailer = list(par = "log_lik_trailer", n = stan_data$T_n %||% 0,    days = stan_data$day_T,     y = stan_data$T_I),
+    osp     = list(par = "log_lik_osp",     n = stan_data$OSP_n %||% 0,  days = stan_data$day_OSP,   y = stan_data$OSP_I),
     catch   = list(par = "log_lik_catch",   n = stan_data$IntC %||% 0,   days = stan_data$day_IntC,  y = stan_data$c)
   )
   summ <- list()

@@ -1499,7 +1499,8 @@ run_config <- list(
   razor_dig_auto_p = 0.05,     # auto-mode significance threshold (adjusted shore-effort p)
 
   # --- 4.4b Marine hazard effort covariates: NWS Small Craft Advisories and USCG bar
-  #          restrictions (BUILT, INERT; 2026-09-25) ------------------------------------
+  #          restrictions (BUILT, INERT; 2026-09-25; ladder and block CV run, decision
+  #          pending, 2026-09-27) ------------------------------------------------------
   # Two day covariates for the EFFORT process, riding on the same K_open / X_open / B_open
   # block as the opener covariates above (one more column each; NEITHER Stan model changes,
   # and "off" builds the Stan data it built before this block existed):
@@ -1544,8 +1545,20 @@ run_config <- list(
   # the archive: 0.70 [0.49, 1.00], +0.3 nats; redundant with the archive for the model.
   # NOTHING ADOPTED under the pre-committed rule; the mode ships "off". What decides it is the
   # unsampled-day interpolation, and its test is 06_diagnostics/run_marine_block_cv_2026-09-26.R
-  # (B39), not yet run on the rungs. If it passes for the boat: marine_hazard_mode = "manual"
-  # with marine_hazard_manual_boat = "nws_sca_any" is the adoption edit.
+  # (B39). THAT RAN 2026-09-26 (Section 1y): on held-out weeks the boat SCA term gained +18.9
+  # nats on the OSP counts (3.9 paired SE), +7.9 on the trailer counts (1.2 SE), +26.8 on both
+  # together (2.9 SE); the bar tick added nothing beyond the archive. The clause as written
+  # asked each stream separately and was under-powered for the trailer stream (its paired SE
+  # is 6.6 nats, so it needed +13; C row). The winter, where the term moves the boat estimate most (+29% January), has
+  # trailer counts only and is untested either way; the four-season trailer record, screened
+  # on the desk (06_diagnostics/desk_sca_season_split_2026-09-27.R), puts the winter effect at
+  # 0.43 against 0.22 for the rest, so a season-constant term probably over-corrects the winter
+  # (D32; the season-split candidates and rung M6 are its test in a fit, B41). The mode STILL ships "off": the decision is Matt's
+  # (Section 1y.5). If the constant term is adopted, the edit is marine_hazard_mode = "manual",
+  # marine_hazard_manual_boat = "nws_sca_any", manual_shore left empty, and a production
+  # render replaces the box; the four components are already M1's shore and M2's boat. If the
+  # split earns its place (rule 9 of the ladder runner), manual_boat = c("nws_sca_any_winter",
+  # "nws_sca_any_rest") with the two names added to marine_hazard_candidates_boat.
   #
   #   "off"     nothing is read; no covariate (production).
   #   "auto"    each candidate enters a population's effort model only if its quasi-Poisson
@@ -1566,7 +1579,8 @@ run_config <- list(
   # days and the monthly f cannot see it; not measured (CHANGE_REGISTER D30). (2) A
   # covariate on the daily process changes the interpolation across the unsampled days,
   # which is the part observation-level LOO cannot test (D31); the block cross-validation
-  # that could is not built.
+  # that can is B39, run 2026-09-26 (Section 1y), and it could see the spring-to-autumn
+  # weeks and not the winter ones (D32).
   marine_hazard_mode             = "off",     # "off" | "auto" | "on" | "manual"
   marine_hazard_candidates_shore = c("nws_sca_any"),
   marine_hazard_candidates_boat  = c("nws_sca_any", "bar_restriction"),
@@ -1574,6 +1588,19 @@ run_config <- list(
   marine_hazard_manual_boat      = character(0),
   marine_hazard_auto_p           = 0.05,      # threshold on the ADJUSTED p
   marine_hazard_auto_p_adjust    = "BH",      # "BH" | "bonferroni" | "none" (over the marine family)
+  # B41 (2026-09-27, for D32): the any-zone flag is also offered SPLIT BY SEASON as two further
+  # candidates, nws_sca_any_winter (days in these months) and nws_sca_any_rest (every other
+  # day); they sum to nws_sca_any and count as ONE NWS definition. Offered, not in the candidate
+  # lists above, so `auto` is unchanged; the ladder's M6 rung names them under `manual`.
+  # December to February: the part of the all-gear window the OSP counts do not cover, so the
+  # "rest" coefficient is the one the block cross-validation can test, and both terms keep
+  # some 50 flagged days in the 2024-25 window. SEASON-DERIVED in the sense that a season whose
+  # storms run into March may want c(12, 1, 2, 3); read the flag counts the prep prints. If the
+  # pair is ever on in production: opener_design_matrix() drops a column with fewer than
+  # opener_min_days flagged days in a fit's window, after which that window's winter advisory
+  # days are scored as ordinary days under the rest term (intended in the pot-closure window,
+  # silent in a calm winter), so read the "Effort day covariates" line the prep prints.
+  marine_hazard_winter_months    = c(12, 1, 2),
   # the archive and the flag definition
   marine_hazard_file   = "nws_marine_hazards.xlsx",   # built by 04_input_files/build_nws_marine_hazards.R
   marine_hazard_sheet  = "data",

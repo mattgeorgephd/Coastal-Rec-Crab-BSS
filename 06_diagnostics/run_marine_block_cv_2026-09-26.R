@@ -49,10 +49,12 @@
 #   R1. A fit is EVALUABLE only if its reconstructed pointwise lpd matches the committed
 #       loo_pointwise file on every observation of every gear / trailer stream it has; a
 #       gear or trailer stream WITHOUT a committed file is refused, not waved through. The
-#       OSP stream has no committed pointwise file; its reconstructed posterior-mean count
-#       per observation is checked against the run's own ppc_byobs_<fit>.csv fitted_mean
-#       (a 1,500-draw subsample, so to 10%), it is labelled "approx-checked" in the output,
-#       and a fit whose OSP means miss that is refused too.
+#       OSP stream had no committed pointwise file before B40 (2026-09-27): for those fits its
+#       reconstructed posterior-mean count per observation is checked against the run's own
+#       ppc_byobs_<fit>.csv fitted_mean (a 1,500-draw subsample, so to 10%), it is labelled
+#       "approx-checked" in the output, and a fit whose OSP means miss that is refused too.
+#       A fit rendered after B40 has loo_pointwise_osp_<fit>.csv and its OSP stream is
+#       checked exactly, like the others.
 #   R2. A comparison is EVALUABLE only if at least 70% of its weeks are RELIABLE (Pareto
 #       k <= 0.7 in BOTH rungs) and at least 8 weeks remain. Otherwise the verdict is
 #       REVIEW: "PSIS cannot carry this comparison", and the refit path is named. The
@@ -61,7 +63,10 @@
 #       control): > +2 SE is PASS ("the covariate improves the interpolation on held-out
 #       weeks"), < -2 SE is FAIL ("worse"), between is REVIEW ("no evidence either way").
 #       Pairs: SCA in M2 against M1; bar alone in M3 against M1; bar beyond the archive in
-#       M4 against M2; both in M4 against M1; auto (M5) against M1.
+#       M4 against M2; both in M4 against M1; auto (M5) against M1; and, once the ladder's M6
+#       has rendered (B41, 2026-09-27), the season split against the constant term, M6
+#       against M2, boat fits only (rule 9 of run_marine_hazard_batch_2026-09-25.R: the joint
+#       boat row here is that rung's arbiter).
 #   R4. THE LEAVE-OUT SET IS THE WHOLE WEEK'S EFFORT DATA. For the boat, a held-out week
 #       removes its trailer counts AND its OSP counts together (35% of trailer days also
 #       carry an OSP count), and each stream is then scored under those shared weights;
@@ -75,19 +80,54 @@
 #       all-gear fits', where the harvest is.
 #   R6. Nothing here is a total. The port is not read, not judged, not moved.
 #
+# WHAT THE RUN SAID (2026-09-26/27, c7e8cd5; read in VALIDATION_CAMPAIGN.md Section 1y).
+#   R1 held on all 20 fits (gear / trailer to 5e-5; OSP means within 0.8 to 2.4% of the
+#   1,500-draw ppc_byobs subsample). The boat all-gear fit was evaluable (34 of 37 trailer
+#   weeks, 25 of 29 OSP weeks reliable); the shore fits were not (8 to 16 of 38 weeks at
+#   weekly AR), as the header predicted. Boat SCA against the baseline: OSP +18.9 nats,
+#   3.90 SE, PASS (21 of 25 weeks positive); trailer +7.9, 1.20 SE, REVIEW (22 of 34);
+#   the two streams together +26.8 at 2.9 SE (the sum of the streams' weekly differences over
+#   the 38 weeks reliable in every stream present, recomputed from the per-week tables; the
+#   run did not carry the joint row). Bar beyond the archive: trailer -2.0 (-1.0 SE), OSP
+#   -0.4: nothing. M5 == M4. Pot-closure boat trailer +4.1 at 2.66 SE on 8 of 11 weeks.
+#   THE RULE AS PRE-COMMITTED WAS NOT MET (it asked each boat stream separately), AND IT WAS
+#   UNDER-POWERED for the trailer stream: its paired SE over 34 weeks is 6.6 nats, so +2 SE
+#   needed +13 nats, and the same effect scored 3.9 SE on the OSP counts and 1.6 SE on the
+#   trailer counts over the same weeks (1.2 SE over all 34): the weaker instrument was asked to
+#   clear the bar on its own. A C row.
+#
+# TWO AMENDMENTS, 2026-09-27, FOR EVERY RUN FROM HERE (the 2026-09-26 verdicts stand as
+# written; this changes what the NEXT run is judged on, not what the last one said):
+#   R3'. For a fit with more than one effort stream the JOINT row (the week's predictive
+#        density of ALL its held-out effort observations together, bss_block_cv_fit()) is
+#        the statistic R3 is applied to; the per-stream rows are reported beside it, and a
+#        term that helps one stream and hurts the other is still a finding (R4).
+#   R7.  Two rungs whose fits are the SAME model (a shore fit under a boat-only term) give
+#        block tables equal to summation noise (1e-14 nats); that is reported INFO,
+#        "identical fits", never PASS / FAIL / REVIEW. The 2026-09-26 run FAILED one such
+#        row at "-2.31 SE" on a difference of 2e-14 nats (CHANGE_REGISTER C row).
+#   Also written from here: marine_hazard_2026-09-26_blockcv_weeks.csv, the per-week
+#   differences behind every pair, so the evidence can be sliced by season without
+#   re-deriving it (the winter weeks are where the term moves the boat estimate and where
+#   the trailer stream, the only winter stream, is uninformative: -0.6 +- 3.9 nats).
+#
 # WHAT IT WRITES
 #   <rung folder>/loo_block_<stream>_<fit>.csv            per-week table, every rung
+#                                                          (+ loo_block_joint_<fit>.csv for the boat)
 #   05_output/marine_hazard_2026-09-26_blockcv.csv         per rung x fit x stream totals
 #   05_output/marine_hazard_2026-09-26_blockcv_pairs.csv   the paired comparisons + verdicts
+#   05_output/marine_hazard_2026-09-26_blockcv_weeks.csv   the per-week differences behind them
+#   05_output/marine_hazard_2026-09-26_blockcv_verdicts.csv
 #
 # DRY_RUN <- TRUE ships: it inventories the rungs (folders, rds present, loo installed)
 # and runs the reconstruction checks (R1) on the first fit that has its draws; it scores
 # no block and writes nothing. Set FALSE and source again from the repository root to
-# compute (minutes).
+# compute (minutes). Restore TRUE before committing: the harness asserts it.
 ###############################################################################
 
-DRY_RUN <- FALSE
-RUNGS   <- c(M1 = "MH-M1-off", M2 = "MH-M2-sca", M3 = "MH-M3-bar", M4 = "MH-M4-both", M5 = "MH-M5-auto")
+DRY_RUN <- TRUE
+RUNGS   <- c(M1 = "MH-M1-off", M2 = "MH-M2-sca", M3 = "MH-M3-bar", M4 = "MH-M4-both", M5 = "MH-M5-auto",
+             M6 = "MH-M6-split")   # M6 (B41, the season split) added 2026-09-27; absent until run_marine_hazard_batch renders it
 K_MAX   <- 0.7          # PSIS reliability threshold
 MIN_REL <- 0.70         # R2: reliable share needed for a comparison to be evaluable
 MIN_WKS <- 8L           # R2: reliable weeks needed
@@ -112,11 +152,17 @@ FITS <- c(shore_all_gear = "shore_all_gear_Dungeness_Kept", boat_all_gear = "pri
           shore_pot_closure = "shore_ring_net_only_Dungeness_Kept", boat_pot_closure = "private_boat_ring_net_only_Dungeness_Kept")
 STREAMS_OF <- list(shore_all_gear = c("gear"), shore_pot_closure = c("gear"),
                    boat_all_gear = c("trailer", "osp"), boat_pot_closure = c("trailer", "osp"))
+# What gets a paired comparison: the reconstructed streams, plus the "joint" table
+# bss_block_cv_fit() adds for a fit with more than one stream (R3').
+SCORED_OF <- lapply(STREAMS_OF, function(s) if (length(s) > 1L) c(s, "joint") else s)
 PAIRS <- list(list(b = "M2", a = "M1", what = "SCA (nws_sca_any) alone"),
               list(b = "M3", a = "M1", what = "bar restriction alone"),
               list(b = "M4", a = "M2", what = "bar restriction beyond the archive (M4 vs M2)"),
               list(b = "M4", a = "M1", what = "SCA + bar restriction"),
-              list(b = "M5", a = "M1", what = "auto (what production would select)"))
+              list(b = "M5", a = "M1", what = "auto (what production would select)"),
+              # B41: the season split against the constant term, boat fits only (M6 has no shore term)
+              list(b = "M6", a = "M2", what = "SCA split by season beyond the constant term (M6 vs M2; rule 9 of the ladder)",
+                   fits = c("boat_all_gear", "boat_pot_closure")))
 
 find_outdir <- function(tag) {
   dirs <- list.dirs(OUT_ROOT, recursive = FALSE)
@@ -175,8 +221,11 @@ block_tables <- function(dir, fit_key, write = TRUE, score = TRUE) {
     rec <- tryCatch(bss_effort_loglik(draws, sd, sn), error = function(e) e)
     if (inherits(rec, "error")) { out$ok <- FALSE; out$checks[[sn]] <- sprintf("%s: not reconstructed (%s)", sn, conditionMessage(rec)); break }
     if (!ncol(rec$ll)) { out$checks[[sn]] <- sprintf("%s: stream empty in this fit", sn); next }
-    if (sn %in% c("gear", "trailer")) {
-      pw <- file.path(dir, sprintf("loo_pointwise_%s_%s.csv", sn, fit))
+    pw <- file.path(dir, sprintf("loo_pointwise_%s_%s.csv", sn, fit))
+    # gear and trailer always have a committed pointwise file (refused without one); the OSP
+    # stream has one only for fits rendered after B40 (2026-09-27), and is checked exactly
+    # when it does and on its posterior mean against ppc_byobs when it does not (R1)
+    if (sn %in% c("gear", "trailer") || file.exists(pw)) {
       ck <- bss_block_cv_check(rec$ll, pw)
       if (isTRUE(ck$ok)) {
         pwd <- utils::read.csv(pw, stringsAsFactors = FALSE)
@@ -233,7 +282,7 @@ if (isTRUE(DRY_RUN)) {
   if (!done) cat("\n  No rung has its draws here; run this where the rungs rendered.\n")
 }
 
-TAB <- list(); ROWS <- list(); PR <- list()
+TAB <- list(); ROWS <- list(); PR <- list(); ROWSX <- list()
 if (!isTRUE(DRY_RUN)) for (r in names(RUNGS)) {
   if (is.na(DIRS[[r]])) { V1row(r, "the rung folder is present", "absent", "present", "REVIEW", "Nothing to score."); next }
   for (fk in names(FITS)) {
@@ -247,46 +296,70 @@ if (!isTRUE(DRY_RUN)) for (r in names(RUNGS)) {
     V1row(r, sprintf("R1: %s draws reconstruct the run's own pointwise lpd", fk), paste(unlist(bt$checks), collapse = "; "),
           "every gear / trailer stream matches its committed file; OSP means within 10% of ppc_byobs", "PASS",
           "The block scores below rest on the same likelihood the run reported.")
+    check_of <- function(sn) {
+      if (identical(sn, "joint")) {
+        parts <- vapply(setdiff(names(bt$tables), "joint"), function(s) if (grepl("MATCHES", bt$checks[[s]] %||% "")) "exact" else "approx", character(1))
+        return(paste0("joint (", paste(sprintf("%s %s", names(parts), parts), collapse = ", "), ")"))
+      }
+      if (grepl("MATCHES", bt$checks[[sn]] %||% "")) "exact" else "approx"
+    }
     for (sn in names(bt$tables)) {
       t <- bt$tables[[sn]]; TAB[[paste(r, fk, sn)]] <- t
+      ROWSX[[paste(r, fk, sn)]] <- if (identical(sn, "joint")) "joint" else check_of(sn)
       ROWS[[length(ROWS) + 1]] <- data.frame(rung = r, fit = fk, stream = sn, n_weeks = nrow(t), n_obs = sum(t$n_obs),
                                              n_reliable = sum(t$reliable), reliable_share = round(mean(t$reliable), 3),
                                              elpd_block_total = round(sum(t$elpd_block), 2),
                                              elpd_block_reliable = round(sum(t$elpd_block[t$reliable]), 2),
                                              lpd_insample_total = round(sum(t$lpd_block, na.rm = TRUE), 2), max_k = round(max(t$pareto_k), 2),
                                              leaveout_streams = t$leaveout_streams[1],
-                                             check = if (grepl("MATCHES", bt$checks[[sn]])) "exact" else "approx", stringsAsFactors = FALSE)
+                                             check = check_of(sn), stringsAsFactors = FALSE)
     }
   }
 }
 
-if (!isTRUE(DRY_RUN)) banner("THE PAIRED COMPARISONS (R2, R3)")
-if (!isTRUE(DRY_RUN)) for (fk in names(FITS)) for (sn in STREAMS_OF[[fk]]) for (p in PAIRS) {
+if (!isTRUE(DRY_RUN)) banner("THE PAIRED COMPARISONS (R2, R3, R3', R7)")
+WK <- list()
+if (!isTRUE(DRY_RUN)) for (fk in names(FITS)) for (sn in SCORED_OF[[fk]]) for (p in PAIRS) {
+  if (!is.null(p$fits) && !fk %in% p$fits) next
   ta <- TAB[[paste(p$a, fk, sn)]]; tb <- TAB[[paste(p$b, fk, sn)]]
+  # a rung whose folder is not there yet (M6 before its render) gets its one "folder absent"
+  # row above and no per-stream rows: a pending rung is not an open comparison
+  if (is.na(DIRS[[p$a]] %||% NA) || is.na(DIRS[[p$b]] %||% NA)) next
+  primary <- identical(sn, "joint") || length(SCORED_OF[[fk]]) == 1L      # R3': the row the rule is applied to
+  approx_of <- function(rung, stream) { r <- ROWSX[[paste(rung, fk, stream)]]; !is.null(r) && identical(r, "approx") }
+  suffix <- if (identical(sn, "osp") && (approx_of(p$a, "osp") || approx_of(p$b, "osp"))) " (approx-checked stream)"
+            else if (identical(sn, "joint") && (approx_of(p$a, "osp") || approx_of(p$b, "osp"))) " (trailer exact, OSP approx-checked on at least one side)"
+            else ""
+  what_row <- sprintf("R3%s: %s, %s %s%s, held-out weeks against %s%s", if (identical(sn, "joint")) "'" else "", p$what, fk, sn,
+                      if (identical(sn, "joint")) " (all effort streams together; the row R3 is applied to)" else " stream", p$a, suffix)
   if (is.null(ta) || is.null(tb)) {
     if (fk %in% c("shore_all_gear", "boat_all_gear") && (sn != "osp" || fk == "boat_all_gear")) {
-      V1row(p$b, sprintf("R3: %s, %s %s stream, held-out weeks against %s", p$what, fk, sn, p$a),
+      V1row(p$b, what_row,
             sprintf("not computable: %s", paste(c(if (is.null(ta)) p$a, if (is.null(tb)) p$b), "has no block table (draws absent or refused)", collapse = "; ")),
             "> +2 paired SE over the reliable weeks", "REVIEW", "A comparison with a missing side is open, not a verdict.")
       PR[[length(PR) + 1]] <- data.frame(pair = sprintf("%s vs %s", p$b, p$a), what = p$what, fit = fk, stream = sn,
                                          n_blocks = NA_integer_, n_used = NA_integer_, n_dropped = NA_integer_, reliable_share = NA_real_,
-                                         diff = NA_real_, se = NA_real_, ratio = NA_real_, k_max = K_MAX, evaluable = FALSE, verdict = "REVIEW",
+                                         diff = NA_real_, se = NA_real_, ratio = NA_real_, k_max = K_MAX, max_abs_diff = NA_real_,
+                                         n_positive = NA_integer_, median_diff = NA_real_, identical = FALSE, primary = primary,
+                                         evaluable = FALSE, verdict = "REVIEW",
                                          reading = "not computable: a side has no block table", stringsAsFactors = FALSE)
     }
     next
   }
   cmp <- bss_block_cv_compare(ta, tb, k_max = K_MAX)
+  wk <- bss_block_cv_weeks(ta, tb, k_max = K_MAX)
+  WK[[length(WK) + 1]] <- cbind(pair = sprintf("%s vs %s", p$b, p$a), fit = fk, stream = sn, wk, stringsAsFactors = FALSE)
   evaluable <- isTRUE(cmp$reliable_share >= MIN_REL) && isTRUE(cmp$n_used >= MIN_WKS)
-  verdict <- if (!evaluable) "REVIEW" else if (!is.finite(cmp$ratio)) "REVIEW" else if (cmp$ratio > 2) "PASS" else if (cmp$ratio < -2) "FAIL" else "REVIEW"
-  reading <- if (!evaluable) sprintf("PSIS cannot carry this comparison (%d of %d weeks reliable; need %.0f%% and %d): refit the excluded weeks or coarsen the block",
+  verdict <- if (isTRUE(cmp$identical)) "INFO"                                   # R7: the same fit twice is not a comparison
+             else if (!evaluable) "REVIEW" else if (!is.finite(cmp$ratio)) "REVIEW" else if (cmp$ratio > 2) "PASS" else if (cmp$ratio < -2) "FAIL" else "REVIEW"
+  reading <- if (isTRUE(cmp$identical)) sprintf("identical fits: %s and %s hold the same %s fit (max |diff| %.1e nats, summation order); nothing to compare (R7)", p$a, p$b, fk, cmp$max_abs_diff)
+             else if (!evaluable) sprintf("PSIS cannot carry this comparison (%d of %d weeks reliable; need %.0f%% and %d): refit the excluded weeks or coarsen the block",
                                      cmp$n_used, cmp$n_blocks, 100 * MIN_REL, MIN_WKS)
              else if (verdict == "PASS") "the covariate improves the interpolation on held-out weeks"
              else if (verdict == "FAIL") "the covariate makes the held-out weeks WORSE"
              else "no evidence either way on held-out weeks"
-  approx <- identical(sn, "osp")
-  V1row(p$b, sprintf("R3: %s, %s %s stream, held-out weeks against %s%s", p$what, fk, sn, p$a, if (approx) " (approx-checked stream)" else ""),
-        bss_block_cv_str(cmp, p$a, p$b), "> +2 paired SE over the reliable weeks", verdict, reading)
-  PR[[length(PR) + 1]] <- data.frame(pair = sprintf("%s vs %s", p$b, p$a), what = p$what, fit = fk, stream = sn, cmp,
+  V1row(p$b, what_row, bss_block_cv_str(cmp, p$a, p$b), "> +2 paired SE over the reliable weeks", verdict, reading)
+  PR[[length(PR) + 1]] <- data.frame(pair = sprintf("%s vs %s", p$b, p$a), what = p$what, fit = fk, stream = sn, cmp, primary = primary,
                                      evaluable = evaluable, verdict = verdict, reading = reading, stringsAsFactors = FALSE)
   cat(sprintf("  %-6s %s | %s | %s\n", verdict, fk, sn, bss_block_cv_str(cmp, p$a, p$b)))
 }
@@ -295,14 +368,15 @@ if (!isTRUE(DRY_RUN) && length(V)) {
   banner("VERDICTS")
   VV <- do.call(rbind, V)
   for (i in seq_len(nrow(VV))) cat(sprintf("  %-6s %-3s %s\n         observed : %s\n", VV$verdict[i], VV$stage[i], VV$criterion[i], VV$observed[i]))
-  cat(sprintf("\n  %d PASS  %d FAIL  %d REVIEW\n", sum(VV$verdict == "PASS"), sum(VV$verdict == "FAIL"), sum(VV$verdict == "REVIEW")))
+  cat(sprintf("\n  %d PASS  %d FAIL  %d REVIEW  %d INFO\n", sum(VV$verdict == "PASS"), sum(VV$verdict == "FAIL"), sum(VV$verdict == "REVIEW"), sum(VV$verdict == "INFO")))
 }
 if (!isTRUE(DRY_RUN)) {
   op <- OUT_ROOT
   if (length(ROWS)) merge_csv_by(do.call(rbind, ROWS), file.path(op, "marine_hazard_2026-09-26_blockcv.csv"), key = c("rung", "fit", "stream"))
   if (length(PR))   merge_csv_by(do.call(rbind, PR),   file.path(op, "marine_hazard_2026-09-26_blockcv_pairs.csv"), key = c("pair", "fit", "stream"))
+  if (length(WK))   merge_csv_by(do.call(rbind, WK),   file.path(op, "marine_hazard_2026-09-26_blockcv_weeks.csv"), key = c("pair", "fit", "stream", "block"))
   if (length(V))    merge_csv_by(do.call(rbind, V),    file.path(op, "marine_hazard_2026-09-26_blockcv_verdicts.csv"), key = c("stage", "criterion"))
-  cat(sprintf("\n  wrote marine_hazard_2026-09-26_blockcv{,_pairs,_verdicts}.csv to %s\n", op))
+  cat(sprintf("\n  wrote marine_hazard_2026-09-26_blockcv{,_pairs,_weeks,_verdicts}.csv to %s\n", op))
   cat("\n  READ WITH R6 IN MIND: this scores the interpolation of held-out sampled weeks. It says\n")
   cat("  nothing about the port total, and a PASS here plus the ladder's identification is the case\n")
   cat("  for adopting a term; a REVIEW for want of reliable weeks is a case for refits, not a verdict.\n")

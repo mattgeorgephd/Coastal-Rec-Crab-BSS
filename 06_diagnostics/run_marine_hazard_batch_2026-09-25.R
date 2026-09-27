@@ -51,6 +51,14 @@
 #   M3   bar only    bar_restriction forced on the boat (manual)
 #   M4   both        nws_sca_any on both populations + bar_restriction on the boat
 #   M5   auto        marine_hazard_mode = "auto": what production would do with the screen
+#   M6   split       (added 2026-09-27, B41, for D32; not yet rendered) the any-zone SCA flag on
+#        the boat in TWO columns, nws_sca_any_winter (December to February) and
+#        nws_sca_any_rest (every other day), no shore term. Judged AGAINST M2, the constant
+#        term: rule 3 for each coefficient, rules 4 and 5 for the pair, and the block CV's
+#        joint row (run_marine_block_cv_2026-09-26.R, M6 vs M2). What it asks: is the winter
+#        effect the summer effect? Section 1y.3 found the term moves the boat estimate mostly
+#        in the winter, where the block CV cannot see, and a crude winter-only screen put the
+#        winter rate ratio near 0.5 to 0.6 against 0.15 to 0.16 for the rest of the season.
 #
 # THE DECISION RULE, STATED HERE BEFORE THE RUN so it cannot be fitted to the answer.
 #   1. A rung is ELIGIBLE only if every fit in it passes the convergence gate, and every fit
@@ -82,7 +90,39 @@
 #      harmless to the catch fit and better on the sampled days; it cannot say the
 #      unsampled-day interpolation improved. A leave-one-week-out block CV (CHANGE_REGISTER
 #      D31) is the test that could, and it is not built. The recommendation block below
-#      says which of the two it is resting on.
+#      says which of the two it is resting on. [2026-09-26: built and run, B39, Section 1y.]
+#   9. THE SEASON SPLIT (M6, stated 2026-09-27 before its render; the fit judged is the BOAT
+#      ALL-GEAR fit: in the pot-closure window the winter column has no flagged day, is
+#      dropped, and that fit is M2's). Read in this order, and stop at the first that applies:
+#      (a) The winter coefficient is NOT identified (rule 3: its 95% interval covers 0).
+#          Then this season's counts cannot place the winter effect, D32 stays open, and
+#          NOTHING here is a verdict for or against the constant term: the constant term's
+#          winter rests on an assumption the data cannot check, and the split's winter is a
+#          free parameter (rule 3's own objection). The rest coefficient is still read: if it
+#          is identified and the block CV's joint boat all-gear row for M6 against M2 is at
+#          or above -2 paired SE, the split is not worse than the constant term where it can
+#          be tested. The winter's treatment is then a modelling choice for the register
+#          (D32), not a rule outcome. STATED BEFORE THE RENDER: this is the LIKELY outcome.
+#          The module's own screen puts the 2024-25 winter term at 0.57 with a log-scale SE
+#          of 0.8, and the multi-season desk screen (06_diagnostics/desk_sca_season_split_
+#          2026-09-27.R; 794 sampled days over four seasons) puts the winter effect at 0.43
+#          against 0.22 for the rest, so a coefficient near log(0.5) with the 2024-25 winter's
+#          36 sampled advisory days of five trailers or fewer will very likely straddle zero.
+#          M6's value in that case is the identified rest coefficient, the exact OSP check
+#          on a rendered fit, and the recorded fact that the winter cannot be told apart.
+#      (b) Both identified, and they DIFFER: the 95% interval of (winter - rest), taken as
+#          independent normals from the two posterior means and SDs (bss_full_summary; the
+#          two act on disjoint days, so the approximation errs a little conservative),
+#          excludes 0. Then the split EARNS ITS PLACE over the constant term if the catch
+#          stream is unmoved against M2 (rule 5) and the block CV's joint boat all-gear row
+#          for M6 against M2 is at or above -2 paired SE (it can only see the rest
+#          coefficient's weeks, so it is asked not to contradict, not to confirm; a gain
+#          there is support). Rule 4 here, the paired trailer elpd against M2, is reported
+#          and is not the arbiter (Section 1y.4).
+#      (c) Both identified, and they do NOT differ (that interval covers 0). Then the
+#          constant term stands and D32 is answered "no difference detectable in this
+#          season's counts", which is not "the same size".
+#      The port total is reported, never judged (rule 7).
 #
 # WHAT IT WRITES, merged by key so a partial re-run updates rather than truncates:
 #   05_output/marine_hazard_2026-09-25_ladder.csv          per-rung totals, adequacy, B_open
@@ -92,13 +132,15 @@
 # RUNTIME. The R4 render took 207 minutes (run_timings.csv: shore all-gear 150 min at
 # weekly, boat all-gear 36 min at monthly). A covariate adds one parameter per active fit
 # and does not change P_n, so budget the same per rung: about 3.5 h x 5 fitted rungs, 17 to
-# 18 h. STAGES below can drop rungs; M1 and M2 are the minimum that answers anything.
+# 18 h (M1 to M5 rendered 2026-09-25/26; with RESUME they are read back in a minute and only
+# M6, about 3.5 h, renders). STAGES below can drop rungs; M1 and M2 are the minimum that
+# answers anything.
 #
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
 DRY_RUN <- TRUE                    # TRUE prints the plan and runs M0; fits nothing
-STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5")
+STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5", "M6")   # M6 added 2026-09-27 (B41); M1 to M5 RESUME from their folders
 RESUME  <- TRUE                    # reuse a rung ONLY when its MH_STAGE.txt digest matches
 
 # =========================================================================== #
@@ -280,11 +322,23 @@ STAGE_DEFS <- list(
                          marine_hazard_manual_boat = c("nws_sca_any", "bar_restriction"))),
   M5 = list(tag = "MH-M5-auto", fit = TRUE,  item = "auto: the screen decides (what production would do with marine_hazard_mode = auto)",
             delta = list(marine_hazard_mode = "auto", marine_hazard_manual_shore = character(0),
-                         marine_hazard_manual_boat = character(0)))
+                         marine_hazard_manual_boat = character(0))),
+  # B41 (2026-09-27). The split pair must be OFFERED to be named under `manual`, so this rung
+  # also widens the boat candidate list; the two extra keys are declared per stage (see
+  # stage_digest() and M0's comparability check), so the M1 to M5 digests and folders stand.
+  M6 = list(tag = "MH-M6-split", fit = TRUE,  item = "SCA split by season on the boat: nws_sca_any_winter (Dec-Feb) + nws_sca_any_rest; no shore term (judged against M2)",
+            delta = list(marine_hazard_mode = "manual", marine_hazard_manual_shore = character(0),
+                         marine_hazard_manual_boat = c("nws_sca_any_winter", "nws_sca_any_rest"),
+                         marine_hazard_candidates_boat = c("nws_sca_any", "bar_restriction", "nws_sca_any_winter", "nws_sca_any_rest"),
+                         marine_hazard_winter_months = c(12L, 1L, 2L)))
 )
 if (!all(STAGES %in% names(STAGE_DEFS)))
   stop("STAGES names a stage that does not exist: ", paste(setdiff(STAGES, names(STAGE_DEFS)), collapse = ", "))
 DELTA_KEYS <- c("marine_hazard_mode", "marine_hazard_manual_shore", "marine_hazard_manual_boat")
+# the keys a stage may differ from M1 in: the three levers above plus whatever its own delta
+# names (M6 adds the widened candidate list and the winter months). Per stage, so that adding
+# M6 changed no earlier stage's declared set or digest (the M1 to M5 folders RESUME as before).
+declared_keys <- function(sid) unique(c(DELTA_KEYS, names(STAGE_DEFS[[sid]]$delta %||% list())))
 # keys the driver ADDS to params at run time (data, not configuration) that config_delta()
 # would otherwise report between two folders
 RUNTIME_KEYS <- c("run_tag", "model", "crabbing_holiday_dates", "opener_f_dates", "razor_dig_dates",
@@ -311,7 +365,7 @@ digest_or_hash <- function(x) {
 }
 stage_digest <- function(sid) {
   cfg <- resolve_cfg(sid)
-  keys <- sort(unique(c(DELTA_KEYS, names(WINDOW))))
+  keys <- sort(unique(c(declared_keys(sid), names(WINDOW))))
   txt <- paste(vapply(keys, function(k)
     paste0(k, "=", paste(format(unlist(cfg[[k]] %||% "NULL")), collapse = "|")), character(1)),
     collapse = ";")
@@ -341,9 +395,18 @@ CODE_EQUIVALENT_MH <- list(
   # rebuilding fit@sim$permutation from the Stan seed after each fit (B38: the permutation
   # governs only the ORDER of extract()'s draws, so no posterior can change); drivers moved by the block-CV
   # call in the diagnostics loop and by the seeded census draw in the port block (B38),
-  # both downstream of every fit. The stan layer did not move.
+  # both downstream of every fit. The stan layer did not move. On 2026-09-27 (the block-CV
+  # results patch, Section 1y) fns moved again, all of it downstream of every fit:
+  # bss_block_cv.R (the joint table, the identical-fit floor, the per-week helper),
+  # write_loo_diagnostics() writing the OSP stream's pointwise LOO beside the others, and
+  # .bma_core() keeping the adequacy aggregate on gear / trailer / catch so
+  # model_adequacy.csv stays comparable. No likelihood, prior or Stan datum is touched.
   "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:8022c96c" =
-    "B38 (the draw permutation rebuilt from the Stan seed after each fit, and the seeded census draw) and B39 (block-CV diagnostics) landed after the run; neither reaches a likelihood, a prior or the Stan data, so every per-fit summary the verdicts read is the run's own. The port median is the one number B38 would change on a re-render (once, by the MC jitter it removes)."
+    "B38 (the draw permutation rebuilt from the Stan seed after each fit, and the seeded census draw) and B39 (block-CV diagnostics) landed after the run; neither reaches a likelihood, a prior or the Stan data, so every per-fit summary the verdicts read is the run's own. The port median is the one number B38 would change on a re-render (once, by the MC jitter it removes). SUPERSEDED 2026-09-27 by the entry below (fns moved again, in post-fit diagnostics only).",
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:6f65d84a" =
+    paste("As above, plus the 2026-09-27 block-CV results patch (Section 1y): bss_block_cv.R gained the joint effort table, the identical-fit floor and the per-week helper; write_loo_diagnostics() now writes loo_pointwise_osp_*.csv; .bma_core() filters the adequacy aggregate to gear / trailer / catch (all post-fit diagnostics);",
+          "and B41 in bss_marine_hazard_covariates.R, a PREP-layer change: two further candidate columns (nws_sca_any_winter, nws_sca_any_rest) and the one-definition rule treating that pair as one. Offered, not selected, by any of these five rungs' configurations:",
+          "measured on the real 2024-25 inputs, M2 to M5 resolve to the same per-population selection, the same per-date values of every selected column, the same screen table and the same selection table before and after the change, and M1 (off) returns before the module reads anything, so every rung's Stan data is unchanged.")
 )
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),
@@ -495,6 +558,22 @@ stage_M0 <- function() {
               "An imputed expected value is the documented approximation (bss_marine_hazard_covariates.R header).")
       }
     }
+    # (4b) B41: M6 against M2 for the boat all-gear fit. The split must enter as two flag
+    #      columns that SUM to M2's one, and nothing else may differ.
+    if ("M6" %in% names(STAGE_DEFS)) {
+      a2 <- build("M2", "private_boat"); b6 <- build("M6", "private_boat")
+      keys <- union(names(a2), names(b6))
+      diff <- keys[!vapply(keys, function(k) isTRUE(all.equal(a2[[k]], b6[[k]], tolerance = 0)), logical(1))]
+      lab6 <- attr(b6, "opener_labels"); x6 <- matrix(b6$X_open_flat, nrow = b6$D); x2 <- matrix(a2$X_open_flat, nrow = a2$D)
+      sums_ok <- b6$K_open == 2L && identical(lab6, c("nws_sca_any_winter", "nws_sca_any_rest")) &&
+                 a2$K_open == 1L && isTRUE(all.equal(rowSums(x6), x2[, 1], tolerance = 0))
+      V1row("M0", "private_boat all-gear: M6's Stan data differs from M2's in K_open and X_open_flat ONLY, and its two columns sum to M2's one",
+            sprintf("M2 K_open %d; M6 K_open %d [%s]; column sums %s; entries differing: %s", a2$K_open, b6$K_open, paste(lab6, collapse = ","),
+                    paste(sprintf("%s = %.0f", lab6, colSums(x6)), collapse = ", "), if (length(diff)) paste(diff, collapse = ", ") else "NONE"),
+            "differing entries = {K_open, X_open_flat}; K_open 1 -> 2; winter + rest = nws_sca_any on every day",
+            if (setequal(diff, c("K_open", "X_open_flat")) && sums_ok) "PASS" else "FAIL",
+            "The season split is the same flag in two columns; if it were anything else the rung would measure that too (rule 9).")
+    }
     TRUE
   }, error = function(e) {
     V1row("M0", "the flags, the screen and the Stan data proof were evaluated", conditionMessage(e), "no error", "ERROR",
@@ -509,10 +588,10 @@ stage_M0 <- function() {
     ks  <- setdiff(union(names(base_cfg), names(cfg)), RUNTIME_KEYS)
     diff <- ks[!vapply(ks, function(k)
       identical(format(unlist(cfg[[k]] %||% "NULL")), format(unlist(base_cfg[[k]] %||% "NULL"))), logical(1))]
-    undeclared <- setdiff(diff, DELTA_KEYS)
+    undeclared <- setdiff(diff, declared_keys(sid))
     V1row(sid, "differs from M1 in DECLARED keys only",
           sprintf("differs in: %s", if (length(diff)) paste(diff, collapse = ", ") else "nothing"),
-          sprintf("a subset of {%s}", paste(DELTA_KEYS, collapse = ", ")),
+          sprintf("a subset of {%s}", paste(declared_keys(sid), collapse = ", ")),
           if (!length(undeclared)) "PASS" else "FAIL",
           paste("A rung that differs in an undeclared key measures that key as well as its own.",
                 "Undeclared here:", if (length(undeclared)) paste(undeclared, collapse = ", ") else "none"))
@@ -588,6 +667,7 @@ ladder_row <- function(sid, dir) {
   aqs <- .adq(dir, FIT_SHORE); aqb <- .adq(dir, FIT_BOAT)
   als <- .arlog(dir, FIT_SHORE); alb <- .arlog(dir, FIT_BOAT)
   bs <- .b_open(dir, FIT_SHORE, "nws_sca_any"); bb <- .b_open(dir, FIT_BOAT, "nws_sca_any"); bbar <- .b_open(dir, FIT_BOAT, "bar_restriction")
+  bw <- .b_open(dir, FIT_BOAT, "nws_sca_any_winter"); br <- .b_open(dir, FIT_BOAT, "nws_sca_any_rest")   # B41 (M6)
   ls <- .loo_summ(dir, FIT_SHORE, "gear"); lb <- .loo_summ(dir, FIT_BOAT, "trailer")
   lsc <- .loo_summ(dir, FIT_SHORE, "catch"); lbc <- .loo_summ(dir, FIT_BOAT, "catch")
   nobs <- function(fit) { d <- rd(dir, sprintf("ppc_byobs_%s.csv", fit)); if (is.null(d)) NA_integer_ else sum(d$data_type == "catch", na.rm = TRUE) }
@@ -611,6 +691,8 @@ ladder_row <- function(sid, dir) {
     B_sca_shore = .num1(bs$mean), B_sca_shore_lo = .num1(bs$lo), B_sca_shore_hi = .num1(bs$hi),
     B_sca_boat = .num1(bb$mean), B_sca_boat_lo = .num1(bb$lo), B_sca_boat_hi = .num1(bb$hi),
     B_bar_boat = .num1(bbar$mean), B_bar_boat_lo = .num1(bbar$lo), B_bar_boat_hi = .num1(bbar$hi),
+    B_sca_boat_winter = .num1(bw$mean), B_sca_boat_winter_lo = .num1(bw$lo), B_sca_boat_winter_hi = .num1(bw$hi),
+    B_sca_boat_rest = .num1(br$mean), B_sca_boat_rest_lo = .num1(br$lo), B_sca_boat_rest_hi = .num1(br$hi),
     elpd_shore_gear = .num1(ls$elpd_loo), elpd_boat_trailer = .num1(lb$elpd_loo),
     elpd_shore_catch = .num1(lsc$elpd_loo), elpd_boat_catch = .num1(lbc$elpd_loo),
     stringsAsFactors = FALSE)
@@ -756,6 +838,36 @@ verdict_M5 <- function(dir) {
         "no threshold", "INFO", "Compare with the forced rungs: auto should land on the terms the rule adopts, or say why not.")
 }
 
+# B41: the two season coefficients side by side, and whether they differ. The z below treats
+# the two posteriors as independent (they act on disjoint days; the shared monthly state
+# couples them a little), so it is a guide to read beside the intervals, not a criterion.
+verdict_M6 <- function(dir) {
+  if (is.na(dir %||% NA)) return(invisible(NULL))
+  bw <- .b_open(dir, FIT_BOAT, "nws_sca_any_winter"); br <- .b_open(dir, FIT_BOAT, "nws_sca_any_rest")
+  fs <- .full(dir, FIT_BOAT)
+  sdw <- if (!is.null(bw) && !is.null(fs) && "sd" %in% names(fs)) .num1(fs[bw$parameter, "sd"]) else NA_real_
+  sdr <- if (!is.null(br) && !is.null(fs) && "sd" %in% names(fs)) .num1(fs[br$parameter, "sd"]) else NA_real_
+  z <- if (!is.null(bw) && !is.null(br) && isTRUE(is.finite(sdw)) && isTRUE(is.finite(sdr))) (bw$mean - br$mean) / sqrt(sdw^2 + sdr^2) else NA_real_
+  V1row("M6", "REPORTED: the winter and rest SCA coefficients in the boat all-gear fit, and their difference",
+        if (is.null(bw) || is.null(br)) sprintf("winter %s; rest %s", if (is.null(bw)) "absent (not in the fit)" else sprintf("%s [%s, %s]", fmt(bw$mean, 3), fmt(bw$lo, 3), fmt(bw$hi, 3)),
+                                                if (is.null(br)) "absent (not in the fit)" else sprintf("%s [%s, %s]", fmt(br$mean, 3), fmt(br$lo, 3), fmt(br$hi, 3)))
+        else sprintf("winter %s [%s, %s] (rate ratio %s); rest %s [%s, %s] (rate ratio %s); difference winter - rest %s, z %s (independence-approximate)",
+                     fmt(bw$mean, 3), fmt(bw$lo, 3), fmt(bw$hi, 3), fmt(exp(bw$mean), 2), fmt(br$mean, 3), fmt(br$lo, 3), fmt(br$hi, 3), fmt(exp(br$mean), 2),
+                     fmt(bw$mean - br$mean, 3), fmt(z, 2)),
+        "no threshold; rule 9 reads the intervals and the block CV", "INFO",
+        "Rule 9, in order: (a) winter not identified -> D32 open, no verdict on the constant term; (b) both identified and different (the difference's 95% interval excludes 0) -> the split earns its place if the catch is unmoved and the block CV's joint boat all-gear row is not below -2 SE; (c) both identified, no detectable difference -> the constant term stands.")
+  branch <- if (is.null(bw) || !isTRUE(bw$identified)) "a" else if (is.null(br) || !isTRUE(br$identified)) "a-rest"
+            else if (isTRUE(is.finite(z)) && abs(z) > qnorm(0.975)) "b" else "c"
+  V1row("M6", "rule 9: which branch the season split lands in (a: winter not identified; b: both identified and different; c: both identified, no detectable difference)",
+        switch(branch,
+               a = "(a) the winter coefficient is not identified: this season's counts cannot place the winter effect; D32 stays open; no verdict on the constant term",
+               `a-rest` = "the winter coefficient is identified and the REST is not: read the fit before anything else (this was not the expected shape)",
+               b = sprintf("(b) both identified and different (z %s): the split earns its place if rule 5 holds and the block CV's joint boat all-gear row for M6 vs M2 is not below -2 SE", fmt(z, 2)),
+               c = sprintf("(c) both identified, no detectable difference (z %s): the constant term stands", fmt(z, 2))),
+        "stated in the header before the render", "INFO",
+        "The block CV's row is in marine_hazard_2026-09-26_blockcv_pairs.csv after run_marine_block_cv_2026-09-26.R is re-sourced with M6 rendered.")
+}
+
 # ---------------------------------------------------------------------------
 # THE RECOMMENDATION, from the ladder and the verdicts, by the rule in the header.
 # ---------------------------------------------------------------------------
@@ -799,11 +911,33 @@ recommend <- function() {
   cat("\n  The ladder:\n")
   ladder <- do.call(rbind, LAD)
   print(ladder[, c("rung", "mode", "shore_cov", "boat_cov", "shore_ag", "boat_ag", "port", "gate_all_pass",
-              "B_sca_shore", "B_sca_boat", "B_bar_boat", "elpd_shore_gear", "elpd_boat_trailer")], row.names = FALSE)
-  for (item in list(list(name = "SCA on the shore", sid = "M2", cov = "nws_sca_any", side = "shore"),
-                    list(name = "SCA on the boat",  sid = "M2", cov = "nws_sca_any", side = "boat"),
-                    list(name = "bar restriction on the boat (beyond the archive, M4 vs M2)", sid = "M4", cov = "bar_restriction", side = "boat"))) {
-    j <- judge(item$sid, item$cov, item$side)
+              "B_sca_shore", "B_sca_boat", "B_bar_boat", "B_sca_boat_winter", "B_sca_boat_rest", "elpd_shore_gear", "elpd_boat_trailer")], row.names = FALSE)
+  items <- list(list(name = "SCA on the shore", sid = "M2", cov = "nws_sca_any", side = "shore"),
+                list(name = "SCA on the boat",  sid = "M2", cov = "nws_sca_any", side = "boat"),
+                list(name = "bar restriction on the boat (beyond the archive, M4 vs M2)", sid = "M4", cov = "bar_restriction", side = "boat"))
+  if ("M6" %in% STAGES) items <- c(items, list(
+    list(name = "SCA split by season on the boat, winter term (M6 vs M2; rule 9)", sid = "M6", cov = "nws_sca_any_winter", side = "boat"),
+    list(name = "SCA split by season on the boat, rest-of-season term (M6 vs M2; rule 9)", sid = "M6", cov = "nws_sca_any_rest", side = "boat")))
+  # B41: the M6 items are read by rule 9, not by judge()'s rules 1 to 5: an unidentified winter
+  # coefficient is D32 restated, not "do not adopt", and a rule-4 PASS is not "adopt".
+  judge_M6 <- function(covariate) {
+    rows <- VV[VV$stage == "M6" & (grepl("^rule [1235]", VV$criterion) | grepl("^rule 9", VV$criterion)), , drop = FALSE]
+    rows <- rows[!grepl("^rule 3", rows$criterion) | grepl(covariate, rows$criterion, fixed = TRUE), , drop = FALSE]
+    rows <- rows[!grepl("^rule 5", rows$criterion) | grepl(covariate, rows$criterion, fixed = TRUE), , drop = FALSE]
+    if (!nrow(rows)) return(list(verdict = "not fitted", rows = rows))
+    br <- rows[grepl("^rule 9", rows$criterion), , drop = FALSE]
+    if (!nrow(br)) return(list(verdict = "open: rule 9 not evaluated", rows = rows))
+    o <- br$observed[1]
+    v <- if (startsWith(o, "(a)")) "rule 9 (a): winter not identified; D32 open; no verdict on the constant term"
+         else if (startsWith(o, "(b)")) paste("rule 9 (b): both identified and different; the split earns its place if rule 5 holds and the block CV's joint boat all-gear row",
+                                              "(run_marine_block_cv_2026-09-26.R, M6 vs M2) is not below -2 SE: read that file")
+         else if (startsWith(o, "(c)")) "rule 9 (c): both identified, no detectable difference; the constant term stands"
+         else "open: an unexpected shape; read the fit"
+    if (any(rows$verdict == "FAIL" & grepl("^rule [125]", rows$criterion))) v <- paste(v, "| BUT a rule 1, 2 or 5 row FAILED: read it first")
+    list(verdict = v, rows = rows)
+  }
+  for (item in items) {
+    j <- if (identical(item$sid, "M6")) judge_M6(item$cov) else judge(item$sid, item$cov, item$side)
     cat(sprintf("\n  %s: %s\n", item$name, toupper(j$verdict)))
     for (i in seq_len(nrow(j$rows))) cat(sprintf("     %-6s %s\n", j$rows$verdict[i], j$rows$criterion[i]))
     REC[[item$name]] <<- j$verdict
@@ -814,7 +948,9 @@ recommend <- function() {
   cat("  fit, better on the sampled days. Before the mode ships 'auto' or 'on' in run_config.R,\n")
   cat("  the leave-one-week-out block CV (CHANGE_REGISTER D31 -> B39) is the test that would show\n")
   cat("  the interpolation improved: 06_diagnostics/run_marine_block_cv_2026-09-26.R scores the\n")
-  cat("  rendered rungs' saved draws (ppc_draws_<fit>.rds) without a refit. Run it next.\n")
+  cat("  rendered rungs' saved draws (ppc_draws_<fit>.rds) without a refit. It ran 2026-09-26\n")
+  cat("  (Section 1y): boat SCA +18.9 nats on the held-out OSP counts (3.9 SE), both boat streams\n")
+  cat("  2.9 SE, the winter untested (D32). Run it again after M6 renders; M6 vs M2 is the row.\n")
   cat("\n  ADOPTION EDIT, if you take it: run_config.R marine_hazard_mode <- \"auto\" (the screen)\n")
   cat("  or \"manual\" with marine_hazard_manual_shore / _boat set to the adopted terms.\n")
   invisible(TRUE)
@@ -853,12 +989,16 @@ if ("M1" %in% STAGES) tryCatch(verdict_M1(DIRS$M1 %||% NA_character_), error = f
   list(sid = "M3", ctl = "M1", fit = FIT_BOAT,  cov = "bar_restriction"),
   list(sid = "M4", ctl = "M2", fit = FIT_BOAT,  cov = "bar_restriction"),
   list(sid = "M4", ctl = "M1", fit = FIT_SHORE, cov = "nws_sca_any"),
-  list(sid = "M4", ctl = "M1", fit = FIT_BOAT,  cov = "nws_sca_any"))
+  list(sid = "M4", ctl = "M1", fit = FIT_BOAT,  cov = "nws_sca_any"),
+  # B41: the season split against the constant term
+  list(sid = "M6", ctl = "M2", fit = FIT_BOAT,  cov = "nws_sca_any_winter"),
+  list(sid = "M6", ctl = "M2", fit = FIT_BOAT,  cov = "nws_sca_any_rest"))
 for (cp in .cov_pairs) if (cp$sid %in% STAGES && cp$ctl %in% STAGES)
   tryCatch(verdict_covariate(cp$sid, DIRS[[cp$sid]] %||% NA_character_, cp$ctl, DIRS[[cp$ctl]] %||% NA_character_, cp$fit, cp$cov),
            error = function(e) V1row(cp$sid, sprintf("the %s verdicts were computed", cp$cov), conditionMessage(e), "no error", "ERROR", ""))
 for (sid in setdiff(fitted, "M1")) tryCatch(verdict_port(sid, DIRS[[sid]] %||% NA_character_), error = function(e) NULL)
 if ("M5" %in% STAGES) tryCatch(verdict_M5(DIRS$M5 %||% NA_character_), error = function(e) NULL)
+if ("M6" %in% STAGES) tryCatch(verdict_M6(DIRS$M6 %||% NA_character_), error = function(e) NULL)
 
 if (length(V)) {
   banner("VERDICTS")

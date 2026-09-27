@@ -46,6 +46,9 @@
 #                      Mesonet). Known for EVERY day in the window. Three definitions are
 #                      offered: any zone (nws_sca_any), the bar zone only (nws_sca_bar), the
 #                      coastal zone only (nws_sca_coastal); one of them per population at most.
+#                      Since 2026-09-27 the any-zone flag is also offered split by season
+#                      (nws_sca_any_winter + nws_sca_any_rest, THE SEASON SPLIT below), the pair
+#                      counting as one definition.
 #   bar_restriction    The samplers' "Bar Restrictions" tick in sampler_shifts.xlsx
 #                      special_conditions. Observed on SAMPLED days only (and only from the
 #                      day the option first appears on the form, detected from the first marine
@@ -92,6 +95,32 @@
 # same-day counts as independent, which overstates its precision, so its p is reported and
 # not selected on.
 #
+# THE SEASON SPLIT (2026-09-27; B41, for D32). The first block cross-validation (Section 1y)
+# validated the boat SCA term out of sample on the spring-to-autumn weeks and could not see
+# the winter, where the term moves the estimate most; a crude winter-only screen of the
+# sampled trailer days put the winter rate ratio near 0.5 to 0.6 against 0.15 to 0.16 for the
+# rest of the season and the fitted season-wide 0.31. Two further candidates are therefore
+# offered, nws_sca_any_winter (the any-zone flag on days in marine_hazard_winter_months,
+# default December to February) and nws_sca_any_rest (the same flag on every other day); they
+# sum to nws_sca_any, so they are ONE NWS definition for the one-per-population rule (the pair
+# may enter together; either may not enter beside nws_sca_any). They are offered, not in the
+# shipped candidate lists, so `auto` and the 2026-09-25 rungs are unchanged; the ladder's M6
+# rung enters them by name. December to February because that is the part of the all-gear
+# window the OSP counts do not cover (they begin in March), so the "rest" coefficient is the
+# one the block cross-validation can test, and because the split at March keeps both terms
+# identifiable (52 and 50 flagged calendar days in the 2024-25 all-gear window, 36 and 22 of
+# them sampled trailer days; a Dec-to-Mar / Apr-to-Sep split would leave the summer term eight
+# sampled advisory days). TWO THINGS TO HOLD when the pair is on. (1) opener_design_matrix()
+# drops a column with fewer than opener_min_days (10) flagged days in a fit's window, after
+# which that window's winter advisory days are scored as ordinary days under the rest term;
+# in the pot-closure window (September to November) that is intended and is the constant
+# term for that sub-season, but a short or calm winter in an all-gear window would silently
+# do the same, so read the "Effort day covariates" line the prep prints. (2) The winter's
+# sampled counts are few and small (2024-25: 36 advisory days of five trailers or fewer), so
+# a winter coefficient of the size the multi-season desk screen suggests (rate ratio about
+# 0.43, 06_diagnostics/desk_sca_season_split_2026-09-27.R) is likely to sit astride zero in a
+# single season's fit; rule 9 of the ladder runner says what that outcome means.
+#
 # THE CRABBING-FRACTION INTERACTION (boat). Boat effort is ALL private boats. If crabbing boats
 # respond to an advisory differently from the finfish boats (a bay crabber does not cross the
 # bar; a salmon boat must), f differs on advisory days, and the dynamic monthly f cannot see a
@@ -111,8 +140,12 @@
   nws_sca_any     = "NWS SCA or higher, any zone",
   nws_sca_bar     = "NWS SCA or higher, bar zone",
   nws_sca_coastal = "NWS SCA or higher, coastal zone",
-  bar_restriction = "USCG bar restriction (sampler tick)"
+  bar_restriction = "USCG bar restriction (sampler tick)",
+  nws_sca_any_winter = "NWS SCA or higher, any zone, winter months",
+  nws_sca_any_rest   = "NWS SCA or higher, any zone, the other months"
 )
+# the season split: one NWS definition in two columns (they sum to nws_sca_any)
+.mh_split <- c("nws_sca_any_winter", "nws_sca_any_rest")
 .mh_series <- c(shore = "Shore gear (effort)", private_boat = "Boat trailers (effort)")
 
 # NULL-only (a zero-length candidate list is a deliberate "none", not a missing key). Used for
@@ -126,7 +159,8 @@
   zones  = params$marine_hazard_zones  %||% c(bar = "PZZ110", coastal = "PZZ156"),
   codes  = params$marine_hazard_codes  %||% c("SC.Y", "RB.Y", "SW.Y", "SI.Y", "GL.W", "SR.W", "SE.W", "HF.W"),
   window = params$marine_hazard_window %||% c(4, 16),
-  tz     = params$marine_hazard_tz     %||% "America/Los_Angeles"
+  tz     = params$marine_hazard_tz     %||% "America/Los_Angeles",
+  winter = params$marine_hazard_winter_months %||% c(12L, 1L, 2L)   # B41: the months nws_sca_any_winter covers
 )
 
 # ---- time helpers -----------------------------------------------------------------------
@@ -274,20 +308,29 @@ marine_hazard_flag_series <- function(params, date_start = NULL, date_end = NULL
   b <- .mh_local_time(dates, window[2], mh$tz)
   ev <- events |> dplyr::filter(in_effect, ps %in% mh$codes)
   flag_for <- function(ugcs) { e <- ev[ev$ugc %in% ugcs, , drop = FALSE]; .mh_any_overlap(a, b, e$start, e$end) }
+  wm <- suppressWarnings(as.numeric(mh$winter))
+  if (!length(wm) || anyNA(wm) || any(wm != floor(wm)) || any(wm < 1 | wm > 12) || anyDuplicated(wm) || is.logical(mh$winter))
+    stop("marine_hazard_winter_months must be distinct whole month numbers in 1..12, e.g. c(12, 1, 2)", call. = FALSE)
+  wm <- as.integer(wm)
+  is_winter <- as.integer(as.integer(format(dates, "%m")) %in% wm)
   out <- tibble::tibble(
     event_date      = dates,
     nws_sca_any     = flag_for(zones),
     nws_sca_bar     = if ("bar" %in% names(zones)) flag_for(zones[["bar"]]) else NA_integer_,
     nws_sca_coastal = if ("coastal" %in% names(zones)) flag_for(zones[["coastal"]]) else NA_integer_
   )
+  # B41: the season split of the any-zone flag; the two columns sum to nws_sca_any
+  out$nws_sca_any_winter <- out$nws_sca_any * is_winter
+  out$nws_sca_any_rest   <- out$nws_sca_any * (1L - is_winter)
   attr(out, "definition") <- sprintf("%s in effect at any moment between %02d:%02d and %02d:%02d %s; zones %s",
                                      paste(mh$codes, collapse = "/"),
                                      floor(window[1]), round((window[1] %% 1) * 60), floor(window[2]), round((window[2] %% 1) * 60),
                                      mh$tz, paste(sprintf("%s = %s", names(zones), zones), collapse = ", "))
   attr(out, "n_events") <- nrow(ev)
   if (!isTRUE(quiet))
-    cat(sprintf("  NWS marine hazards: %d event(s) with codes %s; flags on %d of %d days (any zone)\n",
-                nrow(ev), paste(mh$codes, collapse = "/"), sum(out$nws_sca_any), nrow(out)))
+    cat(sprintf("  NWS marine hazards: %d event(s) with codes %s; flags on %d of %d days (any zone; %d in the winter months %s, %d in the rest)\n",
+                nrow(ev), paste(mh$codes, collapse = "/"), sum(out$nws_sca_any), nrow(out),
+                sum(out$nws_sca_any_winter), paste(wm, collapse = "/"), sum(out$nws_sca_any_rest)))
   out
 }
 
@@ -496,11 +539,18 @@ marine_hazard_select <- function(screen, params) {
   if (identical(mode, "off")) { empty$note <- "marine_hazard_mode = 'off'; no marine hazard covariates."; return(empty) }
 
   # one NWS definition per population: the three nws_sca_* flags are near-collinear
+  # B41: the season-split pair (nws_sca_any_winter + nws_sca_any_rest) is ONE definition and
+  # may enter together; it may not enter beside nws_sca_any, which it sums to.
   .one_nws <- function(sel, p_by_name = NULL) {
     nws <- sel[startsWith(sel, "nws_")]
-    if (length(nws) <= 1) return(list(keep = sel, dropped = character(0)))
-    keep1 <- if (!is.null(p_by_name) && all(nws %in% names(p_by_name)) && any(is.finite(p_by_name[nws])))
-      nws[which.min(ifelse(is.finite(p_by_name[nws]), p_by_name[nws], Inf))] else nws[1]
+    fam <- ifelse(nws %in% .mh_split, "nws_sca_any_split", nws)
+    if (length(unique(fam)) <= 1) return(list(keep = sel, dropped = character(0)))
+    fam_p <- vapply(unique(fam), function(f) {
+      m <- nws[fam == f]
+      if (!is.null(p_by_name) && all(m %in% names(p_by_name)) && any(is.finite(p_by_name[m]))) min(p_by_name[m], na.rm = TRUE) else Inf
+    }, numeric(1))
+    best <- if (any(is.finite(fam_p))) names(fam_p)[which.min(fam_p)] else unique(fam)[1]
+    keep1 <- nws[fam == best]
     list(keep = c(setdiff(sel, nws), keep1), dropped = setdiff(nws, keep1))
   }
 
@@ -522,7 +572,7 @@ marine_hazard_select <- function(screen, params) {
                                    adj_estimate = NA_real_, p_raw = NA_real_, p_adj = NA_real_,
                                    selected = cand[[p]] %in% k$keep,
                                    reason = dplyr::case_when(cand[[p]] %in% k$keep ~ mode,
-                                                             cand[[p]] %in% k$dropped ~ sprintf("one NWS definition per population (kept %s)", k$keep[startsWith(k$keep, "nws_")][1]),
+                                                             cand[[p]] %in% k$dropped ~ sprintf("one NWS definition per population (kept %s)", paste(k$keep[startsWith(k$keep, "nws_")], collapse = " + ")),
                                                              TRUE ~ "not named"))
       if (length(k$dropped)) notes <- c(notes, sprintf("%s: %s dropped, one NWS definition per population", p, paste(k$dropped, collapse = ", ")))
     }
@@ -562,7 +612,7 @@ marine_hazard_select <- function(screen, params) {
     if (length(k$dropped)) {
       fam$selected[fam$population == p & fam$covariate %in% k$dropped] <- FALSE
       fam$reason[fam$population == p & fam$covariate %in% k$dropped] <-
-        sprintf("cleared the screen but dropped: one NWS definition per population (kept %s)", k$keep[startsWith(k$keep, "nws_")][1])
+        sprintf("cleared the screen but dropped: one NWS definition per population (kept %s)", paste(k$keep[startsWith(k$keep, "nws_")], collapse = " + "))
       notes <- c(notes, sprintf("%s: %s dropped, one NWS definition per population", p, paste(k$dropped, collapse = ", ")))
     }
   }
@@ -614,7 +664,7 @@ marine_hazard_prepare <- function(dwg, params, output_dir = NULL, quiet = FALSE)
   sel <- marine_hazard_select(screen, params)
   params$marine_hazard_selected <- list(shore = sel$shore, private_boat = sel$private_boat)
   # the preps read ONE per-date flag table; join the marine columns onto the opener columns
-  mcols <- flags |> dplyr::select(event_date, dplyr::any_of(c("nws_sca_any", "nws_sca_bar", "nws_sca_coastal", "bar_restriction")))
+  mcols <- flags |> dplyr::select(event_date, dplyr::any_of(c("nws_sca_any", "nws_sca_bar", "nws_sca_coastal", "bar_restriction", .mh_split)))
   of <- params$opener_flags
   params$opener_flags <- if (is.null(of) || !nrow(of)) mcols else
     dplyr::full_join(of |> dplyr::select(-dplyr::any_of(names(mcols)[-1])), mcols, by = "event_date") |> dplyr::arrange(event_date)

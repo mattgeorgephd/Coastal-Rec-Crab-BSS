@@ -4240,16 +4240,16 @@ local({
                  "(2026-09-05, 2026-09-05, 2026-09-08) the letters are correct. No",
                  "assignment of session dates removes this without inventing one."))
   L   <- rd(VC)
-  hd  <- grep("^## 1[b-x]\\.", L, value = TRUE)   # 2026-09-26: 1w and 1x joined the campaign
-  let <- sub("^## (1[b-x])\\..*$", "\\1", hd)
+  hd  <- grep("^## 1[b-y]\\.", L, value = TRUE)   # 2026-09-26: 1w and 1x joined the campaign; 2026-09-27: 1y
+  let <- sub("^## (1[b-y])\\..*$", "\\1", hd)
   lastdate <- function(h) {
     m <- regmatches(h, gregexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", h))[[1]]
     if (length(m)) as.Date(tail(m, 1)) else as.Date(NA)
   }
   dts <- as.Date(vapply(hd, function(h) as.character(lastdate(h)), character(1)))
-  chk("chronology: the campaign has 23 sections, 1b to 1x, in ascending letter order",
-      length(let) == 23 && identical(let, let[order(let)]) &&
-      identical(let[1], "1b") && identical(let[length(let)], "1x"))
+  chk("chronology: the campaign has 24 sections, 1b to 1y, in ascending letter order",
+      length(let) == 24 && identical(let, let[order(let)]) &&
+      identical(let[1], "1b") && identical(let[length(let)], "1y"))
   chk("chronology: every campaign section title carries a parseable date", !any(is.na(dts)))
   inv <- let[-1][which(diff(as.numeric(dts)) < 0)]
   chk("chronology: the campaign's section dates run backwards ONLY where declared",
@@ -4260,8 +4260,8 @@ local({
       all(nzchar(INVERSION_OK)) && all(nchar(INVERSION_OK) > 40))
 
   # (3) the git-anchor table must cover every section letter
-  tbl <- grep("^> \\| 1[b-x] \\|", L, value = TRUE)
-  tl  <- sub("^> \\| (1[b-x]) \\|.*$", "\\1", tbl)
+  tbl <- grep("^> \\| 1[b-y] \\|", L, value = TRUE)
+  tl  <- sub("^> \\| (1[b-y]) \\|.*$", "\\1", tbl)
   chk("chronology: the git-anchor table covers every campaign section",
       setequal(tl, let), sprintf("(missing: %s)",
         paste(setdiff(let, tl), collapse = ",")))
@@ -5447,6 +5447,287 @@ local({
       !grepl("**The port total resamples.**", md, fixed = TRUE))
   chk("1x docs: the register's A30 effect cell records the measured direction (UP) and corrects the earlier 'DOWN'",
       grepl("Measured 2026-09-26: UP, not down as first written here", cr, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 78. THE BLOCK CROSS-VALIDATION RAN: ITS EVIDENCE, THE DEFECT IT EXPOSED IN ITS OWN RUNNER,
+#     THE UNDER-POWERED CLAUSE, AND THE JOINT EFFORT SCORE (2026-09-27; VALIDATION_CAMPAIGN
+#     Section 1y, CHANGE_REGISTER B40, three C rows, D32).
+#
+#     Three things are pinned, as section 77 pins the ladder. (1) THE EVIDENCE, recomputed from
+#     the committed per-week tables with the library itself and compared with the committed
+#     pairs file: the OSP stream's +18.9 at 3.9 SE, the trailer's +7.9 at 1.2 SE, the two
+#     streams together at 2.9 SE, the bar tick's nothing, M5 = M4, the shore not evaluable at
+#     weekly AR, the winter's 13 uninformative trailer weeks, and the concentration of the boat
+#     change in December to March. Skipped with a NOTE where the folders are absent. (2) THE
+#     FIXES: identical block tables are INFO not FAIL (the committed FAIL row was 2e-14 nats),
+#     the joint table equals the exact joint leave-week-out predictive of a conjugate model
+#     with both streams removed and is NOT the sum of the per-stream rows, the per-week helper,
+#     the runner's R3' / R7 text and its weeks file, the OSP pointwise LOO, the adequacy
+#     aggregate kept comparable, the delivery files gone and ignored, the equivalence
+#     declarations current. (3) THE DOCUMENTS.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+  source("03_R_functions/bss_block_cv.R")
+  MH <- c(M1 = "05_output/20260925/pooled-CPUE-MH-M1-off", M2 = "05_output/20260925/pooled-CPUE-MH-M2-sca",
+          M3 = "05_output/20260925/pooled-CPUE-MH-M3-bar", M4 = "05_output/20260926/pooled-CPUE-MH-M4-both",
+          M5 = "05_output/20260926/pooled-CPUE-MH-M5-auto")
+  BAG <- "private_boat_all_gear_Dungeness_Kept"; BPC <- "private_boat_ring_net_only_Dungeness_Kept"
+  SAG <- "shore_all_gear_Dungeness_Kept"; SPC <- "shore_ring_net_only_Dungeness_Kept"
+  pf <- "05_output/marine_hazard_2026-09-26_blockcv_pairs.csv"; vf <- "05_output/marine_hazard_2026-09-26_blockcv_verdicts.csv"
+  sf <- "05_output/marine_hazard_2026-09-26_blockcv.csv"
+  chk("1y: the block-CV summary, pairs and verdicts CSVs are committed", all(file.exists(c(pf, vf, sf))))
+  have_tabs <- all(dir.exists(MH)) && all(file.exists(file.path(MH, sprintf("loo_block_trailer_%s.csv", BAG))))
+  if (all(file.exists(c(pf, vf, sf))) && have_tabs) {
+    V <- read.csv(vf, stringsAsFactors = FALSE); P <- read.csv(pf, stringsAsFactors = FALSE); S <- read.csv(sf, stringsAsFactors = FALSE)
+    r1 <- grepl("^R1:", V$criterion)
+    chk("1y: R1 held on all 20 fits: every reconstruction row is PASS, gear / trailer to 5e-5, OSP approx-checked",
+        sum(r1) == 20 && all(V$verdict[r1] == "PASS") && all(grepl("MATCHES the committed pointwise file", V$observed[r1])) &&
+        all(grepl("approx-checked", V$observed[r1 & grepl("boat", V$criterion)])))
+    bt  <- function(rung, stream, fit) read.csv(file.path(MH[[rung]], sprintf("loo_block_%s_%s.csv", stream, fit)), stringsAsFactors = FALSE)
+    cmp <- function(a, b, stream, fit) bss_block_cv_compare(bt(a, stream, fit), bt(b, stream, fit))
+    prow <- function(pair, fit, stream) P[P$pair == pair & P$fit == fit & P$stream == stream, , drop = FALSE]
+    o <- cmp("M1", "M2", "osp", BAG); t <- cmp("M1", "M2", "trailer", BAG)
+    chk("1y: boat SCA on held-out OSP weeks recomputes to +18.9 at 4.8 SE (3.90 SE): 25 of 29 weeks reliable, 21 positive",
+        abs(o$diff - 18.85) < 0.05 && abs(o$se - 4.83) < 0.05 && o$ratio > 2 && o$n_used == 25 && o$n_blocks == 29 && o$n_positive == 21,
+        sprintf("(%+.2f, SE %.2f, %.2f SE)", o$diff, o$se, o$ratio))
+    chk("1y: boat SCA on held-out trailer weeks recomputes to +7.9 at 6.6 SE (1.20 SE): 34 of 37 weeks reliable, 22 positive",
+        abs(t$diff - 7.93) < 0.05 && abs(t$se - 6.63) < 0.05 && t$ratio > 0 && t$ratio < 2 && t$n_used == 34 && t$n_blocks == 37 && t$n_positive == 22,
+        sprintf("(%+.2f, SE %.2f, %.2f SE)", t$diff, t$se, t$ratio))
+    chk("1y: the committed pairs file carries the numbers the library recomputes (diff and SE to 1e-6) and the verdicts the rule gives (OSP PASS, trailer REVIEW)",
+        { po <- prow("M2 vs M1", "boat_all_gear", "osp"); pt <- prow("M2 vs M1", "boat_all_gear", "trailer")
+          nrow(po) == 1 && nrow(pt) == 1 && abs(po$diff - o$diff) < 1e-6 && abs(po$se - o$se) < 1e-6 &&
+          abs(pt$diff - t$diff) < 1e-6 && abs(pt$se - t$se) < 1e-6 && po$verdict == "PASS" && pt$verdict == "REVIEW" })
+    # the two streams together, from the per-week tables: sum of the streams' weekly differences over the
+    # weeks reliable in every stream present (the run had no joint row; B40 adds the exact one)
+    wk <- function(a, b, stream, fit) bss_block_cv_weeks(bt(a, stream, fit), bt(b, stream, fit))
+    wt <- wk("M1", "M2", "trailer", BAG); wo <- wk("M1", "M2", "osp", BAG)
+    # every week either stream observes (42), kept when reliable in every stream present (38)
+    both <- merge(wt, wo, by = "block", all = TRUE, suffixes = c("_t", "_o"))
+    both$ok <- (is.na(both$used_t) | both$used_t) & (is.na(both$used_o) | both$used_o)
+    both$d  <- ifelse(is.na(both$diff_t), 0, both$diff_t) + ifelse(is.na(both$diff_o), 0, both$diff_o)
+    d <- both$d[both$ok]
+    chk("1y: both boat streams together on held-out weeks: +26.8 at 9.4 SE (2.9 SE) over 38 of 42 weeks, 27 positive",
+        nrow(both) == 42 && length(d) == 38 && abs(sum(d) - 26.79) < 0.1 && abs(sqrt(38) * sd(d) - 9.36) < 0.1 && sum(d) / (sqrt(38) * sd(d)) > 2 && sum(d > 0) == 27,
+        sprintf("(%+.2f, SE %.2f over %d weeks)", sum(d), sqrt(length(d)) * sd(d), length(d)))
+    wtr_osp <- wt[wt$used & wt$block %in% wo$block, ]
+    chk("1y: over the weeks the OSP stream also covers, the trailer scores 1.6 SE (+8.5 at 5.3) where the OSP scores 3.9",
+        nrow(wtr_osp) == 21 && abs(sum(wtr_osp$diff) - 8.51) < 0.05 && abs(sum(wtr_osp$diff) / (sqrt(21) * sd(wtr_osp$diff)) - 1.59) < 0.02)
+    wtr <- wt[wt$used, ]; win <- wtr[grepl("^2024-W|^2025-W0[1-9]$", wtr$block), ]
+    chk("1y: the winter (2024-W49 to 2025-W09) has trailer counts only and its 13 held-out weeks are uninformative: -0.6 at 3.9 SE",
+        nrow(win) == 13 && abs(sum(win$diff) + 0.57) < 0.05 && abs(sqrt(13) * sd(win$diff) - 3.88) < 0.1 &&
+        !any(grepl("^2024-W|^2025-W0[1-9]$", wo$block)), sprintf("(%+.2f, SE %.2f)", sum(win$diff), sqrt(13) * sd(win$diff)))
+    b42 <- cmp("M2", "M4", "trailer", BAG); b42o <- cmp("M2", "M4", "osp", BAG)
+    chk("1y: the bar tick beyond the archive adds nothing on held-out weeks (trailer -2.0, OSP -0.4, neither beyond 2 SE)",
+        abs(b42$diff + 1.99) < 0.05 && abs(b42o$diff + 0.39) < 0.05 && abs(b42$ratio) < 2 && abs(b42o$ratio) < 2)
+    chk("1y: M5's boat block tables are M4's (bit-identical boat fits)",
+        isTRUE(all.equal(bt("M4", "trailer", BAG)$elpd_block, bt("M5", "trailer", BAG)$elpd_block)) &&
+        isTRUE(all.equal(bt("M4", "osp", BAG)$elpd_block, bt("M5", "osp", BAG)$elpd_block)))
+    chk("1y: the shore all-gear fits are NOT evaluable at weekly AR (16 of 38 weeks reliable in M1, 12 in M2; median k above 0.7) and the boat is (34 of 37)",
+        { s1 <- S[S$rung == "M1" & S$fit == "shore_all_gear", ]; s2 <- S[S$rung == "M2" & S$fit == "shore_all_gear", ]; b1 <- S[S$rung == "M1" & S$fit == "boat_all_gear" & S$stream == "trailer", ]
+          s1$n_reliable == 16 && s2$n_reliable == 12 && s1$n_weeks == 38 && b1$n_reliable == 34 && median(bt("M1", "gear", SAG)$pareto_k) > 0.7 })
+    pc <- cmp("M1", "M2", "trailer", BPC)
+    chk("1y: the pot-closure boat trailer stream cleared on 8 of 11 weeks (+4.1 at 1.5 SE, 2.66 SE), 7 of 8 positive",
+        pc$n_used == 8 && pc$n_blocks == 11 && abs(pc$diff - 4.12) < 0.05 && abs(pc$se - 1.55) < 0.05 && pc$ratio > 2 && pc$n_positive == 7)
+    # The committed 2026-09-26 file carries that row as FAIL (the defect); a re-source under B40
+    # rewrites it as INFO (R7). Either state is accepted; a PASS or REVIEW there is not.
+    chk("1y fix: the identical-fit pair M4 vs M2 on the shore pot-closure fit reads FAIL (the 2026-09-26 defect) or INFO (after B40), never a verdict; the library reads it as identical",
+        { rw <- V[grepl("bar restriction beyond the archive (M4 vs M2), shore_pot_closure gear stream", V$criterion, fixed = TRUE), ]
+          pr <- prow("M4 vs M2", "shore_pot_closure", "gear")
+          nrow(rw) == 1 && rw$verdict %in% c("FAIL", "INFO") && sum(V$verdict == "FAIL") <= 1 &&
+          (abs(pr$diff) < 1e-8 || isTRUE(as.logical(pr$identical))) &&
+          isTRUE(cmp("M2", "M4", "gear", SPC)$identical) && is.na(cmp("M2", "M4", "gear", SPC)$ratio) })
+    chk("1y fix: every same-fit pair among the committed shore tables is identical (M3, M5 = M1; M4 = M2) and the real pair (M2 vs M1) is not",
+        isTRUE(cmp("M1", "M3", "gear", SPC)$identical) && isTRUE(cmp("M1", "M5", "gear", SPC)$identical) && isTRUE(cmp("M1", "M3", "gear", SAG)$identical) &&
+        isTRUE(cmp("M2", "M4", "gear", SAG)$identical) && !isTRUE(cmp("M1", "M2", "gear", SPC)$identical) && !isTRUE(cmp("M1", "M2", "gear", SAG)$identical))
+    dc <- function(rung) { x <- read.csv(file.path(MH[[rung]], sprintf("bss_daily_catch_%s.csv", BAG)), stringsAsFactors = FALSE); tapply(x$median, substr(x$event_date, 1, 7), sum) }
+    c1 <- dc("M1"); c2 <- dc("M2"); dlt <- c2 - c1[names(c2)]
+    chk("1y: the boat all-gear change under SCA is concentrated in the winter: January +29%, December to March 57% of the change on 11% of the catch",
+        abs(c2["2025-01"] / c1["2025-01"] - 1.286) < 0.01 &&
+        { w <- c("2024-12", "2025-01", "2025-02", "2025-03"); sh <- sum(dlt[w]) / sum(dlt); sh > 0.5 && sh < 0.65 && sum(c1[w]) / sum(c1) < 0.15 })
+  } else cat("NOTE  1y: the marine rung folders or the block-CV CSVs are absent (sparse checkout); the evidence checks are skipped\n")
+
+  # ---- (2) the code -------------------------------------------------------------------
+  set.seed(1)
+  a0 <- 2; b0 <- 0.5
+  yA <- rpois(60, 4); yB <- rpois(36, 10); bA <- rep(sprintf("W%02d", 1:12), each = 5); bB <- rep(sprintf("W%02d", 1:12), each = 3)
+  # 40,000 draws: a two-stream week is a larger leave-out set than section 77's one-stream score,
+  # and at 20,000 draws the PSIS error on one seed reached 0.015 nats (0.001 to 0.005 on others)
+  lam2 <- rgamma(40000, a0 + sum(yA) + sum(yB), b0 + 60 + 2.5 * 36)
+  llA <- sapply(yA, function(yi) dpois(yi, lam2, log = TRUE)); llB <- sapply(yB, function(yi) dpois(yi, 2.5 * lam2, log = TRUE))
+  exboth <- sapply(unique(bA), function(bk) { jA <- bA == bk; jB <- bB == bk
+    a2 <- a0 + sum(yA[!jA]) + sum(yB[!jB]); b2 <- b0 + sum(!jA) + 2.5 * sum(!jB)
+    m <- sum(jA) + 2.5 * sum(jB); sk <- sum(yA[jA]) + sum(yB[jB]); skB <- sum(yB[jB])
+    lgamma(a2 + sk) - lgamma(a2) - sum(lgamma(yA[jA] + 1)) - sum(lgamma(yB[jB] + 1)) + skB * log(2.5) + a2 * log(b2) - (a2 + sk) * log(b2 + m) })
+  fab <- bss_block_cv_fit(list(A = list(ll = llA, block = bA), B = list(ll = llB, block = bB)))
+  tj <- fab$joint
+  chk("B40: bss_block_cv_fit() adds a JOINT table for a fit with more than one stream: one row per week, every observation of both streams held out and scored",
+      !is.null(tj) && nrow(tj) == 12 && all(tj$n_obs == 8L) && all(tj$n_leaveout == 8L) && identical(tj$leaveout_streams[1], "A+B") && identical(tj$block, sort(tj$block)))
+  chk("B40: the joint table equals the EXACT joint leave-week-out predictive of both streams' counts (within 0.01 nats)",
+      max(abs(tj$elpd_block - exboth[tj$block])) < 0.01, sprintf("(max |diff| %.4f)", max(abs(tj$elpd_block - exboth[tj$block]))))
+  chk("B40: the joint row is NOT the sum of the per-stream rows (a covariance term separates them), which is why it exists",
+      { sa <- fab$A$elpd_block[match(tj$block, fab$A$block)] + fab$B$elpd_block[match(tj$block, fab$B$block)]
+        mean(abs(tj$elpd_block - sa)) > 1e-3 })
+  chk("B40: a single-stream fit gets no joint table", is.null(bss_block_cv_fit(list(A = list(ll = llA, block = bA)))$joint))
+  ta <- fab$A; tb <- ta; tb$elpd_block <- tb$elpd_block + rnorm(nrow(tb), 0, 1e-14)
+  ci <- bss_block_cv_compare(ta, tb)
+  chk("B40: two block tables that differ by summation noise are IDENTICAL: diff 0, ratio NA, and the one-line reading says so",
+      isTRUE(ci$identical) && ci$diff == 0 && is.na(ci$ratio) && ci$max_abs_diff < 1e-12 && grepl("identical block tables", bss_block_cv_str(ci, "M1", "M3"), fixed = TRUE))
+  tc <- ta; tc$elpd_block <- tc$elpd_block + 0.3
+  cr3 <- bss_block_cv_compare(ta, tc)
+  chk("B40: a real shift is not identical, and the comparison reports the count of positive weeks and the median",
+      !isTRUE(cr3$identical) && abs(cr3$diff - 3.6) < 1e-9 && cr3$n_positive == 12L && abs(cr3$median_diff - 0.3) < 1e-9 && abs(cr3$max_abs_diff - 0.3) < 1e-9)
+  wkx <- bss_block_cv_weeks(ta, tc)
+  chk("B40: bss_block_cv_weeks() returns the per-week rows behind a comparison with the reliability flag",
+      nrow(wkx) == 12 && all(c("block", "elpd_block_a", "elpd_block_b", "diff", "pareto_k_a", "pareto_k_b", "used") %in% names(wkx)) &&
+      all(abs(wkx$diff - 0.3) < 1e-9) && all(wkx$used))
+  bf <- "06_diagnostics/run_marine_block_cv_2026-09-26.R"; bsrc <- readLines(bf, warn = FALSE)
+  chk("B40 runner: states R3' (the joint row is the statistic) and R7 (identical fits are INFO), scores the joint table, and writes the per-week file",
+      any(grepl("#   R3'.", bsrc, fixed = TRUE)) && any(grepl("#   R7.", bsrc, fixed = TRUE)) &&
+      any(grepl('SCORED_OF <- lapply(STREAMS_OF, function(s) if (length(s) > 1L) c(s, "joint") else s)', bsrc, fixed = TRUE)) &&
+      any(grepl('verdict <- if (isTRUE(cmp$identical)) "INFO"', bsrc, fixed = TRUE)) &&
+      any(grepl("marine_hazard_2026-09-26_blockcv_weeks.csv", bsrc, fixed = TRUE)) && any(grepl("primary = primary", bsrc, fixed = TRUE)))
+  chk("B40 runner: the joint row of a joint table is what R3 is applied to (primary), and a per-stream row of a multi-stream fit is not",
+      any(grepl('primary <- identical(sn, "joint") || length(SCORED_OF[[fk]]) == 1L', bsrc, fixed = TRUE)))
+  chk("B40 runner: its verdict count line reports INFO too", any(grepl('%d PASS  %d FAIL  %d REVIEW  %d INFO', bsrc, fixed = TRUE)))
+  srd <- rd("03_R_functions/save_run_diagnostics.R"); bma <- rd("03_R_functions/bss_model_adequacy.R")
+  chk("B40: write_loo_diagnostics() writes the OSP stream's pointwise LOO from log_lik_osp, and the adequacy aggregate stays on gear / trailer / catch",
+      grepl('osp     = list(par = "log_lik_osp",     n = stan_data$OSP_n %||% 0,  days = stan_data$day_OSP,   y = stan_data$OSP_I)', srd, fixed = TRUE) &&
+      grepl('loo <- loo[as.character(loo$stream) %in% c("gear", "trailer", "catch"), , drop = FALSE]', bma, fixed = TRUE))
+  chk("B40: the adequacy core ignores an OSP row in loo_summary (comparability with every committed model_adequacy.csv)",
+      { e <- new.env(); sys.source("03_R_functions/bss_model_adequacy.R", envir = e)
+        loo3 <- data.frame(stream = c("gear", "trailer", "catch"), n_obs = c(100, 100, 100), p_loo = c(5, 5, 5), n_pareto_k_gt_0.7 = c(0L, 1L, 0L), stringsAsFactors = FALSE)
+        loo4 <- rbind(loo3, data.frame(stream = "osp", n_obs = 10, p_loo = 9, n_pareto_k_gt_0.7 = 7L))
+        r3 <- e$.bma_core("x", loo3, NULL, NULL); r4 <- e$.bma_core("x", loo4, NULL, NULL)
+        identical(r3$p_loo_frac, r4$p_loo_frac) && identical(r3$n_pareto_bad, r4$n_pareto_bad) && r4$n_pareto_bad == 1L && r4$p_loo_frac == 0.05 })
+  gi <- readLines(".gitignore", warn = FALSE)
+  chk("B40 hygiene: the delivery tarball and README folder swept in by c7e8cd5 are gone, and .gitignore excludes them",
+      !file.exists("marine-hazard-results-patches-2026-09-26.tar.gz") && !dir.exists("marine-hazard-results-patches-2026-09-26") &&
+      any(gi == "*.tar.gz") && any(gi == "marine-hazard-*-patches-*/"))
+  mhr <- readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE)
+  chk("B40: the ladder runner's superseded equivalence declaration says SUPERSEDED and a 2026-09-27 one follows it",
+      any(grepl("SUPERSEDED 2026-09-27 by the entry below", mhr, fixed = TRUE)) && any(grepl("plus the 2026-09-27 block-CV results patch", mhr, fixed = TRUE)))
+
+  # ---- (2b) B41: the season-split candidate and rung M6 ----------------------------------
+  em <- new.env(); em$`%||%` <- function(a, b) if (is.null(a)) b else a
+  sys.source("03_R_functions/bss_marine_hazard_covariates.R", envir = em)
+  chk("B41: the module offers the split pair as labelled candidates and names it as one definition",
+      all(c("nws_sca_any_winter", "nws_sca_any_rest") %in% names(em$.mh_labels)) && identical(em$.mh_split, c("nws_sca_any_winter", "nws_sca_any_rest")) &&
+      identical(em$.mh_defaults(list())$winter, c(12L, 1L, 2L)) && identical(em$.mh_defaults(list(marine_hazard_winter_months = c(11, 12, 1, 2, 3)))$winter, c(11, 12, 1, 2, 3)))
+  # a synthetic archive: one SCA event a week for a year, so the flag series can be built without the workbook
+  ev <- data.frame(ugc = "PZZ110", ps = "SC.Y", in_effect = TRUE,
+                   start = as.POSIXct(sprintf("%s 12:00:00", seq(as.Date("2024-09-16"), as.Date("2025-09-15"), by = "7 days")), tz = "UTC"))
+  ev$end <- ev$start + 6 * 3600
+  attr(ev, "coverage") <- data.frame(ugc = c("PZZ110", "PZZ156"), pull_start = as.Date("2024-01-01"), pull_end = as.Date("2026-01-01"))
+  pfl <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15")
+  fl <- em$marine_hazard_flag_series(pfl, events = ev)
+  chk("B41: the split columns are the any-zone flag on winter days and on the other days, and sum to it (default winter = Dec, Jan, Feb)",
+      all(c("nws_sca_any_winter", "nws_sca_any_rest") %in% names(fl)) && all(fl$nws_sca_any_winter + fl$nws_sca_any_rest == fl$nws_sca_any) &&
+      all(fl$nws_sca_any_winter[!format(fl$event_date, "%m") %in% c("12", "01", "02")] == 0) &&
+      all(fl$nws_sca_any_rest[format(fl$event_date, "%m") %in% c("12", "01", "02")] == 0) && sum(fl$nws_sca_any) == 53)
+  chk("B41: the winter months are configurable, and a month outside 1..12 is refused",
+      { f2 <- em$marine_hazard_flag_series(c(pfl, list(marine_hazard_winter_months = c(11, 12, 1, 2, 3))), events = ev)
+        sum(f2$nws_sca_any_winter) > sum(fl$nws_sca_any_winter) &&
+        inherits(try(em$marine_hazard_flag_series(c(pfl, list(marine_hazard_winter_months = c(0, 13))), events = ev), silent = TRUE), "try-error") })
+  psel <- list(marine_hazard_mode = "manual", marine_hazard_manual_shore = character(0),
+               marine_hazard_manual_boat = c("nws_sca_any_winter", "nws_sca_any_rest"),
+               marine_hazard_candidates_boat = c("nws_sca_any", "bar_restriction", "nws_sca_any_winter", "nws_sca_any_rest"))
+  s6 <- em$marine_hazard_select(NULL, psel)
+  s7 <- em$marine_hazard_select(NULL, modifyList(psel, list(marine_hazard_manual_boat = c("nws_sca_any", "nws_sca_any_winter", "nws_sca_any_rest"))))
+  s8 <- em$marine_hazard_select(NULL, modifyList(psel, list(marine_hazard_manual_boat = c("nws_sca_any_winter", "nws_sca_any_rest"),
+                                                           marine_hazard_candidates_boat = c("nws_sca_any", "bar_restriction"))))
+  chk("B41: under manual the pair enters together as one definition; named beside nws_sca_any one definition is kept; not offered, it is ignored with a note",
+      setequal(s6$private_boat, c("nws_sca_any_winter", "nws_sca_any_rest")) && length(s7$private_boat) == 1 && startsWith(s7$private_boat, "nws_") &&
+      !length(s8$private_boat) && any(grepl("non-candidate", s8$note)))
+  chk("B41: the pre-B41 configurations select as before (nws_sca_any alone; nws_sca_any with the bar tick; the shore's nws_sca_any)",
+      { a <- em$marine_hazard_select(NULL, list(marine_hazard_mode = "manual", marine_hazard_manual_shore = "nws_sca_any", marine_hazard_manual_boat = c("nws_sca_any", "bar_restriction")))
+        identical(a$shore, "nws_sca_any") && setequal(a$private_boat, c("nws_sca_any", "bar_restriction")) })
+  eo <- new.env(); eo$`%||%` <- function(a, b) if (is.null(a)) b else a; sys.source("03_R_functions/bss_opener_covariates.R", envir = eo)
+  chk("B41: in a September-to-November window the winter column has no flagged day and the design-matrix guard drops it, keeping the rest term",
+      { days_pc <- data.frame(event_date = seq(as.Date("2024-09-16"), as.Date("2024-11-30"), by = "day"))
+        sp <- eo$opener_design_matrix(days_pc, character(0), fl, list(opener_min_days = 10), extra = c("nws_sca_any_winter", "nws_sca_any_rest"))
+        identical(sp$labels, "nws_sca_any_rest") && any(grepl("nws_sca_any_winter", sp$dropped)) })
+  mhr <- readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE)
+  chk("B41 ladder: rung M6 names the pair on the boat with no shore term, widens the candidate list in its own delta, states rule 9, and declared keys are per stage",
+      any(grepl('M6 = list(tag = "MH-M6-split"', mhr, fixed = TRUE)) && any(grepl('marine_hazard_manual_boat = c("nws_sca_any_winter", "nws_sca_any_rest")', mhr, fixed = TRUE)) &&
+      any(grepl("#   9. THE SEASON SPLIT (M6", mhr, fixed = TRUE)) && any(grepl("declared_keys <- function(sid) unique(c(DELTA_KEYS, names(STAGE_DEFS[[sid]]$delta %||% list())))", mhr, fixed = TRUE)) &&
+      any(grepl("keys <- sort(unique(c(declared_keys(sid), names(WINDOW))))", mhr, fixed = TRUE)) && any(grepl('list(sid = "M6", ctl = "M2", fit = FIT_BOAT,  cov = "nws_sca_any_winter")', mhr, fixed = TRUE)) &&
+      any(grepl("^verdict_M6 <- function", mhr)) && any(grepl('STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5", "M6")', mhr, fixed = TRUE)) && any(grepl("^DRY_RUN <- TRUE", mhr)))
+  # the five rendered rungs' digests must be what their folders recorded, or RESUME would refit them
+  if (all(dir.exists(MH))) {
+    dg <- local({
+      e <- new.env(); e$.here <- function(...) file.path(getwd(), ...)
+      e$`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a   # the runner's own definition
+      source("run_config.R", local = e)
+      lift <- function(pat, upto) { i <- grep(pat, mhr); j <- i; while (!grepl(upto, mhr[j])) j <- j + 1L; eval(parse(text = mhr[i:j]), envir = e) }
+      eval(parse(text = mhr[grep("^BASE <- ", mhr)]), envir = e)
+      lift("^WINDOW <- list\\(", "^\\)"); lift("^STAGE_DEFS <- list\\(", "^\\)"); lift("^DELTA_KEYS <- ", "^DELTA_KEYS")
+      lift("^declared_keys <- function", "^declared_keys"); lift("^resolve_cfg <- function", "^\\}")
+      lift("^digest_or_hash <- function", "^\\}"); lift("^stage_digest <- function", "^\\}")
+      vapply(names(MH), function(sid) {
+        rec <- readLines(file.path(MH[[sid]], "MH_STAGE.txt"), warn = FALSE); rec <- sub("^digest: ", "", rec[grepl("^digest: ", rec)])
+        identical(rec, e$stage_digest(sid)) }, logical(1)) })
+    chk("B41 ladder: adding M6 left the five rendered rungs' stage digests exactly as their folders recorded (RESUME reads them back; only M6 renders)", all(dg),
+        sprintf("(%s)", paste(names(dg)[!dg], collapse = ",")))
+  } else cat("NOTE  B41: rung folders absent; the digest check is skipped\n")
+  chk("B41 block-CV runner: lists M6 and the pair M6 vs M2 on the boat fits only, and checks an OSP stream exactly when its pointwise file exists",
+      any(grepl('M6 = "MH-M6-split"', bsrc, fixed = TRUE)) && any(grepl('list(b = "M6", a = "M2", what = "SCA split by season beyond the constant term', bsrc, fixed = TRUE)) &&
+      any(grepl('fits = c("boat_all_gear", "boat_pot_closure")', bsrc, fixed = TRUE)) && any(grepl("if (!is.null(p$fits) && !fk %in% p$fits) next", bsrc, fixed = TRUE)) &&
+      any(grepl('if (sn %in% c("gear", "trailer") || file.exists(pw)) {', bsrc, fixed = TRUE)))
+  rcfg <- readLines("run_config.R", warn = FALSE)
+  chk("B41 config: marine_hazard_winter_months ships c(12, 1, 2) with the reasoning beside it", any(grepl("^\\s*marine_hazard_winter_months\\s*=\\s*c\\(12, 1, 2\\),", rcfg)))
+  chk("B41 ladder: rule 9 is stated in order with its three branches, names the boat all-gear fit, and calls (a) the likely outcome before the render; M0 proves M6 vs M2; the recommendation reads M6 by rule 9",
+      any(grepl("#      (a) The winter coefficient is NOT identified", mhr, fixed = TRUE)) && any(grepl("#      (b) Both identified, and they DIFFER", mhr, fixed = TRUE)) &&
+      any(grepl("#      (c) Both identified, and they do NOT differ", mhr, fixed = TRUE)) && any(grepl("this is the LIKELY outcome", mhr, fixed = TRUE)) &&
+      any(grepl("the fit judged is the BOAT", mhr, fixed = TRUE)) && any(grepl("M6's Stan data differs from M2's in K_open and X_open_flat ONLY, and its two columns sum to M2's one", mhr, fixed = TRUE)) &&
+      any(grepl("^  judge_M6 <- function", mhr)) && any(grepl('rule 9: which branch the season split lands in', mhr, fixed = TRUE)))
+  chk("B41 module: when the pair is kept the 'one NWS definition' reason names both members, and the winter-month validation refuses fractions, duplicates and logicals",
+      { s7b <- em$marine_hazard_select(NULL, modifyList(psel, list(marine_hazard_manual_boat = c("nws_sca_any_winter", "nws_sca_any_rest", "nws_sca_bar"),
+                                                                    marine_hazard_candidates_boat = c("nws_sca_any", "nws_sca_bar", "bar_restriction", "nws_sca_any_winter", "nws_sca_any_rest"))))
+        # the pair is named first, so with no p-values the first family (the pair) is kept and nws_sca_bar dropped
+        setequal(s7b$private_boat, c("nws_sca_any_winter", "nws_sca_any_rest")) && any(grepl("kept nws_sca_any_winter + nws_sca_any_rest", s7b$table$reason, fixed = TRUE)) &&
+        inherits(try(em$marine_hazard_flag_series(c(pfl, list(marine_hazard_winter_months = c(12.5, 1))), events = ev), silent = TRUE), "try-error") &&
+        inherits(try(em$marine_hazard_flag_series(c(pfl, list(marine_hazard_winter_months = c(12, 12))), events = ev), silent = TRUE), "try-error") &&
+        inherits(try(em$marine_hazard_flag_series(c(pfl, list(marine_hazard_winter_months = c(TRUE, FALSE))), events = ev), silent = TRUE), "try-error") })
+  # the four-season desk screen: its script, its committed table, and the numbers the documents quote
+  dsf <- "06_diagnostics/desk_sca_season_split_2026-09-27.R"; dsc <- "05_output/marine_hazard_2026-09-27_season_split_screen.csv"
+  chk("B41 desk screen: the script exists, states what it is and is not, and its table is committed",
+      file.exists(dsf) && any(grepl("A DESK SCREEN, SECONDS, NO MCMC", readLines(dsf, warn = FALSE), fixed = TRUE)) && file.exists(dsc))
+  if (file.exists(dsc)) {
+    ds <- read.csv(dsc, stringsAsFactors = FALSE)
+    g <- function(model, fam, seasons, term) ds[ds$model == model & ds$family == fam & ds$seasons == seasons & ds$term == term, , drop = FALSE]
+    nbw <- g("split", "negbin", "all", "nws_sca_any_winter"); nbr <- g("split", "negbin", "all", "nws_sca_any_rest")
+    nbi <- g("interaction", "negbin", "all", "sca:winter"); qpi <- g("interaction", "quasipoisson", "all", "sca:winter")
+    chk("B41 desk screen: four seasons, 794 sampled days, 315 advisory days, 129 of them winter; winter 0.43 [0.29, 0.62] against rest 0.22 [0.18, 0.27]",
+        nrow(nbw) == 1 && nbw$n_days == 794 && nbw$n_advisory_days == 129 && g("constant", "negbin", "all", "sca")$n_advisory_days == 315 &&
+        abs(nbw$rate_ratio - 0.426) < 0.005 && abs(nbw$lo95 - 0.290) < 0.005 && abs(nbw$hi95 - 0.624) < 0.005 &&
+        abs(nbr$rate_ratio - 0.217) < 0.005 && abs(nbr$lo95 - 0.175) < 0.005 && abs(nbr$hi95 - 0.269) < 0.005)
+    chk("B41 desk screen: the interaction (the test) is 1.96 at 3.0 SE under the negative binomial and 1.97 at 1.4 SE under the quasi-Poisson, and the split lowers the NB AIC by 7",
+        abs(nbi$rate_ratio - 1.963) < 0.005 && abs(nbi$z - 3.01) < 0.02 && abs(qpi$rate_ratio - 1.969) < 0.005 && abs(qpi$z - 1.36) < 0.02 &&
+        abs(g("constant", "negbin", "all", "sca")$aic - nbi$aic - 7.0) < 0.1)
+    chk("B41 desk screen: the winter effect is weaker than the rest in every season that has a winter (2023-24, 2024-25, 2025-26), both families",
+        all(vapply(c("2023-24", "2024-25", "2025-26"), function(se) all(vapply(c("negbin", "quasipoisson"), function(fm)
+          g("split", fm, se, "nws_sca_any_winter")$rate_ratio > g("split", fm, se, "nws_sca_any_rest")$rate_ratio, logical(1))), logical(1))))
+  }
+
+  # ---- (3) the documents ---------------------------------------------------------------
+  cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); dr <- rd("06_diagnostics/README.md"); rc <- rd("run_config.R")
+  dn <- rd("07_documentation/development_notes/marine-hazard-covariates-2026-09-25.md")
+  chk("1y docs: the register carries B40, B41, D32 and three 2026-09-27 defect rows; B39 RAN; D31 RUN; A30 says DECISION PENDING and still ships off",
+      grepl("| B40 |", cr, fixed = TRUE) && grepl("| B41 |", cr, fixed = TRUE) && grepl("| D32 |", cr, fixed = TRUE) && length(gregexpr("| 2026-09-27 |", cr, fixed = TRUE)[[1]]) == 3 &&
+      grepl("| **RAN 2026-09-26** (`c7e8cd5`", cr, fixed = TRUE) && grepl("**RUN 2026-09-26 (B39; Section 1y)", cr, fixed = TRUE) &&
+      grepl("DECISION PENDING (Matt; Section 1y.5; the M6 rung of B41 is the test I would run first, knowing it will probably leave the winter's coefficient unidentified). Mode still ships `off`.", cr, fixed = TRUE))
+  chk("1y docs: the campaign has Section 1y with its git anchor naming the run commit, the under-powered clause and the three readings",
+      grepl("## 1y. The block cross-validation, run and read: the boat SCA term interpolates where the data can test it", vc, fixed = TRUE) && grepl("> | 1y | 2026-09-27 |", vc, fixed = TRUE) &&
+      grepl("c7e8cd5", vc, fixed = TRUE) && grepl("### 1y.4 Two defects in the runner and one in the rule", vc, fixed = TRUE) &&
+      grepl("desk_sca_season_split_2026-09-27.R", vc, fixed = TRUE) && grepl("0.43 [0.29, 0.62]", vc, fixed = TRUE) &&
+      grepl("### 1y.5 The decision this leaves with Matt", vc, fixed = TRUE))
+  chk("1y docs: the status document, the diagnostics README, run_config.R and the design note carry the outcome and the pending decision",
+      grepl("READ IN SECTION 1y; DECISION PENDING (Matt)", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
+      grepl("THAT RAN 2026-09-26 (Section 1y)", rc, fixed = TRUE) && grepl("## 11. What the block cross-validation said", dn, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------

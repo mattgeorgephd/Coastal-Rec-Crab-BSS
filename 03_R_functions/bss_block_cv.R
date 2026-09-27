@@ -78,13 +78,33 @@
 #       observations of each block to the leave-out set (the importance ratios) without
 #       scoring them.
 #   bss_block_cv_compare(tab_a, tab_b, k_max)      paired difference over the blocks both
-#       tables have with k <= k_max, with its SE, the SE ratio, and the excluded count.
+#       tables have with k <= k_max, with its SE, the SE ratio, the excluded count, the
+#       count of positive weeks and the median, and `identical` when the two tables differ
+#       by summation noise only (2026-09-27; see the function).
+#   bss_block_cv_weeks(tab_a, tab_b, k_max)        the per-week rows behind that comparison.
+#   bss_block_cv_fit(streams, k_max)               every stream of one fit under the joint
+#       leave-out set, plus, with more than one stream, the "joint" table: the week's joint
+#       predictive density of ALL its held-out effort observations (2026-09-27).
 #   write_block_cv_diagnostics(fit, ...)           the in-driver call: every effort stream
 #       of one fit, each scored under the joint leave-out set of all of them, written as
-#       loo_block_<stream>_<label>.csv.
+#       loo_block_<stream>_<label>.csv (and loo_block_joint_<label>.csv for a fit with
+#       more than one stream).
 # Blocks are labelled by bss_block_weeks(dates): the ISO week ("2025-W03"). A week is a
 # choice: the resolution the shore AR runs at and a plausible gap between sampled boat
 # days; pass another `block` vector to test another one.
+#
+# WHAT THE FIRST RUN SAID (2026-09-26/27, the five marine hazard rungs; Section 1y). The
+# reconstruction matched every committed pointwise file to 5e-5. The boat all-gear fit at
+# monthly AR was evaluable (34 of 37 trailer weeks, 25 of 29 OSP weeks reliable); the
+# shore's weekly-AR fits were not (8 to 16 of 38), as the paragraph above predicted. The
+# boat SCA term gained +18.9 nats on the held-out OSP counts (3.9 paired SE, 21 of 25
+# weeks positive) and +7.9 on the trailer counts (1.2 SE; 1.6 SE over the weeks the OSP
+# stream also covers), +26.8 on the two together (2.9 SE, the sum of the two streams' weekly
+# differences over the 38 weeks reliable in every stream present, recomputed from the
+# per-week tables; the exact joint row below is what the next run carries). The trailer's
+# 13 winter weeks, the only held-out evidence for the months where the term moves the
+# estimate most, summed to -0.6 +- 3.9: uninformative, not negative. The bar tick beyond
+# the archive: -2.0 trailer, -0.4 OSP, nothing.
 ###############################################################################
 
 # NULL-only, guarded, the same idiom as the sibling helpers: the drivers source this
@@ -240,32 +260,64 @@ bss_block_psis_loo <- function(ll, block, k_max = 0.7, weight_ll = NULL, weight_
              p_eff = lpd - elpd, pareto_k = k, reliable = is.finite(k) & k <= k_max, stringsAsFactors = FALSE)
 }
 
-# Paired comparison of two block tables of the SAME stream of the SAME fit under two
-# configurations (same blocks, same observations): B against A. Only blocks reliable in
-# BOTH count. One row: n_blocks, n_used, n_dropped, reliable_share, diff (sum over used
-# blocks of elpd_B - elpd_A), se (sqrt(n_used) * sd of the per-block differences), ratio.
-bss_block_cv_compare <- function(tab_a, tab_b, k_max = 0.7) {
+# The per-week pairing behind a comparison: one row per block shared by the two tables,
+# with both sides' elpd and Pareto k, the difference (B minus A) and whether the week counts
+# (reliable in BOTH). This is what the runner writes out per pair so a reader can slice the
+# held-out evidence by season, and what bss_block_cv_compare() sums.
+bss_block_cv_weeks <- function(tab_a, tab_b, k_max = 0.7) {
   j <- merge(tab_a[, c("block", "n_obs", "elpd_block", "pareto_k")],
              tab_b[, c("block", "n_obs", "elpd_block", "pareto_k")], by = "block", suffixes = c("_a", "_b"))
   if (nrow(j) && any(j$n_obs_a != j$n_obs_b)) stop("the two block tables do not hold the same observations per block", call. = FALSE)
-  use <- is.finite(j$pareto_k_a) & is.finite(j$pareto_k_b) & j$pareto_k_a <= k_max & j$pareto_k_b <= k_max &
-         is.finite(j$elpd_block_a) & is.finite(j$elpd_block_b)
-  d <- j$elpd_block_b[use] - j$elpd_block_a[use]
+  j <- j[order(j$block), , drop = FALSE]
+  j$diff <- j$elpd_block_b - j$elpd_block_a
+  j$used <- is.finite(j$pareto_k_a) & is.finite(j$pareto_k_b) & j$pareto_k_a <= k_max & j$pareto_k_b <= k_max &
+            is.finite(j$elpd_block_a) & is.finite(j$elpd_block_b)
+  rownames(j) <- NULL
+  j[, c("block", "n_obs_a", "elpd_block_a", "elpd_block_b", "diff", "pareto_k_a", "pareto_k_b", "used")]
+}
+
+# Paired comparison of two block tables of the SAME stream of the SAME fit under two
+# configurations (same blocks, same observations): B against A. Only blocks reliable in
+# BOTH count. One row: n_blocks, n_used, n_dropped, reliable_share, diff (sum over used
+# blocks of elpd_B - elpd_A), se (sqrt(n_used) * sd of the per-block differences), ratio,
+# and since 2026-09-27: max_abs_diff, n_positive, median_diff, identical.
+#
+# IDENTICAL TABLES (2026-09-27). Two rungs whose fits are the same model (a shore fit under a
+# boat-only term, say) produce block tables equal to floating-point summation order, about
+# 1e-14 nats per week. Summed and divided by a standard error of the same size, that noise
+# read as "-2.31 SE" and the 2026-09-26 runner FAILED it (CHANGE_REGISTER C row). A
+# difference smaller than `tol_identical` on EVERY used week is therefore reported as
+# identical = TRUE with diff 0 and ratio NA: there is nothing to compare, and a verdict on
+# it is a verdict on rounding. 1e-8 nats is 1e6 times the noise and 1e6 times below any
+# difference a changed likelihood could produce over a week of counts.
+bss_block_cv_compare <- function(tab_a, tab_b, k_max = 0.7, tol_identical = 1e-8) {
+  j <- bss_block_cv_weeks(tab_a, tab_b, k_max = k_max)
+  use <- j$used
+  d <- j$diff[use]
   n_used <- sum(use)
-  se <- if (n_used >= 2) sqrt(n_used) * stats::sd(d) else NA_real_
+  mad <- if (n_used) max(abs(d)) else NA_real_
+  ident <- isTRUE(n_used > 0) && isTRUE(mad < tol_identical)
+  se <- if (n_used >= 2 && !ident) sqrt(n_used) * stats::sd(d) else NA_real_
   data.frame(n_blocks = nrow(j), n_used = n_used, n_dropped = nrow(j) - n_used,
              reliable_share = if (nrow(j)) n_used / nrow(j) else NA_real_,
-             diff = if (n_used) sum(d) else NA_real_, se = se,
-             ratio = if (n_used >= 2 && is.finite(se) && se > 0) sum(d) / se else NA_real_,
-             k_max = k_max, stringsAsFactors = FALSE)
+             diff = if (!n_used) NA_real_ else if (ident) 0 else sum(d), se = se,
+             ratio = if (n_used >= 2 && !ident && is.finite(se) && se > 0) sum(d) / se else NA_real_,
+             k_max = k_max, max_abs_diff = mad,
+             n_positive = if (n_used) sum(d > tol_identical) else NA_integer_,
+             median_diff = if (!n_used) NA_real_ else if (ident) 0 else stats::median(d),
+             identical = ident, stringsAsFactors = FALSE)
 }
 
 # One line for a report or a verdict table.
 bss_block_cv_str <- function(cmp, label_a = "A", label_b = "B") {
   if (is.null(cmp) || !nrow(cmp)) return("block CV not computable")
-  sprintf("%s -> %s: %d of %d weeks reliable (k <= %.1f in both); held-out elpd diff %+.1f, SE %.1f (%s SE)",
+  if (isTRUE(cmp$identical))
+    return(sprintf("%s -> %s: identical block tables on all %d used weeks (max |diff| %.1e nats): the two rungs hold the same fit",
+                   label_a, label_b, cmp$n_used, cmp$max_abs_diff))
+  sprintf("%s -> %s: %d of %d weeks reliable (k <= %.1f in both); held-out elpd diff %+.1f, SE %.1f (%s SE)%s",
           label_a, label_b, cmp$n_used, cmp$n_blocks, cmp$k_max %||% 0.7, cmp$diff, cmp$se,
-          if (is.finite(cmp$ratio)) sprintf("%.2f", cmp$ratio) else "NA")
+          if (is.finite(cmp$ratio)) sprintf("%.2f", cmp$ratio) else "NA",
+          if (!is.null(cmp$n_positive) && is.finite(cmp$n_positive)) sprintf("; %d of %d weeks positive, median %+.2f", cmp$n_positive, cmp$n_used, cmp$median_diff) else "")
 }
 
 # Every effort stream of one fit, each scored under the joint leave-out set of ALL of them,
@@ -273,6 +325,21 @@ bss_block_cv_str <- function(cmp, label_a = "A", label_b = "B") {
 #   streams = list(trailer = list(ll = <matrix>, block = <labels>), osp = list(...))
 # Returns a named list of block tables. This is the one place the "other streams join the
 # leave-out set" rule is applied, so the driver hook and the post-hoc runner cannot differ.
+#
+# THE JOINT TABLE (2026-09-27). When a fit has more than one effort stream the list also
+# carries "joint": the week's log predictive density of EVERY held-out effort observation
+# together, log E_w[ exp(sum of all streams' block log-likelihoods) ] under the same PSIS
+# weights, one row per week that any stream observes. It is not the sum of the per-stream
+# elpds: the two differ by log(1 + Cov(X, Y) / (E X . E Y)) with X and Y the streams' block
+# likelihoods under the weights, a dependence term of either sign that runs to a few
+# hundredths of a nat a week on the harness's conjugate check. It is the one number the
+# question "did the term improve the interpolation of this week's boat effort?" has. The
+# 2026-09-26 run scored the two boat streams separately, and the per-stream rule it was
+# read under asked the trailer counts, the weaker instrument, to clear a bar on their own:
+# on the same weeks the same effect scored 3.9 SE on the OSP counts and 1.6 SE on the
+# trailer counts (Section 1y). The joint row is what that rule should have named. The
+# per-stream tables are kept beside it: a term that helps one stream and hurts the other is
+# still a finding, and the joint row is dominated by the stream with more information.
 bss_block_cv_fit <- function(streams, k_max = 0.7) {
   streams <- streams[vapply(streams, function(s) !is.null(s$ll) && ncol(s$ll) > 0, logical(1))]
   out <- list()
@@ -282,6 +349,16 @@ bss_block_cv_fit <- function(streams, k_max = 0.7) {
                                     weight_ll = if (length(others)) lapply(streams[others], `[[`, "ll") else NULL,
                                     weight_block = if (length(others)) lapply(streams[others], `[[`, "block") else NULL)
     out[[sn]]$leaveout_streams <- paste(names(streams), collapse = "+")
+  }
+  if (length(streams) > 1L) {
+    nd <- vapply(streams, function(s) nrow(s$ll), numeric(1))
+    if (length(unique(nd)) != 1L) stop("the streams' log-likelihood matrices do not share a draw count", call. = FALSE)
+    ll_all <- do.call(cbind, lapply(streams, `[[`, "ll"))
+    bl_all <- do.call(c, lapply(streams, function(s) as.character(s$block)))
+    out[["joint"]] <- bss_block_psis_loo(ll_all, bl_all, k_max = k_max)
+    out[["joint"]]$leaveout_streams <- paste(names(streams), collapse = "+")
+    out[["joint"]] <- out[["joint"]][order(out[["joint"]]$block), , drop = FALSE]
+    rownames(out[["joint"]]) <- NULL
   }
   out
 }

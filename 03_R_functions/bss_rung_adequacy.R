@@ -54,11 +54,14 @@ bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
   }, add = TRUE)
   out <- tryCatch({
     r <- na_row
-    # --- loo, summed over streams EXACTLY as write_loo_diagnostics() does ------
-    # Same stream list, same absent-stream guard, same loo::loo() call on the plain
-    # draws-by-observation matrix (no r_eff). Matching it is the point: these numbers
-    # have to be comparable with loo_summary_*.csv and model_adequacy.csv for the rung
-    # the ladder keeps, or the ladder's own rows cannot be read against them.
+    # --- loo, summed over streams EXACTLY as the adequacy aggregate does ------------
+    # The same three streams (gear, trailer, catch), the same absent-stream guard, the same
+    # loo::loo() call on the plain draws-by-observation matrix (no r_eff). Matching it is
+    # the point: these numbers have to be comparable with model_adequacy.csv for the rung
+    # the ladder keeps, or the ladder's own rows cannot be read against them. Since
+    # 2026-09-27 write_loo_diagnostics() also writes the OSP stream (loo_summary_*.csv has an
+    # osp row), and .bma_core() filters it out of the aggregate for exactly this reason; so
+    # this list stays at three on purpose.
     streams <- list(
       gear    = list(par = "log_lik_gear",    n = stan_data$Gear_n %||% 0),
       trailer = list(par = "log_lik_trailer", n = stan_data$T_n    %||% 0),

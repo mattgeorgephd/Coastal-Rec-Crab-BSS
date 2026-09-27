@@ -720,7 +720,20 @@ CODE_EQUIVALENT <- list(
     paste("the 2026-09-11 ladder run vs the tree after the marine hazard results patch (B38, B39). stan UNCHANGED; drivers moved by a seeded census draw and a",
           "post-fit diagnostics call; fns by the new block-CV module and the draw permutation bss_stan_fit() rebuilds from the Stan seed after each fit. No posterior, component or per-fit",
           "summary can change: the Stan seed governs the sampler, R's RNG governed only the ORDER of extracted draws. Does NOT cover the PORT TOTAL, whose",
-          "median will move once by the jitter B38 removes (about 0.1%), nor monthly_pe_vs_bss.csv (changed by design) nor a file-level inventory comparison.")
+          "median will move once by the jitter B38 removes (about 0.1%), nor monthly_pe_vs_bss.csv (changed by design) nor a file-level inventory comparison.",
+          "SUPERSEDED 2026-09-27 by the row below (the fns layer moved again, in post-fit diagnostics only)."),
+  # 2026-09-27, the block-CV RESULTS patch (Section 1y): fns moved once more, to the hash
+  # below, and only in code that runs after every fit: bss_block_cv.R (the joint effort table,
+  # the identical-fit floor, bss_block_cv_weeks()), write_loo_diagnostics() (the OSP stream's
+  # pointwise LOO written beside gear / trailer / catch) and .bma_core() (the adequacy
+  # aggregate kept on the three streams it always read, so model_adequacy.csv is comparable
+  # across the change). Same coverage and the same PORT TOTAL caveat as the row above.
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:04bf7498 fns:2a70a484" =
+    paste("the 2026-09-11 ladder run vs the tree after the 2026-09-27 block-CV results patch: as the row above, plus the joint effort table / identical-fit floor in",
+          "bss_block_cv.R, loo_pointwise_osp_*.csv from write_loo_diagnostics(), and the adequacy aggregate filtered to gear / trailer / catch (all post-fit diagnostics); and B41 in",
+          "bss_marine_hazard_covariates.R, a PREP-layer change that offers two more marine candidates (nws_sca_any_winter / _rest). The 2026-09-11 ladder ran with the module absent and",
+          "marine_hazard_mode off (the shipped value), under which marine_hazard_prepare() returns before reading anything, so the K_open block and every Stan datum are what they were.",
+          "Does NOT cover the PORT TOTAL (moves once by the jitter B38 removes), monthly_pe_vs_bss.csv, or a file-level inventory comparison (now also loo_pointwise_osp_*.csv and loo_block_joint_*.csv).")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

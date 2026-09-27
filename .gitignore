@@ -67,3 +67,11 @@ Thumbs.db
 # Patch files are a transport format, not repository content. Five have been committed
 # by accident since 2026-08-25; each is a duplicate of a commit already in the history.
 *.patch
+
+# --- Patch-series deliveries (2026-09-27) ---
+# The review sessions hand changes over as `git am` patch series (*.patch, above) in a
+# dated tarball plus a README-APPLY.md folder. Those are delivery packaging, not
+# repository content: the 2026-09-26 results commit (c7e8cd5) swept one tarball and its
+# README folder into the tree by accident and they were removed the next day. Keep them out.
+*.tar.gz
+marine-hazard-*-patches-*/

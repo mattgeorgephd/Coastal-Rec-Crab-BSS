@@ -85,6 +85,14 @@
                       neff_floor = 400, p_loo_frac_warn = 0.25, pit_bias_warn = 0.05,
                       cov50_dev_warn = 0.15, source_tag = "live") {
   p_loo_frac <- NA_real_; n_bad_k <- NA_integer_; worst_stream <- NA_character_
+  # 2026-09-27: loo_summary_*.csv now carries the OSP stream too (write_loo_diagnostics()).
+  # The adequacy aggregate stays on the three streams it has always read (gear, trailer,
+  # catch) so that p_loo_frac and n_bad_k remain comparable with every model_adequacy.csv
+  # committed before that date and with the ladders' adequacy clause; the OSP row is there
+  # to be read on its own in loo_summary / loo_pointwise. Fold it in when the adequacy
+  # statistic is next revised, and re-baseline the ladders' thresholds when you do.
+  if (!is.null(loo) && "stream" %in% names(loo))
+    loo <- loo[as.character(loo$stream) %in% c("gear", "trailer", "catch"), , drop = FALSE]
   if (!is.null(loo) && all(c("p_loo", "n_obs") %in% names(loo))) {
     fr <- suppressWarnings(as.numeric(loo$p_loo) / pmax(as.numeric(loo$n_obs), 1))
     if (any(is.finite(fr))) {

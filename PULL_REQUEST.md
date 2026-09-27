@@ -120,7 +120,16 @@ is identified at eight standard errors (rate ratio 0.31) and gains +7.6 nats on 
 stream at 1.46 paired SE, short of the +2 SE rule, so nothing is adopted; the shore term is not
 identified; the bar tick adds nothing beyond the archive. Under the boat term the port would
 read about +1.4%. The leave-one-week-out block cross-validation that decides the open question
-(D31) is built (B39) and is the next run. Also from that review: the port total was not
+(D31) is built (B39) and ran on 2026-09-26 (Section 1y): on held-out weeks the boat SCA term
+gains +18.9 nats on the OSP counts (3.9 paired SE) and +7.9 on the trailer counts (1.2 SE),
++26.8 on both together (2.9 SE); the bar tick adds nothing beyond the archive there either. The
+clause as pre-committed asked each stream separately and was under-powered for the trailer
+stream (its paired SE is 6.6 nats, so it needed +13; recorded as a defect in the rule), and the winter months, where
+the term moves the boat estimate most, have trailer counts only and are untested (D32). Whether
+to adopt the boat term is a pending decision (A30, Section 1y.5); `off` ships until it is taken,
+and a one-rung test of whether the winter effect is the summer effect (B41, rung M6) is built and
+not yet rendered.
+Also from the 1x review: the port total was not
 reproducible between bit-identical fits (rstan's unseeded draw permutation, about 0.1 to 0.2%);
 B38 rebuilds it from the Stan seed after each fit, so the next render of the R4 configuration
 will differ from 94,376 once, by that jitter, with every component identical.
