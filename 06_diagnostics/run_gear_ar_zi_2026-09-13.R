@@ -379,6 +379,11 @@ resolve_cfg <- function(sid) {
   cfg <- BASE
   for (k in names(WINDOW)) cfg[[k]] <- WINDOW[[k]]
   cfg$ar_force <- NULL           # the rung's delta is the only thing that sets it
+  # 2026-09-27: the marine hazard term (A30) is now the method of record in run_config.R, and
+  # every rung of THIS ladder rendered before it existed, under marine_hazard_mode "off" (the
+  # marine ladder's M1 is the proof that "off" is the pre-covariate model). Set here, NOT in
+  # WINDOW, so the rungs stay what they were and their digests, and RESUME, are untouched.
+  cfg$marine_hazard_mode <- "off"; cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)
   d <- STAGE_DEFS[[sid]]$delta
   for (k in names(d)) cfg[[k]] <- d[[k]]
   cfg

@@ -108,27 +108,27 @@ weather alone was not informative. Its Stan fork, its driver and the `run_weathe
 gone; `WEATHER_COVARIATE_ANALYSIS.md` keeps the exclusion finding live, because the finding is
 the reason, and the module document is archived under a banner.
 
-**Marine hazard effort covariates are built and inert** (A30, 2026-09-25). An NWS Small Craft
-Advisory-or-higher day flag (from an archive of the NWS's own VTEC products for the bar and the
-coastal zone, so known on every day) and the samplers' USCG bar-restriction tick (observed on
-sampled days, imputed on the rest) can enter the effort process as extra columns of the existing
-`K_open` block; `marine_hazard_mode` ships `"off"`, under which both preps build Stan data
-identical to the pre-patch preps (measured, `CODE_EQUIVALENT`). The ladder
-`06_diagnostics/run_marine_hazard_batch_2026-09-25.R` ran on 2026-09-25/26
-(`VALIDATION_CAMPAIGN.md` Section 1x): the `off` rung is bit-identical to R4; the boat SCA term
-is identified at eight standard errors (rate ratio 0.31) and gains +7.6 nats on the trailer
-stream at 1.46 paired SE, short of the +2 SE rule, so nothing is adopted; the shore term is not
-identified; the bar tick adds nothing beyond the archive. Under the boat term the port would
-read about +1.4%. The leave-one-week-out block cross-validation that decides the open question
-(D31) is built (B39) and ran on 2026-09-26 (Section 1y): on held-out weeks the boat SCA term
-gains +18.9 nats on the OSP counts (3.9 paired SE) and +7.9 on the trailer counts (1.2 SE),
-+26.8 on both together (2.9 SE); the bar tick adds nothing beyond the archive there either. The
-clause as pre-committed asked each stream separately and was under-powered for the trailer
-stream (its paired SE is 6.6 nats, so it needed +13; recorded as a defect in the rule), and the winter months, where
-the term moves the boat estimate most, have trailer counts only and are untested (D32). Whether
-to adopt the boat term is a pending decision (A30, Section 1y.5); `off` ships until it is taken,
-and a one-rung test of whether the winter effect is the summer effect (B41, rung M6) is built and
-not yet rendered.
+**The marine hazard effort covariate is the method of record** (A30, built 2026-09-25, ADOPTED
+2026-09-27). An NWS Small Craft Advisory-or-higher day flag (from an archive of the NWS's own
+VTEC products for the bar and the coastal zone, so known on every day of the window) enters the
+private-boat ALL-GEAR effort process as one season-constant column of the existing `K_open`
+block: `run_config.R` section 2.10 ships `marine_hazard_mode = "manual"`,
+`marine_hazard_manual_boat = "nws_sca_any"`, `marine_hazard_gear_regimes = "all_gear"`. No shore
+term, not the samplers' bar-restriction tick, not the pot-closure fit. The evidence
+(`VALIDATION_CAMPAIGN.md` Sections 1x to 1z): a five-rung ladder with its rule stated before the
+run (the `off` rung bit-identical to R4; the boat coefficient -1.16 [-1.45, -0.87], eight
+standard errors; the shore term not identified; the bar tick redundant with the archive), a
+leave-one-week-out block cross-validation of the effort streams (the term gains +18.9 nats on
+held-out OSP counts at 3.9 paired SE and +26.5 on both boat streams together at 2.9 SE), and a
+season-split rung (the winter coefficient not identifiable from one season; the season total
+insensitive to the shape). Under the term the boat all-gear component is 47,319 against 45,604
+(+3.8%) and the port about +1.6%. Two limitations travel with it (method document Section 20,
+items 12 and 13): a boat term describes all private boats (D30), and the four-season trailer
+record says the winter effect is about half the summer's, so the constant term probably
+over-corrects the winter months (D32). Every production run now reads the archive and stops if
+it does not cover the window (`NEW_SEASON_GUIDE.md`, section 0). **The confirming production
+render of the shipped configuration is owed**; the box in `PIPELINE_STATUS.md` says what it will
+contain (about 96,000) and why R4, which predates the term, still stands there until then.
 Also from the 1x review: the port total was not
 reproducible between bit-identical fits (rstan's unseeded draw permutation, about 0.1 to 0.2%);
 B38 rebuilds it from the Stan seed after each fit, so the next render of the R4 configuration

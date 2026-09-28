@@ -133,7 +133,18 @@
 #   bar_restriction_series(params, dates, nws_day)   the sampler tick, observed + imputed
 #   marine_hazard_screen(dwg, flags, params)         the day-type + month adjusted screen
 #   marine_hazard_select(screen, params)             off / auto / on / manual -> selection
+#   marine_hazard_terms_for(params, pop, regime)     the selection restricted to THIS fit's
+#                                                    sub-season (marine_hazard_gear_regimes)
 #   marine_hazard_prepare(dwg, params, output_dir)   orchestration for both drivers
+#
+# THE METHOD OF RECORD (2026-09-27, Matt's decision after Sections 1x and 1y): the NWS
+# SCA-or-higher flag, nws_sca_any, as ONE season-constant term on the PRIVATE-BOAT ALL-GEAR
+# effort process, and nothing else. No shore term (not identified, and it costs sampler
+# geometry: Section 1x.2). Not the bar-restriction tick (redundant with the archive on sampled
+# and held-out days alike). Not the pot-closure sub-season (the term is confined to the
+# all-gear window by marine_hazard_gear_regimes, below). run_config.R ships
+# marine_hazard_mode = "manual", marine_hazard_manual_boat = "nws_sca_any",
+# marine_hazard_manual_shore = character(0), marine_hazard_gear_regimes = "all_gear".
 ###############################################################################
 
 .mh_labels <- c(
@@ -626,6 +637,37 @@ marine_hazard_select <- function(screen, params) {
   list(shore = sel$shore, private_boat = sel$private_boat, table = tbl, mode = mode, note = note)
 }
 
+# ---- the per-fit restriction ------------------------------------------------------------------
+
+.mh_regimes <- c("pot_closure", "all_gear")
+
+# Which of the population's selected marine covariates enter THIS fit. marine_hazard_prepare()
+# selects per POPULATION (once per run); the preps build one fit per population x sub-season,
+# and the adopted method confines the boat term to the all-gear sub-season
+# (marine_hazard_gear_regimes; 2026-09-27). `gear_regime` is the sub-season's
+# ("pot_closure" | "all_gear", build_subseasons.R). A caller that does not say which fit it is
+# building (gear_regime NULL) gets the selection only when the configured set is both regimes,
+# i.e. when the answer does not depend on the fit; with a restricted set it is refused (stop),
+# because serving the term to every fit there would silently undo the restriction. Both drivers
+# pass ss$gear_regime. Returns the character vector of terms for the fit, with attr "note"
+# carrying the line the prep prints when a selected term is withheld from a fit.
+marine_hazard_terms_for <- function(params, population_name, gear_regime = NULL) {
+  sel <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)
+  if (!length(sel)) return(character(0))
+  regimes <- .mh_or(params$marine_hazard_gear_regimes, .mh_regimes)
+  if (is.null(gear_regime)) {
+    if (setequal(regimes, .mh_regimes)) return(sel)
+    stop("marine_hazard_terms_for(): the fit's gear_regime must be given when marine_hazard_gear_regimes restricts the term to ",
+         paste(sprintf('"%s"', regimes), collapse = ", "), " (selected for ", population_name, ": ",
+         paste(sel, collapse = ", "), "). Pass the sub-season's gear_regime (build_subseasons.R).", call. = FALSE)
+  }
+  if (gear_regime %in% regimes) return(sel)
+  structure(character(0),
+            note = sprintf("Marine hazard covariate(s) %s selected for %s but NOT applied to this fit: its sub-season gear regime '%s' is outside marine_hazard_gear_regimes (%s)",
+                           paste(sel, collapse = ", "), population_name, gear_regime,
+                           if (length(regimes)) paste(regimes, collapse = ", ") else "none"))
+}
+
 # ---- orchestration ----------------------------------------------------------------------
 
 # Builds the flags, runs the screen, applies the mode, and installs the result on `params`:
@@ -647,6 +689,10 @@ marine_hazard_prepare <- function(dwg, params, output_dir = NULL, quiet = FALSE)
                                                                     note = "marine_hazard_mode = 'off'")),
                           flags = NULL, screen = NULL, active = FALSE)))
   }
+  regimes <- .mh_or(params$marine_hazard_gear_regimes, .mh_regimes)
+  if (!is.character(regimes) || !length(regimes) || any(!regimes %in% .mh_regimes))
+    stop("marine_hazard_gear_regimes must name one or both of \"pot_closure\", \"all_gear\" (got ",
+         if (length(regimes)) paste(sprintf("'%s'", regimes), collapse = ", ") else "nothing", ")", call. = FALSE)
   events <- marine_hazard_events(params)
   cand_all <- unique(c(.mh_or(params$marine_hazard_candidates_shore, c("nws_sca_any")),
                        .mh_or(params$marine_hazard_candidates_boat,  c("nws_sca_any", "bar_restriction")),
@@ -669,10 +715,11 @@ marine_hazard_prepare <- function(dwg, params, output_dir = NULL, quiet = FALSE)
   params$opener_flags <- if (is.null(of) || !nrow(of)) mcols else
     dplyr::full_join(of |> dplyr::select(-dplyr::any_of(names(mcols)[-1])), mcols, by = "event_date") |> dplyr::arrange(event_date)
 
-  .say(sprintf("Marine hazard effort covariates: mode=%s\n  definition: %s\n  shore: %s\n  private boat: %s\n",
+  .say(sprintf("Marine hazard effort covariates: mode=%s\n  definition: %s\n  shore: %s\n  private boat: %s\n  applied to the sub-season gear regime(s): %s\n",
                sel$mode, attr(nws, "definition"),
                if (length(sel$shore)) paste(sel$shore, collapse = ", ") else "(none)",
-               if (length(sel$private_boat)) paste(sel$private_boat, collapse = ", ") else "(none)"))
+               if (length(sel$private_boat)) paste(sel$private_boat, collapse = ", ") else "(none)",
+               paste(regimes, collapse = ", ")))
   for (n in sel$note) .say("  ", n, "\n", sep = "")
   if (length(sel$private_boat) && isTRUE(params$use_crab_fraction))
     .say(paste0("  NOTE: a BOAT marine hazard covariate is active. Boat effort is ALL private boats; if crabbing boats\n",

@@ -865,17 +865,20 @@ if (!is.null(opener_sel$table) && nrow(opener_sel$table) > 0) {
 }
 ```
 
-### 3.7 Marine hazard effort covariates (2026-09-25)
+### 3.7 The marine hazard effort covariate (2026-09-25; the method of record since 2026-09-27)
 
-Whether an NWS **Small Craft Advisory or higher** for the Grays Harbor Bar or the coastal waters off Westport, and whether a **USCG bar restriction** as ticked by the samplers, enter the EFFORT model this run. `params$marine_hazard_mode` selects `"off"` (production; nothing is read), `"auto"` (a candidate enters a population's effort model only if its quasi-Poisson day-type + month adjusted effect on that population's sampled daily counts clears `params$marine_hazard_auto_p` after a multiplicity adjustment over the marine family), `"on"` (every candidate) or `"manual"`. Both ride on the `K_open / X_open / B_open` block above as extra columns, so the Stan model is unchanged and their coefficients appear as `B_open_out[k]`, labelled in `opener_covariates_<fit>.csv`.
+**The method of record** (CHANGE_REGISTER A30, adopted 2026-09-27): whether an NWS **Small Craft Advisory or higher** was in effect for the Grays Harbor Bar or the coastal waters off Westport at any moment of the local 04:00 to 16:00 window enters the **private-boat all-gear** effort process as one season-constant term (`marine_hazard_mode = "manual"`, `marine_hazard_manual_boat = "nws_sca_any"`, `marine_hazard_gear_regimes = "all_gear"`). No shore term, not the samplers' bar-restriction tick, and not the pot-closure fit, which stays covariate-free. The flag is known on every day of the window from the archived NWS products in `04_input_files/nws_marine_hazards.xlsx`, which is what a covariate on a daily latent process needs. The other modes remain for experiments: `"off"` (the pre-2026-09-27 model; nothing is read), `"auto"` (a candidate enters a population's effort model only if its quasi-Poisson day-type + month adjusted effect on that population's sampled daily counts clears `params$marine_hazard_auto_p` after a multiplicity adjustment over the marine family), `"on"` (every candidate). Every term rides on the `K_open / X_open / B_open` block above as an extra column, so the Stan model is unchanged and its coefficient appears as `B_open_out[k]`, labelled in `opener_covariates_<fit>.csv`; the prep prints which fits a selected term enters and which it is withheld from.
 
-**Two asymmetries to read before trusting a selected term.** The NWS flag is known on every day of the window, sampled or not, from the archive in `04_input_files/nws_marine_hazards.xlsx`; the bar-restriction tick is observed on sampled days only and **imputed** on the rest (an expected value from a logistic regression on the archived advisories, `bar_restriction_impute`), so its unsampled-day contribution rests on the NWS flags, not on an observation. And a boat term describes ALL private boats: if crabbing boats respond to an advisory differently from finfish boats, the crabbing fraction `f` differs on those days and the monthly `f` cannot see it. The screen is a screen; the arbiter is the paired effort-stream `elpd_loo` against a covariate-free run (`06_diagnostics/run_marine_hazard_batch_2026-09-25.R`).
+**What to hold when reading the boat term.** A boat term describes ALL private boats: if crabbing boats respond to an advisory differently from finfish boats, the crabbing fraction `f` differs on those days and the monthly `f` cannot see it (D30). The term is one coefficient for the season, and the four-season trailer record says the winter effect is about half the summer's, so the winter months are probably over-corrected while the season total is insensitive to that shape (D32). The evidence behind the adoption, and these caveats, are in `VALIDATION_CAMPAIGN.md` Sections 1x to 1z. If an experiment enters the bar-restriction tick, note that it is observed on sampled days only and **imputed** on the rest (an expected value from a logistic regression on the archived advisories, `bar_restriction_impute`), so its unsampled-day contribution rests on the NWS flags, not on an observation; on 2024-25 it added nothing beyond the archive.
 
 ```{r marine-hazard-decision, echo=TRUE}
 # --- 2026-09-25: marine hazard effort covariates (03_R_functions/bss_marine_hazard_covariates.R)
-# With marine_hazard_mode = "off" this reads nothing and only installs an empty selection.
-# Any other mode STOPS on a missing or non-covering archive rather than running without the
-# covariate the user asked for, so a fit can never silently lack a term the config names.
+# The method of record since 2026-09-27 is "manual" with nws_sca_any on the boat (A30); the
+# selection is per population here, and the preps confine it to the sub-seasons named in
+# marine_hazard_gear_regimes ("all_gear"). With marine_hazard_mode = "off" this reads nothing
+# and only installs an empty selection. Any other mode STOPS on a missing or non-covering
+# archive rather than running without the covariate the config names, so a fit can never
+# silently lack a term it should carry.
 marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)
 params <- marine_hazard$params
 ```
@@ -900,7 +903,7 @@ if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
                     marine_hazard$definition %||% "", ". Selection is a SCREEN: confirm any selected term",
                     "against a covariate-free run's paired effort elpd_loo before citing it."))
 } else {
-  cat(sprintf("_No marine hazard covariates considered this run (`marine_hazard_mode = '%s'`)._",
+  cat(sprintf("_No marine hazard covariates considered this run (`marine_hazard_mode = '%s'`; the method of record since 2026-09-27 is `manual` with `nws_sca_any` on the boat all-gear fit, so this is a pre-adoption or experimental configuration)._",
               params$marine_hazard_mode %||% "off"))
 }
 ```

@@ -402,6 +402,19 @@ if (!identical(F_METHOD, "ladder") && any(c("R3a", "R3") %in% STAGES))
 
 resolve_cfg <- function(sid) {
   cfg <- modifyList(BASE, WINDOW, keep.null = TRUE)
+  # 2026-09-27: the marine hazard term (A30) is now the method of record in run_config.R, and
+  # every rung of THIS ladder rendered before it existed, under marine_hazard_mode "off" (the
+  # marine ladder's M1 is the proof that "off" is the pre-covariate model). Set here, NOT in
+  # WINDOW, so the rungs stay what they were and their digests, and RESUME, are untouched.
+  cfg$marine_hazard_mode <- "off"; cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)
+  # 2026-09-27 (found in the adoption review): .cfg_fingerprint() hashes run_tag, which the stage
+  # overwrites with its own tag before any render (cfg$run_tag <- st$tag), so the hashed value is
+  # run_config.R's LABEL at the time, never anything that reaches a fit or a folder name. The five
+  # rungs were stamped while run_config.R carried "two-season-2023-25" (until the 2026-09-12
+  # rollback to the canonical single season); the label alone moved every digest, and RESUME would
+  # have refitted the whole ladder (about 17 h) to reproduce five folders that are what they were.
+  # Held here to the value the stamps were computed under; the harness pins the five digests.
+  cfg$run_tag <- "two-season-2023-25"
   modifyList(cfg, STAGE_DEFS[[sid]]$delta %||% list(), keep.null = TRUE)
 }
 # The KEYS any rung is allowed to differ in. Anything else differing between two rungs is
@@ -728,12 +741,14 @@ CODE_EQUIVALENT <- list(
   # pointwise LOO written beside gear / trailer / catch) and .bma_core() (the adequacy
   # aggregate kept on the three streams it always read, so model_adequacy.csv is comparable
   # across the change). Same coverage and the same PORT TOTAL caveat as the row above.
-  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:04bf7498 fns:2a70a484" =
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:4661ee8f fns:7ebf7137" =
     paste("the 2026-09-11 ladder run vs the tree after the 2026-09-27 block-CV results patch: as the row above, plus the joint effort table / identical-fit floor in",
           "bss_block_cv.R, loo_pointwise_osp_*.csv from write_loo_diagnostics(), and the adequacy aggregate filtered to gear / trailer / catch (all post-fit diagnostics); and B41 in",
           "bss_marine_hazard_covariates.R, a PREP-layer change that offers two more marine candidates (nws_sca_any_winter / _rest). The 2026-09-11 ladder ran with the module absent and",
           "marine_hazard_mode off (the shipped value), under which marine_hazard_prepare() returns before reading anything, so the K_open block and every Stan datum are what they were.",
-          "Does NOT cover the PORT TOTAL (moves once by the jitter B38 removes), monthly_pe_vs_bss.csv, or a file-level inventory comparison (now also loo_pointwise_osp_*.csv and loo_block_joint_*.csv).")
+          "Does NOT cover the PORT TOTAL (moves once by the jitter B38 removes), monthly_pe_vs_bss.csv, or a file-level inventory comparison (now also loo_pointwise_osp_*.csv and loo_block_joint_*.csv).",
+          "And the 2026-09-27 ADOPTION (A30, B42): run_config.R now ships the boat advisory term, and this runner pins marine_hazard_mode = off in resolve_cfg() (not in WINDOW, so no digest moves), which is the configuration every rung here rendered under;",
+          "marine_hazard_terms_for() and its two prep call sites are inert under off (an empty selection stays empty); the drivers moved by report prose and comments only.")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

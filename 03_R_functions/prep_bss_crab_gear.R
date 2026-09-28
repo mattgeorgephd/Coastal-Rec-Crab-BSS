@@ -492,7 +492,11 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # 2026-09-25: the marine hazard covariates (NWS SCA-or-higher, USCG bar restriction) ride
   # on the same block as extra columns; marine_hazard_prepare() in the driver joined their
   # per-date values onto params$opener_flags and stored the selection. Inert when "off".
-  marine_extra <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)
+  # 2026-09-27 (the adopted method): the selection is per population; which fits it enters is
+  # per sub-season (marine_hazard_gear_regimes; "all_gear" as shipped, so the pot-closure fit
+  # carries no marine term). marine_hazard_terms_for() applies that and says when it withholds.
+  marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)
+  for (.mh_note in attr(marine_extra, "note") %||% character(0)) cat(sprintf("  %s\n", .mh_note))
   open_sel    <- (params$opener_selected %||% list())[[population_name]] %||% character(0)
   open_spec   <- opener_design_matrix(days, open_sel, params$opener_flags, params,
                                       extra = c(razor_extra, marine_extra))

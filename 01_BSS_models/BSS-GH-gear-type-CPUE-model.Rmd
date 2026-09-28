@@ -547,7 +547,9 @@ if (length(opener_sel$private_boat) > 0 && isTRUE(params$use_crab_fraction) &&
 # --- 2026-09-25: marine hazard effort covariates (NWS SCA-or-higher, USCG bar restriction) --
 # Same mechanism as the pooled driver (03_R_functions/bss_marine_hazard_covariates.R): the
 # selected covariates become extra columns of the K_open block, so the gear Stan model is
-# unchanged. "off" reads nothing; any other mode stops on a missing or non-covering archive.
+# unchanged. The method of record since 2026-09-27 is "manual" with nws_sca_any on the boat,
+# confined by the prep to the all-gear fit (marine_hazard_gear_regimes; A30). "off" reads
+# nothing; any other mode stops on a missing or non-covering archive.
 marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)
 params <- marine_hazard$params
 

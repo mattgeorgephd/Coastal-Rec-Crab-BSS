@@ -37,21 +37,23 @@
 #
 #   The machinery landed with this file (03_R_functions/bss_marine_hazard_covariates.R,
 #   run_config.R section 4.4b): the covariates ride on the existing K_open / X_open / B_open
-#   block, so NEITHER STAN MODEL CHANGED and marine_hazard_mode = "off" (the shipped value)
-#   builds the Stan data it built before. M1 below proves that empirically.
+#   block, so NEITHER STAN MODEL CHANGED and marine_hazard_mode = "off" (the shipped value
+#   until 2026-09-27; since then the pre-adoption model) builds the Stan data it built before.
+#   M1 below proves that empirically.
 #
 # THE RUNGS. One lever moves per rung; everything else is pinned by WINDOW below.
 #   M0   desk, seconds. No fit. The archive covers the window; the flags and the screen
 #        build; each rung differs from M1 in declared keys only; the Stan data of M4 differs
 #        from M1's in K_open and X_open_flat ONLY (built for real, for the shore all-gear and
-#        the boat all-gear components); the shipped config is still off.
+#        the boat all-gear components); the shipped config is reported (off until 2026-09-27,
+#        the adopted method since).
 #   M1   marine_hazard_mode = "off"      the baseline AND the inertness proof: must be
 #        bit-identical to the committed R4 render (20260910/pooled-CPUE-IMP-R4-shore-tau-newf)
 #   M2   SCA only    nws_sca_any forced on BOTH populations (manual)
 #   M3   bar only    bar_restriction forced on the boat (manual)
 #   M4   both        nws_sca_any on both populations + bar_restriction on the boat
 #   M5   auto        marine_hazard_mode = "auto": what production would do with the screen
-#   M6   split       (added 2026-09-27, B41, for D32; not yet rendered) the any-zone SCA flag on
+#   M6   split       (added 2026-09-27, B41, for D32; RENDERED 2026-09-27, Section 1z) the any-zone SCA flag on
 #        the boat in TWO columns, nws_sca_any_winter (December to February) and
 #        nws_sca_any_rest (every other day), no shore term. Judged AGAINST M2, the constant
 #        term: rule 3 for each coefficient, rules 4 and 5 for the pair, and the block CV's
@@ -136,10 +138,18 @@
 # M6, about 3.5 h, renders). STAGES below can drop rungs; M1 and M2 are the minimum that
 # answers anything.
 #
+# WHERE THIS ENDED (2026-09-27, VALIDATION_CAMPAIGN Section 1z). Six rungs rendered. Matt's
+# decision: the CONSTANT boat SCA term, the all-gear fit only (no shore term, not the bar
+# tick, not the pot-closure fit), now the method of record in run_config.R (A30 ADOPTED).
+# This runner keeps its rungs reproducible under the new run_config by setting the marine
+# keys it needs in resolve_cfg(), and RESUME reads all six back in a minute. M0 also lays
+# run_config.R's own marine keys over the window and builds all four production fits on the
+# real inputs (row 4c): the term must sit in the boat all-gear fit and nowhere else.
+#
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
-DRY_RUN <- FALSE                    # TRUE prints the plan and runs M0; fits nothing
+DRY_RUN <- TRUE                    # TRUE prints the plan and runs M0; fits nothing
 STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5", "M6")   # M6 added 2026-09-27 (B41); M1 to M5 RESUME from their folders
 RESUME  <- TRUE                    # reuse a rung ONLY when its MH_STAGE.txt digest matches
 
@@ -309,7 +319,7 @@ WINDOW <- list(
 # ---------------------------------------------------------------------------
 STAGE_DEFS <- list(
   M0 = list(tag = "MH-M0-desk", fit = FALSE, item = "prerequisites; no fit", delta = list()),
-  M1 = list(tag = "MH-M1-off",  fit = TRUE,  item = "baseline: marine_hazard_mode = off (the shipped value); must reproduce R4 bit for bit",
+  M1 = list(tag = "MH-M1-off",  fit = TRUE,  item = "baseline: marine_hazard_mode = off (the pre-adoption model; the shipped value until 2026-09-27); must reproduce R4 bit for bit",
             delta = list(marine_hazard_mode = "off")),
   M2 = list(tag = "MH-M2-sca",  fit = TRUE,  item = "SCA only: nws_sca_any on shore AND boat",
             delta = list(marine_hazard_mode = "manual", marine_hazard_manual_shore = "nws_sca_any",
@@ -350,6 +360,12 @@ resolve_cfg <- function(sid) {
   cfg <- BASE
   for (k in names(WINDOW)) cfg[[k]] <- WINDOW[[k]]
   cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)
+  # 2026-09-27: run_config.R now ships the ADOPTED method (mode "manual", boat nws_sca_any,
+  # marine_hazard_gear_regimes = "all_gear"). Every rung here rendered with a selected term
+  # applied to BOTH sub-season fits (the M2 pot-closure boat fit carries the SCA term: 1,233
+  # against M1's 1,372), so that is set here, NOT in WINDOW, to keep the rungs what they were
+  # and their digests, and RESUME, untouched. The mode is each rung's own delta.
+  cfg$marine_hazard_gear_regimes <- c("pot_closure", "all_gear")
   d <- STAGE_DEFS[[sid]]$delta
   for (k in names(d)) cfg[[k]] <- d[[k]]
   cfg
@@ -403,10 +419,19 @@ CODE_EQUIVALENT_MH <- list(
   # model_adequacy.csv stays comparable. No likelihood, prior or Stan datum is touched.
   "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:8022c96c" =
     "B38 (the draw permutation rebuilt from the Stan seed after each fit, and the seeded census draw) and B39 (block-CV diagnostics) landed after the run; neither reaches a likelihood, a prior or the Stan data, so every per-fit summary the verdicts read is the run's own. The port median is the one number B38 would change on a re-render (once, by the MC jitter it removes). SUPERSEDED 2026-09-27 by the entry below (fns moved again, in post-fit diagnostics only).",
-  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:6f65d84a" =
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:5a01223d fns:c8f2052a" =
     paste("As above, plus the 2026-09-27 block-CV results patch (Section 1y): bss_block_cv.R gained the joint effort table, the identical-fit floor and the per-week helper; write_loo_diagnostics() now writes loo_pointwise_osp_*.csv; .bma_core() filters the adequacy aggregate to gear / trailer / catch (all post-fit diagnostics);",
           "and B41 in bss_marine_hazard_covariates.R, a PREP-layer change: two further candidate columns (nws_sca_any_winter, nws_sca_any_rest) and the one-definition rule treating that pair as one. Offered, not selected, by any of these five rungs' configurations:",
-          "measured on the real 2024-25 inputs, M2 to M5 resolve to the same per-population selection, the same per-date values of every selected column, the same screen table and the same selection table before and after the change, and M1 (off) returns before the module reads anything, so every rung's Stan data is unchanged.")
+          "measured on the real 2024-25 inputs, M2 to M5 resolve to the same per-population selection, the same per-date values of every selected column, the same screen table and the same selection table before and after the change, and M1 (off) returns before the module reads anything, so every rung's Stan data is unchanged.",
+          "And the 2026-09-27 ADOPTION (A30, B42): marine_hazard_terms_for() in the module and one call in each prep, confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner sets that key to BOTH regimes in resolve_cfg(), which is what every rung here did,",
+          "so the preps build the same X_open for M1 to M6 (checked on the real inputs: the boat pot-closure prep under both regimes carries the term as M2's did); the drivers moved by report prose and comments only (the marine_hazard_prepare() call is unchanged)."),
+  # M6 rendered on 2026-09-27 from the tree at 4e23b15 (the block-CV results patch applied; its stamp
+  # is that commit's fingerprint, recomputed and matched), so its recorded side is the second entry's
+  # current side. The only fitting-layer change since is B42, covered by the last sentence above.
+  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:65b5adeb drivers:5a01223d fns:c8f2052a" =
+    paste("M6 rendered from the tree with B40 and B41 applied (4e23b15). Since then only B42 (A30, the 2026-09-27 adoption) touched the fitting layer: marine_hazard_terms_for() in the module and one call in each prep,",
+          "confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner pins that key to BOTH regimes in resolve_cfg(), under which the function returns the selection unchanged for every fit, so M6's Stan data is what it was",
+          "(the M0 desk row 'M6 vs M2 differs in K_open and X_open_flat only, columns sum' is recomputed on the current tree at every run). The pooled driver moved by the section 3.7 prose only; the marine_hazard_prepare() call is unchanged.")
 )
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),
@@ -443,18 +468,24 @@ stage_M0 <- function() {
 
   # (1) the module and its entry points exist; the preps read the selection
   fns <- c("marine_hazard_events", "marine_hazard_flag_series", "bar_restriction_series",
-           "marine_hazard_screen", "marine_hazard_select", "marine_hazard_prepare")
+           "marine_hazard_screen", "marine_hazard_select", "marine_hazard_prepare",
+           "marine_hazard_terms_for")   # B42 (2026-09-27): the per-fit gate on the selection
   have <- vapply(fns, exists, logical(1))
   V1row("M0", "the marine hazard module is sourced and complete",
         sprintf("%d of %d functions present", sum(have), length(fns)), "all present",
         if (all(have)) "PASS" else "FAIL", "Nothing below can run without them.")
   for (f in c(POOLED_PREP, .here("03_R_functions", "prep_bss_crab_gear.R"))) {
     src <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    # until 2026-09-27 the preps read params$marine_hazard_selected directly; since B42 they take the fit's
+    # terms from marine_hazard_terms_for(params, population_name, gear_regime), which returns the population's
+    # selection only for the sub-season gear regimes in marine_hazard_gear_regimes (this runner: both)
+    wired <- grepl("marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)", src, fixed = TRUE) &&
+             grepl("c(razor_extra, marine_extra)", src, fixed = TRUE)
     V1row("M0", sprintf("%s passes the marine selection into the K_open block", basename(f)),
-          if (grepl("marine_hazard_selected", src, fixed = TRUE) && grepl("c(razor_extra, marine_extra)", src, fixed = TRUE)) "yes" else "NO",
-          "reads params$marine_hazard_selected and adds it to opener_design_matrix()'s extra",
-          if (grepl("marine_hazard_selected", src, fixed = TRUE) && grepl("c(razor_extra, marine_extra)", src, fixed = TRUE)) "PASS" else "FAIL",
-          "The driver installs the selection; the prep is where it becomes a column. Both tracks.")
+          if (wired) "yes" else "NO",
+          "takes marine_hazard_terms_for(params, population_name, gear_regime) and adds it to opener_design_matrix()'s extra",
+          if (wired) "PASS" else "FAIL",
+          "The driver installs the selection; the prep is where it becomes a column, for the fits whose gear regime is configured. Both tracks.")
   }
   st <- readLines(POOLED_STAN, warn = FALSE)
   V1row("M0", "the pooled Stan carries the K_open / X_open_flat / B_open block (unchanged)",
@@ -464,11 +495,20 @@ stage_M0 <- function() {
                                   function(v) any(grepl(paste0("(^|[^A-Za-z0-9_])", v, "([^A-Za-z0-9_]|$)"), st)), logical(1)))) "PASS" else "FAIL",
         "The covariates are columns of this block; no Stan edit was made for them.")
 
-  # (2) the shipped configuration is untouched by the patch
-  V1row("M0", "the SHIPPED config still fits without a marine covariate",
-        sprintf("marine_hazard_mode = %s", BASE$marine_hazard_mode %||% "NULL"), "off",
-        if (identical(BASE$marine_hazard_mode, "off")) "PASS" else "FAIL",
-        "The machinery is BUILT, INERT until this run and its review say otherwise.")
+  # (2) the shipped configuration. Until 2026-09-27 this row asserted "off" (the machinery
+  #     BUILT, INERT until the run and its review said otherwise). The review said: adopt the
+  #     constant boat term, all-gear fit only (Section 1z; A30 ADOPTED), so the row now
+  #     REPORTS what run_config ships and PASSES on either the pre-adoption "off" or the
+  #     adopted method; anything else is a configuration this ladder did not test.
+  .ship_ok <- identical(BASE$marine_hazard_mode, "off") ||
+    (identical(BASE$marine_hazard_mode, "manual") && identical(BASE$marine_hazard_manual_boat, "nws_sca_any") &&
+     !length(BASE$marine_hazard_manual_shore %||% character(0)) && identical(BASE$marine_hazard_gear_regimes, "all_gear"))
+  V1row("M0", "the SHIPPED config is the pre-adoption model (off) or the adopted method (manual: boat nws_sca_any, all-gear fit only, no shore term)",
+        sprintf("marine_hazard_mode = %s; manual_boat = %s; manual_shore = %s; gear_regimes = %s", BASE$marine_hazard_mode %||% "NULL",
+                paste(BASE$marine_hazard_manual_boat %||% character(0), collapse = "+"), paste(BASE$marine_hazard_manual_shore %||% character(0), collapse = "+"),
+                paste(BASE$marine_hazard_gear_regimes %||% character(0), collapse = "+")),
+        "off, or manual / nws_sca_any / none / all_gear", if (.ship_ok) "PASS" else "FAIL",
+        "The rungs here set their own marine keys (resolve_cfg), so run_config's choice does not enter any rung; this row only says what production would do.")
 
   # (3) the archive covers the window; the flags and the screen build on the real data
   ok <- tryCatch({
@@ -574,6 +614,39 @@ stage_M0 <- function() {
             if (setequal(diff, c("K_open", "X_open_flat")) && sums_ok) "PASS" else "FAIL",
             "The season split is the same flag in two columns; if it were anything else the rung would measure that too (rule 9).")
     }
+    # (4c) THE SHIPPED CONFIGURATION, fit by fit, on the real inputs (2026-09-27, A30 ADOPTED / B42).
+    #      This ladder pins marine_hazard_gear_regimes to BOTH regimes (its rungs applied a term to
+    #      both fits); production restricts it. So here run_config.R's own marine keys are laid over
+    #      the resolved window and all four pooled fits are built: the adopted method puts the term
+    #      in the boat all-gear fit and nowhere else; the pre-adoption "off" puts it nowhere.
+    ps <- p
+    for (k in grep("^marine_hazard_|^bar_restriction_", names(BASE), value = TRUE)) ps[[k]] <- BASE[[k]]
+    for (k in setdiff(grep("^marine_hazard_", names(ps), value = TRUE), names(BASE))) ps[[k]] <- NULL
+    ps <- q(marine_hazard_prepare(dwg, ps, output_dir = NULL, quiet = TRUE))$params
+    got <- list(); notes <- character(0)
+    for (ss_ in sub) for (pop in c("shore", "private_boat")) {
+      d_ <- q(prep_days_crab(ss_$start, ss_$end, ps, L_eff_model = Le))
+      sm <- q(prep_population_summary(dwg, pop, ss_$start, ss_$end, ps))
+      out <- utils::capture.output(bd <- prep_bss_crab_pooled(d_, sm, "Dungeness_Kept", ps, pop, gear_regime = ss_$gear_regime, ie_data = ie))
+      notes <- c(notes, grep("NOT applied to this fit", out, value = TRUE))
+      lab <- attr(bd, "opener_labels") %||% character(0)
+      got[[sprintf("%s/%s", pop, ss_$gear_regime)]] <- sprintf("K_open %d%s", bd$K_open,
+        if (bd$K_open > 0) sprintf(" [%s] flagged %d of %d days", paste(lab, collapse = ","), sum(matrix(bd$X_open_flat, nrow = bd$D)[, 1] > 0), bd$D) else "")
+    }
+    k1 <- vapply(got, function(x) as.integer(sub("^K_open (\\d+).*$", "\\1", x)), integer(1))
+    adopted <- identical(BASE$marine_hazard_mode, "manual") && identical(BASE$marine_hazard_manual_boat, "nws_sca_any") &&
+               !length(BASE$marine_hazard_manual_shore %||% character(0)) && identical(BASE$marine_hazard_gear_regimes, "all_gear")
+    want <- if (adopted) c("shore/pot_closure" = 0L, "shore/all_gear" = 0L, "private_boat/pot_closure" = 0L, "private_boat/all_gear" = 1L)
+            else if (identical(BASE$marine_hazard_mode, "off")) c("shore/pot_closure" = 0L, "shore/all_gear" = 0L, "private_boat/pot_closure" = 0L, "private_boat/all_gear" = 0L)
+            else NULL
+    ok4 <- !is.null(want) && all(names(want) %in% names(k1)) && identical(unname(k1[names(want)]), unname(want)) &&
+           (!adopted || (grepl("[nws_sca_any]", got[["private_boat/all_gear"]], fixed = TRUE) && length(notes) == 1L && grepl("pot_closure", notes[1], fixed = TRUE)))
+    V1row("M0", "the SHIPPED configuration on the real inputs, fit by fit: the term enters the boat all-gear fit and no other",
+          paste(c(sprintf("%s: %s", names(got), unlist(got)), sprintf("withheld-notes printed: %d", length(notes))), collapse = "; "),
+          if (adopted) "shore 0 / 0; boat pot-closure 0 (one note); boat all-gear 1 [nws_sca_any]" else if (is.null(want)) "no expectation for this configuration" else "K_open 0 in all four fits (off)",
+          if (is.null(want)) "INFO" else if (ok4) "PASS" else "FAIL",
+          paste("marine_hazard_terms_for() is the only thing between the per-population selection and the fit; this row is the",
+                "production path (drivers pass ss$gear_regime) built on the season's data, not a unit test on a synthetic params."))
     TRUE
   }, error = function(e) {
     V1row("M0", "the flags, the screen and the Stan data proof were evaluated", conditionMessage(e), "no error", "ERROR",
@@ -950,9 +1023,18 @@ recommend <- function() {
   cat("  the interpolation improved: 06_diagnostics/run_marine_block_cv_2026-09-26.R scores the\n")
   cat("  rendered rungs' saved draws (ppc_draws_<fit>.rds) without a refit. It ran 2026-09-26\n")
   cat("  (Section 1y): boat SCA +18.9 nats on the held-out OSP counts (3.9 SE), both boat streams\n")
-  cat("  2.9 SE, the winter untested (D32). Run it again after M6 renders; M6 vs M2 is the row.\n")
-  cat("\n  ADOPTION EDIT, if you take it: run_config.R marine_hazard_mode <- \"auto\" (the screen)\n")
-  cat("  or \"manual\" with marine_hazard_manual_shore / _boat set to the adopted terms.\n")
+  cat("  2.9 SE, the winter untested (D32). It ran again 2026-09-27 with M6: M6 vs M2 +1.2 at 0.6 SE.\n")
+  adopted <- identical(BASE$marine_hazard_mode, "manual") && identical(BASE$marine_hazard_manual_boat, "nws_sca_any") &&
+             !length(BASE$marine_hazard_manual_shore %||% character(0)) && identical(BASE$marine_hazard_gear_regimes, "all_gear")
+  if (adopted) {
+    cat("\n  ADOPTED 2026-09-27 (Matt's decision, Section 1z; A30): run_config.R section 2.10 ships manual,\n")
+    cat("  boat nws_sca_any, no shore term, marine_hazard_gear_regimes = \"all_gear\". These rungs are the record\n")
+    cat("  the decision was taken on; the confirming production render (run_estimation.R as shipped) is the owed step.\n")
+  } else {
+    cat("\n  ADOPTION EDIT, if you take it: run_config.R section 2.10, marine_hazard_mode <- \"manual\" with\n")
+    cat("  marine_hazard_manual_boat = \"nws_sca_any\", no shore term, marine_hazard_gear_regimes = \"all_gear\"\n")
+    cat("  (what Section 1z adopted); \"auto\" (the screen) was M5 and adds the redundant bar column.\n")
+  }
   invisible(TRUE)
 }
 

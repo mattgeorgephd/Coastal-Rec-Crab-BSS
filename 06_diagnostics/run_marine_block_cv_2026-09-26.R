@@ -125,7 +125,7 @@
 # compute (minutes). Restore TRUE before committing: the harness asserts it.
 ###############################################################################
 
-DRY_RUN <- FALSE
+DRY_RUN <- TRUE
 RUNGS   <- c(M1 = "MH-M1-off", M2 = "MH-M2-sca", M3 = "MH-M3-bar", M4 = "MH-M4-both", M5 = "MH-M5-auto",
              M6 = "MH-M6-split")   # M6 (B41, the season split) added 2026-09-27; absent until run_marine_hazard_batch renders it
 K_MAX   <- 0.7          # PSIS reliability threshold
@@ -282,6 +282,9 @@ if (isTRUE(DRY_RUN)) {
   if (!done) cat("\n  No rung has its draws here; run this where the rungs rendered.\n")
 }
 
+# R1 threshold, as written on every reconstruction row: the OSP stream is matched exactly where the rung
+# wrote loo_pointwise_osp_<fit>.csv (fits rendered from 2026-09-27 on), and approximated otherwise.
+R1_THRESHOLD <- "every stream with a committed pointwise file matches it (gear, trailer; OSP where the rung wrote one); otherwise OSP means within 10% of ppc_byobs"
 TAB <- list(); ROWS <- list(); PR <- list(); ROWSX <- list()
 if (!isTRUE(DRY_RUN)) for (r in names(RUNGS)) {
   if (is.na(DIRS[[r]])) { V1row(r, "the rung folder is present", "absent", "present", "REVIEW", "Nothing to score."); next }
@@ -289,12 +292,12 @@ if (!isTRUE(DRY_RUN)) for (r in names(RUNGS)) {
     bt <- block_tables(DIRS[[r]], fk)
     if (!isTRUE(bt$ok)) {
       V1row(r, sprintf("R1: %s draws reconstruct the run's own pointwise lpd", fk),
-            paste(c(bt$why, unlist(bt$checks)), collapse = "; "), "every gear / trailer stream matches its committed file; OSP means within 10% of ppc_byobs", "REVIEW",
+            paste(c(bt$why, unlist(bt$checks)), collapse = "; "), R1_THRESHOLD, "REVIEW",
             "Without the check a wrong reconstruction would be scored as a result. Not evaluated.")
       next
     }
     V1row(r, sprintf("R1: %s draws reconstruct the run's own pointwise lpd", fk), paste(unlist(bt$checks), collapse = "; "),
-          "every gear / trailer stream matches its committed file; OSP means within 10% of ppc_byobs", "PASS",
+          R1_THRESHOLD, "PASS",
           "The block scores below rest on the same likelihood the run reported.")
     check_of <- function(sn) {
       if (identical(sn, "joint")) {

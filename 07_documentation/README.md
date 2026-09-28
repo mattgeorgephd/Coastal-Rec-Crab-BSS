@@ -81,7 +81,7 @@ The per-batch review documents below are the raw material that narrative was bui
 | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
 | `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
 
-**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (plus its rendered `.html`), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
+**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (its stale rendered `.html` was removed 2026-09-27), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
 
 ## Change register
 

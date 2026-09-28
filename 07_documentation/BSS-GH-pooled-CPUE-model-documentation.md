@@ -6,9 +6,9 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-27** (the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process, CHANGE_REGISTER A30). Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
-**Reference run:** `05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`.
+**Reference run:** `05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, rendered before the 2026-09-27 adoption and therefore WITHOUT the boat effort covariate. The covariate's fit is `05_output/20260925/pooled-CPUE-MH-M2-sca` (boat all-gear 47,319 against R4's 45,604); the production render of the shipped configuration is pending, and the box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
 
 > ### THE NUMBERS IN THIS DOCUMENT, AND WHERE THE CURRENT ONES LIVE
@@ -62,7 +62,14 @@ interval [77,566, 118,602]**, assembled from five components:
 | commercial + charter vessels | 8,538 | (the same; not modelled) | n/a | 9.0% |
 | **port total** | **94,376 [77,566, 118,602]** | **85,076** | **-9.9%** | |
 
-Two things about that table to get right straight away.
+Three things about that table to get right straight away.
+
+**It predates the boat effort covariate adopted 2026-09-27.** Under the method of record the
+private-boat all-gear component is **47,319** (the covariate rung `05_output/20260925/pooled-CPUE-MH-M2-sca`,
+whose boat all-gear fit IS the adopted fit), the other three fitted components are unchanged
+from this table, and the port total will read about 1.6% higher once the shipped configuration
+is rendered. The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative
+and carries the current total; quote from there.
 
 **The component medians sum to 93,687, not to 94,376.** That is correct and not a rounding
 error: the port total is the median of the summed posterior draws, which is not the sum of
@@ -98,8 +105,10 @@ the estimate is built on either side of it separately (Section 5).
 
 ## 3. The data streams
 
-Seven streams reach the estimate. The first four are counts and interviews the creel program
-collects; the fifth is new in Method v2.0; the last two are frames for the vessel component.
+Seven streams reach the estimate, and one archived record enters as a covariate. The first
+four streams are counts and interviews the creel program collects; the fifth is new in Method
+v2.0; the last two are frames for the vessel component. The covariate (since 2026-09-27) is
+the National Weather Service's own hazard decision for the waters the boats cross.
 
 | stream | what it is | what it identifies |
 |---|---|---|
@@ -110,6 +119,7 @@ collects; the fifth is new in Method v2.0; the last two are frames for the vesse
 | **Ingress / egress (I/E) surveys** | timed arrival and departure counts at the dock, with the hour recorded | the shore turnover, and the effective day length |
 | **Commercial / charter vessel tally** | the daily count of commercial and charter vessels landing, on the days a sampler was present | the commercial census |
 | **Charter trip roster** | every charter trip, marked interviewed / missed / cancelled | the frame the charter component is expanded over |
+| **NWS marine hazard archive** (covariate, not a stream) | every Small Craft Advisory, gale, storm, hazardous-seas and hurricane-force product issued for the Grays Harbor Bar (PZZ110) and the coastal waters off Westport (PZZ156), from the archived VTEC record (`04_input_files/nws_marine_hazards.xlsx`), reduced to a flag per day: an advisory or higher in effect at any moment of 04:00 to 16:00 local | which days of the boat all-gear window were advisory days, sampled or not; the term on the boat effort process (Section 14.2) |
 
 **The OSP stream is the reason Method v2.0 exists, and it is half-delivered.** OSP will
 provide, per day, (a) the total number of vessels returning and (b) the fraction of those
@@ -267,7 +277,10 @@ effort is in neither the trailer count nor the OSP ramp total (Section 20).
 **Software.** R 4.2 or later, and **rstan** 2.32 or later (this pipeline uses rstan, not
 cmdstanr). Plus tidyverse, lubridate, suncalc, gt, patchwork, here, readxl, loo.
 `run_estimation.R` installs anything missing, so a fresh machine's first run may trigger a
-long Stan compile. The reference run was made with rstan 2.32.7 / StanHeaders 2.32.10.
+long Stan compile. The reference run was made with rstan 2.32.7 / StanHeaders 2.32.10. A run
+needs no network: the one input that comes from a web service, the NWS marine hazard archive
+the boat effort covariate reads (Section 21a), is committed, and its builder is run by hand
+before a season (`NEW_SEASON_GUIDE.md`, section 0).
 
 **Runtime.** About 3 to 6 hours on 4 cores for a full pooled run: four real MCMC fits plus
 the diagnostics. The gear-resolved cross-check is another 3 hours or so.
@@ -531,16 +544,24 @@ eps_E        ~ std_normal()
 `period[d] = d`; weekly, biweekly and monthly give the corresponding calendar index. **The
 Stan code is unchanged across resolutions**; only the index and `P_n` change.
 
-**The `X_open` columns are whatever day covariates the R prep hands over, and in production
-there are none** (`K_open = 0`). The block was built for the other-fishery openers
-(`opener_covariate_mode`, Section 21) and since 2026-09-25 it also carries, when
-`marine_hazard_mode` is not `"off"`, the marine hazard covariates (Section 21a): an NWS
-Small-Craft-Advisory-or-higher day flag and the samplers' bar-restriction tick. Two
-properties of the block matter for reading a fit that has them. The columns are real-valued,
-not integer: an imputed bar-restriction day carries a probability, so `X_open[d] . B_open` on
-that day is an expected log-effect. And `B_open ~ normal(0, 1)` is per column with no
-selection inside Stan, so which columns are present is decided entirely in R before the fit,
-and `opener_covariates_<fit>.csv` is the only record of what `B_open_out[k]` means.
+**The `X_open` columns are whatever day covariates the R prep hands over. In production
+there is exactly one, in exactly one fit** (the method of record since 2026-09-27, CHANGE_REGISTER
+A30): in the **private-boat all-gear** fit, `K_open = 1` and the column is `nws_sca_any`, 1 on a
+day when a National Weather Service Small Craft Advisory or a higher marine warning was in
+effect for the Grays Harbor Bar or the coastal waters off Westport at any moment of the local
+04:00 to 16:00 window, 0 otherwise, read from the archived NWS products and therefore known on
+every day of the window, sampled or not. The shore fits and the boat pot-closure fit carry no
+column (`K_open = 0`; `marine_hazard_gear_regimes = "all_gear"` confines the term). Its
+coefficient in the 2024-25 all-gear fit is `B_open = -1.16 [-1.45, -0.87]`: an advisory day
+carries 0.31 of the effort the day-type and the latent level would otherwise give it. The
+block was built for the other-fishery openers (`opener_covariate_mode`, Section 21) and can
+also carry, in experiments, the samplers' bar-restriction tick and a season-split of the
+advisory flag (Section 21a). Two properties of the block matter for reading a fit that has
+columns. They are real-valued, not integer: an imputed bar-restriction day carries a
+probability, so `X_open[d] . B_open` on that day is an expected log-effect (the production
+column is 0/1). And `B_open ~ normal(0, 1)` is per column with no selection inside Stan, so
+which columns are present is decided entirely in R before the fit, and
+`opener_covariates_<fit>.csv` is the only record of what `B_open_out[k]` means.
 
 **The day-type effects are NESTED, not mutually exclusive, and this is easy to get wrong.**
 The R prep builds `w[d] = 1` on weekends **and** holidays, and `holiday[d] = 1` only on
@@ -1301,6 +1322,23 @@ ring" option. The builder implements the 2023-24 workbook's own `gear_key` mappi
 net", which is one-to-many in truth. Affects the gear-resolved 2022-24 fits only. Tracked as
 D20.
 
+**12. The boat advisory term describes all private boats.** The effort covariate adopted
+2026-09-27 (Sections 14.2 and 21a) lowers boat effort on an advisory day by a factor fitted to
+the trailer and OSP counts, which count every private vessel. If crabbing boats stay in port
+on an advisory day at a different rate from finfish boats (a bay crabber does not cross the
+bar; a salmon boat must), the crabbing fraction differs on those days and the monthly `f`
+cannot see it. Not measured; the size is bounded by the advisory days' share of the boat catch.
+Tracked as D30.
+
+**13. The advisory term is one coefficient for the season, and the winter effect is probably
+smaller.** Every sampled launch day of four seasons (794 days) puts the advisory-day rate ratio
+at 0.43 in December to February against 0.22 in the rest of the season; the 2024-25 fit cannot
+identify a separate winter coefficient (-0.59 [-1.24, +0.06]), so the method carries the
+season-wide 0.31 into the winter, where it probably over-corrects. The season total is
+insensitive to the shape (the split rung moved it by 0.06%); the winter months' estimates are
+not (January +15% under the split against +29% under the constant term). A multi-season fit
+is the test. Tracked as D32.
+
 ## 21. Weather and tide covariates: evaluated and excluded
 
 Tide phase and range, daytime high-tide timing, wind and wave height were screened as
@@ -1325,46 +1363,53 @@ same rate as a closed-opener day. Pair the two or the bias gets worse, not bette
 deliberately offered no opener covariate at all: all eight opener-versus-catch-rate tests on
 2024-25 came back null (p 0.29 to 0.90).
 
-### 21a. Marine hazard covariates: built 2026-09-25, off, not the same question
+### 21a. The marine hazard covariate: built 2026-09-25, adopted 2026-09-27 for the boat all-gear fit
 
 The weather module asked whether CONTINUOUS conditions (wind speed, wave height, tide) predict
 effort or catch rate, and the answer was no under a fair test. A different question is
-whether the two BINARY decisions other agencies make about those conditions predict effort:
-the NWS Small Craft Advisory (or a higher warning) for the Grays Harbor Bar and the coastal
-waters off Westport, and the Coast Guard's bar restriction. Both are known on every day of the
-window: the advisories from the archived VTEC events (`04_input_files/nws_marine_hazards.xlsx`),
-the restriction from the samplers' tick on sampled days and, on unsampled days, as the expected
-value of a logistic regression on the archived advisories. They enter the effort process as
-extra `X_open` columns (Section 14.2), so no Stan model changed.
+whether the BINARY decisions other agencies make about those conditions predict effort: the
+NWS Small Craft Advisory (or a higher warning) for the Grays Harbor Bar and the coastal waters
+off Westport, and the Coast Guard's bar restriction. Both are known on every day of the window:
+the advisories from the archived VTEC events (`04_input_files/nws_marine_hazards.xlsx`, built
+by `04_input_files/build_nws_marine_hazards.R`, which needs the network and is run by hand
+before a season), the restriction from the samplers' tick on sampled days and, on unsampled
+days, as the expected value of a logistic regression on the archived advisories. Either enters
+the effort process as an extra `X_open` column (Section 14.2), so no Stan model changed.
 
-On 2024-25 sampled days the boat responds and the shore does not: adjusted for day type and
-month on the multiplicative scale, boat trailers on an SCA-or-higher day are 0.29 of the
-expectation (p_adj 0.0008), on a bar-restriction day 0.39 (p_adj 0.0008); shore gear 0.905
-(p_adj 0.25). Production ships `marine_hazard_mode = "off"`, and the term is not adopted,
-because the sampled-day association is not the question that matters. The boat is 79.8%
-extrapolated, so a day covariate earns its place by improving the interpolation on days with
-no count, and the effort-stream `elpd_loo` can only score days that have one.
+**What was adopted, and why only that.** The method of record carries `nws_sca_any` on the
+private-boat all-gear effort process and nothing else (`run_config.R` section 2.10). The
+evidence, from a five-rung ladder with its rule stated before the run (`VALIDATION_CAMPAIGN.md`
+Section 1x), a leave-one-week-out block cross-validation of the effort streams (Section 1y) and
+a season-split rung (Section 1z):
 
-**The ladder ran on 2026-09-25/26** (`06_diagnostics/run_marine_hazard_batch_2026-09-25.R`;
-`VALIDATION_CAMPAIGN.md` Section 1x). The machinery is inert as shipped: the `off` rung is
-bit-identical to the R4 render on every parameter row and component. In the fitted model the
-boat SCA term is identified at eight standard errors (`B_open` -1.16 [-1.45, -0.87], rate
-ratio 0.31), leaves adequacy and the catch fit unmoved, and gains +7.6 nats on the trailer
-stream at 1.46 paired SE: short of the +2 SE the rule asked for, so "identified and harmless,
-no sampled-day gain". Under it the boat all-gear estimate rises 3.4 to 3.8% and the port 1.4
-to 1.6%, upward because the sampled boat days were advisory days more often than the unsampled
-ones. The shore term is not identified (+0.04 [-0.14, +0.21]) and doubles the divergences of
-both shore fits. The bar-restriction tick beyond the archive is 0.70 [0.49, 1.00] and adds
-+0.3 nats: for the model it is redundant with the archive. Nothing is adopted under the rule.
+- **The boat term is real and it interpolates.** In the all-gear fit the coefficient is
+  -1.16 [-1.45, -0.87] (rate ratio 0.31, eight standard errors); adequacy and the catch fit are
+  unmoved. Holding out one calendar week of boat effort counts at a time (trailer and OSP
+  together) and scoring the week under the posterior without it, the term gains +18.9 nats on
+  the OSP counts (3.9 paired SE, 21 of 25 reliable weeks positive) and +26.5 on both boat
+  effort streams together (2.9 SE); the trailer stream alone reads +7.9 at 1.2 SE, the weaker
+  instrument. Under the term the boat all-gear estimate is 47,319 against 45,604 (+3.8%) and
+  the port about +1.6%, upward because the sampled boat days were advisory days more often
+  than the unsampled ones (41% against 35%), so the level the non-advisory days inherit rises.
+- **No shore term.** Not identified (+0.04 [-0.14, +0.21]), no held-out gain, and it doubles
+  the divergences of both shore fits: an unidentified term is not free.
+- **Not the bar-restriction tick.** Beyond the archive it is identified by a hair (0.70 [0.49,
+  1.00]) on sampled days and adds nothing on held-out weeks (-2.0 trailer, -0.4 OSP nats); on
+  unsampled days it is imputed FROM the archive, so it cannot add information there.
+- **Not the pot-closure fit.** Under the term the boat pot-closure estimate read 1,233 against
+  1,372 with a coefficient identified at 3.5 SE; the decision (2026-09-27) confines the term to
+  the all-gear window, where the harvest is, and the pot-closure boat fit stays covariate-free.
 
-The diagnostic that tests what matters, a leave-one-week-out block cross-validation of the
-effort streams by PSIS on the saved draws, exists since 2026-09-26
-(`06_diagnostics/run_marine_block_cv_2026-09-26.R`, CHANGE_REGISTER B39) and has not yet been
-run on the rungs; its result is what an adoption would rest on. The BOAT caution stated above
-for opener terms applies here unchanged, and is now the caveat on a measured +3.4% rather than
-a hypothetical: a boat term describes all private vessels, and the monthly crabbing fraction
-cannot see whether crabbing boats stay in port on an advisory day at a different rate from
-finfish boats (D30). Design, evidence and caveats:
+**Two limitations travel with the term** (Section 20). A boat term describes ALL private
+vessels: the monthly crabbing fraction cannot see whether crabbing boats stay in port on an
+advisory day at a different rate from finfish boats (D30). And the term is one coefficient for
+the season, while the four-season trailer record says the winter effect is about half the
+summer's (rate ratio 0.43 against 0.22, `06_diagnostics/desk_sca_season_split_2026-09-27.R`);
+the season-split rung M6 could not identify a winter coefficient from one season
+(-0.59 [-1.24, +0.06]) and left the season total where the constant term put it (47,290
+against 47,319) while halving the winter months' correction (January +15% against +29%), so
+the constant term probably over-corrects the winter months and the season total is
+insensitive to that shape (D32). Design, evidence and caveats:
 `development_notes/marine-hazard-covariates-2026-09-25.md`.
 
 ## 22. Glossary

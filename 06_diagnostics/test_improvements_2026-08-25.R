@@ -3789,12 +3789,13 @@ local({
                  "use_osp_boat_counts", "osp_scale_is_tau", "crab_fraction_dynamic",
                  "crab_fraction_strata", "use_osp_crab_lower", "estimate_catch_zi",
                  "ar_max_resolution", "pe_empty_stratum", "pe_empty_effort_stratum",
-                 "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length")
+                 "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length",
+                 "marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_gear_regimes", "marine_hazard_codes")   # 2026-09-27: A30 ADOPTED, section 2.10
   in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
                 "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C",
-                "marine_hazard_mode", "bar_restriction_impute")   # 2026-09-25: A30, section 4.4b
+                "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months")   # 2026-09-25: A30, section 4.4b (the experiment surface)
   in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive", "use_boat_ie")
   chk("ordered: every method-of-record key sits in section 2",
       all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
@@ -4240,16 +4241,16 @@ local({
                  "(2026-09-05, 2026-09-05, 2026-09-08) the letters are correct. No",
                  "assignment of session dates removes this without inventing one."))
   L   <- rd(VC)
-  hd  <- grep("^## 1[b-y]\\.", L, value = TRUE)   # 2026-09-26: 1w and 1x joined the campaign; 2026-09-27: 1y
-  let <- sub("^## (1[b-y])\\..*$", "\\1", hd)
+  hd  <- grep("^## 1[b-z]\\.", L, value = TRUE)   # 2026-09-26: 1w and 1x joined the campaign; 2026-09-27: 1y and 1z
+  let <- sub("^## (1[b-z])\\..*$", "\\1", hd)
   lastdate <- function(h) {
     m <- regmatches(h, gregexpr("20[0-9]{2}-[0-9]{2}-[0-9]{2}", h))[[1]]
     if (length(m)) as.Date(tail(m, 1)) else as.Date(NA)
   }
   dts <- as.Date(vapply(hd, function(h) as.character(lastdate(h)), character(1)))
-  chk("chronology: the campaign has 24 sections, 1b to 1y, in ascending letter order",
-      length(let) == 24 && identical(let, let[order(let)]) &&
-      identical(let[1], "1b") && identical(let[length(let)], "1y"))
+  chk("chronology: the campaign has 25 sections, 1b to 1z, in ascending letter order",
+      length(let) == 25 && identical(let, let[order(let)]) &&
+      identical(let[1], "1b") && identical(let[length(let)], "1z"))
   chk("chronology: every campaign section title carries a parseable date", !any(is.na(dts)))
   inv <- let[-1][which(diff(as.numeric(dts)) < 0)]
   chk("chronology: the campaign's section dates run backwards ONLY where declared",
@@ -4260,8 +4261,8 @@ local({
       all(nzchar(INVERSION_OK)) && all(nchar(INVERSION_OK) > 40))
 
   # (3) the git-anchor table must cover every section letter
-  tbl <- grep("^> \\| 1[b-y] \\|", L, value = TRUE)
-  tl  <- sub("^> \\| (1[b-y]) \\|.*$", "\\1", tbl)
+  tbl <- grep("^> \\| 1[b-z] \\|", L, value = TRUE)
+  tl  <- sub("^> \\| (1[b-z]) \\|.*$", "\\1", tbl)
   chk("chronology: the git-anchor table covers every campaign section",
       setequal(tl, let), sprintf("(missing: %s)",
         paste(setdiff(let, tl), collapse = ",")))
@@ -5106,7 +5107,9 @@ local({
   for (f in c("03_R_functions/prep_bss_crab_pooled.R", "03_R_functions/prep_bss_crab_gear.R")) {
     src <- readLines(f, warn = FALSE); src <- src[!grepl("^\\s*#", src)]
     chk(sprintf("%s: adds the marine selection to the K_open extras", basename(f)),
-        any(grepl("marine_extra <- (params$marine_hazard_selected %||% list())[[population_name]] %||% character(0)", src, fixed = TRUE)) &&
+        # since B42 (2026-09-27) the selection reaches the fit through marine_hazard_terms_for(), which
+        # confines it to the configured gear regime(s); section 79 tests the call site and the note
+        any(grepl("marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)", src, fixed = TRUE)) &&
         any(grepl("extra = c(razor_extra, marine_extra)", src, fixed = TRUE)))
   }
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
@@ -5128,9 +5131,13 @@ local({
 
   # (i) the shipped defaults
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("shipped: marine_hazard_mode OFF", identical(rc$marine_hazard_mode, "off"))
-  chk("shipped: the candidates are SCA (any zone) for both populations and the bar tick for the boat",
-      identical(rc$marine_hazard_candidates_shore, "nws_sca_any") && identical(rc$marine_hazard_candidates_boat, c("nws_sca_any", "bar_restriction")))
+  # 2026-09-27: A30 ADOPTED. Until then this asserted "off".
+  chk("shipped: THE METHOD OF RECORD: manual, boat nws_sca_any, no shore term, the all-gear fit only (A30, 2026-09-27)",
+      identical(rc$marine_hazard_mode, "manual") && identical(rc$marine_hazard_manual_boat, "nws_sca_any") &&
+      identical(rc$marine_hazard_manual_shore, character(0)) && identical(rc$marine_hazard_gear_regimes, "all_gear"))
+  chk("shipped: no marine candidate is offered to the shore; the boat's candidates are SCA (any zone) and the bar tick, and the adopted term is among them",
+      identical(rc$marine_hazard_candidates_shore, character(0)) && identical(rc$marine_hazard_candidates_boat, c("nws_sca_any", "bar_restriction")) &&
+      rc$marine_hazard_manual_boat %in% rc$marine_hazard_candidates_boat)
   chk("shipped: the window is 04:00-16:00 local, the zones are named bar/coastal, the codes are SCA-or-higher incl. the pre-2019 SCA codes",
       identical(rc$marine_hazard_window, c(4, 16)) && identical(names(rc$marine_hazard_zones), c("bar", "coastal")) &&
       all(c("SC.Y", "RB.Y", "SW.Y", "SI.Y", "GL.W", "SR.W") %in% rc$marine_hazard_codes))
@@ -5275,9 +5282,11 @@ local({
           a1$divergences[a1$fit == SAG] == 178 && a2$divergences[a2$fit == SAG] == 329 &&
           a1$divergences[a1$fit == "shore_ring_net_only_Dungeness_Kept"] == 76 && a2$divergences[a2$fit == "shore_ring_net_only_Dungeness_Kept"] == 158 })
     rec <- read.csv(rec_f, stringsAsFactors = FALSE)
+    # the M6 rows (2026-09-27, "split by season") answer rule 9, tested in section 79; the 1x reading is of M1 to M5
+    rec1x <- rec[!grepl("split by season", rec$item), ]
     chk("1x: the recommendation CSV says what the rule says: shore do not adopt; boat SCA and bar 'no sampled-day gain'",
-        grepl("do not adopt", rec$recommendation[grepl("shore", rec$item)]) &&
-        all(grepl("no sampled-day gain", rec$recommendation[grepl("boat", rec$item)])))
+        nrow(rec1x) == 3 && grepl("do not adopt", rec1x$recommendation[grepl("shore", rec1x$item)]) &&
+        all(grepl("no sampled-day gain", rec1x$recommendation[grepl("boat", rec1x$item)])))
     # the permutation is what moved: identical seeded subsample indices, different values
     ds <- function(dir) read.csv(file.path(dir, sprintf("bss_draws_summed_%s.csv", BAG)))
     chk("1x: bss_draws_summed_* carries the SAME draw indices in R4 and M1 and DIFFERENT values at them (the permutation, not the fit)",
@@ -5483,9 +5492,12 @@ local({
   if (all(file.exists(c(pf, vf, sf))) && have_tabs) {
     V <- read.csv(vf, stringsAsFactors = FALSE); P <- read.csv(pf, stringsAsFactors = FALSE); S <- read.csv(sf, stringsAsFactors = FALSE)
     r1 <- grepl("^R1:", V$criterion)
+    # 20 fits at the 1y read (M1 to M5); the 2026-09-27 re-run added M6's four, whose boat rows are checked
+    # EXACTLY against loo_pointwise_osp_* (section 79); the M1 to M5 boat rows remain approx-checked
+    r1_pre <- r1 & V$stage %in% c("M1", "M2", "M3", "M4", "M5")
     chk("1y: R1 held on all 20 fits: every reconstruction row is PASS, gear / trailer to 5e-5, OSP approx-checked",
-        sum(r1) == 20 && all(V$verdict[r1] == "PASS") && all(grepl("MATCHES the committed pointwise file", V$observed[r1])) &&
-        all(grepl("approx-checked", V$observed[r1 & grepl("boat", V$criterion)])))
+        sum(r1_pre) == 20 && all(V$verdict[r1] == "PASS") && all(grepl("MATCHES the committed pointwise file", V$observed[r1])) &&
+        all(grepl("approx-checked", V$observed[r1_pre & grepl("boat", V$criterion)])))
     bt  <- function(rung, stream, fit) read.csv(file.path(MH[[rung]], sprintf("loo_block_%s_%s.csv", stream, fit)), stringsAsFactors = FALSE)
     cmp <- function(a, b, stream, fit) bss_block_cv_compare(bt(a, stream, fit), bt(b, stream, fit))
     prow <- function(pair, fit, stream) P[P$pair == pair & P$fit == fit & P$stream == stream, , drop = FALSE]
@@ -5655,7 +5667,9 @@ local({
       any(grepl("#   9. THE SEASON SPLIT (M6", mhr, fixed = TRUE)) && any(grepl("declared_keys <- function(sid) unique(c(DELTA_KEYS, names(STAGE_DEFS[[sid]]$delta %||% list())))", mhr, fixed = TRUE)) &&
       any(grepl("keys <- sort(unique(c(declared_keys(sid), names(WINDOW))))", mhr, fixed = TRUE)) && any(grepl('list(sid = "M6", ctl = "M2", fit = FIT_BOAT,  cov = "nws_sca_any_winter")', mhr, fixed = TRUE)) &&
       any(grepl("^verdict_M6 <- function", mhr)) && any(grepl('STAGES  <- c("M0", "M1", "M2", "M3", "M4", "M5", "M6")', mhr, fixed = TRUE)) && any(grepl("^DRY_RUN <- TRUE", mhr)))
-  # the five rendered rungs' digests must be what their folders recorded, or RESUME would refit them
+  # the rendered rungs' digests must be what their folders recorded, or RESUME would refit them
+  # (M1 to M5 at the 1y read; M6 since its 2026-09-27 render)
+  MH6 <- c(MH, M6 = "05_output/20260927/pooled-CPUE-MH-M6-split")
   if (all(dir.exists(MH))) {
     dg <- local({
       e <- new.env(); e$.here <- function(...) file.path(getwd(), ...)
@@ -5666,11 +5680,13 @@ local({
       lift("^WINDOW <- list\\(", "^\\)"); lift("^STAGE_DEFS <- list\\(", "^\\)"); lift("^DELTA_KEYS <- ", "^DELTA_KEYS")
       lift("^declared_keys <- function", "^declared_keys"); lift("^resolve_cfg <- function", "^\\}")
       lift("^digest_or_hash <- function", "^\\}"); lift("^stage_digest <- function", "^\\}")
-      vapply(names(MH), function(sid) {
-        rec <- readLines(file.path(MH[[sid]], "MH_STAGE.txt"), warn = FALSE); rec <- sub("^digest: ", "", rec[grepl("^digest: ", rec)])
-        identical(rec, e$stage_digest(sid)) }, logical(1)) })
-    chk("B41 ladder: adding M6 left the five rendered rungs' stage digests exactly as their folders recorded (RESUME reads them back; only M6 renders)", all(dg),
+      structure(vapply(names(MH6)[dir.exists(MH6)], function(sid) {
+        rec <- readLines(file.path(MH6[[sid]], "MH_STAGE.txt"), warn = FALSE); rec <- sub("^digest: ", "", rec[grepl("^digest: ", rec)])
+        identical(rec, e$stage_digest(sid)) }, logical(1)), m6 = e$stage_digest("M6")) })
+    chk("B41 ladder: adding M6 left the five rendered rungs' stage digests exactly as their folders recorded (RESUME reads them back; only M6 renders)", all(dg[names(dg) != "M6"]),
         sprintf("(%s)", paste(names(dg)[!dg], collapse = ",")))
+    chk("A30 ladders: M6's own digest (b1fb62cd) reproduces too, so all six marine rungs read back under the adopted run_config.R",
+        identical(attr(dg, "m6"), "b1fb62cd") && (!"M6" %in% names(dg) || isTRUE(dg[["M6"]])))
   } else cat("NOTE  B41: rung folders absent; the digest check is skipped\n")
   chk("B41 block-CV runner: lists M6 and the pair M6 vs M2 on the boat fits only, and checks an OSP stream exactly when its pointwise file exists",
       any(grepl('M6 = "MH-M6-split"', bsrc, fixed = TRUE)) && any(grepl('list(b = "M6", a = "M2", what = "SCA split by season beyond the constant term', bsrc, fixed = TRUE)) &&
@@ -5716,18 +5732,192 @@ local({
   cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
   ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); dr <- rd("06_diagnostics/README.md"); rc <- rd("run_config.R")
   dn <- rd("07_documentation/development_notes/marine-hazard-covariates-2026-09-25.md")
-  chk("1y docs: the register carries B40, B41, D32 and three 2026-09-27 defect rows; B39 RAN; D31 RUN; A30 says DECISION PENDING and still ships off",
-      grepl("| B40 |", cr, fixed = TRUE) && grepl("| B41 |", cr, fixed = TRUE) && grepl("| D32 |", cr, fixed = TRUE) && length(gregexpr("| 2026-09-27 |", cr, fixed = TRUE)[[1]]) == 3 &&
+  chk("1y docs: the register carries B40, B41, D32 and five 2026-09-27 defect rows (the fifth the improvement ladder's hashed label); B39 RAN; D31 RUN; A30 records the road from DECISION PENDING to ADOPTED",
+      grepl("| B40 |", cr, fixed = TRUE) && grepl("| B41 |", cr, fixed = TRUE) && grepl("| D32 |", cr, fixed = TRUE) && length(gregexpr("| 2026-09-27 |", cr, fixed = TRUE)[[1]]) == 5 &&
       grepl("| **RAN 2026-09-26** (`c7e8cd5`", cr, fixed = TRUE) && grepl("**RUN 2026-09-26 (B39; Section 1y)", cr, fixed = TRUE) &&
-      grepl("DECISION PENDING (Matt; Section 1y.5; the M6 rung of B41 is the test I would run first, knowing it will probably leave the winter's coefficient unidentified). Mode still ships `off`.", cr, fixed = TRUE))
+      grepl("M6 RENDERED 2026-09-27 (Section 1z): rule 9 branch (a)", cr, fixed = TRUE) && grepl("ADOPTED 2026-09-27 (Matt's decision, Section 1z)", cr, fixed = TRUE))
   chk("1y docs: the campaign has Section 1y with its git anchor naming the run commit, the under-powered clause and the three readings",
       grepl("## 1y. The block cross-validation, run and read: the boat SCA term interpolates where the data can test it", vc, fixed = TRUE) && grepl("> | 1y | 2026-09-27 |", vc, fixed = TRUE) &&
       grepl("c7e8cd5", vc, fixed = TRUE) && grepl("### 1y.4 Two defects in the runner and one in the rule", vc, fixed = TRUE) &&
       grepl("desk_sca_season_split_2026-09-27.R", vc, fixed = TRUE) && grepl("0.43 [0.29, 0.62]", vc, fixed = TRUE) &&
       grepl("### 1y.5 The decision this leaves with Matt", vc, fixed = TRUE))
-  chk("1y docs: the status document, the diagnostics README, run_config.R and the design note carry the outcome and the pending decision",
-      grepl("READ IN SECTION 1y; DECISION PENDING (Matt)", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
+  chk("1y docs: the status document, the diagnostics README, run_config.R and the design note carry the block-CV outcome",
+      grepl("ADOPTED 2026-09-27; A30; CONFIRMING RENDER OWED", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
       grepl("THAT RAN 2026-09-26 (Section 1y)", rc, fixed = TRUE) && grepl("## 11. What the block cross-validation said", dn, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 79. A30 ADOPTED: THE BOAT ALL-GEAR ADVISORY TERM IS THE METHOD OF RECORD (2026-09-27;
+#     VALIDATION_CAMPAIGN Section 1z, CHANGE_REGISTER A30 / B42, one C row).
+#
+#     Pinned: (1) THE RUNS the decision rests on, from the committed CSVs: M6's two coefficients
+#     and its rule-9 branch (a), the exact joint block-CV rows (M2 vs M1 PASS at 2.86 SE; M6 vs
+#     M2 no difference; the pot-closure M6 identical to M2), the first exact OSP reconstruction
+#     check, the desk screen's table unchanged. (2) THE ADOPTION IN CODE: run_config's method
+#     keys in section 2.10 (asserted in the "shipped" block above), marine_hazard_terms_for()
+#     confining a selected term to the configured sub-seasons and both preps calling it, an
+#     unknown regime refused, the three live ladders setting their own marine keys so their
+#     rungs stay reproducible (the marine digests are checked in section 78), the marine
+#     ladder's M0 row accepting the adopted method, DRY_RUN TRUE on both marine runners after
+#     the second slip, the delivery folder gone and every such name ignored. (3) THE DOCUMENTS
+#     moving together: the method document, the box, the register, the campaign, the guide.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+  # ---- (1) the runs ------------------------------------------------------------------------
+  lad_f <- "05_output/marine_hazard_2026-09-25_ladder.csv"; ver_f <- "05_output/marine_hazard_2026-09-25_verdicts.csv"
+  pf <- "05_output/marine_hazard_2026-09-26_blockcv_pairs.csv"; bv <- "05_output/marine_hazard_2026-09-26_blockcv_verdicts.csv"
+  M6 <- "05_output/20260927/pooled-CPUE-MH-M6-split"
+  if (all(file.exists(c(lad_f, ver_f, pf, bv))) && dir.exists(M6)) {
+    lad <- read.csv(lad_f, stringsAsFactors = FALSE); rownames(lad) <- lad$rung
+    chk("1z: M6 rendered: the winter coefficient straddles zero (-0.59 [-1.24, +0.06]), the rest is identified (-1.26 [-1.56, -0.95]), and the boat total sits where M2 put it (47,290 vs 47,319)",
+        "M6" %in% lad$rung && abs(lad["M6", "B_sca_boat_winter"] + 0.593) < 0.005 && lad["M6", "B_sca_boat_winter_hi"] > 0 && lad["M6", "B_sca_boat_winter_lo"] < 0 &&
+        abs(lad["M6", "B_sca_boat_rest"] + 1.256) < 0.005 && lad["M6", "B_sca_boat_rest_hi"] < 0 &&
+        abs(lad["M6", "boat_ag"] / lad["M2", "boat_ag"] - 1) < 0.002 && lad["M6", "boat_pc"] == lad["M2", "boat_pc"] && lad["M6", "shore_ag"] == lad["M1", "shore_ag"])
+    V <- read.csv(ver_f, stringsAsFactors = FALSE)
+    r9 <- V[grepl("^rule 9: which branch", V$criterion) & V$stage == "M6", ]
+    chk("1z: the ladder's rule-9 row reads branch (a), as the rule said in advance it probably would, and the M6 recommendation rows carry it",
+        nrow(r9) == 1 && startsWith(r9$observed, "(a)") && r9$verdict == "INFO" &&
+        { rec <- read.csv("05_output/marine_hazard_2026-09-25_recommendation.csv", stringsAsFactors = FALSE)
+          all(grepl("rule 9 (a)", rec$recommendation[grepl("split by season", rec$item)], fixed = TRUE)) })
+    P <- read.csv(pf, stringsAsFactors = FALSE)
+    prow <- function(pair, fit, stream) P[P$pair == pair & P$fit == fit & P$stream == stream, , drop = FALSE]
+    j21 <- prow("M2 vs M1", "boat_all_gear", "joint"); j62 <- prow("M6 vs M2", "boat_all_gear", "joint"); j62pc <- prow("M6 vs M2", "boat_pot_closure", "joint")
+    chk("1z: the exact joint boat all-gear row is +26.5 at 2.86 SE for the constant term (PASS, primary) and +1.2 at 0.58 SE for the split against it (REVIEW); the pot-closure M6 is M2 (INFO, identical)",
+        nrow(j21) == 1 && abs(j21$diff - 26.53) < 0.05 && abs(j21$ratio - 2.86) < 0.02 && j21$verdict == "PASS" && isTRUE(as.logical(j21$primary)) &&
+        nrow(j62) == 1 && abs(j62$diff - 1.20) < 0.05 && abs(j62$ratio - 0.58) < 0.02 && j62$verdict == "REVIEW" &&
+        nrow(j62pc) == 1 && isTRUE(as.logical(j62pc$identical)) && j62pc$verdict == "INFO")
+    BV <- read.csv(bv, stringsAsFactors = FALSE)
+    r1m6 <- BV[BV$stage == "M6" & grepl("^R1: boat_all_gear", BV$criterion), ]
+    chk("1z: M6's OSP stream was checked EXACTLY against its own loo_pointwise_osp file (the first rendered fit with one), and every M6 R1 row is PASS",
+        nrow(r1m6) == 1 && grepl("osp: 130 obs, max |lpd diff|", r1m6$observed, fixed = TRUE) && grepl("MATCHES the committed pointwise file", r1m6$observed, fixed = TRUE) &&
+        all(BV$verdict[BV$stage == "M6" & grepl("^R1:", BV$criterion)] == "PASS") && file.exists(file.path(M6, "loo_pointwise_osp_private_boat_all_gear_Dungeness_Kept.csv")))
+    chk("1z: no block-CV row is FAIL after the identical-fit floor; the same-fit pairs read INFO",
+        !any(BV$verdict == "FAIL") && sum(BV$verdict == "INFO") >= 9)
+  } else cat("NOTE  1z: the M6 folder or the result CSVs are absent (sparse checkout); the run checks are skipped\n")
+
+  # ---- (2) the adoption in code -------------------------------------------------------------
+  em <- new.env(); em$`%||%` <- function(a, b) if (is.null(a)) b else a
+  sys.source("03_R_functions/bss_marine_hazard_covariates.R", envir = em)
+  P0 <- list(marine_hazard_selected = list(shore = character(0), private_boat = "nws_sca_any"))
+  chk("B42: marine_hazard_terms_for() gives the boat its term in the all-gear fit and withholds it from the pot-closure fit under the shipped regimes, with a note",
+      identical(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = "all_gear")), "private_boat", "all_gear"), "nws_sca_any") &&
+      { w <- em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = "all_gear")), "private_boat", "pot_closure")
+        length(w) == 0 && grepl("NOT applied to this fit", attr(w, "note"), fixed = TRUE) && grepl("pot_closure", attr(w, "note"), fixed = TRUE) } &&
+      length(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = "all_gear")), "shore", "all_gear")) == 0)
+  chk("B42: both regimes named apply the term to every fit (a caller naming no fit is served only then); no key means both; an empty selection stays empty",
+      identical(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = c("pot_closure", "all_gear"))), "private_boat", "pot_closure"), "nws_sca_any") &&
+      identical(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = c("pot_closure", "all_gear"))), "private_boat", NULL), "nws_sca_any") &&
+      identical(em$marine_hazard_terms_for(P0, "private_boat", "pot_closure"), "nws_sca_any") &&   # no key: the pre-2026-09-27 behaviour, both fits
+      identical(em$marine_hazard_terms_for(P0, "private_boat", NULL), "nws_sca_any") &&
+      length(em$marine_hazard_terms_for(list(), "private_boat", "all_gear")) == 0 &&
+      length(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = "all_gear")), "shore", NULL)) == 0)   # nothing selected: nothing to refuse
+  chk("B42: a caller that names no fit under a RESTRICTED set is refused, not served the term everywhere (the gate fails closed)",
+      { e <- try(em$marine_hazard_terms_for(c(P0, list(marine_hazard_gear_regimes = "all_gear")), "private_boat", NULL), silent = TRUE)
+        inherits(e, "try-error") && grepl("gear_regime must be given", conditionMessage(attr(e, "condition")), fixed = TRUE) &&
+          grepl("nws_sca_any", conditionMessage(attr(e, "condition")), fixed = TRUE) })
+  chk("B42: both drivers hand the preps the sub-season's regime (the only thing the gate depends on)",
+      { d1 <- readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE); d2 <- readLines("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd", warn = FALSE)
+        d1 <- d1[!grepl("^\\s*#", d1)]; d2 <- d2[!grepl("^\\s*#", d2)]
+        i1 <- grep("bss_data_try <- prep_bss_crab_pooled(", d1, fixed = TRUE); i2 <- grep("bss_data_try <- prep_bss_crab_gear(", d2, fixed = TRUE)
+        length(i1) == 1 && any(grepl("gear_regime = ss$gear_regime", d1[i1 + 0:3], fixed = TRUE)) &&
+          length(i2) == 1 && any(grepl("gear_regime = ss$gear_regime", d2[i2 + 0:3], fixed = TRUE)) })
+  chk("B42: an unknown regime name is refused before the archive is read",
+      { e <- try(em$marine_hazard_prepare(NULL, list(marine_hazard_mode = "manual", marine_hazard_gear_regimes = "summer", marine_hazard_file = "no-such-workbook.xlsx",
+                                                     est_date_start = "2024-09-16", est_date_end = "2025-09-15"), quiet = TRUE), silent = TRUE)
+        inherits(e, "try-error") && grepl("marine_hazard_gear_regimes", conditionMessage(attr(e, "condition")), fixed = TRUE) })
+  pp <- rd("03_R_functions/prep_bss_crab_pooled.R"); pg <- rd("03_R_functions/prep_bss_crab_gear.R")
+  chk("B42: both preps take the fit's marine terms from marine_hazard_terms_for(params, population_name, gear_regime) and print its note",
+      grepl("marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)", pp, fixed = TRUE) &&
+      grepl("marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)", pg, fixed = TRUE) &&
+      !grepl("marine_extra <- (params$marine_hazard_selected", pp, fixed = TRUE) && !grepl("marine_extra <- (params$marine_hazard_selected", pg, fixed = TRUE))
+  ri <- rd("06_diagnostics/run_improvements_2026-09-08.R"); rg <- rd("06_diagnostics/run_gear_ar_zi_2026-09-13.R"); rm_ <- rd("06_diagnostics/run_marine_hazard_batch_2026-09-25.R")
+  chk("A30 ladders: the two pre-covariate ladders set marine_hazard_mode off inside resolve_cfg(), and the marine ladder sets both regimes, none of them in WINDOW",
+      grepl('cfg$marine_hazard_mode <- "off"; cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)', ri, fixed = TRUE) &&
+      grepl('cfg$marine_hazard_mode <- "off"; cfg$marine_hazard_manual_shore <- character(0); cfg$marine_hazard_manual_boat <- character(0)', rg, fixed = TRUE) &&
+      grepl('cfg$marine_hazard_gear_regimes <- c("pot_closure", "all_gear")', rm_, fixed = TRUE) &&
+      # a WINDOW entry would read `  marine_hazard_gear_regimes = ...` at the start of a code line; the pins read `<-`
+      { code <- readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE); code <- code[!grepl("^\\s*#", code)]
+        !any(grepl("^\\s*marine_hazard_gear_regimes\\s*=[^=]", code)) })
+  # M6's stamp is 4e23b15's fingerprint (recomputed on that tree, matched); B42 is the only fitting-layer change since
+  eM <- new.env(); eM$.here <- function(...) file.path(getwd(), ...); eM$POOLED_RMD <- file.path(getwd(), "01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd")
+  rsM <- readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE)
+  liftM <- function(name) { i <- grep(sprintf("^%s <- function", gsub(".", "\\.", name, fixed = TRUE)), rsM); j <- i; while (!grepl("^\\}", rsM[j])) j <- j + 1L; eval(parse(text = rsM[i:j]), envir = eM) }
+  liftM("digest_or_hash"); liftM(".code_fingerprint")
+  i <- grep("^CODE_EQUIVALENT_MH <- list\\(", rsM); j <- i; while (!grepl("^\\)", rsM[j])) j <- j + 1L; eval(parse(text = rsM[i:j]), envir = eM)
+  curM <- eM$.code_fingerprint(); m6st <- "05_output/20260927/pooled-CPUE-MH-M6-split/MH_STAGE.txt"
+  chk("A30 ladders: CODE_EQUIVALENT_MH declares M6's recorded fingerprint (4e23b15's) against the ACTUAL current one, naming B42 as the only fitting-layer change",
+      { k <- names(eM$CODE_EQUIVALENT_MH); hit <- k[vapply(k, function(x) identical(strsplit(x, " => ", fixed = TRUE)[[1]], c("stan:65b5adeb drivers:a65be4bc fns:6f65d84a", curM)), logical(1))]
+        length(hit) == 1 && grepl("B42", eM$CODE_EQUIVALENT_MH[[hit]], fixed = TRUE) &&
+          (!file.exists(m6st) || any(grepl("^code: stan:65b5adeb drivers:a65be4bc fns:6f65d84a$", readLines(m6st, warn = FALSE)))) },
+      sprintf("(current is %s)", curM))
+  chk("A30 ladders: the marine ladder's M0 wiring row looks for the B42 call site, and counts marine_hazard_terms_for() among the module's entry points",
+      any(grepl('wired <- grepl("marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)", src, fixed = TRUE)', rsM, fixed = TRUE)) &&
+      any(grepl('"marine_hazard_terms_for")', rsM, fixed = TRUE)))
+  chk("A30 ladders: the marine ladder's M0 row accepts the adopted method as well as the pre-adoption off, and both marine runners ship DRY_RUN TRUE after the second slip",
+      grepl('identical(BASE$marine_hazard_mode, "manual") && identical(BASE$marine_hazard_manual_boat, "nws_sca_any")', rm_, fixed = TRUE) &&
+      any(grepl("^DRY_RUN <- TRUE", readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE))) &&
+      any(grepl("^DRY_RUN <- TRUE", readLines("06_diagnostics/run_marine_block_cv_2026-09-26.R", warn = FALSE))))
+  # the improvement ladder's digest hashes run_tag, a LABEL the stage overwrites before any render; run_config.R's
+  # label moved on 2026-09-12 and took all five digests with it. resolve_cfg() now holds the label the stamps were
+  # computed under: the five recorded digests must reproduce from the runner's own code on the current tree
+  eI <- new.env(); eI$.here <- function(...) file.path(getwd(), ...)
+  rsI <- readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE)
+  cutI <- grep("^banner\\(sprintf\\(\"IMPROVEMENT LADDER", rsI)[1]
+  okI <- tryCatch({ suppressMessages(suppressWarnings(eval(parse(text = rsI[seq_len(cutI - 1L)]), envir = eI))); TRUE }, error = function(e) FALSE)
+  recI <- c(R1 = "R1|new_throughout|04971140", R2 = "R2|new_throughout|04aa1a58", R2f = "R2f|new_throughout|04a56a99",
+            R4 = "R4|new_throughout|04cc4a57", R5 = "R5|new_throughout|04d9527d")
+  gotI <- if (okI) vapply(names(recI), function(sid) tryCatch(eI$stage_digest(sid), error = function(e) NA_character_), character(1)) else rep(NA_character_, 5)
+  chk("A30 ladders: the improvement ladder's five recorded digests reproduce on the current tree (run_tag held in resolve_cfg(), never in WINDOW)",
+      okI && identical(unname(gotI), unname(recI)) &&
+        any(grepl("^  cfg\\$run_tag <- \"two-season-2023-25\"", rsI)) && any(grepl("cfg$run_tag <- st$tag", rsI, fixed = TRUE)) &&
+        !any(grepl("^\\s*run_tag\\s*=\\s*\"", rsI)),   # a WINDOW entry would be a quoted literal; the manifest's column is not
+      sprintf("(got %s)", paste(gotI, collapse = ", ")))
+  chk("A30 ladders: the folders that are on disk carry those digests in IMP_STAGE.txt",
+      { st <- Sys.glob(file.path("05_output", "*", "pooled-CPUE-IMP-R*-newf", "IMP_STAGE.txt")); st <- c(st, Sys.glob(file.path("05_output", "*", "gear-type-CPUE-model-IMP-R5-*", "IMP_STAGE.txt")))
+        length(st) == 0 || all(vapply(st, function(f) { d <- sub("^digest: ", "", grep("^digest: ", readLines(f, warn = FALSE), value = TRUE)[1]); d %in% recI }, logical(1))) })
+  rbc <- rd("06_diagnostics/run_marine_block_cv_2026-09-26.R")
+  chk("A30 ladders: the block-CV runner's R1 threshold text says the OSP stream is matched exactly where the rung wrote a pointwise file (both R1 rows use the one string)",
+      grepl('R1_THRESHOLD <- "every stream with a committed pointwise file matches it (gear, trailer; OSP where the rung wrote one); otherwise OSP means within 10% of ppc_byobs"', rbc, fixed = TRUE) &&
+      lengths(regmatches(rbc, gregexpr("R1_THRESHOLD", rbc, fixed = TRUE))) == 3 && !grepl('"every gear / trailer stream matches its committed file; OSP means within 10% of ppc_byobs"', rbc, fixed = TRUE))
+  gi <- readLines(".gitignore", warn = FALSE)
+  chk("A30 hygiene: the delivery folder 7e83fab swept in is gone and any delivery folder or README is ignored whatever its name",
+      !dir.exists("blockcv-review-patch-2026-09-27") && all(c("*-patch-20*/", "*-patches-20*/", "README-APPLY*.md") %in% gi))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("A30 config: the method keys sit in section 2.10 and the experiment surface in 4.4b; the archive definition is the method's",
+      { src <- readLines("run_config.R", warn = FALSE)
+        l210 <- grep("^  # --- 2.10 The effort covariate", src)[1]; l44b <- grep("^  # --- 4.4b Marine hazard effort covariates", src)[1]; l3 <- grep("^  # 3. DIAGNOSTICS REPORTED BESIDE THE ESTIMATE", src)[1]
+        keyline <- function(k) grep(sprintf("^\\s*%s\\s*=", k), src)[1]
+        is.finite(l210) && is.finite(l44b) && l210 < l3 && l3 < l44b &&
+        all(vapply(c("marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_manual_shore", "marine_hazard_gear_regimes", "marine_hazard_codes", "marine_hazard_window"),
+                   function(k) { l <- keyline(k); is.finite(l) && l > l210 && l < l3 }, logical(1))) &&
+        all(vapply(c("marine_hazard_candidates_shore", "marine_hazard_candidates_boat", "marine_hazard_auto_p", "marine_hazard_winter_months", "bar_restriction_impute"),
+                   function(k) { l <- keyline(k); is.finite(l) && l > l44b }, logical(1))) })
+
+  # ---- (3) the documents ----------------------------------------------------------------------
+  md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md")
+  cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  ng <- rd("07_documentation/NEW_SEASON_GUIDE.md"); cl <- rd("07_documentation/CLAUDE.md")
+  chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
+      grepl("**last moved 2026-09-27**", md, fixed = TRUE) && grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
+      grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
+      grepl("### 21a. The marine hazard covariate: built 2026-09-25, adopted 2026-09-27 for the boat all-gear fit", md, fixed = TRUE) &&
+      grepl("**12. The boat advisory term describes all private boats.**", md, fixed = TRUE) && grepl("**13. The advisory term is one coefficient for the season", md, fixed = TRUE) &&
+      !grepl("Production ships `marine_hazard_mode = \"off\"`", md, fixed = TRUE))
+  chk("A30 docs: the box says R4 predates the method of record by one term, names the adopted boat fit and the expected total, and the stale span paragraph is gone",
+      grepl("IT PREDATES THE METHOD OF RECORD BY ONE TERM (2026-09-27, A30 ADOPTED)", ps, fixed = TRUE) && grepl("**private boat all-gear 47,319**", ps, fixed = TRUE) &&
+      grepl("expect a port total near **96,000**", ps, fixed = TRUE) && !grepl("WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW", ps, fixed = TRUE) &&
+      grepl("[FOUND AND FIXED 2026-09-27] The improvement ladder's five stage digests had drifted from their folders, by a label.", ps, fixed = TRUE) &&
+      grepl("hashes `run_tag`", ps, fixed = TRUE) && !grepl("[OPEN 2026-09-27] The improvement ladder's R4 stage digest", ps, fixed = TRUE))
+  chk("A30 docs: the register says ADOPTED with the scope, carries B42, records D28 resolved and D32 as a limitation of the adopted method",
+      grepl("| **ADOPTED 2026-09-27 (Matt's decision, Section 1z): the constant boat SCA term, the ALL-GEAR fit only; no shore term, not the bar tick, not the pot-closure fit.**", cr, fixed = TRUE) &&
+      grepl("| B42 |", cr, fixed = TRUE) && grepl("**RESOLVED 2026-09-12 by option (a), recorded here 2026-09-27**", cr, fixed = TRUE) &&
+      grepl("now a limitation of the ADOPTED method", cr, fixed = TRUE))
+  chk("A30 docs: the campaign has Section 1z with its anchor, the guide makes the archive a per-season requirement, and CLAUDE.md names the method of record",
+      grepl("## 1z. Rung M6 and the four-season screen read; the decision", vc, fixed = TRUE) && grepl("> | 1z | 2026-09-27 |", vc, fixed = TRUE) && grepl("7e83fab", vc, fixed = TRUE) &&
+      grepl("**Required since 2026-09-27**", ng, fixed = TRUE) && grepl("The NWS archive covers the window", ng, fixed = TRUE) &&
+      grepl("the method of record since 2026-09-27", cl, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------

@@ -75,3 +75,16 @@ Thumbs.db
 # README folder into the tree by accident and they were removed the next day. Keep them out.
 *.tar.gz
 marine-hazard-*-patches-*/
+# ...and, since the second such slip (7e83fab swept blockcv-review-patch-2026-09-27/ in), any
+# delivery folder or README however it is named:
+*-patch-20*/
+*-patches-20*/
+README-APPLY*.md
+
+# --- Rendered copies of the living documents (2026-09-27) ---
+# The .md files under 07_documentation/ are the documents; a knitted .html beside one is a
+# snapshot that goes stale the day after (three did, by up to seven weeks, and were removed
+# 2026-09-27). The archived v1.0 render under 07_documentation/archive/ is the one deliberate
+# exception and is tracked.
+07_documentation/*.html
+07_documentation/development_notes/*.html
