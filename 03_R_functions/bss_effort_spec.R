@@ -45,15 +45,39 @@
 #   The Stan model forms E = lambda_E * E_scale * L, with
 #   E_scale = R_G when effort_scale_gear = 1 and 1 otherwise. Therefore:
 #
-#     population  unit               h                  E_scale  L
-#     ----------  -----------------  -----------------  -------  ------------------
-#     shore       crabber-hours      fishing_time_total    1     L_eff (hours)
-#     shore       gear-hours         gear_time_total     R_G     L_eff (hours)
-#     shore       gear-deployments   number_of_gear      R_G     tau_shore
-#     boat        gear-deployments   number_of_gear        1     tau_boat
+#     population  unit               h                  E_scale  L            I/E observation
+#     ----------  -----------------  -----------------  -------  -----------  ----------------
+#     shore       crabber-hours      fishing_time_total    1     L_eff (hrs)  crabber-hours
+#     shore       gear-hours         gear_time_total     R_G     L_eff (hrs)  crabber-hours
+#     shore       gear-deployments   number_of_gear      R_G     tau_shore    crabber TRIPS
+#     boat        gear-deployments   number_of_gear        1     tau_boat     boat trips
 #
 #   In every row E and h carry the same unit, which is the invariant that
 #   bss_assert_effort_units() checks before sampling.
+#
+# THE I/E OBSERVATION COLUMN (improvement 1/2 fix, 2026-08-25)
+#   The last column above is new, and it fixes a live unit error. The shore I/E likelihood
+#   is  IE_obs ~ lognormal(log(lambda_E * L), sigma_IE).  Under crabber-hours that was
+#   right: lambda_E is crabbers present and L is L_effective in HOURS, so lambda_E * L is
+#   crabber-hours, matching ie_crabber_hours. The v7.7 move to gear-deployments replaced L
+#   with tau_shore (a dimensionless turnover, ~1.7) but left the observation as
+#   crabber-hours, so since v7.7 the model has been comparing crabber-HOURS against a
+#   predicted lambda_E * tau = crabber-TRIPS. On a typical WDF20 day that is ~331 observed
+#   against ~80 predicted, a ~4x mismatch the gear-count stream then has to absorb; it is
+#   the most likely mechanism behind the unexplained shore all-gear sigma_IE ~ 1.07 (GR-9).
+#   The BOAT stream was already correct (F2: observation = boat trips, predicted =
+#   groups x tau). The spec now names the matching observation column per unit, and both
+#   preps read it, so the two can no longer drift.
+#
+#   Both quantities come from the SAME I/E presence series, so nothing new is measured:
+#       L_effective = crabber-hours / peak present   (~5.3 h)
+#       turnover    = arrivals      / peak present   (~1.72)
+#   and their ratio is the implied trip length, 3.07 h against an interview mean of
+#   3.23 h. Production expands on the turnover, so the turnover is what the I/E stream
+#   must observe.
+#
+#   params$ie_shore_obs_unit = "crabber_hours" forces the historical (mismatched under
+#   deployments) behaviour, for reproducing pre-2026-08-25 runs.
 #
 # HOW TO CHOOSE
 #   Run the model once per candidate value of params$shore_effort_unit and
@@ -81,14 +105,26 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
 
   if (!is_shore) {
     # Boat: lambda_E is already gear, so no R_G conversion. L is the deployment
-    # turnover tau_boat, identified by WBL I/E ingress counts when available.
+    # turnover tau_boat, identified by the OSP/trailer overlap (shared_tau) and by WBL
+    # I/E ingress counts when available.
+    # 2026-09-08 (review item 3): tau_boat_prior_mu may be the string "calibration" in
+    # run_config; the driver resolves it to a number through bss_resolve_tau_boat_prior()
+    # BEFORE any prep runs. Refuse an unresolved value here rather than hand Stan a string.
+    .tau_b <- params$tau_boat_prior_mu %||% 1.2
+    if (!is.numeric(.tau_b) || length(.tau_b) != 1L || !is.finite(.tau_b) || .tau_b <= 0)
+      stop("bss_effort_spec(): params$tau_boat_prior_mu is not a positive number (got ",
+           deparse(.tau_b), "). Call bss_resolve_tau_boat_prior(params, osp_overlap) first ",
+           "(the drivers do this right after the OSP overlap diagnostic).", call. = FALSE)
     return(list(
       unit              = "gear-deployments",
       h_col             = "number_of_gear",
       h_fun             = function(int_d) .num(int_d, "number_of_gear"),
       effort_scale_gear = 0L,
-      L_data            = rep(params$tau_boat_prior_mu    %||% 1.2, D),
-      L_prior_sigma     = rep(params$tau_boat_prior_sigma %||% 0.3, D)
+      L_data            = rep(.tau_b, D),
+      L_prior_sigma     = rep(params$tau_boat_prior_sigma %||% 0.3, D),
+      ie_obs_col        = "ie_trips",           # boat ingress count (F2)
+      ie_obs_unit       = "boat trips",
+      L_unit            = "turnover (trips per present group per day)"
     ))
   }
 
@@ -106,7 +142,10 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
       h_fun             = function(int_d) .num(int_d, "fishing_time_total"),
       effort_scale_gear = 0L,                 # lambda_E is already crabbers
       L_data            = days$L_mu,          # effective day length, hours
-      L_prior_sigma     = days$L_prior_sigma
+      L_prior_sigma     = days$L_prior_sigma,
+      ie_obs_col        = "ie_crabber_hours",
+      ie_obs_unit       = "crabber-hours",
+      L_unit            = "effective day length (hours)"
     ),
     "gear-hours" = list(
       unit              = unit,
@@ -114,20 +153,56 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
       h_fun             = function(int_d) .num(int_d, "gear_time_total"),
       effort_scale_gear = 1L,                 # crabbers -> gear via R_G
       L_data            = days$L_mu,
-      L_prior_sigma     = days$L_prior_sigma
+      L_prior_sigma     = days$L_prior_sigma,
+      ie_obs_col        = "ie_crabber_hours",
+      ie_obs_unit       = "crabber-hours",
+      L_unit            = "effective day length (hours)"
     ),
-    "gear-deployments" = list(
+    "gear-deployments" = {
+      # tau_shore: trips per gear-slot per day. The historical 1.7 is arrivals / PEAK
+      # presence over the WDF20 I/E days; since 2026-09-08 (review item 2) the driver can
+      # derive arrivals / presence AT THE COUNT HOURS from the I/E time column
+      # (estimate_shore_turnover, ~2.5 on 2024-25) and resolve "derived" to that number
+      # BEFORE any prep runs. Refuse an unresolved string here.
+      .tau_s <- params$tau_shore_prior_mu    %||% 1.7
+      .sd_s  <- params$tau_shore_prior_sigma %||% 0.3
+      if (!is.numeric(.tau_s) || length(.tau_s) != 1L || !is.finite(.tau_s) || .tau_s <= 0 ||
+          !is.numeric(.sd_s) || !is.finite(.sd_s) || .sd_s <= 0)
+        stop("bss_effort_spec(): params$tau_shore_prior_mu / _sigma are not resolved numbers (got ",
+             deparse(.tau_s), " / ", deparse(.sd_s), "). Call bss_resolve_tau_shore_prior() first ",
+             "(the drivers do this right after the I/E read).", call. = FALSE)
+      list(
       unit              = unit,
       h_col             = "number_of_gear",
       h_fun             = function(int_d) .num(int_d, "number_of_gear"),
       effort_scale_gear = 1L,                 # crabbers -> gear via R_G
-      # tau_shore: trips per gear-slot per day. 30 WDF20 I/E days give
-      # arrivals/peak = 1.72 (median 1.69, sd 0.45), and L_eff/tau = 3.06 h
-      # against an interview mean trip length of 3.23 h.
-      L_data            = rep(params$tau_shore_prior_mu    %||% 1.7, D),
-      L_prior_sigma     = rep(params$tau_shore_prior_sigma %||% 0.3, D)
-    )
+      L_data            = rep(.tau_s, D),
+      L_prior_sigma     = rep(.sd_s, D),
+      # improvement 1/2 fix: under deployments the predicted I/E quantity is
+      # lambda_E * tau_shore = crabber TRIPS, so the observation must be the crabber
+      # ARRIVAL count, not crabber-hours. ie_shore_obs_unit = "crabber_hours" restores
+      # the historical (mismatched) pairing.
+      ie_obs_col        = if (identical(params$ie_shore_obs_unit %||% "auto", "crabber_hours"))
+                            "ie_crabber_hours" else "ie_trips",
+      ie_obs_unit       = if (identical(params$ie_shore_obs_unit %||% "auto", "crabber_hours"))
+                            "crabber-hours (LEGACY, unit-mismatched under deployments)"
+                          else "crabber trips",
+      L_unit            = "turnover (trips per gear-slot per day)"
+    )}
   )
+}
+
+# Per-population lookup for a key that may be a scalar or a named list
+# (shared_tau_min_obs, shared_tau_sigma since 2026-09-08). A missing population in a
+# named list falls back to `default`.
+.bss_per_pop <- function(x, population_name, default) {
+  if (is.null(x)) return(default)
+  if (is.list(x)) {
+    v <- x[[population_name]]
+    if (is.null(v)) return(default)
+    return(v)
+  }
+  x
 }
 
 
@@ -138,4 +213,99 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
 bss_effort_h_candidates <- function(is_shore) {
   if (is_shore) c("fishing_time_total", "gear_time_total", "number_of_gear")
   else          c("number_of_gear")
+}
+
+# ---------------------------------------------------------------------------
+# improvement 2.1 (2026-08-27): SHARED-TURNOVER Stan data, with the guard.
+#
+# Returns the four `shared_tau*` fields both .stan models declare. Off by default, and
+# REFUSED (with a warning, not an error, so a batch never dies on it) whenever L is not a
+# turnover: under a time-denominated shore unit L_data is the per-day L_effective
+# regression, and collapsing that to one shared level would discard real day-to-day
+# structure rather than pool information about a constant.
+#
+# The prior centre and SD are taken from the SAME L_data / L_prior_sigma the per-day
+# parameterization uses, so `shared_tau = 1` changes how information is pooled and not what
+# the model is told a priori about the level. shared_tau_sigma (the fixed day-to-day spread)
+# defaults to half the prior SD: large enough that the per-day deviation is not a token,
+# small enough that it cannot substitute for the level it sits around.
+# `n_informed` is the count of days that can actually inform L in THIS fit. See the floor
+# discussion in the body.
+bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list(),
+                                population_name = "", n_informed = NA_integer_,
+                                quiet = FALSE) {
+  # 2026-09-08: shared_tau_sigma and shared_tau_min_obs may be per-population named lists
+  # (list(shore = ..., private_boat = ...)) or scalars; see .bss_per_pop().
+  .sts <- .bss_per_pop(params$shared_tau_sigma, population_name, NULL)
+  off <- list(shared_tau = 0L,
+              shared_tau_prior_mu    = as.numeric(stats::median(L_data)),
+              shared_tau_prior_sigma = as.numeric(stats::median(L_prior_sigma)),
+              shared_tau_sigma       = as.numeric(.sts %||% (0.5 * stats::median(L_prior_sigma))))
+  if (!isTRUE(params$shared_tau)) return(off)
+
+  l_unit <- eff_spec$L_unit %||% NA_character_
+  if (is.na(l_unit) || grepl("day length", l_unit, ignore.case = TRUE)) {
+    warning(sprintf(paste0("shared_tau = TRUE ignored for %s: L is '%s', not a turnover. ",
+                           "A single shared level is only meaningful when L_data is constant ",
+                           "across days."), population_name, l_unit), call. = FALSE)
+    return(off)
+  }
+  # L_data must actually be constant for a shared level to be the same object.
+  if (diff(range(L_data)) > 1e-8) {
+    warning(sprintf(paste0("shared_tau = TRUE ignored for %s: L_data varies across days ",
+                           "(range %.4f-%.4f), so there is no single level to share."),
+                    population_name, min(L_data), max(L_data)), call. = FALSE)
+    return(off)
+  }
+  # ---------------------------------------------------------------------------
+  # THE INFORMED-DAY FLOOR (2026-08-30), from the 2026-08-29 batch.
+  #
+  # A shared level propagates the evidence on the observed days across ALL days, which is the
+  # point of it and also its hazard. In the 2026-08-29 batch the toggle was global, and the
+  # SHORE all-gear fit has exactly 4 in-window I/E days out of 289. Turning shared_tau on
+  # moved that component +17.9% (20,898 -> 24,629 crab) on the strength of those four
+  # observations, with a tau_bar interval of [1.358, 2.979] that still CONTAINS the 1.700
+  # prior centre, no measurable improvement in fit (gear PIT 0.5005 -> 0.5012, catch elpd
+  # -0.18), and no replication in the gear track, which put the same parameter at 1.681.
+  #
+  # The boat is the opposite case and is why the feature exists: 130 OSP days inform its
+  # level, tau_bar lands at 2.597 [2.064, 3.249] excluding the 1.200 prior centre, it agrees
+  # with the independent OSP/trailer overlap calibration (2.01-3.03), and it pulls the trailer
+  # and OSP PIT means toward nominal simultaneously and in opposite directions.
+  #
+  # WHAT COUNTS AS INFORMED. Any day carrying an observation whose likelihood contains L.
+  # That is the I/E days always, plus the OSP days when osp_scale_is_tau = 1 puts L into the
+  # OSP mean. The caller passes the count; NA means "unknown", and an unknown count does NOT
+  # block the feature (the guard would otherwise fire on every caller that has not been
+  # updated), but it is reported so it cannot pass unnoticed.
+  #
+  # ON THE DEFAULT OF 15, stated plainly because a threshold chosen after seeing the results
+  # is worth distrusting. The observed counts are 4 (shore all-gear), 0 (shore pot closure),
+  # 130 (boat all-gear) and 18 (boat pot closure). Any threshold in 5..18 separates the shore
+  # from the boat, so the choice within that range is not what decides the outcome; what
+  # decides it is the gap between 4 and 130. 15 is set just below the boat pot closure's 18
+  # deliberately, because that fit gave tau_bar 1.873 [1.219, 2.780] on the pooled track and
+  # 2.050 [1.415, 2.930] on the gear track - two passing fits, both excluding 1.2 - and
+  # discarding a corroborated cross-track result to buy margin on a threshold would be the
+  # wrong trade. A run that wants the conservative answer sets shared_tau_min_obs = 20 and
+  # loses the boat pot closure; that sensitivity is worth checking once.
+  floor_n <- as.integer(.bss_per_pop(params$shared_tau_min_obs, population_name, 15L))
+  if (!is.na(n_informed) && n_informed < floor_n) {
+    if (!isTRUE(quiet))
+      cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below ",
+                         "shared_tau_min_obs = %d. Falling back to per-day draws.\n"),
+                  population_name, n_informed, floor_n))
+    return(off)
+  }
+
+  on <- off; on$shared_tau <- 1L
+  if (!isTRUE(quiet))
+    cat(sprintf(paste0("  SHARED TURNOVER on: one tau_bar ~ Lognormal(log(%.3f), %.2f) ",
+                       "with a fixed day-to-day spread of %.2f (was %d independent per-day draws).\n"),
+                on$shared_tau_prior_mu, on$shared_tau_prior_sigma, on$shared_tau_sigma,
+                length(L_data)))
+  if (!isTRUE(quiet))
+    cat(sprintf("    informed days: %s (floor %d)\n",
+                if (is.na(n_informed)) "unknown" else as.character(n_informed), floor_n))
+  on
 }

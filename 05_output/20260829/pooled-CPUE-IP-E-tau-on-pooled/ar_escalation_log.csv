@@ -1,0 +1,5 @@
+"fit","attempt","n_attempts_planned","ar_resolution","P_n","escalation_enabled","divergences","divergence_fraction","impact_C_sd","pass_convergence"
+"shore_ring_net_only_Dungeness_Kept",1,1,"biweekly",6,FALSE,63,0.0105,0.0021,TRUE
+"shore_all_gear_Dungeness_Kept",1,1,"daily",289,FALSE,408,0.0408,0.0013,TRUE
+"private_boat_ring_net_only_Dungeness_Kept",1,1,"monthly",3,FALSE,32,0.0053,0.0012,TRUE
+"private_boat_all_gear_Dungeness_Kept",1,1,"monthly",10,FALSE,39,0.0039,6e-04,TRUE

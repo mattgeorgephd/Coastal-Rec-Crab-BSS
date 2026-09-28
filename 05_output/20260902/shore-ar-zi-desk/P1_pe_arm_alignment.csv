@@ -1,0 +1,5 @@
+"component","arm_gear_only","pe_effort_gear_only","pe_catch_gear_only","arm_match_bss","pe_effort_match_bss","pe_catch_match_bss","catch_change_pct","effort_change_pct"
+"private_boat_all_gear","gear_only",3710.94793103448,11176.25610017,"match_bss",3708.74770992366,11169.6296976797,-0.059,-0.059
+"private_boat_ring_net_only","gear_only",180.211764705882,400.296705882353,"match_bss",180.211764705882,400.296705882353,0,0
+"shore_all_gear","gear_only",18862.7277777778,15755.1370022609,"match_bss",18862.7277777778,15755.1370022609,0,0
+"shore_ring_net_only","gear_only",4661.25833333333,5959.13684024399,"match_bss",4661.25833333333,5959.13684024399,0,0

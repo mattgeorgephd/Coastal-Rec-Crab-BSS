@@ -27,8 +27,12 @@
 # its arguments.
 ###############################################################################
 
+# force_resolution (improvement 7): when non-NULL, use this AR resolution verbatim,
+# overriding both period_type and the adaptive selector. The escalation ladder in the
+# driver passes each rung in turn; NULL preserves the historical behaviour.
 prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_name, period_type,
-                          gear_exclude = character(0), gear_regime = NULL, ie_data = NULL) {
+                          gear_exclude = character(0), gear_regime = NULL, ie_data = NULL,
+                          force_resolution = NULL) {
 
   eff <- summ$effort_index |> filter(count_sequence <= params$bss_max_count_seq)
   D <- nrow(days); G <- 1L; S <- 1L
@@ -46,7 +50,8 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     eff_d            = eff_d,
     population_name  = population_name,
     params           = params,
-    fixed_resolution = if (isTRUE(params$ar_adaptive)) NULL else period_type,
+    fixed_resolution = if (!is.null(force_resolution)) force_resolution
+                       else if (isTRUE(params$ar_adaptive)) NULL else period_type,
     gear_regime      = gear_regime
   )
   ar_resolution <- ar_sel$resolution
@@ -57,9 +62,15 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # gear_time_total filter and the L/h branches below can use it.
   is_shore <- (population_name == "shore")
 
+  # 2026-09-28 (B45): no fishing-time filter here. The CPUE denominator filter below keeps
+  # an interview when the effort unit's OWN column (number_of_gear under gear-deployments)
+  # is finite and positive, as the pooled prep does. This line used to drop every interview
+  # without a positive fishing_time_total as well, whatever the unit, so the gear track fitted
+  # a strict subset of the pooled track's interviews: 3 in four seasons (2022-23 to 2025-26,
+  # none in 2024-25), all shore, all of them with crab kept, i.e. crabbing interviews missing
+  # only the hours the deployment unit does not use (Matt, 2026-09-28: keep them on both).
   int_cg <- summ$interview |>
-    mutate(fish_count = .data[[est_catch_group]]) |>
-    filter(!is.na(fishing_time_total), fishing_time_total > 0)
+    mutate(fish_count = .data[[est_catch_group]])
 
   int_d <- int_cg |>
     left_join(days |> select(event_date,day_index,day_type,day_type_idx), by="event_date") |>
@@ -118,7 +129,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
               eff_spec$unit, eff_spec$effort_scale_gear))
 
   # --- F2: I/E observation stream, population-aware ---------------------------
-  #   shore: observation = crabber-hours; predicted = lambda_E * L        (hours)
+  #   shore: observation = crabber ARRIVALS (ie_trips); predicted = lambda_E * tau_shore
+#          (trips). Crabber-hours against lambda_E * L applies only under a time unit;
+#          pairing the two was the ~4x mismatch fixed as the 2026-08-25 defect (A).
   #   boat : observation = boat trips;    predicted = (lambda_E/R_G_boat) * tau
   # The boat stream is what identifies tau. It is inert this season (no WBL days
   # inside the window) but activates automatically as WBL I/E accumulates.
@@ -133,11 +146,19 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
         filter(population == ie_pop) |>
         inner_join(days |> select(event_date, day_index), by = "event_date") |>
         filter(!is.na(day_index))
-      ie_match <- if(is_shore) {
-        ie_match |> mutate(ie_obs = ie_crabber_hours) |> filter(ie_obs > 0)
-      } else {
-        ie_match |> mutate(ie_obs = as.numeric(ie_trips)) |> filter(ie_obs > 0)
-      }
+      # improvement 1/2 fix: the shore observation follows the effort unit, via
+      # eff_spec$ie_obs_col. Under gear-deployments the predicted mean is
+      # lambda_E * tau_shore = crabber TRIPS, so the observation is the crabber ARRIVAL
+      # count; under a time unit it stays crabber-hours. The boat was already on trips
+      # (F2). Before this fix the shore deployment path compared crabber-hours against
+      # crabber-trips, a ~4x scale mismatch (see bss_effort_spec.R).
+      .ie_col <- if (is_shore) (eff_spec$ie_obs_col %||% "ie_crabber_hours") else "ie_trips"
+      if (!.ie_col %in% names(ie_match) && nrow(ie_match) > 0)
+        stop("prep_bss_crab_gear(): I/E observation column '", .ie_col, "' missing from ie_data.",
+             call. = FALSE)
+      ie_match <- ie_match |>
+        mutate(ie_obs = suppressWarnings(as.numeric(.data[[.ie_col]]))) |>
+        filter(is.finite(ie_obs), ie_obs > 0)
       # Require a minimum number of boat I/E days before letting them inform tau.
       if(!is_shore && nrow(ie_match) < (params$ie_min_obs_boat %||% 2)) {
         if(nrow(ie_match) > 0)
@@ -160,7 +181,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   }
   IE_n <- nrow(ie_match)
   cat(sprintf("  I/E observations: %d (%s)%s\n", IE_n,
-              if(is_shore) "crabber-hours" else "boat trips -> tau",
+              if(is_shore) (eff_spec$ie_obs_unit %||% "crabber-hours") else "boat trips -> tau",
               if(IE_n > 0) sprintf("  range %.0f-%.0f",
                                    min(ie_match$ie_obs), max(ie_match$ie_obs)) else ""))
 
@@ -197,8 +218,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   # v5.1: bss_max_interviews = NULL means use full dataset (Issue 8)
   if(!is.null(params$bss_max_interviews) && nrow(int_d)>params$bss_max_interviews) {
-    set.seed(42)
-    int_d <- int_d |> slice_sample(n=params$bss_max_interviews)
+    int_d <- bss_with_seed(42, int_d |> slice_sample(n=params$bss_max_interviews))   # B46: RNG restored
     intA <- intA |> filter(interview_id %in% int_d$interview_id)
   }
 
@@ -441,6 +461,56 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
+  # --- Phase 1b: OSP boat-count second effort stream (boat fits only) --------
+  # OSP daily boat TOTAL (all private boats), a second observation of the SAME
+  # latent effort (sum_g lambda_E) via kappa_OSP (the OSP/trailer overlap ratio ~3).
+  # fetch_osp_boat_counts() de-dups, keeps observed zeros, and windows the series;
+  # here we keep the days in THIS fit's day set. Behavior-neutral when OSP_n = 0
+  # (shore, or use_osp_boat_counts = FALSE): kappa_OSP samples its prior. Mirrors
+  # prep_bss_crab_pooled (Phase 1).
+  osp_match <- tibble(event_date = as.Date(character()), day_index = integer(), count_quantity = numeric())
+  if (!is_shore && isTRUE(params$use_osp_boat_counts)) {
+    osp_raw <- fetch_osp_boat_counts(params)
+    # improvement 8: crab-only rows ride along as an attribute; prefer what the driver
+    # already lifted, fall back to this read so the prep works standalone.
+    if (is.null(params$osp_crab_rows)) params$osp_crab_rows <- attr(osp_raw, "osp_crab_rows")
+    if (!is.null(osp_raw) && nrow(osp_raw) > 0) {
+      osp_match <- osp_raw |>
+        inner_join(days |> select(event_date, day_index), by = "event_date") |>
+        filter(!is.na(day_index))
+    }
+  }
+  OSP_n <- nrow(osp_match)
+  if (OSP_n > 0)
+    cat(sprintf("  OSP boat-count stream: %d in-window days (kappa_OSP prior center %.2f)\n",
+                OSP_n, params$osp_scale_prior_mu %||% 3.0))
+
+  # --- Phase 2/3 + improvement 8: crabbing-fraction f Stan data (boat only, per stratum;
+  # see 03_R_functions/crab_fraction.R). The OSP crab-only lower bound enters here.
+  cf_data <- crab_fraction_stan_data(is_shore, days, params)
+
+  # --- improvement 4: opener effort covariates for THIS fit --------------------
+  # The driver ran the screen and stored the selection in params$opener_selected and the
+  # per-date flags in params$opener_flags. Columns that are not identifiable inside this
+  # window are dropped here and reported. K_open = 0 reproduces the pre-2026-08-25 model.
+  razor_extra <- if (is_shore && isTRUE(params$razor_dig_active)) "razor_nearby_dig" else character(0)
+  # 2026-09-25: the marine hazard covariates (NWS SCA-or-higher, USCG bar restriction) ride
+  # on the same block as extra columns; marine_hazard_prepare() in the driver joined their
+  # per-date values onto params$opener_flags and stored the selection. Inert when "off".
+  # 2026-09-27 (the adopted method): the selection is per population; which fits it enters is
+  # per sub-season (marine_hazard_gear_regimes; "all_gear" as shipped, so the pot-closure fit
+  # carries no marine term). marine_hazard_terms_for() applies that and says when it withholds.
+  marine_extra <- marine_hazard_terms_for(params, population_name, gear_regime)
+  for (.mh_note in attr(marine_extra, "note") %||% character(0)) cat(sprintf("  %s\n", .mh_note))
+  open_sel    <- (params$opener_selected %||% list())[[population_name]] %||% character(0)
+  open_spec   <- opener_design_matrix(days, open_sel, params$opener_flags, params,
+                                      extra = c(razor_extra, marine_extra))
+  if (open_spec$K_open > 0)
+    cat(sprintf("  Effort day covariates on the K_open block (%d): %s\n", open_spec$K_open,
+                paste(open_spec$labels, collapse = ", ")))
+  for (msg in open_spec$dropped)
+    cat(sprintf("  Effort day covariate DROPPED for this fit: %s\n", msg))
+
   # v5.3: Defensive check. Stan declares Gear_A_boat as int<lower=1>.
   # number_of_gear is stored as numeric (load_creel_data line ~305), so a
   # fractional value (e.g. 0.5) would pass the intA filter (> 0) but cast
@@ -453,9 +523,20 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     }
   }
 
+  # Days that can inform L in THIS fit: the I/E days always, plus the OSP days when
+  # osp_scale_is_tau puts L into the OSP mean. This is what the shared-turnover floor gates on.
+  .n_L_informed <- as.integer((IE_n %||% 0L) +
+                    if (isTRUE(params$osp_scale_is_tau)) (OSP_n %||% 0L) else 0L)
+  .shared_tau <- bss_shared_tau_data(eff_spec, eff_spec$L_data, eff_spec$L_prior_sigma,
+                                    params, population_name = population_name,
+                                    n_informed = .n_L_informed)
+
   stan_data <- list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    # improvement 4: opener effort covariates (K_open = 0 reproduces the prior model)
+    K_open = as.integer(open_spec$K_open),
+    X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
     # v5.3: Pots fish continuously while the trailer sits at the ramp,
     # so the daily fishing window for boats is 24 h. Shore crabbers
     # actively tend their gear, so the window remains day_length.
@@ -466,6 +547,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     L_data        = eff_spec$L_data,
     estimate_L    = 1L,
     L_prior_sigma = eff_spec$L_prior_sigma,
+    # improvement 2.1 (2026-08-27): shared turnover. Off unless params$shared_tau is TRUE,
+    # and refused with a warning when L is not a constant turnover. See bss_shared_tau_data().
+    shared_tau             = .shared_tau$shared_tau,
+    shared_tau_prior_mu    = .shared_tau$shared_tau_prior_mu,
+    shared_tau_prior_sigma = .shared_tau$shared_tau_prior_sigma,
+    shared_tau_sigma       = .shared_tau$shared_tau_sigma,
     effort_scale_gear = eff_spec$effort_scale_gear,
 
     # F2: I/E observation stream. shore obs = crabber-hours, boat obs = trips.
@@ -503,6 +590,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     day_T = if(!is_shore) eff_d$day_index else integer(0),
     section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
     T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
+
+    # Phase 1b: OSP boat-count stream (empty for shore / when toggle off)
+    OSP_n = OSP_n,
+    day_OSP = if(OSP_n > 0) osp_match$day_index else integer(0),
+    section_OSP = if(OSP_n > 0) rep(1L, OSP_n) else integer(0),
+    OSP_I = if(OSP_n > 0) as.integer(round(osp_match$count_quantity)) else integer(0),
 
     # Direct crabber counts (reserved)
     Crab_n=0L, day_Crab=integer(0), section_Crab=integer(0),
@@ -545,17 +638,109 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     value_normal_sigma_B1=1,
     value_normal_sigma_B2=1,
     value_normal_sigma_B1_C=1,
+    value_normal_sigma_B_open=1,   # improvement 4 (opener effort covariates)
     use_B1_C = as.integer(isTRUE(params$estimate_B1_C)),
     value_normal_mu_mu_C=log(0.5), value_normal_sigma_mu_C=2,
     value_normal_mu_mu_E=if(is_shore) log(25) else log(10),
     value_normal_sigma_mu_E=2,
     value_cauchyDF_sigma_mu_C=2, value_cauchyDF_sigma_mu_E=2,
+    # B46 (2026-09-28): the R_G prior, resolved exactly as prep_bss_crab_pooled() does (the
+    # season's interview gear-per-crabber ratio, or the R_G_prior_mu / _sigma sensitivity
+    # override). The gear Stan used to hard-code lognormal(log(1.3), 0.3), the 2024-25 value.
+    R_G_prior_mu    = params$R_G_prior_mu %||% summ$empirical_R_G %||% 1.3,
+    R_G_prior_sigma = params$R_G_prior_sigma %||% 0.3,
+
+    # Phase 1b: OSP scale (kappa_OSP) prior center + log-SD (see prep_bss_crab_pooled).
+    osp_scale_prior_mu = params$osp_scale_prior_mu %||% 3.0,
+    osp_scale_prior_sigma = params$osp_scale_prior_sigma %||% 0.3,
+
+    # Phase 2/3: crabbing fraction f (boat only, per stratum); see 03_R_functions/crab_fraction.R.
+    apply_crab_fraction    = cf_data$apply_crab_fraction,
+    crab_fraction_estimate = cf_data$crab_fraction_estimate,
+    n_f_strata             = cf_data$n_f_strata,
+    f_stratum              = cf_data$f_stratum,
+    crab_fraction_value    = cf_data$crab_fraction_value,
+    crab_fraction_alpha0   = cf_data$crab_fraction_alpha0,
+    crab_fraction_beta0    = cf_data$crab_fraction_beta0,
+    crab_fraction_n_total  = cf_data$crab_fraction_n_total,
+    crab_fraction_n_crab   = cf_data$crab_fraction_n_crab,
+    # improvement 8: OSP crab-only counts as a hard lower bound on f
+    osp_crab_lower         = cf_data$osp_crab_lower,
+    osp_f_n_total          = cf_data$osp_f_n_total,
+    osp_f_n_crab           = cf_data$osp_f_n_crab,
+    # 2026-08-26 FIX: these five were declared in the .stan data block by the
+    # 2026-08-25 patch but never forwarded out of crab_fraction_stan_data(), so Stan
+    # failed at data initialization on every fit and returned an empty stanfit. See
+    # 03_R_functions/bss_stan_fit.R, which now refuses to sample with an incomplete
+    # data list rather than letting the failure surface 300 lines downstream.
+    OSPF_n                 = cf_data$OSPF_n,
+    osp_f_stratum          = cf_data$osp_f_stratum,
+    osp_f_total            = cf_data$osp_f_total,
+    osp_f_crab             = cf_data$osp_f_crab,
+    osp_f_kappa_prior_mu   = cf_data$osp_f_kappa_prior_mu,
+    # review item 1B (2026-09-08): the dynamic f. Declared unconditionally in the .stan
+    # data block, so forwarded on every path (inert-valued unless crab_fraction_dynamic).
+    crab_fraction_dynamic  = cf_data$crab_fraction_dynamic,
+    f_walk_prev            = cf_data$f_walk_prev,
+    f_walk_gap             = cf_data$f_walk_gap,
+    f_level_mu             = cf_data$f_level_mu,
+    f_level_sd             = cf_data$f_level_sd,
+    f_walk_sd_prior        = cf_data$f_walk_sd_prior,
+    f_walk_df              = cf_data$f_walk_df,
+    CFI_n                  = cf_data$CFI_n,
+    cfi_stratum            = cf_data$cfi_stratum,
+    cfi_total              = cf_data$cfi_total,
+    cfi_crab               = cf_data$cfi_crab,
+    cfi_kappa_prior_mu     = cf_data$cfi_kappa_prior_mu,
+    # 2026-09-09: the combo-trip share c, observed from the contacts' trip types
+    combo_dynamic          = cf_data$combo_dynamic,
+    c_level_mu             = cf_data$c_level_mu,
+    c_level_sd             = cf_data$c_level_sd,
+    c_walk_sd_prior        = cf_data$c_walk_sd_prior,
+    CFC_n                  = cf_data$CFC_n,
+    cfc_stratum            = cf_data$cfc_stratum,
+    cfc_crab               = cf_data$cfc_crab,
+    cfc_combo              = cf_data$cfc_combo,
+    cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
+    osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
+
+    # --- D6 (2026-09-13): zero-inflated interview catch, ported from the pooled model ----
+    # SHIPS OFF FOR THIS TRACK. catch_zi_tracks defaults to "pooled", so zi_catch is 0 here
+    # under the shipped configuration and this fit is bit-identical to the pre-port model
+    # (theta_C is declared zero-size at zi_catch = 0, so the unconstrained parameter vector
+    # does not change). Before the port this prep emitted nothing at all and the Stan model
+    # had no theta_C, so estimate_catch_zi = TRUE was read and silently ignored on this
+    # track. Scoping is per FIT as on the pooled side: only the populations named in
+    # catch_zi_populations get it, which leaves the boat fits of the same run as an
+    # untouched negative control.
+    zi_catch = as.integer(isTRUE(params$estimate_catch_zi) &&
+                          "gear_resolved" %in% (params$catch_zi_tracks %||% "pooled") &&
+                          population_name %in% (params$catch_zi_populations %||% "shore")),
+    zi_catch_prior_a = as.numeric(params$zi_catch_prior_a %||% 1),
+    zi_catch_prior_b = as.numeric(params$zi_catch_prior_b %||% 9),
 
     # Metadata for output (not passed to Stan)
     .gear_type_labels = gear_type_labels,
     .ar_resolution    = ar_resolution,
+    # improvement 6: POST-FILTER interview count the CPUE likelihood actually sees.
+    .n_interviews_fitted = nrow(int_d),
+    # improvement 4: column labels for B_open (Stan carries only the index).
+    .opener_labels    = paste(open_spec$labels, collapse = ","),   # scalar; "" when K_open = 0
     .effort_unit      = eff_spec$unit,
-    .h_unit           = eff_spec$unit
+    .h_unit           = eff_spec$unit,
+    # L's OWN unit (a turnover under deployments, hours under a time unit), kept
+    # separate from the effort unit so outputs can label it correctly.
+    .L_unit           = eff_spec$L_unit %||% NA_character_,
+    # 2026-08-27: I/E observation PROVENANCE, so fit_data_summary.csv can record which
+    # column the shore likelihood consumed. The 2026-08-25 unit fix changed exactly this and
+    # no run output named it, so a reader could not tell a fixed run from a legacy one.
+    # 2026-08-30: the boat label now matches the pooled track's exactly. The two tracks read
+    # "boat trips -> tau" and "boat trips" for the same quantity, which invites a reader to
+    # think they differ.
+    .ie_obs_unit      = if (is_shore) (eff_spec$ie_obs_unit %||% NA_character_) else "boat trips",
+    .ie_obs_col       = if (is_shore) (eff_spec$ie_obs_col  %||% NA_character_) else "ie_trips",
+    # 2026-08-30: the count the shared-turnover floor gates on.
+    .n_L_informed     = .n_L_informed
   )
 
   # F4: minimal interview frame for the CPUE-estimator and saturation diagnostics.
@@ -581,6 +766,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # (the pooled convention). Set it as well as the dot-prefixed element so both
   # readers work.
   attr(stan_data, "ar_resolution") <- ar_resolution
+  # review item 1B: the per-stratum f audit table (label, walk link, contact and OSP
+  # sums); the driver writes it beside the posterior f so f_crab_out[k] is readable.
+  attr(stan_data, "f_strata") <- attr(cf_data, "f_strata")
   attr(stan_data, "effort_unit")   <- eff_spec$unit
 
   # F4: fail in seconds, not after hours of sampling. C = E * lambda_C is catch

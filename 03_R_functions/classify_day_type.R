@@ -27,12 +27,21 @@
 # and holidays are read from params (params$days_wkend, params$crabbing_holiday_dates).
 ###############################################################################
 
+# 2026-09-28 (B46): the English day name from the ISO weekday number (format "%u", 1 = Monday),
+# which does not depend on the machine's language. base::weekdays() returns the name in the
+# session's LC_TIME language, and every weekend test in this pipeline compares against the
+# English names in params$days_wkend, so under a non-English locale no day was a weekend.
+bss_weekday <- function(dates) {
+  c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")[
+    as.integer(format(as.Date(dates), "%u"))]
+}
+
 classify_day_type <- function(dates, params) {
   weekends <- params$days_wkend
   holidays <- params$crabbing_holiday_dates
   case_when(
     dates %in% holidays ~ "holiday",
-    weekdays(dates) %in% weekends ~ "weekend",
+    bss_weekday(dates) %in% weekends ~ "weekend",
     TRUE ~ "weekday"
   )
 }

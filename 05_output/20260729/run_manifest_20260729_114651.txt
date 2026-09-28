@@ -1,0 +1,138 @@
+Run manifest
+============
+timestamp   : 20260729_114651
+model       : pooled
+run_weather : FALSE
+git sha     : 3c3a4ff
+
+Stages:
+  model     400.2 min   C:/Users/geom1477/OneDrive - Washington State Executive Branch Agencies/Desktop/Github/Coastal-Rec-Crab-BSS/05_output/20260729/pooled-CPUE-step-1-baseline
+
+run_config (run-level overrides applied to the model):
+List of 82
+ $ run_tag                   : chr "step-1-baseline"
+ $ project_name              : chr "Coastal Recreational Crab"
+ $ fishery_name              : chr "Rec Crab Grays Harbor 2024-25"
+ $ est_date_start            : chr "2024-09-16"
+ $ est_date_end              : chr "2025-09-15"
+ $ season_filter             : chr "2024-25"
+ $ pot_open_date             : chr "2024-12-01"
+ $ pot_closure_start         : chr "2024-09-16"
+ $ pot_closure_end           : chr "2024-11-30"
+ $ commercial_opener         : chr "2025-01-01"
+ $ census_start_date         : chr "2024-12-01"
+ $ census_end_date           : chr "2025-02-08"
+ $ estimate_red_rock         : logi FALSE
+ $ days_wkend                : chr [1:3] "Friday" "Saturday" "Sunday"
+ $ min_fishing_time          : num 0.5
+ $ period_pe                 : chr "week"
+ $ sections                  : num 1
+ $ pe_empty_stratum          : chr "pooled"
+ $ filter_incomplete_trips   : logi TRUE
+ $ shore_effort_unit         : chr "gear-deployments"
+ $ tau_shore_prior_mu        : num 1.7
+ $ tau_shore_prior_sigma     : num 0.3
+ $ tau_boat_prior_mu         : num 1.2
+ $ tau_boat_prior_sigma      : num 0.3
+ $ gear_per_group_default    : num 4
+ $ use_osp_boat_counts       : logi FALSE
+ $ osp_scale_prior_mu        : num 3
+ $ osp_scale_prior_sigma     : num 0.3
+ $ use_crab_fraction         : logi FALSE
+ $ crab_fraction_set         : num 0.3
+ $ crab_fraction_prior_kappa : num 20
+ $ crab_fraction_fixed       : logi NA
+ $ crab_fraction_min_obs     : num 20
+ $ ie_crab_col               : chr "boats_crabbing"
+ $ ie_total_col              : chr "boats_total"
+ $ crab_fraction_strata      : chr "none"
+ $ osp_scale_is_tau          : logi FALSE
+ $ diagnose_tau_sensitivity  : logi TRUE
+ $ tau_sensitivity_grid      : num [1:5] 0.9 1 1.2 1.5 1.8
+ $ bss_chains                : num 4
+ $ bss_cores                 : num 4
+ $ bss_seed                  : num 20260619
+ $ bss_max_count_seq         : num 3
+ $ ar_force                  : NULL
+ $ ar_max_resolution         :List of 2
+  ..$ pooled       :List of 2
+  .. ..$ shore       :List of 2
+  .. .. ..$ all_gear   : chr "daily"
+  .. .. ..$ pot_closure: chr "biweekly"
+  .. ..$ private_boat: chr "monthly"
+  ..$ gear_resolved:List of 2
+  .. ..$ shore       :List of 2
+  .. .. ..$ all_gear   : chr "monthly"
+  .. .. ..$ pot_closure: chr "biweekly"
+  .. ..$ private_boat: chr "monthly"
+ $ effort_file               : chr "effort_combined.xlsx"
+ $ interview_file            : chr "interview_combined.xlsx"
+ $ tally_file                : chr "wes_commercial_tally.xlsx"
+ $ input_sheet               : chr "data"
+ $ gh_creel_location         : chr "Grays Harbor"
+ $ gh_effort_areas           : chr [1:7] "Westport Docks Float 20" "Westport Docks Float 17-21" "Westport Boat Launch" "Westport Marina" ...
+ $ shore_dock_float20        : chr "Westport Docks Float 20"
+ $ shore_dock_float17        : chr "Westport Docks Float 17-21"
+ $ boat_launch_areas         : chr [1:2] "Westport Boat Launch" "Ocean Shores Boat Launch"
+ $ ie_data_file              : chr "ingress_egress.xlsx"
+ $ ie_sheet                  : chr "data"
+ $ ie_shore_location         : chr "WDF20"
+ $ ie_boat_location          : chr "WBL"
+ $ ie_filter_by_season       : logi FALSE
+ $ use_ie_day_length         : logi TRUE
+ $ ie_min_obs_for_regression : num 5
+ $ ie_min_obs_shore          : num 3
+ $ ie_min_obs_boat           : num 2
+ $ day_length_min_hours      : num 9
+ $ day_length_max_hours      : num 17
+ $ crabbing_holidays_file    : chr "crabbing_holidays.xlsx"
+ $ crabbing_holidays_sheet   : chr "data"
+ $ run_fishery_spillover_diag: logi TRUE
+ $ razor_nearby_beaches      : chr [1:3] "Twin Harbors" "Copalis" "Mocrocks"
+ $ fishery_opener_dates_file : chr "fishery_opener_dates.xlsx"
+ $ fishery_opener_sheet      : chr "data"
+ $ razor_dig_mode            : chr "no"
+ $ razor_dig_auto_p          : num 0.05
+ $ estimate_cpue_density     : logi FALSE
+ $ collapse_mu_hier          : logi FALSE
+ $ estimate_B1_C             : logi TRUE
+ $ gear_resolved_G           : logi FALSE
+ $ gear_share_dirichlet      : logi FALSE
+ $ alpha0_gear               : num 1
+ $ ar_adaptive               : logi FALSE
+ $ loo_effort_unit_comparison: logi FALSE
+ $ use_boat_ie               : logi TRUE
+
+sessionInfo():
+R version 4.2.3 (2023-03-15 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 22631)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_United States.utf8  LC_CTYPE=English_United States.utf8    LC_MONETARY=English_United States.utf8
+[4] LC_NUMERIC=C                           LC_TIME=English_United States.utf8    
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] readxl_1.4.2        rstan_2.32.7        StanHeaders_2.32.10 patchwork_1.3.0     gt_0.9.0            suncalc_0.5.1      
+ [7] lubridate_1.9.2     forcats_1.0.0       stringr_1.5.0       dplyr_1.1.2         purrr_1.0.2         readr_2.1.4        
+[13] tidyr_1.3.0         tibble_3.2.1        ggplot2_4.0.2       tidyverse_2.0.0     rmarkdown_2.21      here_1.0.1         
+
+loaded via a namespace (and not attached):
+ [1] sass_0.4.6         jsonlite_1.8.4     splines_4.2.3      QuickJSR_1.4.0     bslib_0.4.2        RcppParallel_5.1.9
+ [7] S7_0.2.1           highr_0.10         stats4_4.2.3       cellranger_1.1.0   ggrepel_0.9.3      yaml_2.3.7        
+[13] backports_1.4.1    pillar_1.9.0       lattice_0.20-45    glue_1.6.2         digest_0.6.31      RColorBrewer_1.1-3
+[19] Matrix_1.5-3       htmltools_0.5.5    pkgconfig_2.0.3    broom_1.0.4        scales_1.4.0       processx_3.8.1    
+[25] tzdb_0.4.0         timechange_0.2.0   mgcv_1.8-42        generics_0.1.3     farver_2.1.1       cachem_1.0.8      
+[31] withr_2.5.2        cli_3.6.1          magrittr_2.0.3     crayon_1.5.2       evaluate_0.21      ps_1.7.5          
+[37] fansi_1.0.4        nlme_3.1-162       xml2_1.3.4         pkgbuild_1.4.2     textshaping_0.3.7  tools_4.2.3       
+[43] loo_2.8.0          data.table_1.14.8  prettyunits_1.1.1  hms_1.1.3          lifecycle_1.0.4    matrixStats_1.4.1 
+[49] callr_3.7.3        compiler_4.2.3     jquerylib_0.1.4    systemfonts_1.3.1  rlang_1.1.1        grid_4.2.3        
+[55] rstudioapi_0.18.0  labeling_0.4.3     gtable_0.3.6       codetools_0.2-19   inline_0.3.19      R6_2.5.1          
+[61] gridExtra_2.3      knitr_1.42         fastmap_1.1.1      utf8_1.2.3         rprojroot_2.0.3    ragg_1.3.0        
+[67] stringi_1.7.12     parallel_4.2.3     Rcpp_1.0.10        png_0.1-8          vctrs_0.6.5        tidyselect_1.2.0  
+[73] xfun_0.39         

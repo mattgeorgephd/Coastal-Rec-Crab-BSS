@@ -1,0 +1,8 @@
+stage: M6
+digest: b1fb62cd
+code: stan:65b5adeb drivers:a65be4bc fns:6f65d84a
+rstan: 2.32.7 / StanHeaders 2.32.10
+written: 2026-09-27 13:37:01
+
+# run_marine_hazard_batch_2026-09-25.R writes this after a rung renders. RESUME
+# reuses a folder ONLY when its digest matches the rung being requested.

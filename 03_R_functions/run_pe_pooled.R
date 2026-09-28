@@ -36,37 +36,73 @@
 # gear-deployments, so the shore PE and shore BSS were on different units and the
 # pe_vs_bss_comparison / monthly PE effort-share for shore were unit-inconsistent.
 # NOTE: this MOVES the pooled shore PE number; confirm against a validation run.
-# The stratum-CPUE estimator (weighted mean of daily ratios) is intentionally left
-# unchanged; adopting the gear track's ratio-of-sums (P0) is a separate decision.
+#
+# CORRECTED 2026-09-12. This header used to end "The stratum-CPUE estimator (weighted mean
+# of daily ratios) is intentionally left unchanged; adopting the gear track's ratio-of-sums
+# (P0) is a separate decision." That decision was taken on 2026-07-12 and the code below has
+# been RATIO-OF-SUMS ever since: sum(catch) / sum(hrs) within the stratum, with the reasons
+# and the measured effect at the cpue_strat block. Do not cite the retired sentence; the
+# per-day `cpue` column is still computed but the estimator does not use it.
 ###############################################################################
 
 run_pe_pooled <- function(summ, days, params, population_name) {
-  catch_groups <- if (isTRUE(params$estimate_red_rock)) c("Dungeness_Kept", "Red_Rock_Kept") else "Dungeness_Kept"
+  catch_groups <- "Dungeness_Kept"   # the Red Rock group was removed 2026-09-28 (B44)
   results <- list()
   is_boat <- str_detect(population_name, "private_boat")
+  days$f_crab_pe <- crab_fraction_point_day(is_boat, days, params)  # Phase 3: per-day crab fraction (1 for shore/off)
 
   daily_effort <- summ$effort_index |>
     filter(count_sequence <= params$bss_max_count_seq) |>
     group_by(event_date, section_num) |>
     summarise(mean_count=mean(count_quantity), n_counts=n(), .groups="drop") |>
     mutate(est_crabbers = mean_count * summ$crabbers_per_gear) |>
-    left_join(days |> select(event_date,day_type,day_length,period), by="event_date")
+    left_join(days |> select(event_date,day_type,day_length,period,f_crab_pe), by="event_date")
 
   if(is_boat) {
     # POOL-3: boat effort on the gear-DEPLOYMENT scale (matches the BSS via
     # bss_effort_spec()): gear_per_group * tau_boat deployments per day, replacing
     # the old flat gear-hours (gear_per_group * 24). Keeping PE and BSS on the same
     # unit makes the PE-vs-BSS gap a model disagreement, not a unit artifact.
-    ratio_data <- summ$interview |>
+    # GEAR-RATIO SOURCE. summ$interview_gear (optional) lets a caller supply a DIFFERENT
+    # interview frame for the gear ratio than for the CPUE; the incomplete-trip diagnostic
+    # (improvement 5) uses it to keep an interrupted trip's fully-observed gear count while
+    # still dropping its truncated catch. Absent -> summ$interview, i.e. unchanged.
+    # ARM ALIGNMENT (2026-09-02). This frame used NOT to be incomplete-trip filtered, so the
+    # boat PE's gear-per-group behaved like the diagnostic's "gear_only" arm while the boat
+    # BSS's R_G_boat behaved like "exclude": prep_bss_crab_pooled.R applies
+    # filter_incomplete_trips to int_d and intA descends from it. Two arms of one fused
+    # estimator disagreeing about which interviews count is a documented inconsistency a
+    # reviewer will ask about, and the 2026-09-01 desk read finally sized it: 3.552 against
+    # 3.550 gear per boat group, 0.1%, and at most 0.7% on any component. Small enough that
+    # this is a CONSISTENCY fix rather than an accuracy one, and small enough that there is
+    # no reason to keep living with it.
+    #
+    # pe_gear_ratio_arm: "match_bss" (default, aligned) or "gear_only" (the previous
+    # behaviour, kept so the diagnostic arm and any historical reproduction stay available).
+    # When a caller supplies summ$interview_gear it is deliberately choosing its own frame,
+    # which is exactly what the four-arm diagnostic does, so the filter is not applied on
+    # top of it.
+    ratio_data <- pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
+                                      label = population_name) |>
       filter(!is.na(number_of_gear), number_of_gear > 0, angler_count > 0)
     gear_per_group <- if(nrow(ratio_data) > 0) mean(ratio_data$number_of_gear)
                       else (params$gear_per_group_default %||% 4.0)
+    # REVIEW ITEM 5 (2026-09-08): the PE expands the mean trailer count by the SAME
+    # turnover the BSS prior is centred on. Since bss_resolve_tau_boat_prior() runs in
+    # the driver before the PE, params$tau_boat_prior_mu is the OSP/trailer overlap
+    # calibration (mean-per-visit implied turnover, ~3.0 in 2024-25) rather than the
+    # retired 1.2 from two I/E days. Until this fix the boat PE-vs-BSS comparison was
+    # mostly the two turnovers disagreeing (PE effort 3,709 vs BSS 11,118), not the two
+    # estimators; the PE is meant to be the design-based cross-check and now is one.
     tau_boat_pe <- params$tau_boat_prior_mu %||% 1.2
+    if (!is.numeric(tau_boat_pe) || !is.finite(tau_boat_pe))
+      stop("run_pe_pooled(): params$tau_boat_prior_mu is unresolved (", deparse(tau_boat_pe),
+           "); the driver must call bss_resolve_tau_boat_prior() before the PE.", call. = FALSE)
     daily_effort <- daily_effort |>
-      mutate(est_daily_effort = mean_count * gear_per_group * tau_boat_pe)
+      mutate(est_daily_effort = mean_count * gear_per_group * tau_boat_pe * f_crab_pe)
     effort_unit_pe <- "gear-deployments"
-    cat(sprintf("  PE %s: gear_per_group=%.2f, tau=%.2f (gear-deployments)\n",
-                population_name, gear_per_group, tau_boat_pe))
+    cat(sprintf("  PE %s: gear_per_group=%.2f, tau=%.2f, mean f=%.3f (gear-deployments, crab-directed)\n",
+                population_name, gear_per_group, tau_boat_pe, mean(days$f_crab_pe)))
   } else {
     # POOL-7 (v7.7) shore-scale fix: shore effort on the unit set by
     # params$shore_effort_unit, via the shared bss_effort_spec(), so the PE matches
@@ -82,20 +118,32 @@ run_pe_pooled <- function(summ, days, params, population_name) {
              est_daily_effort = mean_count * gear_mult * L_pe)
   }
 
-  total_days_strat <- days |> filter(open_section_1) |>
-    group_by(period, day_type) |> summarise(n_total_days=n(), .groups="drop")
+  # EFFORT STRATA, THE FILL AND THE VARIANCE now live in 03_R_functions/pe_effort_strata.R,
+  # shared with run_pe_gear() so the two tracks cannot drift. That file documents the three
+  # defects this replaced: the SE was computed over less than half the effort it reported
+  # (a cell with ONE sampled day has sd = NA -> 0), an imputed cell contributed its full
+  # point estimate and zero variance, and the effort fill could be month-local while the
+  # CPUE fill was always sub-season-wide. See CHANGE_REGISTER D19 / D21.
+  effort_strat <- pe_build_effort_strata(daily_effort, days, params)
+  .k <- attr(effort_strat, "counts")
+  n_empty_strata <- .k$n_empty_strata; n_empty_days <- .k$n_empty_days; n_cal_days <- .k$n_calendar_days
 
-  effort_strat <- daily_effort |>
-    group_by(section_num, period, day_type) |>
-    summarise(mean_daily=mean(est_daily_effort,na.rm=TRUE),
-              sd_daily=sd(est_daily_effort,na.rm=TRUE),
-              n_sampled=n(), .groups="drop") |>
-    left_join(total_days_strat, by=c("period","day_type")) |>
-    mutate(est_total = mean_daily * n_total_days,
-           se_total = sqrt((n_total_days^2)*replace_na(sd_daily^2,0)/pmax(n_sampled,1)))
+  results$n_empty_effort_strata  <- n_empty_strata
+  results$n_empty_effort_days    <- n_empty_days
+  results$n_single_effort_strata <- .k$n_single_strata
+  results$n_single_effort_days   <- .k$n_single_days
+  results$n_effort_strata_total  <- .k$n_strata_total
+  results$n_calendar_days        <- n_cal_days
+  results$pe_empty_effort_fill   <- attr(effort_strat, "pe_fill")
+  results$pe_variance            <- attr(effort_strat, "pe_variance")
+  results$pe_imputed_effort      <- .k$imputed_effort
+  results$pe_zeroed_effort_bias  <- .k$zeroed_effort_bias
+  .rep <- pe_effort_stratum_report(effort_strat, population_name, params)
+  results$effort_strata <- effort_strat
 
-  results$effort_total <- sum(effort_strat$est_total, na.rm=TRUE)
-  results$effort_se <- sqrt(sum(effort_strat$se_total^2, na.rm=TRUE))
+  results$effort_total <- .rep$effort_total
+  results$effort_se    <- .rep$effort_se
+  results$effort_se_sampled_only <- .rep$effort_se_sampled_only
 
   # CPUE denominator matches the effort unit above. Boat: number_of_gear
   # (deployments). Shore: bss_effort_spec()$h_col (number_of_gear for deployments;
@@ -142,17 +190,27 @@ run_pe_pooled <- function(summ, days, params, population_name) {
     # under-counts, and under thin BOAT sampling with weekly strata it made the boat PE
     # swing on a single empty cell (the incomplete-trip "anomaly": the boat filter effect
     # was a knife-edge because one week x day-type cell's only boat interviews were
-    # incomplete and got zeroed). params$pe_empty_stratum: "pooled" (default) fills an
+    # incomplete and got zeroed). params$pe_empty_stratum: "local" (SHIPPED) fills an
     # empty stratum with the population x sub-season ratio-of-sums CPUE (a sampled rate is
     # a better guess than zero and matches the P0 consistency target); "zero" restores the
     # old behavior. Shore is dense (few or no empty strata), so this mainly steadies the boat.
-    pooled_cpue <- if (sum(daily_cpue$hrs, na.rm=TRUE) > 0)
-                     sum(daily_cpue$catch, na.rm=TRUE) / sum(daily_cpue$hrs, na.rm=TRUE) else 0
-    empty_fill  <- if (identical(params$pe_empty_stratum %||% "pooled", "zero")) 0 else pooled_cpue
+    # 2026-09-12: the fill is now SCALE-MATCHED to the effort fill via
+    # pe_empty_cpue_fill() (pe_empty_stratum: "local" ships). A month-local effort fill
+    # multiplied by a sub-season-wide CPUE put the two halves of the same imputed cell on
+    # different scales, and crab CPUE has a strong within-season gradient.
+    empty_fill  <- pe_empty_cpue_fill(daily_cpue, effort_strat, days, params)
     catch_strat <- effort_strat |>
+      mutate(.empty_cpue_fill = as.numeric(empty_fill)) |>
       left_join(cpue_strat, by=c("section_num","period","day_type")) |>
-      mutate(est_catch = est_total * replace_na(mean_cpue, empty_fill))
+      mutate(est_catch = est_total * coalesce(mean_cpue, .empty_cpue_fill))
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
+    results[[paste0("imputed_", cg)]] <- sum(catch_strat$est_catch[catch_strat$imputed_effort_stratum], na.rm = TRUE)
+    # B44 (2026-09-28): the stratum catch, kept so the monthly split can spread each
+    # (period x day_type) cell's own catch over its own calendar days (pe_monthly_split()),
+    # instead of splitting the total by effort share at one season-wide CPUE.
+    results$catch_strata[[cg]] <- catch_strat |>
+      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch)
+    if (cg == "Dungeness_Kept") results$pe_empty_cpue_source <- attr(empty_fill, "source")
 
     # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
     # over the interviews it was built from. A divergence beyond 2x means catch and
@@ -166,11 +224,18 @@ run_pe_pooled <- function(summ, days, params, population_name) {
       cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
                   population_name, cg, implied, ros, rel, effort_unit_pe))
       pe_check_rows[[cg]] <- tibble(catch_group = cg, effort_unit = effort_unit_pe,
-                                    pe_implied_cpue = implied, interview_ros = ros, ratio = rel)
+                                    pe_implied_cpue = implied, interview_ros = ros, ratio = rel,
+                                    within_0.5_to_2 = rel >= 0.5 && rel <= 2.0)   # B46: the flag the stop became
+      # 2026-09-28 (B46): a WARNING, not a stop, and a flag in the check table (report 4.4).
+      # Outside [0.5, 2] the likeliest cause is still a unit mismatch, but a new season whose
+      # interviews sit in low-CPUE months while its effort sits in high ones (month-local
+      # fills, a strong CPUE gradient) can legitimately land there, and stopping the whole
+      # run before any fit was the wrong response to that.
       if (rel < 0.5 || rel > 2.0) {
-        stop(sprintf(paste0("run_pe_pooled(): PE implied CPUE (%.4f) is %.2fx the interview ",
-                            "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
-                            "the same scale."),
+        warning(sprintf(paste0("run_pe_pooled(): PE implied CPUE (%.4f) is %.2fx the interview ",
+                            "ratio-of-sums (%.4f) for %s / %s. Either catch and effort are not on ",
+                            "the same scale (a defect: check the effort unit) or the season's CPUE ",
+                            "gradient is steep; read report section 4.4 before the totals."),
                      implied, rel, ros, population_name, cg), call. = FALSE)
       }
     }
@@ -178,9 +243,8 @@ run_pe_pooled <- function(summ, days, params, population_name) {
 
   results$effort_unit <- effort_unit_pe
   results$pe_cpue_check <- if (length(pe_check_rows)) bind_rows(pe_check_rows) else NULL
-  rr_str <- if(params$estimate_red_rock) sprintf(", RR=%s", format(round(results$Red_Rock_Kept),big.mark=",")) else ""
-  cat(sprintf("  PE %s: Effort=%s %s, Dung=%s%s\n", population_name,
+  cat(sprintf("  PE %s: Effort=%s %s, Dung=%s\n", population_name,
               format(round(results$effort_total),big.mark=","), effort_unit_pe,
-              format(round(results$Dungeness_Kept),big.mark=","), rr_str))
+              format(round(results$Dungeness_Kept),big.mark=",")))
   return(results)
 }

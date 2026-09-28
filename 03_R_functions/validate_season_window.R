@@ -1,0 +1,154 @@
+###############################################################################
+# LOUD SEASON / WINDOW CONSISTENCY CHECK
+# -----------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+#   Selecting a season takes TWO independent settings: the estimation window
+#   (est_date_start / est_date_end) and the data filter (season_filter, matched
+#   against the `season` column of the effort and interview workbooks; the crabbing
+#   holidays are matched the same way and STOP on a missing season). Nothing forced
+#   them to agree. Point the window at 2025-26 while season_filter still says
+#   "2024-25" and every reader silently keeps only 2024-25 rows, the window filter
+#   then empties them, and the run limps to a wall of PE fallbacks and empty fits
+#   whose real cause, one stale string, is nowhere on screen.
+#
+#   The design goal is that this pipeline runs on ANY window the user selects, full
+#   season, part-season, or a multi-season span (season_filter is a vector as of
+#   2026-09-09). The first thing a naive run owes the user is a plain statement of
+#   what data the selection actually captured, and a hard stop when it captured
+#   nothing.
+#
+# WHAT IT DOES
+#   Prints, per season label found in the (already season-filtered) frames, the date
+#   range and row counts inside and outside the estimation window; STOPS when the
+#   window contains zero effort AND zero interview rows; and WARNS (does not stop)
+#   when the commercial/charter census window falls entirely outside the estimation
+#   window, when a requested season label matched nothing at all, or when a large
+#   share of the season's data lies outside the window (expected for a deliberate
+#   part-season run, so it is a note, not an error).
+#
+# WHERE IT RUNS
+#   Called at the end of fetch_crab_data(), so both drivers and every batch runner
+#   get it without any of them opting in. It reads only what is already in memory;
+#   cost is milliseconds.
+###############################################################################
+
+validate_season_window <- function(effort, interview, params, quiet = FALSE) {
+  ws <- as.Date(params$est_date_start); we <- as.Date(params$est_date_end)
+  seasons_requested <- as.character(params$season_filter)
+
+  eff_dates <- as.Date(effort$date %||% effort$event_date)
+  int_dates <- as.Date(interview$event_date %||% interview$date)
+  eff_season <- as.character(effort$season %||% rep(NA_character_, length(eff_dates)))
+  int_season <- as.character(interview$season %||% rep(NA_character_, length(int_dates)))
+
+  # 2026-09-10: quiet gates the PRINTS only. The per-season warnings fire either way;
+  # a safety warning silenced by a verbosity flag is no safety warning at all.
+  if (!isTRUE(quiet))
+    cat(sprintf("\nSeason/window check: est window %s to %s; season_filter = %s\n",
+                ws, we, paste(seasons_requested, collapse = " + ")))
+  for (sn in seasons_requested) {
+    ed <- eff_dates[eff_season == sn]; id <- int_dates[int_season == sn]
+    if (!length(ed) && !length(id)) {
+      warning(sprintf("season_filter '%s' matched NO effort and NO interview rows; check the season column spelling.", sn),
+              call. = FALSE)
+      if (!isTRUE(quiet)) cat(sprintf("  %-10s NO ROWS MATCHED\n", sn))
+      next
+    }
+    rng <- range(c(ed, id), na.rm = TRUE)
+    ne_in <- sum(ed >= ws & ed <= we, na.rm = TRUE)
+    ni_in <- sum(id >= ws & id <= we, na.rm = TRUE)
+    n_out <- length(ed) + length(id) - ne_in - ni_in
+    if (!isTRUE(quiet))
+      cat(sprintf("  %-10s data %s to %s | in window: %d effort counts, %d interviews | outside %d%s\n",
+                  sn, rng[1], rng[2], ne_in, ni_in, n_out,
+                  if ((ne_in + ni_in) > 0 && n_out > (ne_in + ni_in)) "  <- most of this season is OUTSIDE the window (fine for a deliberate part-season run)" else ""))
+    # 2026-09-10: the asymmetric case that motivated splitting the counts. The first
+    # two-season staging found 13,629 INTERVIEWS for 2023-24 and ZERO effort counts:
+    # the interview workbook is the full export while effort_combined was trimmed to
+    # 2024-25 during development. A season with interviews but no effort counts has a
+    # CPUE and no effort scale, so every BSS effort likelihood for it is empty and the
+    # PE has nothing to expand; the season would be imputed, not estimated.
+    if (ni_in > 0 && ne_in == 0)
+      warning(sprintf(paste0("Season '%s' has %d interviews in the window but ZERO effort counts. ",
+                             "Its effort process would be pure imputation. Add the season's rows to ",
+                             "effort_combined.xlsx (and wes_commercial_tally.xlsx) before fitting."),
+                      sn, ni_in), call. = FALSE)
+    if (ne_in > 0 && ni_in == 0)
+      warning(sprintf("Season '%s' has effort counts but ZERO interviews in the window; CPUE for it has no data.", sn),
+              call. = FALSE)
+  }
+
+  # 2026-09-28 (B46): A SPAN NEEDS ITS CALENDAR. With pot_closures NULL, build_subseasons()
+  # takes the scalar path: ONE pot closure (pot_closure_start/end) and one all-gear block tagged
+  # season_filter[1], so a window over two seasons would fit the second season's pot closure as
+  # all-gear and credit every sub-season to the first season, silently (every scalar date can
+  # still lie inside the window). A multi-season season_filter, or a window longer than a
+  # season, must say where each season's closure is.
+  n_seasons <- length(unique(seasons_requested))
+  span_days <- as.numeric(we - ws) + 1
+  if (is.null(params$pot_closures) && (n_seasons > 1 || span_days > 366))
+    stop(sprintf(paste0("validate_season_window(): the window %s to %s (%d days, season_filter = %s) spans more ",
+                        "than one season but pot_closures is NULL. Set pot_closures (one closure window per ",
+                        "season) and census_windows (one census window per season); see run_config.R section 1.2 ",
+                        "and NEW_SEASON_GUIDE.md section 7."),
+                 ws, we, span_days, paste(seasons_requested, collapse = " + ")), call. = FALSE)
+
+  n_eff_in <- sum(eff_dates >= ws & eff_dates <= we, na.rm = TRUE)
+  n_int_in <- sum(int_dates >= ws & int_dates <= we, na.rm = TRUE)
+  if (n_eff_in == 0 && n_int_in == 0)
+    stop(sprintf(paste0("validate_season_window(): the estimation window %s to %s contains NO effort ",
+                        "counts and NO interviews for season_filter = %s. The usual cause is a stale ",
+                        "season_filter after moving est_date_start/est_date_end to a new season; the two ",
+                        "must be updated together (see 07_documentation/NEW_SEASON_GUIDE.md)."),
+                 ws, we, paste(sprintf("'%s'", seasons_requested), collapse = " + ")), call. = FALSE)
+
+  # 2026-09-12: THE STRUCTURAL CALENDAR, checked against the window. Selecting a season
+  # takes more than the two settings above: pot_closure_start/end and pot_open_date are
+  # per-season too, and on a single-season ROLLBACK from a multi-season span they are the
+  # ones left behind. The 2026-09-11 improvement ladder pinned est_date_start,
+  # est_date_end, season_filter, pot_closures and census_windows and did NOT pin
+  # pot_open_date, so its 2024-25 rungs would have run with pot_open_date = 2023-12-01, a
+  # year before the window. That is cosmetic today (pot_open_date reaches plot markers and
+  # a NULL fallback only, never a model term -- see run_config.R), which is exactly why it
+  # needs to be said out loud rather than left to be discovered. pot_closure_start/end are
+  # NOT cosmetic: build_subseasons() splits the season on them.
+  if (is.null(params$pot_closures)) {
+    for (nm in c("pot_closure_start", "pot_closure_end", "pot_open_date")) {
+      d <- suppressWarnings(as.Date(params[[nm]] %||% NA))
+      if (!is.na(d) && (d < ws - 1 || d > we + 1))
+        warning(sprintf(paste0("%s = %s lies outside the estimation window (%s to %s). These are ",
+                               "PER-SEASON settings; a single-season rollback has to move them together ",
+                               "with est_date_start / est_date_end / season_filter%s."),
+                        nm, d, ws, we,
+                        if (nm == "pot_open_date") " (pot_open_date reaches plot markers and the pot_closure_end fallback only)"
+                        else " (pot_closure_start/end drive the sub-season split)"), call. = FALSE)
+    }
+  }
+
+  # B46 (2026-09-28): the census is the recreational fishing of commercial and charter vessels
+  # BEFORE the coastal commercial opener; a census window that runs past the opener would count
+  # commercial-season trips as recreational. commercial_opener is otherwise only a plot marker.
+  co <- suppressWarnings(as.Date(params$commercial_opener %||% NA))
+  ce0 <- suppressWarnings(as.Date(params$census_end_date %||% NA))
+  if (is.null(params$census_windows) && !is.na(co) && !is.na(ce0) && ce0 >= co)
+    warning(sprintf("census_end_date (%s) is on or after commercial_opener (%s): the census should end before the commercial opener.",
+                    ce0, co), call. = FALSE)
+  # B46 (2026-09-28): with census_windows set, check THOSE (the scalar keys are then unused).
+  if (!is.null(params$census_windows)) {
+    for (cw in params$census_windows) {
+      cw <- unlist(cw)   # a named list, season -> c(start, end)
+      cs <- suppressWarnings(as.Date(cw[1])); ce <- suppressWarnings(as.Date(cw[2]))
+      if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))
+        warning(sprintf("A census_windows entry (%s to %s) lies entirely outside the estimation window; that season's census component will be empty.",
+                        cs, ce), call. = FALSE)
+    }
+    return(invisible(TRUE))
+  }
+  cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
+  ce <- suppressWarnings(as.Date(params$census_end_date   %||% NA))
+  if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))
+    warning(sprintf(paste0("The commercial/charter census window (%s to %s) lies entirely outside the ",
+                           "estimation window; the census component will be empty. census_start_date / ",
+                           "census_end_date are per-season settings."), cs, ce), call. = FALSE)
+  invisible(TRUE)
+}

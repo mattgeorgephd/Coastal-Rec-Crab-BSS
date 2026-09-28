@@ -1,0 +1,6 @@
+"population","subseason","gear_type","BSS_median","BSS_lo95","BSS_hi95","PE_catch","method"
+"shore","ring_net_only","All",6332,5253,7702,NA,"BSS"
+"shore","all_gear","All",20754,18662,23128,NA,"BSS"
+"private_boat","ring_net_only","All",956,297,3276,NA,"BSS"
+"private_boat","all_gear","All",30760,12793,58945,NA,"BSS"
+"comm_charter","census","Pot",NA,NA,NA,11821,"Census (day-type stratified)"

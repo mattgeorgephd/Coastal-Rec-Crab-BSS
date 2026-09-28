@@ -1,0 +1,17 @@
+"arm","component","effort_fill","cpue_fill","variance","effort","effort_se","effort_se_sampled_only","catch","imputed_catch","n_empty_strata","n_empty_days","n_single_strata","n_single_days","n_strata_total","n_calendar_days","zeroed_effort_bias"
+"effort zero, CPUE pooled (through 2026-09-11)","shore_ring_net_only","zero","pooled","impute_aware",6751.26585608482,547.613569494926,238.058656715183,8432.82958927509,0,1,1,10,19,24,76,126.334649256197
+"effort zero, CPUE pooled (through 2026-09-11)","shore_all_gear","zero","pooled","impute_aware",27345.3963084467,1099.32131032682,409.628937939016,22791.2034802038,0,21,45,37,82,93,289,7946.59885361071
+"effort zero, CPUE pooled (through 2026-09-11)","private_boat_ring_net_only","zero","pooled","impute_aware",398.483935636856,69.155071114625,28.7765948805807,1042.74732749913,0,6,11,7,14,24,76,58.6681303679578
+"effort zero, CPUE pooled (through 2026-09-11)","private_boat_all_gear","zero","pooled","impute_aware",10481.6473376417,1045.55822292213,572.608206733298,31419.3441280826,0,23,48,34,77,93,289,3486.11114609559
+"effort day_type, CPUE local","shore_ring_net_only","day_type","local","impute_aware",6877.60050534102,550.404122923962,238.058656715183,8591.49279854142,158.663209266332,1,1,10,19,24,76,0
+"effort day_type, CPUE local","shore_all_gear","day_type","local","impute_aware",33585.4825750543,1378.72459141608,409.628937939016,28282.3469059299,5491.14342572618,21,45,37,82,93,289,0
+"effort day_type, CPUE local","private_boat_ring_net_only","day_type","local","impute_aware",522.295185333427,79.3725646546854,28.7765948805807,1373.61564447558,348.967177547436,6,11,7,14,24,76,0
+"effort day_type, CPUE local","private_boat_all_gear","day_type","local","impute_aware",12662.9432230591,1309.68458204268,572.608206733298,34374.8478911626,5229.85307504835,23,48,34,77,93,289,0
+"effort local_day_type, CPUE pooled","shore_ring_net_only","local_day_type","pooled","impute_aware",6877.60050534102,550.404122923962,238.058656715183,8590.27039407169,157.440804796599,1,1,10,19,24,76,0
+"effort local_day_type, CPUE pooled","shore_all_gear","local_day_type","pooled","impute_aware",35291.9951620574,1378.72459141608,409.628937939016,29704.8792852005,6913.67580499677,21,45,37,82,93,289,0
+"effort local_day_type, CPUE pooled","private_boat_ring_net_only","local_day_type","pooled","impute_aware",457.152066004814,79.3725646546854,28.7765948805807,1186.63595563482,143.888628135692,6,11,7,14,24,76,0
+"effort local_day_type, CPUE pooled","private_boat_all_gear","local_day_type","pooled","impute_aware",13967.7584837373,1309.68458204268,572.608206733298,42841.4404750092,11422.0963469266,23,48,34,77,93,289,0
+"effort local_day_type, CPUE local (SHIPPED)","shore_ring_net_only","local_day_type","local","impute_aware",6877.60050534102,550.404122923962,238.058656715183,8591.49279854142,158.663209266332,1,1,10,19,24,76,0
+"effort local_day_type, CPUE local (SHIPPED)","shore_all_gear","local_day_type","local","impute_aware",35291.9951620574,1378.72459141608,409.628937939016,29736.8727489808,6945.66926877702,21,45,37,82,93,289,0
+"effort local_day_type, CPUE local (SHIPPED)","private_boat_ring_net_only","local_day_type","local","impute_aware",457.152066004814,79.3725646546854,28.7765948805807,1192.27483290989,167.626365981739,6,11,7,14,24,76,0
+"effort local_day_type, CPUE local (SHIPPED)","private_boat_all_gear","local_day_type","local","impute_aware",13967.7584837373,1309.68458204268,572.608206733298,37017.7021642516,7872.70734813736,23,48,34,77,93,289,0

@@ -16,10 +16,11 @@
 *.Rda
 *.RDa
 
-# --- Local data caches (weather / tide / buoy API fetches) ---
-# The weather-tide covariate module caches fetched NOAA CO-OPS, NDBC, ASOS, and
-# GSOD series under cache/ (default: cache/weather_tide/) to avoid repeated API
-# calls. These are regenerable and machine-local.
+# --- Local data caches ---
+# Nothing in the pipeline fetches over the network any more: the weather-tide
+# module, which cached NOAA CO-OPS / NDBC / ASOS / GSOD series under
+# cache/weather_tide/, was removed 2026-09-13 (CHANGE_REGISTER A29). These rules
+# are kept as a generic guard so a machine-local cache can never be committed.
 cache/
 *_cache/
 *.cache
@@ -49,3 +50,41 @@ Thumbs.db
 # general glob replaces an earlier rule that ignored a single dated workspace path
 # (output/20260619/...), which no longer matched after the 05_output/ rename.
 *.RData
+# (.Rproj.user/ above already covers everything RStudio writes; two duplicate
+# .Rproj.user/shared/notebooks/paths lines were removed 2026-09-13. The five files
+# that were TRACKED despite line 2 were untracked the same day: .gitignore never
+# affects a path git is already tracking, so `git rm --cached` is the only fix, and
+# harness section 71 now asserts that no ignored path is tracked again. One of the
+# five, shared/notebooks/paths, is a table of LOCAL ABSOLUTE PATHS from a
+# contributor's machine, which is a leak rather than clutter.)
+
+# Rendered driver reports belong in the run folder under 05_output/, never beside the
+# .Rmd. rmarkdown::render() writes there by default and a batch runner must move it; on
+# 2026-09-04 two stages rendered in sequence and the second overwrote the first (see
+# 07_documentation/development_notes/PIPELINE_STATUS.md section 1j).
+01_BSS_models/*.html
+
+# Patch files are a transport format, not repository content. Five have been committed
+# by accident since 2026-08-25; each is a duplicate of a commit already in the history.
+*.patch
+
+# --- Patch-series deliveries (2026-09-27) ---
+# The review sessions hand changes over as `git am` patch series (*.patch, above) in a
+# dated tarball plus a README-APPLY.md folder. Those are delivery packaging, not
+# repository content: the 2026-09-26 results commit (c7e8cd5) swept one tarball and its
+# README folder into the tree by accident and they were removed the next day. Keep them out.
+*.tar.gz
+marine-hazard-*-patches-*/
+# ...and, since the second such slip (7e83fab swept blockcv-review-patch-2026-09-27/ in), any
+# delivery folder or README however it is named:
+*-patch-20*/
+*-patches-20*/
+README-APPLY*.md
+
+# --- Rendered copies of the living documents (2026-09-27) ---
+# The .md files under 07_documentation/ are the documents; a knitted .html beside one is a
+# snapshot that goes stale the day after (three did, by up to seven weeks, and were removed
+# 2026-09-27). The archived v1.0 render under 07_documentation/archive/ is the one deliberate
+# exception and is tracked.
+07_documentation/*.html
+07_documentation/development_notes/*.html

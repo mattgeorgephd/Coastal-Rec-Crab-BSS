@@ -1,0 +1,5 @@
+"fit","R_G_interpretation","R_G_boat_interpretation","R_G_boat_decoupled"
+"shore_ring_net_only_Dungeness_Kept","1.32 gear/crabber (1.26-1.38)","4.00 gear/group (1.48-10.66)  [PRIOR ONLY: no boat count stream in this fit]",TRUE
+"shore_all_gear_Dungeness_Kept","1.28 gear/crabber (1.24-1.32)","3.98 gear/group (1.48-10.90)  [PRIOR ONLY: no boat count stream in this fit]",TRUE
+"private_boat_ring_net_only_Dungeness_Kept","1.34 gear/crabber (0.74-2.39)","2.95 gear/group (2.23-3.80)",FALSE
+"private_boat_all_gear_Dungeness_Kept","1.26 gear/crabber (0.69-2.29)","3.56 gear/group (3.25-3.90)",FALSE

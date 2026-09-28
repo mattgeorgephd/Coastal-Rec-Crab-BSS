@@ -1,0 +1,2 @@
+"fit","n_obs","h_min","h_median","h_max","cpue_ratio_of_sums","cpue_model_implied","cpue_mean_of_ratios","model_position_0rs_1mor","estimator_drift_flag","effort_unit","implied_catch_per_day"
+"private_boat_all_gear_Dungeness_Kept",130,1,4,7,3.27645788336933,2.87991610282536,3.47054945054945,-2.04306547834697,FALSE,"gear-deployments",116.404998539994

@@ -1,0 +1,6 @@
+"tau_boat_prior_mu","scale_factor","boat_catch_median","boat_lo95","boat_hi95","boat_pct_change","port_total_median","port_lo95","port_hi95","port_pct_change","is_current_prior"
+0.9,0.75,9555,3824,19034,-25,48398,42054,58283,-6.2,FALSE
+1,0.8333,10617,4249,21149,-16.7,49467,42517,60348,-4.1,FALSE
+1.2,1,12740,5099,25379,0,51592,43417,64507,0,TRUE
+1.5,1.25,15925,6373,31724,25,54780,44741,70780,6.2,FALSE
+1.8,1.5,19110,7648,38068,50,57962,46140,77219,12.3,FALSE

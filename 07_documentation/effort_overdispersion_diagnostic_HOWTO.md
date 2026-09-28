@@ -1,5 +1,31 @@
 # Effort over-dispersion diagnostic: how to run and read it
 
+> ## WARNING (2026-09-01): the `coverage_50` this document tells you to read was BIASED
+>
+> Until 2026-09-01 `ppc_calibration_*.csv` computed `coverage_50` by testing the observation
+> against a QUANTILE INTERVAL of simulated draws. For small counts that interval cannot carry
+> 50% of the probability mass, so the statistic over-covers by construction, and the smaller
+> the counts the worse it gets. On the private-boat trailer stream (fitted means of 1-2
+> boats) it read 0.667-0.692 where the correct randomized-PIT statistic reads 0.523-0.538.
+> That produced a phantom "the trailer stream is over-covered in every configuration" finding
+> which was recorded as an open modelling item on 2026-08-31 and retracted on 2026-09-01.
+>
+> **The figures quoted below (`coverage_50` 0.63 to 0.75 against the nominal 0.50) come from
+> the biased statistic and should not be used as evidence of over-dispersion on their own.**
+>
+> `model_diagnostics.R` was fixed the same day, so a run made after 2026-09-01 carries the
+> randomized statistic in both files and they agree. For an OLDER run, read `in_50` from
+> `ppc_byobs_<label>.csv` instead, which has always used the randomized PIT:
+>
+> ```r
+> x <- read.csv("ppc_byobs_<label>.csv"); mean(as.logical(x$in_50[x$data_type == "trailer"]))
+> ```
+>
+> The rest of this HOW-TO (the r_E / sigma_r_E reads, the effort-stream reasoning) is
+> unaffected.
+
+
+
 - **Companion to:** `03_R_functions/diagnose_effort_overdispersion.R`
 - **Purpose:** T1.5 step 2 (see `development_notes/PIPELINE_STATUS.md`, Section 3). Decompose the effort-count posterior predictive variance into its latent and observation parts so the lever behind the PPC effort over-dispersion is identified before any prior or model change.
 - **Date:** 2026-06-22
@@ -46,7 +72,9 @@ Both call the same function. It writes only CSVs and changes nothing in the mode
 
 ## 4. The math (verified)
 
-Each effort count is `NB2(mu_i, r_E)` with `mu_i = lambda_E[d_i] * R` (R is `R_G` for gear, `R_T` for trailer). `NB2(mu, r)` has variance `mu + mu^2/r`. Integrating the predictive over the posterior of `(mu_i, r_E)` and applying the law of total variance:
+Each effort count is `NB2(mu_i, r_E)` with `mu_i = lambda_E[d_i] * m`, where `m` is the expansion MULTIPLIER for that stream. `NB2(mu, r)` has variance `mu + mu^2/r`.
+
+> **`m` is not the same parameter in both streams, and the trailer one is a RECIPROCAL.** For the gear stream `m = R_G` in both models. For the trailer stream the pooled model **no longer declares `R_T` at all**: POOL-1 replaced it with `R_G_boat` (gear per boat group) and the mean became `lambda_E / R_G_boat`, because the old `T_A_int[a] ~ bernoulli(R_T)` on a vector of literal ones pinned `R_T` at 1.00 and made the trailer expansion degenerate. So `m = 1 / R_G_boat` wherever the fit declares `R_G_boat`, and `m = R_T` only on a legacy fit that still declares it. The code does this for you: `bss_trailer_par()` picks whichever parameter the fit declares and `bss_trailer_multiplier()` returns the multiplier form (`03_R_functions/bss_trailer_expansion.R`), which is why the `R_median` the diagnostic reports for the trailer is that multiplier and NOT `R_G_boat`. **Do not apply `mu = lambda_E * R_G_boat` by hand to a current fit; it inverts the expansion.** (Corrected 2026-09-12; the formula above named `R_T` for the pooled model, a parameter the pooled Stan retired.) Integrating the predictive over the posterior of `(mu_i, r_E)` and applying the law of total variance:
 
 ```text
 Var(Y_i) = E[mu_i]            (V_poisson:  irreducible Poisson floor)

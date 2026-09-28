@@ -25,7 +25,27 @@ If you use, modify, or redistribute this software: retain this NOTICE and the
 LICENSE, keep the per-file copyright and license headers, and cite CreelEstimates
 as the upstream source.
 
-Confirm before publishing (WDFW):
+Confirm before publishing (WDFW). STATUS: OPEN as of 2026-09-28; nothing below
+has been confirmed yet. Nothing from this pipeline has been published, and these
+must be answered before anything is. Each item is answered by WDFW (someone able
+to speak for the agency on copyright and licensing; Matt routes the questions),
+except C4, which is a question for the CreelEstimates authors. Record each answer,
+with who gave it and the date, in the CONFIRMATION RECORD at the end of this file
+AND in the Tier 4 item "GPL-3.0 licensing + CreelEstimates attribution" of
+07_documentation/development_notes/PIPELINE_STATUS.md; the item closes when all
+of C1 to C4 carry an answer in both places.
+
+  C1. Copyright holder and years: is "Washington Department of Fish and Wildlife
+      (WDFW)", 2024-2026, the correct holder and span for the WDFW-authored
+      changes, as written above and in the per-file headers?
+  C2. Release of the WDFW-authored changes: may WDFW's changes be released under
+      GPL-3.0, as this NOTICE, LICENSE and the per-file headers state?
+  C3. Attribution: is naming the CreelEstimates project and its URL sufficient, or
+      should individual CreelEstimates authors be named here as well?
+  C4. License version (see the last point below): do the CreelEstimates authors
+      intend GPL-3.0-only or GPL-3.0-or-later?
+
+The points behind C1 to C4, as originally written:
   * the exact copyright holder(s) and year(s) named above;
   * whether individual CreelEstimates authors should be named here in addition
     to the CreelEstimates project/URL;
@@ -40,3 +60,11 @@ Confirm before publishing (WDFW):
     were v3-or-later. If the CreelEstimates authors confirm they intended
     "GPL-3.0-or-later", the headers, this NOTICE, and LICENSE can be switched to the
     "or later" wording; until then, v3-only is the accurate and conservative choice.
+
+
+CONFIRMATION RECORD
+-------------------
+  C1 copyright holder and years ........ not yet confirmed
+  C2 release of WDFW changes, GPL-3.0 .. not yet confirmed
+  C3 attribution to CreelEstimates ..... not yet confirmed
+  C4 license version (upstream authors)  not yet confirmed

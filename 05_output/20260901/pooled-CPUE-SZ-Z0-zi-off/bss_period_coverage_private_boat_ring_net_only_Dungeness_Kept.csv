@@ -1,0 +1,4 @@
+"period","date_start","date_end","n_days","n_days_with_effort","n_days_with_interview","frac_days_effort","frac_days_interview","n_effort_obs","n_interviews","n_ie_obs","observed","omega_E_ci95_width","omega_C_ci95_width"
+1,"2024-09-16","2024-09-30",15,7,3,0.467,0.2,8,3,0,TRUE,3.76598428315805,3.07489746835909
+2,"2024-10-01","2024-10-31",31,21,8,0.677,0.258,21,11,0,TRUE,3.80735136581229,2.90987948654265
+3,"2024-11-01","2024-11-30",30,15,2,0.5,0.067,15,3,0,TRUE,3.82504117816313,3.05666736671503

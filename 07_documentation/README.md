@@ -8,17 +8,39 @@ For the one-paragraph project overview and quick start, see the [root README](..
 
 | File | Role |
 |---|---|
+| `NEW_SEASON_GUIDE.md` | **How to run the model on a new season, a part-season window, or a multi-season span**: the naive-run -> ladder -> pin-resolutions -> production workflow, the per-season config checklist, and the failure-mode table. The 2024-25 season was the development test season; this is the document for every season after it. |
 | `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
+| `CLAUDE.md` | Guidance for Claude Code (and any new reader): the architecture, the conventions that bite, and the five governed documents with their jobs. The repository root's `CLAUDE.md` imports it. |
 
-## Current model documentation (the method of record)
+## Start here, part 2
 
-These track the live models in `02_stan_models/` and the drivers in `01_BSS_models/` and `06_diagnostics/`:
+| File | Role |
+|---|---|
+| `development_notes/CHANGE_REGISTER.md` | **Every change on the branch and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
+| `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model IS. The method of record, the full specification and the limitations. |
+| `development_notes/VALIDATION_CAMPAIGN.md` | **How it got there**: the dated run-by-run record of the 2026-08/09 campaign, Sections 1b to 1z (1b to 1v are the former sections of `PIPELINE_STATUS.md`; 1w to 1z were written there). |
+
+## Method documentation (Method v2.0, LIVE)
+
+These describe **the model that runs**. Method v2.0 was adopted 2026-09-12, replacing the frozen Method v1.0, and unlike v1.0 it is **not frozen**: when an adopted change moves the method, these documents move with it and the change is logged in `development_notes/CHANGE_REGISTER.md`. Every number in them comes from the reference run named at the top, which may be superseded; the authoritative run always lives in the box at the top of `development_notes/PIPELINE_STATUS.md`.
 
 | File | Describes |
 |---|---|
-| `BSS-GH-pooled-CPUE-model-documentation.md` | The pooled-CPUE production model (pipeline code v7.9). |
-| `BSS-GH-gear-type-CPUE-model-documentation.md` | The gear-resolved production model (framework v5.6). |
-| `BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | The weather-tide covariate module (currently stale; not production). |
+| `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**, the method of record and the headline estimator. Read this one. Three parts: for everyone, for whoever runs it, and the full technical reference (the generative specification, the Point Estimator, the census, the gate, the priors, the limitations). |
+| `BSS-GH-gear-type-CPUE-model-documentation.md` | **Framework v6.0**, the gear-resolved CROSS-CHECK. Deliberately short: it describes only what differs from the pooled model and defers everything shared. |
+
+What changed from Method v1.0 is nine things, and they are not settings: the boat effort streams, the crabbing fraction's whole construction, both turnovers, the shore catch likelihood, the shore AR resolution, the commercial-charter component, the PE's unsampled-cell fill, and the number of seasons a window may span. The table is in the archive banner and in Section 6 of the pooled document, with what each was worth on the 2024-25 season.
+
+## archive/
+
+Superseded method documents, kept unaltered below a banner because several later decisions are only legible as departures from them.
+
+| File | Was |
+|---|---|
+| `archive/method-v1.0-pooled-CPUE.md` | the pooled method of record, frozen against code v7.4, with a table of the nine places v1.0 and v2.0 differ |
+| `archive/method-v1.0-gear-resolved-CPUE.md` | the gear-resolved framework v5.6 |
+| `archive/method-v1.0-pooled-CPUE.html` | the rendered v1.0 pooled document |
+| `archive/weather-tide-covariate-module-REMOVED.md` | the weather-tide covariate module's method document. The module was **removed 2026-09-13** (A29); its finding, exclusion, is kept live at `WEATHER_COVARIATE_ANALYSIS.md` because it is a decision record rather than module documentation |
 
 ## Development histories (the version-by-version change log)
 
@@ -33,14 +55,37 @@ The method documents summarize the history in one screen and point here for deta
 
 | File | Content |
 |---|---|
-| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are excluded under the pre-committed PSIS-LOO margin (the false-precision result). Pairs with `06_diagnostics/`. Note: superseded in part by the deployment-scale move; the module itself is stale (see `PIPELINE_STATUS.md`, T2.4). |
+| `WEATHER_COVARIATE_ANALYSIS.md` | The finding that weather/tide covariates are **excluded** under the pre-committed PSIS-LOO margin, and the false-precision result behind it (an `elpd_loo` compared against the SE of one model total rather than the PAIRED SE of the difference; that mistake is not specific to weather). **The module was removed 2026-09-13**; this document is kept in place because the exclusion is a result, and a result is worth more written down than a module is worth carrying. |
 | `effort_overdispersion_diagnostic_HOWTO.md` | How to read and run the effort-overdispersion diagnostic. |
 
 ## development_notes/
 
-`PIPELINE_STATUS.md` (above) consolidated and superseded the historical working notes that used to live here; those notes have since been deleted. The folder now contains just two files:
+`PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
+
+**Since 2026-09-12 the dated run-by-run narrative lives in `development_notes/VALIDATION_CAMPAIGN.md`**, which is what were Sections 1b to 1v of `PIPELINE_STATUS.md`, moved out unaltered so the status document can be the current state and the backlog, and has since grown to Section 1z. Every "Section 1x" reference in the repository resolves there. Read it for WHY a decision was taken and what the run said.
+
+The per-batch review documents below are the raw material that narrative was built from, newest first; each supersedes parts of the one before:
 
 | File | Status |
 |---|---|
+| `VALIDATION_CAMPAIGN.md` Section 1z.5 | **The current endpoint** (2026-09-28): the method of record, adopted 2026-09-27 (the boat all-gear advisory-day term, A30), rendered by `run_estimation.R` as shipped: `20260927/pooled-CPUE-canonical-2024-25` is the authoritative run at **96,118 [79,418, 120,558]**, every fit byte-identical to the fit the adoption named. Sections 1x to 1z are the ladder, the block cross-validation and the decision that led there. |
+| `VALIDATION_CAMPAIGN.md` Section 1v (was `PIPELINE_STATUS.md` Section 1v) | **The previous endpoint** (2026-09-11): the first full improvement ladder ran, `IMP-R4-shore-tau-newf` became the authoritative run at **94,376 [77,566, 118,602]** (superseded 2026-09-28), the +31% was attributed to four changes that sum to the whole within 24 crab, and the `f` factorization proof was established. There is no separate review file for this batch; the account lives in `VALIDATION_CAMPAIGN.md`. |
+| `adoption-review-2026-09-08.md` | **SUPERSEDED 2026-09-12.** The adoption gate passed and `AD-A1-adopted` became the authoritative run at 72,027; the cross-track gap was shown to be a resolution difference (0.08% agreement at a common resolution). The gate finding stands; the total does not. |
+| `candidate-config-review-2026-09-07.md` | The completed 2x2 (AR resolution x catch likelihood); C1 identified as the candidate; the gear-track "monthly is also bad" figure retracted as a cross-model misattribution. |
+| `ladder-zinb-review-2026-09-06.md` | The ladder's first real run (daily is overfitted; the estimate barely moves) and the ZINB re-scored under the corrected PPC. |
+| `shore-ar-zi-review-2026-09-04.md` | Review of the 2026-09-03 batch: three one-line defects, five of eleven verdicts wrong, all corrected with an audit trail. |
+| `validation-batch-review-2026-09-02.md` | Review of the 2026-09-01 validation batch: the shared-turnover adoption confirmed, the gear-track boat fit that had never worked, and the shore all-gear AR promoted to Tier 1. |
+| `stage5-batch-review-2026-08-31.md` | Review of the 2026-08-30 Stage 5 batch: the tau x AR 2x2, and the retracted trailer over-coverage item. |
+| `improvement-batch-review-2026-08-29.md` | Review of the 2026-08-27 improvement batch. |
+| `improvement-plan-2026-08-27.md` | The sequenced follow-up plan (Stages 0-5), with status marks carried forward. |
+| `ladder-validation-review-2026-08-27.md` | Review of the 2026-08-26 five-rung validation ladder. |
 | `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
 | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
+| `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
+| `marine-hazard-covariates-2026-09-25.md` | Design note for the NWS marine hazard effort covariates (A30): the flag definitions, the archive, the ladder design and its decision rule. The term it designed is the method of record since 2026-09-27. |
+
+**OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (its stale rendered `.html` was removed 2026-09-27), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
+
+## Change register
+
+`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED, and the further words the register's vocabulary line lists), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.

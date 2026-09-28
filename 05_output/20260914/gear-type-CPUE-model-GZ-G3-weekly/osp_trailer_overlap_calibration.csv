@@ -1,0 +1,4 @@
+"trailer_metric","n","corr","ols_slope","ols_intercept","origin_slope","implied_turnover"
+"trailer_mean_per_visit",61,0.965,0.332,-0.29,0.33,3.03
+"trailer_max_per_day",61,0.983,0.367,-0.31,0.365,2.74
+"trailer_sum_per_day",61,0.899,0.486,1.98,0.498,2.01

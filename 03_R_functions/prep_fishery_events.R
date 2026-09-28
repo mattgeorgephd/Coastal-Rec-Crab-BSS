@@ -58,7 +58,7 @@ prep_fishery_events <- function(params) {
          "run_config$run_fishery_spillover_diag = FALSE to skip the diagnostic.",
          call. = FALSE)
 
-  d <- as.data.frame(readxl::read_excel(opener_path, sheet = params$fishery_opener_sheet %||% "data"))
+  d <- as.data.frame(read_input_workbook(opener_path, sheet = params$fishery_opener_sheet %||% "data"))
   names(d) <- tolower(trimws(names(d)))
 
   ma2_flags <- tibble::tibble(

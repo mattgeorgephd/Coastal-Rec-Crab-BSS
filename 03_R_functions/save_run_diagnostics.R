@@ -40,10 +40,8 @@
 # Base R + rstan:: / stats:: / utils:: only, so it does not depend on attached
 # packages.
 #
-# NOTE on O7: the monthly PE share reproduces the v7.0 population-aware Fix-2 logic
-# (boat: count-weighted, day-length-free; shore: count * day_length). That logic
-# now lives in run_pe(), sections 7.8 and 7.8b, and here; it is a candidate for
-# consolidation into one shared helper (review item T4.4).
+# NOTE on O7: the monthly PE column comes from pe_monthly_split() (B44, 2026-09-28), the
+# helper sections 7.8 and 7.8b also use; the PE's daily effort is no longer re-derived here.
 # =============================================================================
 
 # Null-coalescing fallback, only if not already provided by rlang/purrr.
@@ -76,8 +74,22 @@ if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a))
 
 # ---- per-fit writer ---------------------------------------------------------
 
+# Resolve a prior-table name against the rownames rstan::summary() actually produced.
+# A length-1 Stan VECTOR is summarised as "x[1]" while a real scalar is "x", and the prior
+# table is hand-written, so the two can disagree. Returns NA when there is no match, which
+# the caller treats as "skip this parameter" rather than as "lose the file".
+.pvp_row_key <- function(pn, rn) {
+  if (pn %in% rn) return(pn)
+  b <- sub("\\[.*$", "", pn)
+  if (b %in% rn) return(b)
+  i <- paste0(b, "[1]")
+  if (i %in% rn) return(i)
+  NA_character_
+}
+
 write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, output_dir,
-                                           n_pit_draws = 1500, n_draw_save = 2000) {
+                                           n_pit_draws = 1500, n_draw_save = 2000,
+                                           seed = 1L) {
   if (is.null(fit)) { cat(sprintf("  %s: no fit; skipped.\n", label)); return(invisible(NULL)) }
   ok <- function(tag, expr) tryCatch(expr, error = function(e) {
     cat(sprintf("    [save:%s] %s skipped: %s\n", tag, label, conditionMessage(e))); NULL })
@@ -137,11 +149,22 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   if (is.null(ex)) return(invisible(NULL))
   ndraw <- length(ex$r_E)
   use_full <- seq_len(ndraw)
-  use_pit  <- if (ndraw > n_pit_draws) sort(sample.int(ndraw, n_pit_draws)) else use_full
+  # 2026-08-27: SEED the two subsamples below. They were unseeded, so bss_draws_summed_*,
+  # ppc_* and everything derived from them shuffled between two runs of BIT-IDENTICAL fits.
+  # That is what turned the ladder's gear-exactness criterion into a false alarm: only ~490
+  # of 2,000 draw indices were shared between two runs of the same fits. Seeding makes the
+  # diagnostic files reproducible; note that the PORT TOTAL remains RNG-sensitive regardless,
+  # because it is built from rstan::extract(permuted = TRUE), which permutes on its own.
+  # B46 (2026-09-28): both subsamples drawn in ONE seeded block, in the order they always were
+  # drawn, so the indices are the ones earlier runs wrote; the caller's RNG is then restored.
+  .subs <- bss_with_seed(seed, list(
+    pit  = if (ndraw > n_pit_draws) sort(sample.int(ndraw, n_pit_draws)) else use_full,
+    keep = if (ndraw > n_draw_save) sort(sample.int(ndraw, n_draw_save)) else use_full))
+  use_pit <- .subs$pit
 
   # ---- O8. Summed-quantity posterior draws ---------------------------------
   ok("O8", {
-    keep <- if (ndraw > n_draw_save) sort(sample.int(ndraw, n_draw_save)) else use_full
+    keep <- .subs$keep
     df <- data.frame(draw = keep,
                      C_sum = as.numeric(ex$C_sum)[keep],
                      C_expected_sum = as.numeric(ex$C_expected_sum)[keep],
@@ -238,27 +261,54 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   # PIT_i = E_draws[ P(Y < y) + 0.5 P(Y = y) ] = mean over draws of
   #   pnbinom(y-1, size=r, mu) + 0.5 * dnbinom(y, size=r, mu). This is the exact
   #   expectation of the simulated PIT used by the aggregate PPC, with no
-  #   simulation noise. in_50 / in_95 are the central-interval coverage flags
-  #   (equivalent to PIT in [0.25,0.75] / [0.025,0.975] for the randomized PIT).
+  #   simulation noise. in_50 / in_95 are the central-interval coverage flags.
+  #
+  #   HISTORICAL NOTE (2026-09-01). This block used the randomized PIT from the start and
+  #   the aggregate PPC in model_diagnostics.R did not: it tested the observation against a
+  #   QUANTILE INTERVAL of the simulated draws, which over-covers small counts by
+  #   construction. The comment here used to claim the two were "equivalent". They were not,
+  #   and on the trailer stream they disagreed by up to 0.154, which is what produced the
+  #   phantom "trailer over-coverage" item in the 2026-08-31 Stage 5 review. The aggregate
+  #   PPC now uses the randomized PIT too, so the claim of equivalence is true as of that
+  #   date; it was not true for any run committed before it.
   ok("O5", {
     lamE <- .srd_get_DG(ex$lambda_E_S, use_pit)
     lamC <- .srd_get_DG(ex$lambda_C_S, use_pit)
     rE <- as.numeric(ex$r_E[use_pit]); rC <- as.numeric(ex$r_C[use_pit])
     RG <- as.numeric(ex$R_G[use_pit])
     RT <- bss_trailer_multiplier(ex, trailer_par, use_pit)   # R_T or 1/R_G_boat
-    pit_block <- function(days, y, mu_mat, size) {
-      no <- length(y); pit <- fit_mean <- rep(NA_real_, no)
+    # `theta` is NULL for every stream except the catch stream of a zi_catch = 1 fit,
+    # and the NULL path is the pre-2026-09-04 NB2 arithmetic unchanged. See
+    # 03_R_functions/zinb_ppc.R for why the mixture PIT needs a separate y == 0 branch
+    # and for what the NB2-only version cost on the 2026-09-03 Z1 stage.
+    pit_block <- function(days, y, mu_mat, size, theta = NULL) {
+      no <- length(y); pit <- fit_mean <- p_zero <- p_one <- rep(NA_real_, no)
       for (i in seq_len(no)) {
         mu <- pmax(mu_mat[, i], 1e-8); keep <- is.finite(mu) & is.finite(size)
         if (sum(keep) < 20) next
         mu <- mu[keep]; sz <- size[keep]
-        pit[i] <- mean(stats::pnbinom(y[i] - 1, size = sz, mu = mu) +
-                       0.5 * stats::dnbinom(y[i], size = sz, mu = mu))
-        fit_mean[i] <- mean(mu)
+        th <- if (is.null(theta)) NULL else theta[keep]
+        pit[i] <- bss_zi_pit(y[i], mu, sz, th)
+        # The MIXTURE mean (1 - theta) * mu, so fitted_mean stays comparable with the
+        # observation; under NB2 theta is 0 and this is mu, exactly as before.
+        fit_mean[i] <- if (is.null(th)) mean(mu) else mean((1 - th) * mu)
+        # 2026-09-01: the model's own zero probability for THIS day, averaged over draws.
+        # Tier 3 makes the zero-inflation decision conditional on reading the PPC zero bin,
+        # and the only way to do that correctly is to compare the observed zero COUNT against
+        # sum(p_zero) over ALL days. Reading it from the PIT at the observed zeros instead
+        # answers a different question: those days are selected for being zero, so they are
+        # the low-mean days and their P(Y=0) is high by construction. The first attempt at
+        # this diagnostic made exactly that error and read a well-calibrated trailer stream
+        # as 20% observed against 45% implied.
+        p_zero[i] <- bss_zi_p_zero(mu, sz, th)
+        # 2026-09-05: the ONE bin as well. The zero bin passed on the ZINB prototype while
+        # the misfit migrated to y = 1; see bss_zi_p_k() in zinb_ppc.R.
+        p_one[i]  <- bss_zi_p_k(1L, mu, sz, th)
       }
       data.frame(day_index = days,
                  event_date = if (!is.null(ev)) as.character(ev[days]) else NA,
                  observed = y, fitted_mean = round(fit_mean, 3), pit = round(pit, 4),
+                 p_zero = round(p_zero, 5), p_one = round(p_one, 5),
                  in_50 = pit >= 0.25 & pit <= 0.75,
                  in_95 = pit >= 0.025 & pit <= 0.975)
     }
@@ -271,10 +321,37 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       parts$trailer <- cbind(data_type = "trailer",
                              pit_block(stan_data$day_T, stan_data$T_I,
                                        lamE[, stan_data$day_T, drop = FALSE] * RT, rE))
+    # 2026-09-01: the OSP stream. It has had an aggregate PPC since 2026-08-27 but no
+    # per-observation rows, so it was the one stream whose calibration could NOT be
+    # cross-checked against the randomized statistic. That mattered: the Stage 5 daily-AR
+    # pathology is most extreme on OSP (coverage_50 0.977 against a nominal 0.500 under the
+    # old non-randomized statistic), and until now that number had no independent check.
+    # The mean mirrors the Stan likelihood exactly, as the aggregate PPC does:
+    #   (lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP),  dispersion r_OSP.
+    if ((stan_data$OSP_n %||% 0) > 0 && !is.null(RT)) {
+      osp_scale <- if (identical(as.integer(stan_data$osp_scale_is_tau %||% 0L), 1L)) {
+        Lx <- try(rstan::extract(fit, pars = "L_out")$L_out, silent = TRUE)
+        if (inherits(Lx, "try-error") || is.null(Lx)) NULL else Lx[use_pit, stan_data$day_OSP, drop = FALSE]
+      } else {
+        kx <- try(rstan::extract(fit, pars = "kappa_OSP")$kappa_OSP, silent = TRUE)
+        if (inherits(kx, "try-error") || is.null(kx)) NULL
+        else matrix(as.numeric(kx)[use_pit], nrow = length(use_pit), ncol = length(stan_data$day_OSP))
+      }
+      rO <- try(as.numeric(rstan::extract(fit, pars = "r_OSP")$r_OSP)[use_pit], silent = TRUE)
+      if (!is.null(osp_scale) && !inherits(rO, "try-error") && !is.null(rO) &&
+          identical(dim(osp_scale), dim(lamE[, stan_data$day_OSP, drop = FALSE])))
+        parts$osp <- cbind(data_type = "osp",
+                           pit_block(stan_data$day_OSP, stan_data$OSP_I,
+                                     lamE[, stan_data$day_OSP, drop = FALSE] * RT * osp_scale, rO))
+    }
     if (!is.null(stan_data$IntC) && stan_data$IntC > 0) {
       muC <- lamC[, stan_data$day_IntC, drop = FALSE] * rep(stan_data$h, each = nrow(lamC))
+      # 2026-09-04: the catch stream is the ONLY stream zi_catch touches, so it is the only
+      # one that gets theta. NULL when the feature is off, which keeps every historical run
+      # bit-reproducible.
+      thC <- bss_zi_theta_draws(fit, stan_data, use_pit)
       parts$catch <- cbind(data_type = "catch",
-                           pit_block(stan_data$day_IntC, stan_data$c, muC, rC))
+                           pit_block(stan_data$day_IntC, stan_data$c, muC, rC, thC))
     }
     if (length(parts) > 0) {
       df <- do.call(rbind, parts)
@@ -334,13 +411,68 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",
                                  mean = lnorm_mean(4, 0.5), sd = lnorm_sd(4, 0.5))
     }
+    # 2026-08-30: the SHARED TURNOVER, when the fit carries one. This table is where the
+    # contraction and prior_influential diagnostics live, and tau_bar was missing from it in
+    # the 2026-08-29 batch -- the one parameter that batch existed to evaluate had no entry
+    # in the one file that says how much the data moved it. The prior is
+    # lognormal(log(shared_tau_prior_mu), shared_tau_prior_sigma), both passed in as data.
+    if (has_par("tau_bar") && identical(as.integer(sd_p$shared_tau %||% 0L), 1L) &&
+        !is.null(sd_p$shared_tau_prior_mu) && !is.null(sd_p$shared_tau_prior_sigma)) {
+      .mu <- as.numeric(sd_p$shared_tau_prior_mu); .sg <- as.numeric(sd_p$shared_tau_prior_sigma)
+      # NAME IT WITH THE INDEX, exactly as mu_mu_E[1] / mu_mu_C[1] above. tau_bar is declared
+      # vector<lower=0>[shared_tau], so rstan::summary() names its row "tau_bar[1]"; an entry
+      # called "tau_bar" is selected by has_par() (which strips the index) and then fails the
+      # post[pn, ] lookup, which this tryCatch swallows -- taking the WHOLE FILE for that fit
+      # with it, not just the tau_bar row. That is what happened to the boat fits in the
+      # 2026-08-30 Stage 5 batch: S2, S3 and S4b wrote no boat prior_vs_posterior at all.
+      prior_tbl$`tau_bar[1]` <- list(fam = sprintf("lognormal(log(%.3f), %.3f)", .mu, .sg),
+                                     mean = lnorm_mean(.mu, .sg), sd = lnorm_sd(.mu, .sg))
+    }
+
+    # 2026-09-08 (review item 1B): the dynamic f's scale parameters, when the walk is live.
+    # sigma_f ~ half-normal(0, f_walk_sd_prior) is the parameter the R3 rung exists to read
+    # (a posterior pinned near zero means the walk is flat; one at the prior scale means the
+    # ~12 strata did not identify it), and cfi_kappa ~ lognormal(log(cfi_kappa_prior_mu),
+    # 0.75) is expected to sit near its prior (most contact days hold 1-4 boats). Both are
+    # vectors of length n_f_dyn, so rstan names them with the index, like tau_bar[1].
+    .dyn_live <- identical(as.integer(sd_p$crab_fraction_dynamic %||% 0L), 1L) &&
+      identical(as.integer(sd_p$crab_fraction_estimate %||% 0L), 1L) &&
+      identical(as.integer(sd_p$apply_crab_fraction %||% 0L), 1L)
+    if (.dyn_live && has_par("sigma_f") && !is.null(sd_p$f_walk_sd_prior)) {
+      .s <- as.numeric(sd_p$f_walk_sd_prior)
+      prior_tbl$`sigma_f[1]` <- list(fam = sprintf("half-normal(0, %.2f)", .s),
+                                     mean = .s * sqrt(2 / pi), sd = .s * sqrt(1 - 2 / pi))
+    }
+    if (.dyn_live && has_par("cfi_kappa") && !is.null(sd_p$cfi_kappa_prior_mu)) {
+      .k <- as.numeric(sd_p$cfi_kappa_prior_mu)
+      prior_tbl$`cfi_kappa[1]` <- list(fam = sprintf("lognormal(log(%.1f), 0.75)", .k),
+                                       mean = lnorm_mean(.k, 0.75), sd = lnorm_sd(.k, 0.75))
+    }
+    # 2026-09-09: the combo-trip share's walk, when it is live (typed contacts or OSP).
+    .c_live <- .dyn_live && identical(as.integer(sd_p$combo_dynamic %||% 0L), 1L)
+    if (.c_live && has_par("sigma_c") && !is.null(sd_p$c_walk_sd_prior)) {
+      .s <- as.numeric(sd_p$c_walk_sd_prior)
+      prior_tbl$`sigma_c[1]` <- list(fam = sprintf("half-normal(0, %.2f)", .s),
+                                     mean = .s * sqrt(2 / pi), sd = .s * sqrt(1 - 2 / pi))
+    }
+    if (.c_live && has_par("cfc_kappa") && !is.null(sd_p$cfc_kappa_prior_mu)) {
+      .k <- as.numeric(sd_p$cfc_kappa_prior_mu)
+      prior_tbl$`cfc_kappa[1]` <- list(fam = sprintf("lognormal(log(%.1f), 0.75)", .k),
+                                       mean = lnorm_mean(.k, 0.75), sd = lnorm_sd(.k, 0.75))
+    }
 
     pars <- names(prior_tbl)[vapply(names(prior_tbl), has_par, logical(1))]
     if (length(pars) == 0) return(NULL)
     post <- rstan::summary(fit, pars = pars)$summary
 
     rows <- lapply(pars, function(pn) {
-      pr <- prior_tbl[[pn]]; po <- post[pn, ]
+      pr <- prior_tbl[[pn]]
+      # Belt and braces on the same failure: resolve the summary row by name, tolerating a
+      # scalar/vector naming mismatch in EITHER direction, and drop the parameter rather than
+      # losing the file if it genuinely is not there.
+      key <- .pvp_row_key(pn, rownames(post))
+      if (is.na(key)) return(NULL)
+      po <- post[key, ]
       contraction <- if (is.finite(pr$sd) && pr$sd > 0) 1 - po["sd"] / pr$sd else NA_real_
       data.frame(parameter = pn, prior = pr$fam,
                  prior_mean = pr$mean, prior_sd = pr$sd,
@@ -350,6 +482,8 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
                  prior_influential = is.finite(contraction) & contraction < 0.5,
                  row.names = NULL)
     })
+    rows <- Filter(Negate(is.null), rows)
+    if (!length(rows)) return(NULL)
     df <- do.call(rbind, rows)
     utils::write.csv(df, file.path(output_dir, sprintf("prior_vs_posterior_%s.csv", label)),
                      row.names = FALSE)
@@ -378,9 +512,15 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
   lpd_point <- function(ll) apply(ll, 2, function(col) {   # logsumexp-stable lpd
     m <- max(col); m + log(mean(exp(col - m)))
   })
+  # 2026-09-27: the OSP stream joins. log_lik_osp has been a generated quantity of both Stan
+  # models since Phase 1 and was never written out, so the boat's denser effort stream had
+  # no pointwise LOO, no Pareto k, and (Section 1y) no EXACT reconstruction check in the
+  # block cross-validation, which had to settle for a posterior-mean check against the
+  # 1,500-draw ppc_byobs subsample. Additive: a fit without OSP data skips it as before.
   streams <- list(
     gear    = list(par = "log_lik_gear",    n = stan_data$Gear_n %||% 0, days = stan_data$day_Gear,  y = stan_data$Gear_I),
     trailer = list(par = "log_lik_trailer", n = stan_data$T_n %||% 0,    days = stan_data$day_T,     y = stan_data$T_I),
+    osp     = list(par = "log_lik_osp",     n = stan_data$OSP_n %||% 0,  days = stan_data$day_OSP,   y = stan_data$OSP_I),
     catch   = list(par = "log_lik_catch",   n = stan_data$IntC %||% 0,   days = stan_data$day_IntC,  y = stan_data$c)
   )
   summ <- list()
@@ -424,28 +564,91 @@ write_loo_diagnostics <- function(fit, stan_data, days_ss, label, output_dir) {
 
 # ---- run-level writers ------------------------------------------------------
 
-# Population-aware monthly effort share (v7.0 Fix-2 logic; see header note).
-# Boat: count-weighted (day-length-free). Shore: count * day_length.
-.srd_monthly_share <- function(stan_data, days_ss, is_boat) {
-  obs_days <- if (is_boat) stan_data$day_T else stan_data$day_Gear
-  counts   <- if (is_boat) stan_data$T_I  else stan_data$Gear_I
-  if (length(obs_days) == 0 || is.null(days_ss)) return(NULL)
-  mc <- tapply(counts, obs_days, mean)
-  di <- as.integer(names(mc))
-  ev <- as.Date(days_ss$event_date)[di]
-  dl <- if ("day_length" %in% names(days_ss)) as.numeric(days_ss$day_length)[di] else rep(1, length(di))
-  w <- if (is_boat) as.numeric(mc) else as.numeric(mc) * dl
-  mon <- format(ev, "%Y-%m")
-  agg <- tapply(w, mon, sum)
-  data.frame(month = names(agg), share = as.numeric(agg) / sum(agg, na.rm = TRUE),
-             row.names = NULL)
+# Unsampled / singleton effort-stratum audit (2026-08-27; widened 2026-09-12).
+#
+# The PE stratifies by (week x day_type) from the SAMPLED days and left-joins the calendar,
+# so a cell can carry calendar days and no sampled day (UNSAMPLED) or exactly one
+# (SINGLETON). Both are common: on 2024-25, 21 of 93 shore all-gear cells are unsampled and
+# 37 more are singletons, together 44% of that component's calendar days.
+#
+# The three levers and their measured effects are documented in run_config.R
+# (pe_empty_stratum, pe_empty_effort_stratum, pe_variance); this writer is what puts the
+# per-run numbers in a FILE. As of 2026-09-12 it carries three things it did not before:
+#   - the singleton counts, which were never reported anywhere and are the LARGER half of
+#     the variance understatement (SE 410 -> 1,099 on shore all-gear from the singletons
+#     alone, before any imputation);
+#   - effort_se against effort_se_sampled_only, so the honest interval and the historical
+#     one sit side by side and no earlier number becomes unreachable;
+#   - zeroed_effort_bias, the effort an unsampled cell WOULD carry under the shipped fill,
+#     so `pe_empty_effort_stratum = "zero"` states its own cost. A zeroed cell's error is a
+#     BIAS and no SE represents it, which is why that setting is no longer the default.
+#
+# run_pe_pooled() / run_pe_gear() computed the counts and only cat()-ed them. The pooled
+# driver's PE chunk is results='hide', so on that track the report reached nothing at all --
+# the 4-of-76 to 9-of-76 figures quoted for the 2026-08-26 ladder had to be read out of the
+# GEAR track's HTML. Writing a CSV makes it auditable from either track, whatever the chunk
+# options, and gives the validation harness something to extract.
+write_pe_empty_stratum_report <- function(pe_all, output_dir, params = list()) {
+  if (!length(pe_all) || is.null(output_dir)) return(invisible(NULL))
+  keys <- names(pe_all)
+  keys <- keys[!keys %in% "comm_charter"]
+  rows <- lapply(keys, function(k) {
+    r <- pe_all[[k]]
+    if (!is.list(r) || is.null(r$n_empty_effort_strata)) return(NULL)
+    n_days  <- r$n_empty_effort_days   %||% NA_integer_
+    n_cal   <- r$n_calendar_days       %||% NA_integer_
+    frac    <- if (is.na(n_days) || is.na(n_cal) || n_cal == 0) NA_real_ else n_days / n_cal
+    n_sing  <- r$n_single_effort_strata %||% NA_integer_
+    n_singd <- r$n_single_effort_days   %||% NA_integer_
+    eff     <- r$effort_total %||% NA_real_
+    data.frame(
+      component            = k,
+      effort_fill          = r$pe_empty_effort_fill %||% (params$pe_empty_effort_stratum %||% "local_day_type"),
+      cpue_fill            = params$pe_empty_stratum %||% "local",
+      variance             = r$pe_variance %||% (params$pe_variance %||% "impute_aware"),
+      n_empty_strata       = r$n_empty_effort_strata %||% NA_integer_,
+      n_single_strata      = n_sing,
+      n_strata_total       = r$n_effort_strata_total %||% NA_integer_,
+      n_empty_days         = n_days,
+      n_single_days        = n_singd,
+      n_calendar_days      = n_cal,
+      empty_day_fraction   = frac,
+      # the share of calendar days whose effort rests on 0 or 1 sampled day
+      thin_day_fraction    = if (is.na(n_cal) || n_cal == 0) NA_real_
+                             else (sum(n_days, na.rm = TRUE) + sum(n_singd, na.rm = TRUE)) / n_cal,
+      effort_total         = eff,
+      imputed_effort       = r$pe_imputed_effort %||% NA_real_,
+      imputed_effort_share = if (is.na(eff) || eff == 0) NA_real_ else (r$pe_imputed_effort %||% NA_real_) / eff,
+      # what "zero" omits: 0 under any fill, so a non-zero here IS the bias being carried
+      zeroed_effort_bias   = r$pe_zeroed_effort_bias %||% NA_real_,
+      effort_se            = r$effort_se %||% NA_real_,
+      effort_se_sampled_only = r$effort_se_sampled_only %||% NA_real_,
+      effort_cv            = if (is.na(eff) || eff == 0) NA_real_ else (r$effort_se %||% NA_real_) / eff,
+      exceeds_5pct_at_zero = !is.na(frac) && frac > 0.05 &&
+                             identical(r$pe_empty_effort_fill %||% "zero", "zero"),
+      stringsAsFactors     = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (!length(rows)) return(invisible(NULL))
+  df <- do.call(rbind, rows)
+  utils::write.csv(df, file.path(output_dir, "pe_empty_effort_strata.csv"), row.names = FALSE)
+  invisible(df)
 }
 
+
+# The PE column of monthly_pe_vs_bss.csv comes from pe_monthly_split() (pe_monthly_split.R,
+# B44, 2026-09-28): the PE's own strata spread over their calendar days, so the months sum
+# to the component totals and carry each cell's own CPUE. It replaced .srd_monthly_share(),
+# a second copy of the PE's daily-effort formula that split the component total by effort
+# share at one season-wide CPUE and had to be patched by hand whenever run_pe_*() gained a
+# per-day factor (day length on 2026-08-27, the crabbing fraction on 2026-09-12).
+
 # BSS monthly summed draws for one fit -> month, median, lo95, hi95 (catch & effort).
-.srd_bss_monthly <- function(fit, days_ss, use_n = 2000) {
+.srd_bss_monthly <- function(fit, days_ss, use_n = 2000, seed = 1L) {
   ex <- rstan::extract(fit, pars = c("C_expected", "E"))
   nd <- dim(ex$C_expected)[1]
-  use <- if (nd > use_n) sort(sample.int(nd, use_n)) else seq_len(nd)
+  # B46 (2026-09-28): seeded (it was not) and the caller's RNG restored.
+  use <- if (nd > use_n) bss_with_seed(seed, sort(sample.int(nd, use_n))) else seq_len(nd)
   C <- .srd_get_DG(ex$C_expected, use); E <- .srd_get_DG(ex$E, use)   # [draws, D]
   ev <- as.Date(days_ss$event_date); mon <- format(ev, "%Y-%m"); um <- sort(unique(mon))
   out <- lapply(um, function(m) {
@@ -497,7 +700,28 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         P_n = if (!is.null(sd_)) sd_$P_n else NA, D = if (!is.null(sd_)) sd_$D else NA,
         n_effort_obs = n_eff_obs,
         n_interviews = if (!is.null(sd_)) sd_$IntC else NA,
+        # 2026-08-25 improvement 6: the POST-FILTER count the CPUE likelihood actually saw.
+        # n_interviews above is the pre-filter count and reads looser than reality.
+        # 2026-08-30: read EITHER carrier. The pooled prep attaches this as an attribute and
+        # the gear prep stores it as a dot-prefixed list element, so this column was NA for
+        # every gear-track fit while the pooled track populated it.
+        n_interviews_fitted = if (is.null(sd_)) NA else
+          (attr(sd_, "n_interviews_fitted") %||% sd_[[".n_interviews_fitted"]] %||% NA),
         n_ie_obs = if (!is.null(sd_)) sd_$IE_n else NA,
+        # 2026-08-27: unit PROVENANCE. Which observation column the I/E likelihood consumed,
+        # what unit E and h are in, and what L carries. Rung 2 of the 2026-08-26 ladder changed
+        # exactly the first of these and no run output recorded it, so the change could only be
+        # audited by re-deriving ie_trips from the raw workbook. n_ie_obs is post-guard: a 0
+        # against a non-zero raw count means ie_min_obs_shore dropped the stream and sigma_IE is
+        # decoupled, which is the difference between "sigma_IE fell" and "sigma_IE is its prior".
+        ie_obs_col  = if (!is.null(sd_)) sd_[[".ie_obs_col"]]  %||% NA_character_ else NA_character_,
+        ie_obs_unit = if (!is.null(sd_)) sd_[[".ie_obs_unit"]] %||% NA_character_ else NA_character_,
+        effort_unit = if (!is.null(sd_)) sd_[[".effort_unit"]] %||% NA_character_ else NA_character_,
+        L_unit = if (!is.null(sd_)) sd_[[".L_unit"]] %||% NA_character_ else NA_character_,
+        # 2026-08-30: days that can inform L (I/E days, plus OSP days under osp_scale_is_tau),
+        # and whether this fit ended up with a shared turnover. Together they say why.
+        n_L_informed = if (!is.null(sd_)) sd_[[".n_L_informed"]] %||% NA_integer_ else NA_integer_,
+        shared_tau   = if (!is.null(sd_)) sd_$shared_tau %||% NA_integer_ else NA_integer_,
         date_start = if (!is.null(ev)) as.character(min(ev)) else NA,
         date_end = if (!is.null(ev)) as.character(max(ev)) else NA,
         pct_days_with_effort = pct_days_eff, pct_days_with_interview = pct_days_int,
@@ -516,15 +740,12 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
     for (label in names(bss_all)) {
       b <- bss_all[[label]]
       if (is.null(b$population)) next
-      pop <- b$population; ds <- b$days_ss; sd_ <- b$bss_data
+      pop <- b$population; ds <- b$days_ss
       pe_label <- paste0(pop, "_", b$subseason)
-      pe_catch_tot <- pe_all[[pe_label]][[b$catch_group]] %||% NA
-      pe_eff_tot   <- pe_all[[pe_label]]$effort_total %||% NA
-      is_boat <- grepl("private_boat", pop)
-      share <- if (!is.null(sd_)) .srd_monthly_share(sd_, ds, is_boat) else NULL
-      pe_m <- if (!is.null(share)) data.frame(month = share$month,
-                                              PE_catch = pe_catch_tot * share$share,
-                                              PE_effort = pe_eff_tot * share$share) else NULL
+      sp <- if (!is.null(ds) && !is.null(pe_all[[pe_label]]))
+              pe_monthly_split(pe_all[[pe_label]], ds, b$catch_group) else NULL
+      pe_m <- if (!is.null(sp)) data.frame(month = sp$month_label, PE_catch = sp$month_catch,
+                                           PE_effort = sp$month_effort) else NULL
       bss_m <- if (!is.null(b$fit) && isTRUE(b$use_bss)) .srd_bss_monthly(b$fit, ds) else NULL
       months <- sort(unique(c(if (!is.null(pe_m)) pe_m$month, if (!is.null(bss_m)) bss_m$month)))
       if (length(months) == 0) next

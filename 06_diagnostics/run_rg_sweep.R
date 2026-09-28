@@ -37,6 +37,15 @@
 #     source("run_rg_sweep.R")
 #
 # When it finishes, compare the port total across the three folders against the
+# STALE BASELINE WARNING (2026-09-03). The 83,035 below is pooled Run 1 (20260713), which
+# was superseded by Run 6 (83,488) on 2026-07-15 and by five authoritative runs since. This
+# line has named a "current production total" three times (71,513, then 94,376 until
+# 2026-09-28) and been wrong each time the box moved, so it names none: that is the reason
+# the rule below exists. COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF
+# 07_documentation/development_notes/PIPELINE_STATUS.md, never against a number written into
+# a runner comment. Note also that rg_grid below has only
+# TWO rungs while this file's header describes three: the 1.00 rung was dropped mid-batch on
+# 2026-07-14 and never restored, so as committed this script cannot reproduce the Run 5 sweep.
 # Run-1 baseline (83,035): read each pooled-CPUE-run5-RG-*/port_total_Dungeness_Kept.csv.
 # This is a robustness study, not a correctness fix; if the port total is stable
 # across the three priors, the boat does not rest heavily on the R_G prior.
@@ -47,10 +56,8 @@ suppressPackageStartupMessages({
   library(rmarkdown)
 })
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-invisible(sapply(load.lib, require, character.only = TRUE))
+# 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 

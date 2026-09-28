@@ -47,11 +47,13 @@
 #       This is the pooled track's behavior. The cap entry may be a scalar or a
 #       per-gear_regime named list (see gear_regime below).
 #
-#   params$ar_force[[population_name]] overrides BOTH modes. It is an experiment
-#   toggle; NULL (production) is a no-op.
+#   params$ar_force[[population_name]] overrides BOTH modes and the cap. It is an
+#   experiment toggle; NULL (production) is a no-op. As of 2026-08-27b it takes the
+#   same two shapes as ar_max_resolution: a scalar forces every sub-season of that
+#   population, and a list NAMED by gear_regime forces only the sub-seasons it names.
 #
 #   gear_regime (optional) selects a per-sub-season cap when the population's
-#   ar_max_resolution entry is a named list (e.g. list(all_gear = "daily",
+#   ar_max_resolution entry is a named list (e.g. list(all_gear = "weekly",
 #   pot_closure = "biweekly")). NULL, or a scalar cap entry, preserves the
 #   original per-population behavior. Only consulted in the data-driven branch.
 #
@@ -80,6 +82,68 @@
 
 # Accept the drivers' historical spellings ("week"/"month") alongside the
 # canonical adverbial names.
+# Resolve an ar_force entry for one population and sub-season (2026-08-27b).
+#
+# ar_force was per-POPULATION only, while ar_max_resolution had already gained the nested
+# per-sub-season form (list(all_gear = ..., pot_closure = ...)). Passing ar_force the same
+# nested shape did NOT do the same thing: as.character() on a one-element list yields its
+# only element, so `ar_force = list(private_boat = list(pot_closure = "biweekly"))` silently
+# forced BOTH boat sub-seasons to biweekly. Stage C of the 2026-08-27 improvement batch was
+# run that way and moved the boat ALL-GEAR estimate 25,883 -> 28,902 as an unintended side
+# effect, which made its port total uninterpretable as the change it was supposed to isolate.
+#
+# ar_force now accepts either shape, matching ar_max_resolution: a scalar applies to every
+# sub-season of that population; a NAMED list is looked up by gear_regime and returns NULL
+# (no force) for a sub-season it does not name. An unnamed multi-element list is an error
+# rather than a silent coin flip.
+.bss_resolve_ar_force <- function(params, population_name, gear_regime = NULL) {
+  f <- params$ar_force
+  if (is.null(f) || is.null(f[[population_name]])) return(NULL)
+  e <- f[[population_name]]
+  if (!is.list(e)) return(.bss_normalize_resolution(e))
+  if (is.null(names(e)) || any(!nzchar(names(e))))
+    stop("params$ar_force[['", population_name, "']] is an unnamed list. Use a scalar to force ",
+         "every sub-season, or a list named by gear_regime (e.g. list(pot_closure = \"biweekly\")).",
+         call. = FALSE)
+  if (is.null(gear_regime) || !gear_regime %in% names(e)) return(NULL)
+  .bss_normalize_resolution(e[[gear_regime]])
+}
+
+# ---------------------------------------------------------------------------
+# .bss_resolve_ar_escalate()  --  2026-09-04.
+#
+# params$ar_escalate accepts three shapes, so a season can escalate exactly the components
+# that need it instead of paying for the ones whose resolution is already settled:
+#
+#   FALSE / TRUE                 off / on for every fit (the original scalar behaviour)
+#   c("shore")                   on for the named POPULATIONS only
+#   list(shore = "all_gear")     on for named population x sub-season pairs; a character
+#                                vector of gear_regimes, or TRUE for all of that
+#                                population's sub-seasons
+#
+# WHY THE SCOPING EARNS ITS PLACE. Every rung is a real multi-hour fit, and the two capped
+# components already have a known answer: the shore pot closure funnels at daily (1,165
+# divergences on Run 1) and the boat diverged on ~100% of iterations at daily. Escalating
+# those from the top burns two known-bad fits to rediscover the caps. The component that
+# genuinely needs the ladder in 2024-25 is shore all-gear, and `list(shore = "all_gear")`
+# says exactly that.
+# ---------------------------------------------------------------------------
+.bss_resolve_ar_escalate <- function(params, population_name, gear_regime = NULL) {
+  e <- params$ar_escalate
+  if (is.null(e)) return(FALSE)
+  if (is.logical(e) && length(e) == 1) return(isTRUE(e))
+  if (is.character(e)) return(population_name %in% e)
+  if (is.list(e)) {
+    if (!population_name %in% names(e)) return(FALSE)
+    v <- e[[population_name]]
+    if (is.logical(v) && length(v) == 1) return(isTRUE(v))
+    if (is.character(v)) return(!is.null(gear_regime) && gear_regime %in% v)
+    return(FALSE)
+  }
+  stop("params$ar_escalate must be TRUE/FALSE, a character vector of population names, or ",
+       "a named list of population -> gear_regime(s). Got: ", class(e)[1], call. = FALSE)
+}
+
 .bss_normalize_resolution <- function(x) {
   if (is.null(x) || is.na(x)) return(NA_character_)
   x <- tolower(trimws(as.character(x)))
@@ -155,12 +219,13 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
   }
 
   # --- Experiment override: bypasses both modes and the cap ------------------
-  if (!is.null(params$ar_force) && !is.null(params$ar_force[[population_name]])) {
-    ar_resolution <- .bss_normalize_resolution(params$ar_force[[population_name]])
+  .forced <- .bss_resolve_ar_force(params, population_name, gear_regime)
+  if (!is.null(.forced) && !is.na(.forced)) {
+    ar_resolution <- .forced
     sel_source    <- "forced"
     if (verbose) {
-      cat(sprintf("  AR resolution FORCED to '%s' for %s (ar_force experiment override)\n",
-                  ar_resolution, population_name))
+      cat(sprintf("  AR resolution FORCED to '%s' for %s/%s (ar_force experiment override)\n",
+                  ar_resolution, population_name, gear_regime %||% "all"))
     }
   }
 
@@ -194,4 +259,91 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
     n_effort_days = n_effort_days,
     obs_per_week  = obs_per_week
   )
+}
+
+
+###############################################################################
+# bss_ar_ladder()  --  improvement 7 (2026-08-25): the escalation ladder.
+#
+# WHAT PROBLEM THIS SOLVES
+#   Until now, AR resolution was decided in two steps that both happen BEFORE any
+#   sampling: a coverage rule (is the effort series dense enough for daily?) and a
+#   per-population cap in run_config (ar_max_resolution). The cap is the part that
+#   encodes sampler behaviour, and it was hand-tuned from earlier runs: shore
+#   pot-closure was capped at biweekly because it funnelled at daily on Run 1, the boat
+#   at monthly because it diverged on ~100% of iterations at daily. That works, but it
+#   freezes a per-season empirical finding into config, and a fit that FAILS its gate is
+#   demoted straight to the Point Estimator rather than being retried somewhere it could
+#   succeed.
+#
+#   The ladder replaces the hand-tuning with a procedure: start at the finest rung, fit,
+#   put the result through the SAME convergence gate that decides PE-vs-BSS, and if it
+#   fails, coarsen one rung and refit. Stop at the first rung that passes. Every
+#   component then reports at the finest resolution it can actually support, decided by
+#   that run's own sampler behaviour.
+#
+# WHAT IT COSTS
+#   Every rung is a real multi-hour MCMC fit. On the 2024-25 config the two capped
+#   components will burn their known-bad rungs before settling where the caps already put
+#   them. That is why params$ar_escalate ships FALSE and why the ladder is auditable
+#   (ar_escalation_log.csv records every attempt, its gate verdict, and its runtime).
+#
+# WHAT IT IS NOT
+#   It is not a substitute for the coverage rule. Coverage answers "can this series
+#   identify a daily process at all"; the ladder answers "does the sampler survive it".
+#   With ar_escalate_respect_cap = TRUE the ladder starts from the capped rung instead of
+#   the top, which is the cheap variant: no extra fits when the caps are already right,
+#   but it cannot discover that a cap is too coarse.
+#
+# DEGENERATE RUNGS ARE DROPPED
+#   A rung that yields the same period count as a finer rung already on the ladder, or
+#   fewer than min_periods periods, is removed: refitting an identical model wastes hours,
+#   and a 1-2 period AR is not an AR. For a 76-day pot-closure window that removes
+#   nothing (daily 76 / weekly ~11 / biweekly 6 / monthly 3); for a short window it can
+#   collapse the ladder to a single rung, which the caller reports.
+#
+# RETURNS a character vector of resolutions, finest to coarsest, length >= 1.
+###############################################################################
+bss_ar_ladder <- function(days, eff_d, population_name, params,
+                          fixed_resolution = NULL, gear_regime = NULL,
+                          min_periods = 3L) {
+
+  # ar_force is an experiment override and outranks everything, including the ladder.
+  .forced <- .bss_resolve_ar_force(params, population_name, gear_regime)
+  if (!is.null(.forced) && !is.na(.forced)) return(.forced)
+
+  base_sel <- bss_select_ar_resolution(days, eff_d, population_name, params,
+                                       fixed_resolution = fixed_resolution,
+                                       gear_regime = gear_regime, verbose = FALSE)
+
+  if (!.bss_resolve_ar_escalate(params, population_name, gear_regime))
+    return(base_sel$resolution)
+
+  ladder <- vapply(params$ar_escalate_ladder %||% c("daily", "weekly", "biweekly", "monthly"),
+                   .bss_normalize_resolution, character(1), USE.NAMES = FALSE)
+  ladder <- ladder[order(-.bss_res_rank[ladder])]   # finest first
+
+  # Start rung. Default: the top of the ladder (the point of the feature). With
+  # ar_escalate_respect_cap the ladder starts no finer than what the cap + coverage rule
+  # already chose.
+  if (isTRUE(params$ar_escalate_respect_cap))
+    ladder <- ladder[.bss_res_rank[ladder] <= .bss_res_rank[[base_sel$resolution]]]
+  if (length(ladder) == 0) ladder <- base_sel$resolution
+
+  # Drop rungs that are degenerate or duplicate an existing rung's period count.
+  D <- nrow(days)
+  p_of <- function(res) {
+    if (res == "daily")    D
+    else if (res == "weekly")   max(as.integer(days$week_index),  na.rm = TRUE)
+    else if (res == "biweekly") max(as.integer(ceiling(days$day_index / 14)), na.rm = TRUE)
+    else                        max(as.integer(days$month_index), na.rm = TRUE)
+  }
+  pn   <- vapply(ladder, p_of, numeric(1))
+  keep <- !duplicated(pn) & (pn >= min_periods)
+  # Never return an empty ladder: if every rung is degenerate, keep the coarsest.
+  if (!any(keep)) keep[length(keep)] <- TRUE
+  ladder <- ladder[keep]
+
+  max_att <- params$ar_escalate_max_attempts %||% length(ladder)
+  utils::head(ladder, max(1L, as.integer(max_att)))
 }

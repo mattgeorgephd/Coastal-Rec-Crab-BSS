@@ -32,8 +32,28 @@
 #   crabbers present, averages only 3.5 to 5.0 hours. Using civil twilight
 #   therefore overestimates shore effort by roughly 2x. L_effective corrects it.
 #
-#   Boats are unaffected: their gear soaks continuously, so L = 24 by
-#   construction (the gear-hours formulation), set in each driver's prep_bss_crab.
+#   Boats do NOT use a day length at all. STALE COMMENT CORRECTED 2026-08-25: the old
+#   text here said "L = 24 by construction (the gear-hours formulation)", which stopped
+#   being true at POOL-3 / v7.6 when the boat moved to gear-deployments. The boat's L is
+#   tau_boat, the deployment turnover (~2.98 from the OSP/trailer calibration on 2024-25;
+#   the 1.2 this line used to name is the RETIRED centre), set by bss_effort_spec().
+#
+# WHAT PRODUCTION ACTUALLY EXPANDS ON (improvement 2, 2026-08-25)
+#   Since the v7.7 shore unit move, SHORE also expands on a turnover, not on a day
+#   length: E = lambda_E * R_G * tau_shore. Both quantities come from the same 15-minute
+#   I/E presence series:
+#       L_effective = crabber-hours / peak present   (~5.3 h mean)
+#       turnover    = arrivals      / peak present   (~1.72 over 30 WDF20 days)
+#   and their ratio is the implied trip length, 5.26 / 1.72 = 3.07 h against an interview
+#   mean trip length of 3.23 h, which is the free consistency check on the method.
+#   L_effective is still computed every run (it sets the day_length column the
+#   diagnostics and the civil-twilight comparison use) but it is NOT on the estimation
+#   path unless shore_effort_unit is set back to a time unit. The fallback ladder below
+#   therefore governs a DIAGNOSTIC quantity in the production configuration.
+#
+#   Consequence for the I/E likelihood: because the predicted quantity is
+#   lambda_E * tau = TRIPS, the observation must be the arrival count, not crabber-hours.
+#   That pairing is now owned by bss_effort_spec()$ie_obs_col; see the note there.
 #
 # THE FALLBACK LADDER (automatic, no toggle)
 #   estimate_L_effective() degrades WITHIN the same estimand rather than
@@ -64,7 +84,8 @@
 #
 # CONTENTS
 #   fetch_ie_data(params)                          lifted verbatim from the pooled
-#   estimate_L_effective(ie_data, pot_open, params)  driver (v7.4), unmodified
+#   estimate_L_effective(ie_data, params)            driver (v7.4); the dead pot_open_date
+#                                                    argument was removed 2026-09-12
 #   bss_day_length_civil(dates, params)            civil-twilight helper
 #   bss_assign_day_length(days, L_eff_model, params)  sets day_length, L_mu,
 #                                                  L_prior_sigma on a days tibble
@@ -90,14 +111,14 @@ fetch_ie_data <- function(params) {
     ))
   }
 
-  ie_raw <- readxl::read_excel(ie_file, sheet = params$ie_sheet) |>
+  ie_raw <- read_input_workbook(ie_file, sheet = params$ie_sheet) |>
     mutate(event_date = as.Date(date))
 
   # Optional: restrict I/E to the current fishery season. Default FALSE preserves the
   # historical pooling (the L_effective day-of-year regression intentionally uses all
   # seasons of I/E). The ingress_egress `season` column is now the fishery season label.
   if (isTRUE(params$ie_filter_by_season) && "season" %in% names(ie_raw))
-    ie_raw <- ie_raw |> filter(season == params$season_filter)
+    ie_raw <- ie_raw |> filter(season %in% params$season_filter)
 
   ie_shore <- ie_raw |>
     filter(location_name == params$ie_shore_location) |>
@@ -163,6 +184,39 @@ fetch_ie_data <- function(params) {
   ie_all <- bind_rows(ie_shore, ie_boat) |>
     filter(ie_crabber_hours > 0)
 
+  # 2026-09-08 (review item 2): keep the SHORE interval rows, with their clock time, as an
+  # attribute so estimate_shore_turnover() can evaluate presence at the hours the creel
+  # counts were taken. The workbook gained a `time` column on 2026-09-08; without it the
+  # attribute is NULL and the turnover derivation degrades to the peak-based value.
+  ie_int <- NULL
+  if ("time" %in% names(ie_raw)) {
+    ie_int <- ie_raw |>
+      filter(location_name == params$ie_shore_location) |>
+      mutate(hour = .ie_hour_of(time),
+             crabbers_on  = replace_na(as.numeric(crabbers_on), 0),
+             crabber_flow = replace_na(as.numeric(crabber_flow), 0)) |>
+      filter(is.finite(hour)) |>
+      select(event_date, season, day_type, hour, crabbers_on, crabber_flow) |>
+      arrange(event_date, hour)
+  }
+  attr(ie_all, "ie_intervals") <- ie_int
+  # 2026-09-09: keep the BOAT interval rows of every boat-I/E site too (arrivals and
+  # returns by clock time), for the sampler-shift coverage diagnostic
+  # (03_R_functions/sampler_shifts.R): what share of a day's boat returns falls inside the
+  # hours a sampler was in port to classify them.
+  ie_boat_int <- NULL
+  if ("time" %in% names(ie_raw) && all(c("boats_in", "boats_out") %in% names(ie_raw))) {
+    ie_boat_int <- ie_raw |>
+      filter(!is.na(boats_in) | !is.na(boats_out)) |>
+      mutate(hour = .ie_hour_of(time),
+             boats_in  = replace_na(as.numeric(boats_in), 0),
+             boats_out = replace_na(as.numeric(boats_out), 0)) |>
+      filter(is.finite(hour)) |>
+      select(event_date, season, day_type, location_name, hour, boats_in, boats_out) |>
+      arrange(location_name, event_date, hour)
+  }
+  attr(ie_all, "ie_boat_intervals") <- ie_boat_int
+
   cat(sprintf("  I/E survey days: %d shore (WDF20), %d boat (WBL)\n",
               sum(ie_all$population == "shore"),
               sum(ie_all$population == "private_boat")))
@@ -175,6 +229,31 @@ fetch_ie_data <- function(params) {
                 mean(shore_ie$L_effective), min(shore_ie$L_effective), max(shore_ie$L_effective)))
   }
 
+  # --- Phase 3: crabbing-fraction classification rows (crab-vs-total boats, per WBL row) ---
+  # Optional columns on the boat I/E (WBL) rows: params$ie_crab_col / ie_total_col. Emitted
+  # PER ROW so the crab-fraction helper (03_R_functions/crab_fraction.R) can aggregate by
+  # stratum (month / day_type). Absent columns (the current state; the WBL classification
+  # pilot is in progress) -> empty -> every stratum uses the set value. The preps/PE read
+  # this via params$crab_fraction_rows (the driver lifts attr(ie_data, "crab_fraction_rows")).
+  cf_crab_col  <- params$ie_crab_col  %||% "boats_crabbing"
+  cf_total_col <- params$ie_total_col %||% "boats_total"
+  cf_rows <- tibble(event_date = as.Date(character()),
+                    boats_crabbing = numeric(), boats_total = numeric())
+  wbl_raw <- ie_raw |> filter(location_name == params$ie_boat_location)
+  if (nrow(wbl_raw) > 0 && all(c(cf_crab_col, cf_total_col) %in% names(wbl_raw))) {
+    cf_rows <- wbl_raw |>
+      transmute(event_date     = as.Date(date),
+                boats_crabbing = suppressWarnings(as.numeric(.data[[cf_crab_col]])),
+                boats_total    = suppressWarnings(as.numeric(.data[[cf_total_col]]))) |>
+      filter(is.finite(boats_total))
+    .nt <- sum(cf_rows$boats_total, na.rm = TRUE); .nc <- sum(cf_rows$boats_crabbing, na.rm = TRUE)
+    cat(sprintf("  Crab-fraction I/E classification: %d WBL rows, %.0f total / %.0f crab boats (f_hat = %s)\n",
+                nrow(cf_rows), .nt, .nc, if (.nt > 0) sprintf("%.2f", .nc / .nt) else "NA"))
+  } else {
+    cat("  Crab-fraction I/E classification: columns absent; f will use the set-value fallback.\n")
+  }
+  attr(ie_all, "crab_fraction_rows") <- cf_rows
+
   return(ie_all)
 }
 
@@ -186,6 +265,22 @@ fetch_ie_data <- function(params) {
 # This captures the seasonal gradient WITHIN sub-seasons and provides per-day
 # prediction uncertainty for propagation into the Stan model.
 #
+# 2026-09-12: the `pot_open_date` ARGUMENT WAS DEAD. It appeared in the signature and
+# nowhere in the body, so there has never been a pots-open split in this regression; the
+# only predictors are yday (quadratic) and day type. Both drivers passed
+# params$pot_open_date into it, and run_config's comment on pot_open_date plus
+# CHANGE_REGISTER A14 both described a multi-season approximation ("pot_open_date is a
+# SINGLE date feeding the L_effective I/E regression split; with two seasons it is exact
+# for one season only") that therefore never existed. The argument is removed rather than
+# used, because a pots-open indicator is NOT the right fix either: the closure boundary
+# is already inside the yday term, and adding a second, season-specific predictor to a
+# model fitted on 40 I/E days would cost more than it buys. THE REAL multi-season
+# approximation, now stated where it belongs: the regression POOLS every season's I/E
+# days and assumes one yday -> L relationship across them. On the 2023-25 span that is
+# 2023-24's shorter Grays Harbor shifts and 2024-25's being fitted as one curve. A
+# per-season interaction is the fix if the two seasons' I/E day lengths diverge; check
+# L_effective_ie_detail.csv (residuals by season) before assuming they do not.
+#
 # Returns: list with
 #   $predict_fn: function(event_date, day_type) -> tibble(L_mu, L_sigma)
 #   $model: the fitted lm object (NULL on the grand-mean rung)
@@ -193,7 +288,7 @@ fetch_ie_data <- function(params) {
 #   $n_obs, $method: "regression" or "grand_mean"
 # ===========================================================================
 
-estimate_L_effective <- function(ie_data, pot_open_date, params) {
+estimate_L_effective <- function(ie_data, params) {
   cat("\n  Fitting L_effective regression from historical I/E data...\n")
 
   ie_shore <- ie_data |>
@@ -281,9 +376,20 @@ estimate_L_effective <- function(ie_data, pot_open_date, params) {
   result <- list(
     predict_fn = predict_L,
     model = L_fit,
-    detail = ie_shore |> select(event_date, day_type, day_type_group, yday,
-                                 ie_crabber_hours, max_present, L_effective,
-                                 pred_L_mu, pred_L_sigma),
+    # 2026-08-27: carry the DEPLOYMENT-scale quantities alongside the hours-scale ones.
+    # Production has expanded shore effort on a turnover since v7.7, and since 2026-08-25 the
+    # shore I/E likelihood observes ie_trips, but this file reported only ie_crabber_hours and
+    # L_effective (hours per crabber). That made the one file a reader would open to audit the
+    # I/E unit change the one file that could not show it. turnover = arrivals / peak present
+    # is the quantity `L` actually carries under gear-deployments; hours_per_trip is their
+    # ratio, the method's free internal consistency check against the interview-reported
+    # trip length.
+    detail = ie_shore |>
+      mutate(turnover      = if_else(max_present > 0, ie_trips / max_present, NA_real_),
+             hours_per_trip = if_else(ie_trips > 0, ie_crabber_hours / ie_trips, NA_real_)) |>
+      select(event_date, day_type, day_type_group, yday,
+             ie_crabber_hours, ie_trips, max_present, L_effective, turnover, hours_per_trip,
+             pred_L_mu, pred_L_sigma),
     n_obs = n_ie,
     method = if(!is.null(L_fit)) "regression" else "grand_mean"
   )
@@ -348,4 +454,252 @@ bss_assign_day_length <- function(days, L_eff_model, params = list()) {
   }
 
   days
+}
+
+
+# ===========================================================================
+# SHORE TURNOVER FROM THE I/E TIME COLUMN  (review item 2, 2026-09-08)
+#
+# THE PROBLEM. tau_shore_prior_mu = 1.7 is arrivals / PEAK presence over the WDF20 I/E
+# days. The Stan effort likelihood, Gear_I ~ NB2(lambda_E * R_G), calibrates lambda_E to
+# the gear counts AT THE TIMES THEY WERE TAKEN, and the expansion E = lambda_E * R_G * tau
+# is unbiased only if those counts sit at the daily peak. With the I/E `time` column the
+# presence curves show that they do not: 81% of 2024-25 Float 20 counts fall between 10:00
+# and 13:59, and presence in that window averages 0.69 of the daily peak (40 days). The
+# multiplier the counts actually need is arrivals / presence-at-count-time, about 2.5.
+#
+# THE ESTIMATOR. For each I/E day d and each clock hour h, presence_d(h) / arrivals_d is the
+# fraction of the day's crabber trips present at h (the diel profile). The season's count-
+# time distribution w(h) comes from the shore effort counts themselves (count_hour, kept
+# by fetch_crab_data since 2026-09-08; sequences <= bss_max_count_seq). Then
+#     tau = sum_d arrivals_d / sum_d sum_h w(h) presence_d(h)         (ratio of sums)
+# is the constant that makes count x tau unbiased for daily trips over the season, and it
+# is the quantity the model's lambda_E * tau needs. Reported beside it: the geometric mean
+# of the per-day ratios, the between-day log-SD (the natural day-to-day spread for the
+# shared-turnover model), a day-resampling bootstrap log-SE for the level, the same by day
+# type, and the profile itself. All go to shore_turnover_*.csv every run.
+#
+# CROSS-CHECK that justifies applying the profile to gear counts: on the six 2024-25 I/E
+# days that also carry a Float 20 gear count, count / R_G matches I/E presence at the same
+# instant to 3% (ratio 1.03), so the gear count is a presence snapshot.
+#
+# It is DERIVED every run and adopted only when params$tau_shore_prior_mu = "derived"
+# (see bss_resolve_tau_shore_prior()), because it moves the shore component by the ratio of
+# the two priors, about 1.47 on 2024-25, and must be validated by run first.
+# ===========================================================================
+
+.ie_hour_of <- function(x) {
+  # readxl returns a time column as POSIXct (1899-12-31 base) or hms/difftime; a text
+  # export gives "HH:MM:SS". Return the decimal hour, NA where unparseable.
+  if (inherits(x, "POSIXct")) return(as.numeric(format(x, "%H")) + as.numeric(format(x, "%M")) / 60)
+  if (inherits(x, "difftime") || inherits(x, "hms")) return(as.numeric(x, units = "hours") %% 24)
+  xs <- as.character(x)
+  hh <- suppressWarnings(as.numeric(sub("^\\s*(\\d{1,2}):(\\d{2}).*$", "\\1", xs)))
+  mm <- suppressWarnings(as.numeric(sub("^\\s*(\\d{1,2}):(\\d{2}).*$", "\\2", xs)))
+  ifelse(is.finite(hh) & is.finite(mm), hh + mm / 60, NA_real_)
+}
+
+estimate_shore_turnover <- function(ie_intervals, shore_effort, params = list(),
+                                    n_boot = 2000, seed = 1L, quiet = FALSE) {
+  .say <- function(...) if (!isTRUE(quiet)) cat(...)
+  empty <- list(tau = NA_real_, tau_geomean = NA_real_, log_se = NA_real_, log_sd_days = NA_real_,
+                tau_peak = NA_real_, n_days = 0L, method = "unavailable",
+                profile = NULL, by_day = NULL, count_time_weights = NULL, by_day_type = NULL)
+  if (is.null(ie_intervals) || !is.data.frame(ie_intervals) || !nrow(ie_intervals)) {
+    .say("  Shore turnover: no I/E interval rows with a time column; derivation unavailable (peak-based prior stays).\n")
+    return(empty)
+  }
+  # WHICH DAYS THE TURNOVER IS DERIVED FROM (2026-09-11). Until the first full ladder run
+  # this function silently used EVERY I/E interval row in the workbook, and nothing said
+  # so. On the 2024-25 run that is 40 days spanning 2023-08 to 2026-08, of which SEVEN are
+  # inside the 2024-25 season and FOUR inside the all-gear sub-season the resulting 2.477
+  # is applied to. It therefore returns the SAME number for every season, while
+  # NEW_SEASON_GUIDE.md described it as derived "from the window's I/E time column and
+  # count hours" -- a claim that was true of the boat side (`tau_boat_prior_mu =
+  # "calibration"`, which reads the window-filtered overlap) and never true of this one.
+  # The count-time WEIGHTS below are in-window (shore_effort is), so what shipped was a
+  # hybrid: in-window count hours weighting an all-seasons diel profile.
+  #
+  # Pooling is defensible -- seven days is a thin basis for a quantity that scales the
+  # whole shore component by 1.36 -- so it stays the DEFAULT. But it has to be a stated
+  # choice with a number attached, not an accident, because this is the second-largest
+  # mover in the whole improvement series. Both are now reported every run
+  # (n_days_in_window, tau_in_window in shore_turnover_summary.csv) and
+  # tau_shore_derive_window_only = TRUE restricts the derivation to the estimation window
+  # so the alternative can be priced without editing code. See CHANGE_REGISTER D24.
+  .ws <- suppressWarnings(as.Date(params$est_date_start %||% NA))
+  .we <- suppressWarnings(as.Date(params$est_date_end   %||% NA))
+  iv_all <- ie_intervals |>
+    mutate(hbin = floor(hour)) |>
+    group_by(event_date) |>
+    mutate(arrivals = sum(crabbers_on), peak = max(crabber_flow)) |>
+    ungroup() |>
+    filter(arrivals > 0, peak > 0)
+  .in_win <- if (is.na(.ws) || is.na(.we)) rep(TRUE, nrow(iv_all))
+             else as.Date(iv_all$event_date) >= .ws & as.Date(iv_all$event_date) <= .we
+  .n_win <- length(unique(iv_all$event_date[.in_win]))
+  .n_all <- length(unique(iv_all$event_date))
+  iv <- if (isTRUE(params$tau_shore_derive_window_only)) iv_all[.in_win, , drop = FALSE] else iv_all
+  if (!nrow(iv)) { .say("  Shore turnover: no I/E day with arrivals; derivation unavailable.\n"); return(empty) }
+  .say(sprintf(paste0("  Shore turnover derived from %d I/E day(s)%s; %d of the %d days in the workbook fall INSIDE the",
+                      " estimation window (%s to %s).\n"),
+               length(unique(iv$event_date)),
+               if (isTRUE(params$tau_shore_derive_window_only)) " (window-only: tau_shore_derive_window_only = TRUE)" else " (ALL seasons pooled; the default)",
+               .n_win, .n_all, if (is.na(.ws)) "?" else as.character(.ws), if (is.na(.we)) "?" else as.character(.we)))
+  if (!isTRUE(params$tau_shore_derive_window_only) && .n_all > 0 && .n_win / .n_all < 0.5)
+    .say(sprintf(paste0("  *** NOTE: only %.0f%% of the I/E days behind this turnover are inside the window it is",
+                        " applied to. The shore component scales linearly in it; read sigma_IE in the fitted",
+                        " output, which is the in-window check. ***\n"), 100 * .n_win / max(.n_all, 1)))
+
+  # --- count-time weights: the hours the creel counts were actually taken ------------
+  max_seq <- params$bss_max_count_seq %||% 3
+  ch <- NULL
+  if (!is.null(shore_effort) && "count_hour" %in% names(shore_effort))
+    ch <- shore_effort |> filter(count_sequence <= max_seq, is.finite(count_hour)) |> pull(count_hour)
+  if (is.null(ch) || !length(ch)) {
+    .say("  Shore turnover: no count hours in the shore effort table; weighting the 10:00-14:00 window uniformly.\n")
+    ch <- c(10.5, 11.5, 12.5, 13.5)
+  }
+  w <- tibble(hbin = floor(ch)) |> count(hbin, name = "n") |> mutate(weight = n / sum(n))
+
+  # --- diel profile: presence / arrivals by hour bin, averaged over days ---------------
+  # A day contributes a bin only if the survey covered it; bins outside every survey are
+  # absent from the profile and get zero weight below (with a printed note).
+  day_hour <- iv |>
+    group_by(event_date, season, day_type, hbin, arrivals, peak) |>
+    summarise(presence = mean(crabber_flow), .groups = "drop")
+  profile <- day_hour |>
+    mutate(pres_over_arr = presence / arrivals) |>
+    group_by(hbin) |>
+    summarise(n_days = n(), mean_presence_over_arrivals = mean(pres_over_arr),
+              median_presence_over_arrivals = median(pres_over_arr), .groups = "drop") |>
+    mutate(implied_turnover = 1 / mean_presence_over_arrivals)
+
+  # --- per-day expected presence at the count times, then the ratio of sums ------------
+  w_use <- w |> filter(hbin %in% day_hour$hbin)
+  if (!nrow(w_use)) { .say("  Shore turnover: count hours fall outside every I/E survey; derivation unavailable.\n"); return(empty) }
+  if (nrow(w_use) < nrow(w))
+    .say(sprintf("  Shore turnover: %.0f%% of count hours fall outside the I/E survey window and are dropped from the weighting.\n",
+                 100 * (1 - sum(w_use$n) / sum(w$n))))
+  w_use <- w_use |> mutate(weight = n / sum(n))
+  by_day <- day_hour |>
+    inner_join(w_use |> select(hbin, weight), by = "hbin") |>
+    group_by(event_date, season, day_type, arrivals, peak) |>
+    # a day that lacks some weighted bins is renormalized over the bins it has
+    summarise(presence_at_counts = sum(presence * weight) / sum(weight), .groups = "drop") |>
+    mutate(tau_day = arrivals / presence_at_counts, tau_peak_day = arrivals / peak) |>
+    filter(is.finite(tau_day), presence_at_counts > 0)
+
+  tau_ros  <- sum(by_day$arrivals) / sum(by_day$presence_at_counts)
+  tau_geo  <- exp(mean(log(by_day$tau_day)))
+  lsd      <- stats::sd(log(by_day$tau_day))
+  tau_peak <- exp(mean(log(by_day$tau_peak_day)))
+  bs <- bss_with_seed(seed, replicate(n_boot, { i <- sample.int(nrow(by_day), replace = TRUE)
+                            sum(by_day$arrivals[i]) / sum(by_day$presence_at_counts[i]) }))   # B46: caller's RNG restored
+  log_se <- stats::sd(log(bs))
+  by_dt <- by_day |>
+    mutate(dt = ifelse(tolower(day_type) %in% c("weekend", "holiday"), "weekend", "weekday")) |>
+    group_by(dt) |>
+    summarise(n_days = n(), tau_ratio_of_sums = sum(arrivals) / sum(presence_at_counts),
+              tau_geomean = exp(mean(log(tau_day))), .groups = "drop")
+
+  .say(sprintf(paste0("  Shore turnover from the I/E time column: %d days; arrivals / presence at the season's ",
+                      "count hours = %.3f (ratio of sums; geometric mean of daily ratios %.3f; between-day ",
+                      "log-SD %.2f; bootstrap log-SE %.3f). Peak-based value (the pre-2026-09-08 prior): %.3f.\n"),
+               nrow(by_day), tau_ros, tau_geo, lsd, log_se, tau_peak))
+  .say(sprintf("    presence at the count hours averages %.2f of the daily peak; weekday %.2f / weekend %.2f\n",
+               mean(by_day$presence_at_counts / by_day$peak),
+               by_dt$tau_ratio_of_sums[by_dt$dt == "weekday"] %||% NA_real_,
+               by_dt$tau_ratio_of_sums[by_dt$dt == "weekend"] %||% NA_real_))
+
+  # the IN-WINDOW subset, always computed and always reported, whatever the derivation used
+  .bw <- if (is.na(.ws) || is.na(.we)) by_day
+         else by_day[as.Date(by_day$event_date) >= .ws & as.Date(by_day$event_date) <= .we, , drop = FALSE]
+  tau_win <- if (nrow(.bw) && sum(.bw$presence_at_counts) > 0)
+    sum(.bw$arrivals) / sum(.bw$presence_at_counts) else NA_real_
+  if (nrow(.bw) < nrow(by_day))
+    .say(sprintf(paste0("    IN-WINDOW SUBSET: %d of %d day(s), ratio of sums %s against %.3f pooled.",
+                        " The pooled value is what ships; tau_shore_derive_window_only = TRUE uses the subset.\n"),
+                 nrow(.bw), nrow(by_day), if (is.na(tau_win)) "unavailable" else sprintf("%.3f", tau_win), tau_ros))
+
+  list(tau = tau_ros, tau_geomean = tau_geo, log_se = log_se, log_sd_days = lsd,
+       tau_peak = tau_peak, n_days = nrow(by_day), method = "count-time-weighted ratio of sums",
+       n_days_in_window = nrow(.bw), n_days_total = .n_all, tau_in_window = tau_win,
+       derived_window_only = isTRUE(params$tau_shore_derive_window_only),
+       profile = profile, by_day = by_day, count_time_weights = w_use, by_day_type = by_dt)
+}
+
+# Write the derivation's tables into a run folder (guarded like every other writer).
+write_shore_turnover <- function(st, output_dir) {
+  if (is.null(st) || is.null(output_dir) || is.null(st$by_day)) return(invisible(NULL))
+  tryCatch({
+    utils::write.csv(st$profile, file.path(output_dir, "shore_turnover_profile.csv"), row.names = FALSE)
+    utils::write.csv(dplyr::mutate(st$by_day, event_date = as.character(event_date)),
+                     file.path(output_dir, "shore_turnover_by_day.csv"), row.names = FALSE)
+    utils::write.csv(tibble::tibble(
+      method = st$method, n_days = st$n_days, tau_ratio_of_sums = st$tau, tau_geomean = st$tau_geomean,
+      log_se_bootstrap = st$log_se, log_sd_between_days = st$log_sd_days, tau_peak_based = st$tau_peak,
+      weekday = st$by_day_type$tau_ratio_of_sums[st$by_day_type$dt == "weekday"] %||% NA_real_,
+      weekend = st$by_day_type$tau_ratio_of_sums[st$by_day_type$dt == "weekend"] %||% NA_real_,
+      # 2026-09-11 (D24): the shipped derivation POOLS every I/E day in the workbook, so
+      # these three columns are how a reader sees what the number rests on. On the 2024-25
+      # run n_days_in_window was 7 of 40 and the shore component scales linearly in tau.
+      n_days_in_window = st$n_days_in_window %||% NA_integer_,
+      n_days_total = st$n_days_total %||% NA_integer_,
+      tau_in_window = st$tau_in_window %||% NA_real_,
+      derived_window_only = isTRUE(st$derived_window_only)),
+      file.path(output_dir, "shore_turnover_summary.csv"), row.names = FALSE)
+  }, error = function(e) cat("  (shore turnover CSVs not written:", conditionMessage(e), ")\n"))
+  invisible(NULL)
+}
+
+# Resolve tau_shore_prior_mu / _sigma = "derived" from the estimate above. The resolved
+# numbers REPLACE the keys (as bss_resolve_tau_boat_prior does), so every consumer (the
+# effort spec, run_pe_pooled / run_pe_gear, the gear driver's
+# daily-combined series) reads one value. When the level is derived, the shared-turnover
+# informed-day floor is waived for shore (params$shared_tau_min_obs$shore <- 0): the floor
+# existed to stop four in-window I/E days dragging a level that rested on a 0.3 log-SD
+# prior; a level anchored on 40 days with log-SE ~0.06 is not draggable, and the shared
+# level is what carries the level uncertainty into the shore interval (289 independent
+# per-day draws average it away).
+bss_resolve_tau_shore_prior <- function(params, shore_turnover = NULL, quiet = FALSE) {
+  .say <- function(...) if (!isTRUE(quiet)) cat(...)
+  mu_raw <- params$tau_shore_prior_mu    %||% 1.7
+  sd_raw <- params$tau_shore_prior_sigma %||% 0.3
+  floor_sd <- as.numeric(params$tau_shore_prior_sigma_floor %||% 0.10)
+  derived <- function(x) is.character(x) && identical(tolower(x), "derived")
+  if (is.numeric(mu_raw) && is.numeric(sd_raw)) {
+    params$tau_shore_prior_source <- "config (numeric)"
+    return(params)
+  }
+  st <- shore_turnover
+  ok <- !is.null(st) && is.finite(st$tau %||% NA_real_) && (st$n_days %||% 0) >= as.integer(params$tau_shore_derive_min_days %||% 10L)
+  if (derived(mu_raw)) {
+    if (!ok) {
+      params$tau_shore_prior_mu <- as.numeric(params$tau_shore_prior_mu_fallback %||% 1.7)
+      params$tau_shore_prior_source <- "fallback (turnover derivation unavailable)"
+      .say(sprintf("  tau_shore prior: derivation unavailable; using the fallback centre %.2f.\n", params$tau_shore_prior_mu))
+    } else {
+      params$tau_shore_prior_mu <- st$tau
+      params$tau_shore_prior_source <- sprintf("derived (I/E time column, %d days, %s)", st$n_days, st$method)
+      if (is.list(params$shared_tau_min_obs) || is.numeric(params$shared_tau_min_obs)) {
+        smo <- params$shared_tau_min_obs
+        if (!is.list(smo)) smo <- list(shore = smo, private_boat = smo)
+        smo$shore <- 0L
+        params$shared_tau_min_obs <- smo
+      } else params$shared_tau_min_obs <- list(shore = 0L, private_boat = 15L)
+      .say(sprintf("  tau_shore prior centre RESOLVED from the I/E time column: %.3f (%d days); shore shared-turnover floor waived.\n",
+                   st$tau, st$n_days))
+    }
+  } else if (!is.numeric(mu_raw)) {
+    stop("params$tau_shore_prior_mu must be a positive number or \"derived\" (got ", deparse(mu_raw), ").", call. = FALSE)
+  }
+  if (derived(sd_raw)) {
+    params$tau_shore_prior_sigma <- if (ok) max(st$log_se, floor_sd) else 0.3
+    .say(sprintf("  tau_shore prior log-SD RESOLVED: %.3f (bootstrap log-SE %s, floor %.2f).\n",
+                 params$tau_shore_prior_sigma, if (ok) sprintf("%.3f", st$log_se) else "n/a", floor_sd))
+  } else if (!is.numeric(sd_raw)) {
+    stop("params$tau_shore_prior_sigma must be a positive number or \"derived\".", call. = FALSE)
+  }
+  params
 }

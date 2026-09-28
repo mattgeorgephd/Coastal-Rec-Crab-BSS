@@ -1,0 +1,6 @@
+"component","PE_effort","BSS_effort","effort_diff_pct","PE_catch","BSS_catch","catch_diff_pct","method_selected"
+"shore (Pot closure)",4661,4902,5.2,5959,6352,6.6,"BSS"
+"shore (All gear)",18863,24997,32.5,15755,20898,32.6,"BSS"
+"private_boat (Pot closure)",180,356,97.7,400,1106,176.4,"BSS"
+"private_boat (All gear)",3711,11056,197.9,11176,37359,234.3,"BSS"
+"comm_charter (census)",279,NA,NA,11821,NA,NA,"Census (day-type stratified)"

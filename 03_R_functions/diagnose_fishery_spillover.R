@@ -22,7 +22,7 @@
 # diagnose_fishery_spillover.R  (called by the pooled report; diagnostic only)
 #
 # Tests whether crab EFFORT (shore gear counts, boat trailer counts) and CPUE
-# (interview Dungeness catch per crabber-hour) differ on other-fishery opener days:
+# (interview Dungeness catch per GEAR DEPLOYMENT) differ on other-fishery opener days:
 # Marine Area 2 salmon / halibut / bottomfish, and coastal razor-clam digs on the
 # nearby beaches (Twin Harbors / Copalis / Mocrocks). The question is whether these
 # openers spill over onto crabbing enough to deserve their own day category (like the
@@ -43,6 +43,18 @@
 #
 # Runs on the in-memory dwg (same series as the Section 3 input plots), so it needs no
 # extra data prep and can run before the multi-hour fits.
+#
+# IMPROVEMENT 1 FIX (2026-08-25): the CPUE denominator was crabber-hours
+# (dungeness_kept / fishing_time_total), the unit this pipeline's own linearity
+# diagnostic rejects for pot and trap gear (beta_h 0.57 against 1.05 for deployments).
+# It is now the production denominator, number_of_gear. That matters here specifically
+# because soak time varies systematically with day type and season, so a crabber-hour
+# rate carries a confound the deployment rate does not.
+#
+# IMPROVEMENT 4 (2026-08-25): the adjusted table this returns is now also the SCREEN that
+# bss_opener_covariates.R reads to decide which openers enter the effort model. The
+# multiplicity adjustment lives there, not here; this function still reports raw p-values
+# so the unadjusted picture stays visible.
 ###############################################################################
 
 diagnose_fishery_spillover <- function(dwg, params) {
@@ -78,10 +90,12 @@ diagnose_fishery_spillover <- function(dwg, params) {
     dplyr::summarise(value = sum(count_quantity), .groups = "drop") |>
     attach_ctx() |> dplyr::mutate(series = "Boat trailers (effort)")
 
+  # CPUE denominator = gear deployments (the production unit), not crabber-hours.
   cpue_all <- dwg$interview |>
-    dplyr::filter(fishing_time_total > 0, dungeness_kept >= 0,
+    dplyr::mutate(.h = suppressWarnings(as.numeric(number_of_gear))) |>
+    dplyr::filter(is.finite(.h), .h > 0, dungeness_kept >= 0,
                   population %in% c("shore", "private_boat")) |>
-    dplyr::mutate(value = dungeness_kept / fishing_time_total) |>
+    dplyr::mutate(value = dungeness_kept / .h) |>
     dplyr::select(event_date, population, value) |>
     attach_ctx()
   cpue_shore <- cpue_all |> dplyr::filter(population == "shore")        |> dplyr::mutate(series = "Shore CPUE")

@@ -1,0 +1,5 @@
+"component","gear_ratio_exclude","gear_ratio_gear_only","pct_change","lengthbias_p","pct_incomplete","arm_bss","arm_pe"
+"shore_ring_net_only",1.324,1.318,-0.453172205438067,0.3141,26.8,"exclude","exclude"
+"shore_all_gear",1.282,1.273,-0.702028081123254,6e-04,39.8,"exclude","exclude"
+"private_boat_ring_net_only",2.824,2.824,0,NA,0,"exclude","gear_only"
+"private_boat_all_gear",3.55,3.552,0.0563380281690204,0.9677,9.7,"exclude","gear_only"

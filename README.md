@@ -2,7 +2,9 @@
 
 - **Agency:** Washington Department of Fish and Wildlife (WDFW)
 - **Lead:** Matt George
-- **Status:** 2024-25 season, first full implementation. Pooled and gear-resolved are the production models; the weather-tide covariate work is an experimental module.
+- **Status:** active development on branch `OSP-boat-count-incorporation`. Pooled is the headline estimator and gear-resolved is its cross-check; they are the only two models (the weather-tide covariate module was removed 2026-09-13). 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
+
+> **Where the work stands.** The method of record is **Method v2.0** (adopted 2026-09-12), specified in [`07_documentation/BSS-GH-pooled-CPUE-model-documentation.md`](07_documentation/BSS-GH-pooled-CPUE-model-documentation.md). Unlike the frozen Method v1.0 it tracks the working model, so that document is the answer to "what does this model do". For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). **The current authoritative run and its port total live in ONE place**, the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md), and no number anywhere else in this repository, including the method document, should be quoted without checking it there. Every change and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md); how each was arrived at, run by run, is [`07_documentation/development_notes/VALIDATION_CAMPAIGN.md`](07_documentation/development_notes/VALIDATION_CAMPAIGN.md).
 
 ---
 
@@ -16,8 +18,8 @@ Estimates total recreational Dungeness crab harvest at Westport and the greater 
 Three crabbing populations are estimated independently and summed for the port total:
 
 1. **Shore crabbers** (dock + jetty + beach), effort from gear counts, BSS + PE.
-2. **Private boat crabbers**, effort from trailer counts, BSS + PE.
-3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
+2. **Private boat crabbers**, effort from trailer counts, BSS + PE. Boat effort now also uses the OSP daily boat-total as a second effort stream, and a crabbing fraction f converts all-boat counts to crab effort.
+3. **Commercial/charter vessels**, not modeled: an exact census of the commercial vessels over the daily vessel tally, plus an expansion of the charter trips over the charter trip roster (`estimate_comm_charter.R`; split 2026-09-11).
 
 Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, the modular R pipeline in `03_R_functions/`, and a single run configuration in `run_config.R`. They differ in how catch-per-unit-effort (CPUE) is modeled.
 
@@ -34,12 +36,19 @@ Coastal-Rec-Crab-BSS/
 ├── 03_R_functions/     Modular R helpers, auto-sourced by every driver
 ├── 04_input_files/     Raw season inputs (effort, interviews, tally, I/E)
 ├── 05_output/          Per-run outputs, one dated folder per run (YYYYMMDD)
-├── 06_diagnostics/     Experimental / research .Rmd (weather-tide covariates)
+├── 06_diagnostics/     Regression harness and the dated validation batch runners
 ├── 07_documentation/   Technical docs, change logs, equations, instructions
 ├── run_config.R        Single control surface: user toggles and per-model settings
 ├── run_estimation.R    Run orchestrator (sources run_config.R)
 ├── README-R-functions.md   Inventory of the 03_R_functions/ helper library
 ├── README.md           This file
+├── CLAUDE.md           Imports 07_documentation/CLAUDE.md (guidance for Claude Code)
+├── PULL_REQUEST.md     The description of this branch's merge into main
+├── LICENSE             GPL-3.0 license text
+├── NOTICE              Copyright and CreelEstimates attribution (an open confirmation item)
+├── renv.lock           Package lockfile: the full dependency closure, pinned (see 'Setting up R')
+├── .Rprofile           Activates the project's renv library when R starts in the repository root
+├── renv/               renv's bootstrap script (activate.R); the library it installs is git-ignored
 ├── .gitignore
 └── Coastal-Rec-Crab-BSS.Rproj
 ```
@@ -47,20 +56,19 @@ Coastal-Rec-Crab-BSS/
 | Folder | Contents | README |
 |---|---|---|
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
-| `02_stan_models/` | The three Stan models (pooled, gear-resolved, weather-adjusted) | [02_stan_models/README.md](02_stan_models/README.md) |
+| `02_stan_models/` | The two Stan models (pooled, gear-resolved) | [02_stan_models/README.md](02_stan_models/README.md) |
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
-| `04_input_files/` | `effort_combined.csv`, `interview_combined.csv`, `wes_commercial_tally.csv`, `ingress_egress.xlsx` | [04_input_files/README.md](04_input_files/README.md) |
+| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`) | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
-| `06_diagnostics/` | The experimental weather-tide covariate driver | [06_diagnostics/README.md](06_diagnostics/README.md) |
+| `06_diagnostics/` | The regression harness and the dated validation batch runners | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
 
 ### How paths work (important when moving files)
 
 Every file read or written by the drivers is resolved with `here::here()`, which anchors paths to the repository root (located via the `.Rproj` / `.git` sentinels), **not** to the location of the `.Rmd`. Consequences:
 
-- An `.Rmd` can sit in any subfolder (the drivers live in `01_BSS_models/` and `06_diagnostics/`) and still resolve `here("04_input_files", ...)` correctly, because `here()` walks up to the repo root regardless of the knit working directory.
+- An `.Rmd` can sit in any subfolder (the drivers live in `01_BSS_models/`; until 2026-09-13 the weather-tide driver lived in `06_diagnostics/`) and still resolve `here("04_input_files", ...)` correctly, because `here()` walks up to the repo root regardless of the knit working directory.
 - The directory **names** inside `here(...)` must match the folder names on disk. The numbered reorganization therefore required updating every `here("R_functions"/"stan_models"/"input_files"/"output", ...)` call to its numbered equivalent (`03_R_functions`, `02_stan_models`, `04_input_files`, `05_output`). If a stage folder is ever renamed again, update the corresponding string in the drivers.
-- The weather-tide module also writes a runtime cache to `here("cache", "weather_tide")` at the repo root. This is regenerable and git-ignored, so it is intentionally **not** part of the numbered stage scheme.
 
 ---
 
@@ -70,39 +78,42 @@ Every file read or written by the drivers is resolved with `here::here()`, which
 
 All gear types (pots, ring nets, traps, snares) share a single CPUE process; gear-type catch breakdowns are derived after estimation by applying interview-based proportions to the total. This is the simpler of the two production models and the one to use for a single headline harvest number.
 
-Despite the name, the pooled model is not minimal: it includes adaptive AR(1) temporal resolution (daily/weekly/monthly, selected per fit from effort-data density), a weekend CPUE effect (`B1_C`), effective day length (`L_effective`) estimated as a parameter from the I/E regression, direct I/E crabber-hour integration, a data-driven `R_G` prior, and a divergence-aware convergence gate.
+Despite the name, the pooled model is not minimal: effort is measured in **gear-deployments** (catch is sub-linear in soak time, so time-denominated units fail the linearity test); AR(1) temporal resolution is selected per fit from effort-data density and capped per population (boat monthly; shore all-gear **weekly** since 2026-09-07, settled by an escalation ladder; shore pot-closure biweekly); the boat carries a **shared within-day turnover** `tau_bar` identified by the OSP daily boat counts; the shore catch likelihood is a **zero-inflated negative binomial** (2026-09-07); weekend and holiday CPUE effects (`B1_C`, `B2_C`); effective day length from the I/E regression; a data-driven `R_G` prior; a scale-aware convergence gate deciding PE-vs-BSS per fit; and model-adequacy reporting (`p_loo`, Pareto k, randomized-PIT coverage) beside the gate.
 
 | File | Description |
 |---|---|
 | `01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd` | R analysis script |
-| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | Technical documentation |
+| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**, the method of record |
 | `02_stan_models/crab_bss_pooled.stan` | Stan model (single CPUE process) |
 
 ### 2. Gear-Resolved CPUE Model (production)
 
-Each gear type gets its own CPUE process with shared AR(1) dynamics, so gear-type catch estimates carry posterior uncertainty directly from the model. Also includes a separate holiday effort effect (`B2`), day-type stratified commercial/charter census expansion, an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
+The cross-check model. With `gear_resolved_G = TRUE` the SHORE fits carry a genuine per-gear CPUE process with shared AR(1) dynamics (all-gear `G = 5`, pot-closure `G = 4`; boat stays `G = 1`), so gear-type catch estimates carry posterior uncertainty directly from the model; the **default is `G = 1`**, where the gear split is apportioned from interview proportions just as in the pooled model, and the optional `gear_share_dirichlet` (sampled 2026-09-01, default off) propagates gear-share uncertainty into those per-gear intervals. Also includes a separate holiday effort effect (`B2`), the same commercial census plus charter roster expansion as the pooled model (the day-type-stratified census expansion it used to carry was retired 2026-09-09 to 2026-09-11), an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
 
 | File | Description |
 |---|---|
 | `01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd` | R analysis script |
-| `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | Technical documentation |
+| `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | Framework v6.0; describes only what differs from the pooled model |
 | `02_stan_models/crab_bss_gear_resolved.stan` | Stan model (per-gear CPUE processes) |
 
-### 3. Weather & Tide Covariate Module (experimental)
+### 3. Weather & Tide Covariate Module: REMOVED 2026-09-13
 
-Tests whether tide and weather covariates (tide phase/range, daytime high-tide timing, wind, wave height) improve the prediction of effort and CPUE, after accounting for weekend/holiday effects. It screens candidate covariates with daily GAMs, fits a covariate-augmented BSS alongside the baseline, and compares them with PSIS-LOO (with a k-fold time-block CV fallback).
+There used to be a third track here that tested whether tide and weather covariates (tide
+phase and range, daytime high-tide timing, wind, wave height) improve the prediction of effort
+and catch rate. **It is gone** (CHANGE_REGISTER A29), and its conclusion is why rather than a
+reason to keep it: the FWC creel team advised against using weather covariates, weather on its
+own was not helpful, and the module's own committed finding was already EXCLUSION, with no
+candidate clearing the pre-committed PSIS-LOO margin. Its Stan fork had also drifted about 40
+data variables behind the production model, so it could not have been re-run without a re-base.
 
-This module is **experimental and not a production estimator on its own.** It is currently layered on the pooled model only and shares the pooled pipeline. The augmented Stan model `crab_bss_pooled_weather_adjusted.stan` adds covariate blocks on `mu_E` and `mu_C` and collapses to the baseline pooled model when `K_E = K_C = 0`, so one file serves both the baseline and augmented fits. **The intent is that any covariate shown to help is folded directly into the pooled and gear-resolved models once verified, rather than maintained as a separate track.**
-
-| File | Description |
-|---|---|
-| `06_diagnostics/BSS-GH-pooled-CPUE-weather-tide-covariates.Rmd` | R analysis and integration script |
-| `07_documentation/BSS-GH-pooled-CPUE-weather-tide-covariates-documentation.md` | Technical documentation |
-| `02_stan_models/crab_bss_pooled_weather_adjusted.stan` | Augmented Stan model (baseline at K=0) |
+The finding is kept at [`07_documentation/WEATHER_COVARIATE_ANALYSIS.md`](07_documentation/WEATHER_COVARIATE_ANALYSIS.md)
+and the module's method document at `07_documentation/archive/`. Method v2.0 states the
+conclusion in its Section 21. **Not the same thing and not removed:** the other-fishery opener
+covariates, which are built and inert in section 4.3 of `run_config.R`.
 
 ### Which Should I Use?
 
-Use the **pooled model** for simplicity and a single headline harvest number. Use the **gear-resolved model** when you need gear-type catch estimates with uncertainty, the holiday effect, or the stratified census expansion. The **weather-tide module** is a diagnostic / research tool for deciding whether environmental covariates are worth adding to the production models; it is not used to produce the official harvest estimate.
+Use the **pooled model**: it is the headline estimator and the one the authoritative run used. Run the **gear-resolved model** after it, on the same configuration, as the cross-check, and compare the port totals against the 2% criterion; it is also what you want if you need gear-type catch estimates with their own posterior uncertainty (`gear_resolved_G = TRUE`). There is no third option.
 
 ---
 
@@ -112,25 +123,38 @@ Use the **pooled model** for simplicity and a single headline harvest number. Us
 |---|---|---|
 | `crab_bss_pooled.stan` | Pooled model | Single pooled CPUE process |
 | `crab_bss_gear_resolved.stan` | Gear-resolved model | Per-gear-type CPUE processes, `B2` holiday effect |
-| `crab_bss_pooled_weather_adjusted.stan` | Weather-tide module | Pooled model plus covariate blocks; collapses to baseline at `K_E = K_C = 0` |
 
-The `.Rmd` files select their Stan model via the `bss_model_file` (or `bss_model_file_covariates`) parameter. Earlier prototype names (`BSS_crab_model_01/02/03.stan`) are retired.
+The `.Rmd` files select their Stan model via the `bss_model_file` parameter. Earlier prototype names (`BSS_crab_model_01/02/03.stan`) are retired.
 
 ---
 
 ## Quick Start
 
-1. Clone this repository.
-2. Place input data in `04_input_files/`:
-   - `effort_combined.csv` (effort counts; re-exported with `QUOTE_ALL`)
-   - `interview_combined.csv` (interviews; dates in M/D/YYYY format)
-   - `wes_commercial_tally.csv` (daily vessel tally)
-   - `ingress_egress.xlsx` (I/E surveys; used for `L_effective` and the temporal correction)
-3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
-4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
+1. Clone this repository and set up R once (see **Setting up R** below).
+2. Put input data in `04_input_files/`. **Most of it is BUILT, not placed.** Drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` and run:
+
+   ```sh
+   Rscript 04_input_files/build_all_inputs.R
+   ```
+
+   which regenerates `interview_combined.xlsx`, `effort_combined.xlsx`, `sampler_shifts.xlsx`, `wes_commercial_tally.xlsx`, `charter_trips.xlsx` and `crabbing_holidays.xlsx` in dependency order. **Do not hand-edit those six**; an edit is discarded the next time anyone adds a season. Four inputs are not built by `build_all_inputs.R`, because their sources are not the season workbooks; the first three are maintained by hand and the fourth has its own builder:
+   - `ingress_egress.xlsx` (I/E surveys; the shore turnover and `L_effective`)
+   - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when `use_osp_boat_counts = TRUE`)
+   - `fishery_opener_dates.xlsx` (the other-fishery opener calendar; pooled report diagnostic only)
+   - `nws_marine_hazards.xlsx` (the NWS Small Craft Advisory archive for the bar and coastal zones; read by every production run, since `marine_hazard_mode` ships `"manual"` (the method of record since 2026-09-27), and a run stops if it does not cover the window; only `"off"` skips it; rebuilt before each new season by `Rscript 04_input_files/build_nws_marine_hazards.R`, which needs the network and is not part of `build_all_inputs.R`)
+3. Edit `run_config.R`: choose the `model` ("pooled", "gear_resolved", or "both", which renders the pooled headline and then the gear-resolved cross-check on the same configuration and writes `cross_check_<timestamp>.csv` comparing the two port totals against `cross_check_tolerance`), set a `run_tag` (letters, digits, `-`, `_`; a season token such as `2025-26` in the tag must match `season_filter`, and a tag that already names a non-empty folder gets `-HHMMSS` appended rather than overwriting it), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
+4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal (`Rscript run_estimation.R --model both` overrides `model`; an unknown flag stops the run rather than being ignored, and a failed model stage is recorded in the run manifest before the orchestrator exits non-zero). You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
 
-**Requirements:** R 4.2+, rstan 2.32+, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module additionally requires mgcv, loo, httr, jsonlite, and geosphere, and reaches NOAA CO-OPS, NDBC, and Iowa State IEM/GSOD endpoints at runtime (results are cached locally under `cache/`).
+### Setting up R
+
+**Requirements:** R 4.2+ and a C++ toolchain for Stan (Rtools on Windows, Xcode command-line tools on macOS, `build-essential` on Linux). The R packages are the ten in `bss_required_packages` (`03_R_functions/bss_packages.R`: tidyverse, lubridate, rstan, here, readxl, rmarkdown, knitr, loo, suncalc, digest) and their dependencies; `renv.lock` pins all 120 of them, including the BH and RcppEigen headers rstan compiles every model against. The weather-tide module's extra dependencies (mgcv, httr, jsonlite, geosphere) and its network calls went with it on 2026-09-13, so a run needs no network access once the packages are installed.
+
+1. Open R in the repository root (open `Coastal-Rec-Crab-BSS.Rproj` in RStudio, or start R there). The committed `.Rprofile` runs `renv/activate.R`, which installs renv 1.0.3 on first use if it is missing and points the session at the project library.
+2. Run `renv::restore()` once. It installs the pinned versions into the project library (`renv/library/`, git-ignored). On Windows install Rtools matching your R version first; rstan and StanHeaders are compiled from source when no binary exists.
+3. Check with `rstan::stan_version()` and `source("03_R_functions/bss_packages.R"); bss_load_packages()`, which stops naming any package still missing.
+
+Every driver and runner loads packages through `bss_load_packages()`. With renv active it restores a missing package from the lockfile; with renv not active it installs from CRAN and says so, because those are then not the pinned versions. To run against a site library instead (a container, or the harness), set `RENV_ACTIVATE_PROJECT=FALSE` for that session: `RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/test_improvements_2026-08-25.R`. The lockfile records R 4.2.2, the version of the confirmation run; renv warns but restores under a newer R, and the harness passes under R 4.3.3.
 
 ---
 
@@ -142,23 +166,27 @@ Each run writes to `05_output/YYYYMMDD/<model>-<run_tag>/`. Both models produce 
 
 ## Season Structure
 
-The 2024-25 season (Sep 16, 2024 to Sep 15, 2025) is split into two independent sub-seasons at the pot-open date (Dec 1):
+The estimation window is user-selected (`est_date_start` / `est_date_end` with a matching `season_filter`) and is split into sub-seasons at the pot-closure boundary, because pots becoming legal is a structural break in effort and CPUE that one latent process should not bridge. The splitter (`build_subseasons.R`) handles the general case: a window that misses the closure is a single all-gear sub-season, a window inside the closure is a single pot-closure sub-season, and a mid-window closure yields pre/closure/post. A multi-season span lists its closures in `pot_closures` (one per season), which yields a closure and an all-gear sub-season per season, plus per-season census windows (`census_windows`) and season totals in the report (added 2026-09-10; `07_documentation/NEW_SEASON_GUIDE.md` section 7). Each sub-season gets its own BSS fit per population.
 
-- **Ring-net only** (Sep 16 to Nov 30, 76 days): ring nets, snares, foldable traps only.
+For the **2024-25 development test season** (Sep 16, 2024 to Sep 15, 2025, closure Sep 16 to Nov 30) that means two sub-seasons:
+
+- **Pot closure** (internally `ring_net_only`; 76 days): ring nets, snares, foldable traps only.
 - **All-gear** (Dec 1 to Sep 15, 289 days): all gear including pots.
 
-Each sub-season gets its own BSS fit per population. The split prevents the model from bridging the structural break in effort and CPUE when pots become legal.
+**Running a NEW season, a part-season window, or a multi-season span:** the workflow (naive run with the AR ladder, reading the per-rung adequacy, pinning resolutions, then producing) is [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). The 2024-25-derived caps, floors and prior centers are tagged `SEASON-DERIVED` in `run_config.R` and are starting points on new data, not answers.
 
 ---
 
 ## Known Issues and Data Notes
 
-- **Interview CSV column mapping:** the `number_of_gear` column maps from column N (not column W) in the raw iForm export, due to a duplicate field name.
-- **Effort CSV quoting:** re-export with `QUOTE_ALL` to handle commas in the notes field.
-- **Interview dates:** M/D/YYYY (`col_date(format="%m/%d/%Y")`).
-- **Boat type typo:** iForm exports "Commerical" (one 'm'), handled by regex.
+- **Interview gear-count column:** `number_of_gear` maps from column N (not column W) in the raw iForm export, because of a duplicate field name. Still live; handled in `build_interview_combined.R`.
+- **Boat type typo:** iForm exports "Commerical" (one 'm'), matched by regex. Do not correct the spelling without updating the matcher.
+- **2022-24 gear labels are one option short.** There was no ring-net option before 2024-25: the 2022-23 and 2023-24 forms offered "Collapsible trap or ring", which the builder maps to "Ring net" per the workbook's own `gear_key`, but the mapping is one-to-many in truth. Affects the gear-resolved 2022-24 fits only (CHANGE_REGISTER D20).
+- **Retired with the 2026-07-16 xlsx migration, kept here so old scripts make sense:** the CSV-era `QUOTE_ALL` re-export requirement for the notes field, and the M/D/YYYY interview dates that silently parsed to `NA` under the default reader. Every model input is now an `.xlsx` workbook with a single `data` sheet and ISO `yyyy-mm-dd` date text.
 - **Windows MAX_PATH:** with OneDrive and long paths the output directory may exceed 260 characters; the code detects this and falls back to a short path.
 - **Boat all-gear convergence:** the private boat all-gear BSS fit was historically prone to non-convergence (sparse trailer-count effort series). Dedicated sampler tuning (v6.2), the scale-aware convergence gate (v7.0), and moving the boat onto the gear-deployment effort scale (v7.6) have largely resolved this; the boat now typically reports its BSS posterior and falls back to PE only if a fit fails the gate. See the pooled model documentation.
+- **Non-crabbing interview filter:** interviews with `number_of_gear == 0` are dropped as non-crabbing before estimation, regardless of trip-completion status (complete, incomplete, or blank `completed_trip`); an unrecorded NA gear count is kept. Applied by the shared reader `fetch_crab_data` (called by both drivers; the former pooled/gear reader split was merged 2026-08-01).
+- **Gear-tampered interview filter:** interviews with `gear_tampered == 1` are dropped, since the crabber believes a third party pulled their pots and the recorded catch and hours are unreliable. The column is all blank today, so it removes nothing yet.
 
 ---
 
@@ -166,8 +194,8 @@ Each sub-season gets its own BSS fit per population. The split prevents the mode
 
 Versions through v5 are a single shared milestone sequence. Since v5 the pooled and gear-resolved tracks have been versioned independently, each with its own detailed development-history document; the weather-tide module has its own version line. The table below is a one-line-per-milestone summary. See the two development-history documents for the full change log with working notes:
 
-- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled, through v7.9)
-- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved, through v5.6)
+- `07_documentation/BSS-GH-pooled-CPUE-model-development-history.md` (pooled; v7.9 plus the dated 2026-08/09 entries)
+- `07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md` (gear-resolved; v5.6 plus the dated 2026-08/09 entries)
 
 For the current state and the prioritized backlog (what is done and what remains), see the single living status document: `07_documentation/development_notes/PIPELINE_STATUS.md`.
 
@@ -178,7 +206,10 @@ For the current state and the prioritized backlog (what is done and what remains
 | v5.0 to v5.5 | gear-resolved | Per-gear CPUE processes, `B2` holiday effect, stratified census, incomplete-trip filter, regulatory gear exclusions; empirical `pi_gear`; divergence-aware then R-hat < 1.01 gate; boat and shore moved onto the gear-deployment effort scale (v5.5) |
 | v6.0 to v7.4 | pooled | Post-critique upgrades (adaptive AR(1), `L_effective` from I/E, `B1_C`, data-driven `R_G`); the convergence-debugging arc (divergence gate, boat tuning, non-centered AR, marginalized NB, scale-aware gate); extended diagnostics and PSIS-LOO. Method v1.0 = code v7.4 |
 | v7.5 to v7.8 | pooled | Backlog fixes (incomplete-trip filter, CPUE diagnostics, `collapse_mu_hier` lever); boat (v7.6) then shore (v7.7) moved onto the gear-deployment effort scale; behavior-preserving repository refactor and the shore-PE completion fix (v7.8) |
-| 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation |
+| 2026-07 to 2026-09 | both | The OSP branch arc, versioned by date rather than v-number: the OSP second boat-effort stream and crabbing fraction `f`; the 2026-08-25 improvement batch (shore I/E unit fix, model adequacy, opener covariates); the **shared boat turnover** `tau_bar` (adopted 2026-09-01); the gear-track boat sampler fix (2026-09-02); the AR escalation ladder and per-rung adequacy; the **weekly shore all-gear AR** and the **zero-inflated shore catch likelihood** (both adopted 2026-09-07, gate-confirmed 2026-09-08). then, in the first two weeks of September, the four changes the 2026-09-11 improvement ladder priced and adopted together: the **dynamic monthly crabbing fraction `f`** (a per-stratum logit random walk on the sampler boat contacts, replacing the flat 0.3 placeholder), the **boat turnover from the OSP/trailer calibration**, the **shore turnover derived from the I/E `time` column**, and the **census split** into a commercial census plus a charter roster expansion. Together +31% on the port total, each attributed. See `CHANGE_REGISTER.md` for every item and its status |
+| **Method v2.0** (2026-09-12) | both | The method of record moves from the frozen v1.0 to the model that runs: the dynamic monthly crabbing fraction, the OSP daily port count as a second boat effort stream (the crabbing-only fraction still outstanding), both turnovers data-derived, the zero-inflated shore catch likelihood, the weekly shore all-gear AR, the commercial census plus charter roster expansion, and the PE's month-local unsampled-cell fill. `run_config.R` restructured into five sections, method first, and rolled back to the canonical 2024-25 window. v1.0 archived under `07_documentation/archive/` |
+| 0.1.0 to 0.1.1 | weather-tide module | Initial build (tide/weather fetch, GAM screen, augmented BSS, PSIS-LOO comparison); reference and file reconciliation. **The module was REMOVED 2026-09-13**; its conclusion, exclusion, stands and is Section 21 of Method v2.0 |
+| OSP boat-count incorporation branch (2026-07-31) | pooled + gear-resolved | OSP second boat effort stream (kappa_OSP), crabbing fraction f (a flat 0.3 placeholder at the time, since replaced by the dynamic monthly walk), OSP-identifies-tau (osp_scale_is_tau, production ON after the trailer count was confirmed an instantaneous snapshot), non-crabbing + gear-tampered interview filters |
 
 See each model's development-history document for details.
 

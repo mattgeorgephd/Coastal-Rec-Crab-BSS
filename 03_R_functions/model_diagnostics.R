@@ -35,14 +35,123 @@
 # =============================================================================
 
 # --- 1. Structural / scale parameter summary --------------------------------
-bss_structural_summary <- function(fit) {
+# Which parameters in a fit's curated table carry NO likelihood contribution (2026-08-27).
+#
+# Several parameters here are declared with a proper prior UNCONDITIONALLY, so that an unused
+# one is decoupled-but-proper rather than an improper flat direction. That is the right
+# modelling choice and a serious reporting hazard: a decoupled parameter reports its PRIOR, in
+# the same columns and next to the same headings as an estimate, with nothing to separate the
+# two. The 2026-08-26 ladder produced the worked example -- under the production
+# `osp_scale_is_tau = TRUE` the OSP likelihood uses L instead of kappa_OSP, so kappa_OSP is
+# inert and reports its lognormal(log 3, 0.3) prior exactly (median 3.008, 95% 1.63-5.40).
+# Read as an estimate, that is a claim the model has MEASURED the boat turnover at 3.0. It has
+# not; it has been told 3.0. The shore fits' r_OSP is worse: a 95% interval spanning roughly
+# 0.0002 to 700.
+#
+# Deliberately conservative: a reason is given only where the Stan program's own guard
+# demonstrably removes the term, so TRUE always means prior-only. FALSE does not by itself
+# certify that a parameter is well identified.
+#
+# `parameters` may carry Stan indices (f_crab[1]); they are stripped before matching.
+# Returns a character vector of reasons, NA where the parameter is coupled.
+bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
+  reason <- rep(NA_character_, length(parameters))
+  if (is.null(stan_data) || !length(parameters)) return(reason)
+  g <- function(nm, default = NULL) { v <- stan_data[[nm]]; if (is.null(v)) default else v }
+  base <- sub("\\[.*$", "", parameters)
+  set  <- function(mask, why) reason[mask & is.na(reason)] <<- why
+
+  ie_n    <- g("IE_n", 0L);   osp_n <- g("OSP_n", 0L);  t_n <- g("T_n", 0L)
+  tau_sw  <- g("osp_scale_is_tau", 0L);                 k_open <- g("K_open", 0L)
+  apply_f <- g("apply_crab_fraction", 0L); est_f <- g("crab_fraction_estimate", 0L)
+  osp_lo  <- g("osp_crab_lower", 0L);      dens  <- g("estimate_cpue_density", 0L)
+  dyn_f   <- g("crab_fraction_dynamic", 0L); cfi_n <- g("CFI_n", 0L); ospf_n <- g("OSPF_n", 0L)
+  combo_d <- g("combo_dynamic", 0L);         cfc_n <- g("CFC_n", 0L)
+  w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
+  h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
+
+  if (ie_n == 0) set(base == "sigma_IE",
+    "no I/E observations in this fit (IE_n = 0); sigma_IE is its prior")
+  if (osp_n == 0) set(base %in% c("kappa_OSP", "sigma_r_OSP", "r_OSP"),
+    "no OSP observations in this fit (OSP_n = 0)")
+  else if (tau_sw == 1) set(base == "kappa_OSP",
+    "osp_scale_is_tau = 1: the OSP mean uses L, not kappa_OSP; this is the prior")
+  if (t_n == 0 && osp_n == 0) set(base %in% c("R_G_boat", "R_T"),
+    "no boat count stream in this fit; the boat gear ratio is its prior")
+  if (k_open == 0) set(base == "B_open", "K_open = 0: no opener covariate is active")
+  if (dens == 0)   set(base == "gamma_C", "estimate_cpue_density = 0: the density term is inert")
+  if (w_sum == 0)  set(base %in% c("B1", "B1_C"), "no weekend day in this fit's window")
+  if (h_sum == 0)  set(base %in% c("B2", "B2_C"), "no holiday in this fit's window")
+  if (apply_f == 0) set(base %in% c("f_crab", "f_lower"),
+    "apply_crab_fraction = 0 (shore, or the feature is off): f is pinned at 1")
+  else if (est_f == 0) set(base == "f_crab",
+    "crab_fraction_estimate = 0: f is pinned at crab_fraction_value")
+  # 2026-09-09: under a live combo-share walk f_lower is the IMPLIED crab-only share
+  # f(1 - c), an estimate whether or not OSP is in the model; the pinned-at-0 rule is for
+  # the legacy construction and for a dynamic f with no c.
+  if (osp_lo == 0 && !(apply_f == 1 && est_f == 1 && dyn_f == 1 && combo_d == 1)) set(base == "f_lower",
+    "osp_crab_lower = 0: the OSP lower bound is off and f_lower is pinned at 0")
+  # review item 1B (2026-09-08): the dynamic-f scale parameters are reported through
+  # *_out quantities that print a hard 0.0 when the walk is not in the model (the same
+  # theta_C_out hazard), and they report their PRIOR when the walk is live but no
+  # classification row reaches it.
+  dyn_live <- (apply_f == 1 && est_f == 1 && dyn_f == 1)
+  c_pars <- c("combo_c", "combo_c_out", "sigma_c", "sigma_c_out", "cfc_kappa", "cfc_kappa_out")
+  if (!dyn_live) set(base %in% c("sigma_f", "sigma_f_out", "cfi_kappa", "cfi_kappa_out", c_pars),
+    "crab_fraction_dynamic = 0 (or f pinned/off): the dynamic f is not in the model")
+  else {
+    if (cfi_n == 0) set(base %in% c("cfi_kappa", "cfi_kappa_out"),
+      "no contact days in this fit (CFI_n = 0); the contact concentration is its prior")
+    if (cfi_n == 0 && ospf_n == 0) {
+      set(base %in% c("sigma_f", "sigma_f_out"),
+        "no classification rows in this fit (CFI_n = OSPF_n = 0); the walk SD is its prior")
+      set(base == "f_crab", "no classification rows in this fit; f is its prior walk")
+    }
+    # 2026-09-09: the combo-trip share walk. Not in the model unless typed contacts or an
+    # OSP stream feed it; prior-only when it is live but no typed day reached it (the
+    # OSP-only case, where c is the soft bound's width) and f_lower is then prior-shaped.
+    if (combo_d == 0) set(base %in% c(c_pars, "f_lower"),
+      "combo_dynamic = 0: no typed contacts and no OSP stream, the combo-trip share is not in the model (f_lower reports 0)")
+    else if (cfc_n == 0) {
+      set(base %in% c_pars, "no typed contact days in this fit (CFC_n = 0); the combo-trip share is its walk prior")
+      if (ospf_n == 0) set(base == "f_lower", "no typed contacts and no OSP days: f(1 - c) rests on c's prior")
+    }
+  }
+  if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
+    "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
+  # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
+  # change shape between runs, which means it reports a hard 0.0 when the feature is off.
+  # Without this rule a reader would see "theta_C_out = 0" and take it as an estimate that
+  # zero inflation was tested and found absent, which is the opposite of what a zero means
+  # there. This is the same reporting hazard kappa_OSP and f_lower carry.
+  if (identical(as.integer(g("zi_catch", 0L)), 0L)) set(base %in% c("theta_C", "theta_C_out"),
+    "zi_catch = 0: the catch likelihood is plain NB2 and theta_C is not in the model")
+  reason
+}
+
+bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
   pars <- c("mu_mu_E", "mu_mu_C",
             "sigma_eps_E", "sigma_eps_C",
             "phi_E", "phi_C",
             "sigma_r_E", "sigma_r_C", "r_E", "r_C",
             "sigma_mu_E", "sigma_mu_C",
             "sigma_IE", "R_G", "R_T", "R_G_boat",
-            "B1", "B2", "B1_C")
+            "B1", "B2", "B1_C",
+            # Added 2026-08-25. Closes the standing Tier-4 item "surface B2_C in the
+            # curated report tables": the always-on holiday CPUE term, the opener effort
+            # covariates (improvement 4), the density term when active, and the boat
+            # scale/fraction parameters were all written only to bss_full_summary_*, so a
+            # reader had to open the full summary to see terms that move the estimate.
+            "B2_C", "gamma_C", "B_open",
+            "kappa_OSP", "sigma_r_OSP", "r_OSP",
+            "f_crab", "f_lower",
+            # review item 1B (2026-09-08): the dynamic-f scale parameters (always-size-1
+            # *_out copies; the parameters themselves are zero-size when the walk is off).
+            "sigma_f_out", "cfi_kappa_out", "combo_c_out", "sigma_c_out", "cfc_kappa_out",
+            # improvement 2.1 (2026-08-27): the shared turnover, when it exists.
+            "tau_bar",
+            # 2026-09-02: the zero-inflation probability, when the catch likelihood carries one.
+            "theta_C")
   pars <- pars[pars %in% fit@model_pars]
   s <- summary(fit, pars = pars)$summary
   out <- data.frame(parameter = rownames(s),
@@ -53,6 +162,35 @@ bss_structural_summary <- function(fit) {
                     n_eff  = round(s[, "n_eff"]),
                     Rhat   = round(s[, "Rhat"], 4),
                     row.names = NULL)
+
+  # See bss_decoupled_reasons(): a parameter with no likelihood contribution in this fit
+  # reports its PRIOR, and must not sit unlabelled beside parameters that were estimated.
+  reason <- bss_decoupled_reasons(out$parameter, stan_data)
+  out$decoupled        <- !is.na(reason)
+  out$decoupled_reason <- reason
+
+  # 2026-08-30: `estimate` is the column to quote, and it is NA for a decoupled parameter.
+  #
+  # The `decoupled` flag added on 2026-08-27 was necessary and not sufficient. A flag beside
+  # a plausible-looking median still gets read as an estimate, and some of these medians are
+  # not merely uninformative but actively misleading: the shore fits' `r_OSP` carried a
+  # posterior MEAN of 2.5 million in the 2026-08-29 batch, and `kappa_OSP` reports a tidy
+  # 3.0 in every fit of every run under the production `osp_scale_is_tau = TRUE`, which reads
+  # exactly like a measured OSP scale and is its lognormal(log 3, 0.3) prior.
+  #
+  # The raw posterior summary stays: a decoupled parameter that does NOT match its prior is a
+  # bug worth seeing. But `estimate` answers the question a reader is actually asking, and it
+  # answers NA when there is no estimate to give.
+  out$estimate <- ifelse(out$decoupled, NA_real_, out$median)
+
+  # Provenance travels with the row. A parameter table lifted out of a folder whose fit the
+  # gate REJECTED looks identical to one the gate accepted; the 2026-08-29 gear stage E run
+  # is the worked example, where a rejected boat fit left tau_bar = 2.552 (n_eff 49) and
+  # f_crab = 0.315 (n_eff 25, R-hat 1.17) sitting in a file with nothing to say so.
+  out$fit_method <- fit_method %||% NA_character_
+
+  out <- out[, c("parameter", "estimate", "median", "lo95", "hi95", "mean", "n_eff", "Rhat",
+                 "decoupled", "decoupled_reason", "fit_method")]
   out
 }
 
@@ -100,6 +238,11 @@ bss_divergence_localization <- function(fit, candidate_pars = NULL) {
 # nominal and uniform PITs indicate the observation model fits. All in R from
 # extracted quantities (no RNG added to Stan), capped at n_draws_use for speed.
 bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
+  # B46 (2026-09-28): seeded as before, and the caller's RNG restored on exit.
+  .had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  .old <- if (.had) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit(if (.had) assign(".Random.seed", .old, envir = globalenv())
+          else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()), add = TRUE)
   set.seed(seed)
   # Model-agnostic trailer expansion: current pooled (v7.6+) and gear-resolved both
   # carry R_G_boat; pre-v7.6 pooled fits carry R_T. bss_extract_pars() requests only
@@ -156,19 +299,57 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   # non-finite mu, and rnbinom(mu = Inf) returns NA, which previously aborted
   # quantile() and the entire PPC. Non-finite mu and non-finite draws are now
   # dropped; an observation with < 20 usable draws is recorded NA and excluded.
-  calib <- function(mu_mat, y, size_vec) {
+  # 2026-09-04: `theta` is NULL for every stream except the catch stream of a zi_catch = 1
+  # fit. NULL is the pre-2026-09-04 NB2 arithmetic unchanged, so ppc_calibration_*.csv is
+  # bit-reproducible for every earlier run. The mixture arithmetic lives in
+  # 03_R_functions/zinb_ppc.R, shared with pit_block() in save_run_diagnostics.R so the
+  # aggregate and per-observation files cannot drift apart again.
+  calib <- function(mu_mat, y, size_vec, theta = NULL) {
     nobs <- length(y); cov50 <- cov95 <- pit <- rep(NA_real_, nobs)
     for (i in seq_len(nobs)) {
       mu_i <- pmax(mu_mat[, i], 1e-8)
       keep <- is.finite(mu_i) & is.finite(size_vec)
       if (sum(keep) < 20) next
-      yp <- stats::rnbinom(sum(keep), mu = mu_i[keep], size = size_vec[keep])
+      mu_k <- mu_i[keep]; sz_k <- size_vec[keep]
+      th_k <- if (is.null(theta)) NULL else theta[keep]
+      # 2026-09-02: the EXACT expectation, matching ppc_byobs_*.csv, instead of simulating.
+      # The simulated version is an unbiased estimate of the same quantity but carries Monte
+      # Carlo noise, which left the two files disagreeing by 0.005-0.015 even after the
+      # randomized-coverage fix. Same formula, no sampling, so the two now agree to floating
+      # point and any future disagreement is a real defect rather than noise to be eyeballed.
+      # The rnbinom draw is still taken, because the < 20 usable-draw guard below is what
+      # protects against an exp() overflow in a weakly-identified fit producing a non-finite mu.
+      yp <- stats::rnbinom(sum(keep), mu = mu_k, size = sz_k)
       yp <- yp[is.finite(yp)]
       if (length(yp) < 20) next
-      qq <- stats::quantile(yp, c(.025, .25, .75, .975), names = FALSE, na.rm = TRUE)
-      cov50[i] <- y[i] >= qq[2] && y[i] <= qq[3]
-      cov95[i] <- y[i] >= qq[1] && y[i] <= qq[4]
-      pit[i]   <- mean(yp < y[i]) + 0.5 * mean(yp == y[i])
+      pit[i]   <- bss_zi_pit(y[i], mu_k, sz_k, th_k)
+      # 2026-09-01 FIX. Coverage is now read off the RANDOMIZED PIT, not off a quantile
+      # interval of the simulated draws.
+      #
+      # WHAT WAS WRONG. `y[i] >= quantile(yp, .25) && y[i] <= quantile(yp, .75)` asks whether
+      # the observation falls inside the central simulated interval. For CONTINUOUS data that
+      # is a 50% interval. For small COUNTS it is not and cannot be: the quantiles snap to
+      # integers, so the interval carries much more than half the probability mass and the
+      # statistic over-covers by construction, with the inflation growing as the counts get
+      # smaller. It is a property of the arithmetic, not of the model.
+      #
+      # WHAT IT COST. On the private-boat trailer stream (fitted means around 1-2 boats) the
+      # two computations disagree by up to 0.154, and the 2026-08-31 Stage 5 review recorded
+      # "the trailer stream is over-covered in EVERY configuration, 0.667-0.692 against a
+      # nominal 0.500, 4.6-5.3 sampling SDs" as a new open modelling item. Under the
+      # randomized statistic the same runs give 0.523 and 0.538, which is 0.6 and 1.1
+      # sampling SDs: calibrated. The open item was an artefact of this line. The CATCH
+      # stream, whose counts are larger, barely moves (0.595 either way), which is exactly
+      # the signature of a discreteness effect rather than a model one.
+      #
+      # WHAT SURVIVES. The daily-AR cells still fail badly under the corrected statistic
+      # (0.713 and 0.744 against 0.500, 5.9 and 6.8 sampling SDs), so the Stage 5 conclusion
+      # is unchanged and now rests on a statistic that is not biased by count size.
+      #
+      # This matches ppc_byobs_*.csv, which has always used the randomized PIT, so the two
+      # files now agree instead of disagreeing by up to 0.15 on the same quantity.
+      cov50[i] <- pit[i] >= 0.25  && pit[i] <= 0.75
+      cov95[i] <- pit[i] >= 0.025 && pit[i] <= 0.975
     }
     usable <- is.finite(pit)
     list(summary = data.frame(coverage_50 = mean(cov50, na.rm = TRUE),
@@ -186,10 +367,36 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
   if (stan_data$T_n > 0 && !is.null(RT))
     parts$trailer <- calib(lamE[, stan_data$day_T, drop = FALSE] * RT,
                            stan_data$T_I, rE)
+  # improvement 2.2 (2026-08-27): the OSP stream was the one observation stream with NO
+  # posterior-predictive check, which is why the scale conflict it carries had to be
+  # inferred from the TRAILER PIT rather than read off directly. The OSP mean mirrors the
+  # Stan likelihood exactly: (lambda_E / R_G_boat) * (osp_scale_is_tau ? L : kappa_OSP),
+  # with its own dispersion r_OSP. A PIT mean well below 0.5 here, alongside the trailer's,
+  # is the direct read on whether lambda_E is being pulled between two streams that disagree.
+  if ((stan_data$OSP_n %||% 0) > 0 && !is.null(RT)) {
+    # NOTE the draw subsetting: lamE, RT and the dispersion vectors are all on the `use`
+    # subset, so anything pulled fresh out of the fit has to be subset the same way or the
+    # element-wise product silently recycles.
+    osp_scale <- if (identical(as.integer(stan_data$osp_scale_is_tau %||% 0L), 1L)) {
+      Lx <- try(rstan::extract(fit, pars = "L_out")$L_out, silent = TRUE)
+      if (inherits(Lx, "try-error") || is.null(Lx)) NULL
+      else Lx[use, stan_data$day_OSP, drop = FALSE]
+    } else {
+      kx <- try(rstan::extract(fit, pars = "kappa_OSP")$kappa_OSP, silent = TRUE)
+      if (inherits(kx, "try-error") || is.null(kx)) NULL
+      else matrix(as.numeric(kx)[use], nrow = nd, ncol = length(stan_data$day_OSP))
+    }
+    rO <- try(as.numeric(rstan::extract(fit, pars = "r_OSP")$r_OSP)[use], silent = TRUE)
+    if (!is.null(osp_scale) && !inherits(rO, "try-error") && !is.null(rO) &&
+        identical(dim(osp_scale), dim(lamE[, stan_data$day_OSP, drop = FALSE])))
+      parts$osp <- calib(lamE[, stan_data$day_OSP, drop = FALSE] * RT * osp_scale,
+                         stan_data$OSP_I, rO)
+  }
   if (stan_data$IntC > 0)
     parts$catch   <- calib(sweep(lamC[, stan_data$day_IntC, drop = FALSE], 2,
                                  stan_data$h, "*"),
-                           stan_data$c, rC)
+                           stan_data$c, rC,
+                           bss_zi_theta_draws(fit, stan_data, use))
   if (length(parts) == 0) return(NULL)
 
   summ <- do.call(rbind, lapply(names(parts), function(nm)
@@ -200,12 +407,12 @@ bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
 }
 
 # --- 4. Write all diagnostics for one fit -----------------------------------
-write_bss_diagnostics <- function(fit, stan_data, label, output_dir) {
+write_bss_diagnostics <- function(fit, stan_data, label, output_dir, fit_method = NULL) {
   ok <- function(expr) tryCatch(expr, error = function(e) {
     cat(sprintf("    [diag] %s skipped: %s\n", label, conditionMessage(e))); NULL })
 
   ok({
-    sp <- bss_structural_summary(fit)
+    sp <- bss_structural_summary(fit, stan_data, fit_method)
     utils::write.csv(sp, file.path(output_dir, sprintf("structural_params_%s.csv", label)),
                      row.names = FALSE)
   })

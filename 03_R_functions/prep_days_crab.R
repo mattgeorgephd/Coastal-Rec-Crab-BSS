@@ -42,7 +42,7 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
   date_begin <- as.Date(date_begin); date_end <- as.Date(date_end)
   days <- tibble(
     event_date = seq.Date(date_begin, date_end, by="day"),
-    day = weekdays(event_date),
+    day = bss_weekday(event_date),
     day_type = case_when(
       event_date %in% holiday_dates ~ "holiday",
       day %in% weekends ~ "weekend", TRUE ~ "weekday"),
@@ -53,18 +53,25 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
       day_type == "holiday" ~ 3L),
     day_type_num_weekend = as.integer(day_type %in% c("weekend","holiday")),
     day_type_num_holiday = as.integer(day_type == "holiday"),
-    week = as.numeric(format(event_date,"%W")),
+    # 2026-09-28 (B46): weeks are ISO 8601 weeks keyed WITH their ISO year (%G-%V, Monday
+    # start, as %W was). %W restarts at 0 every 1 January, so (a) the PE's (week x day_type)
+    # strata pooled week N of one year with week N of the next whenever a window spans both
+    # (a window opening before mid-September does, within a single season), and (b) the
+    # New Year week was cut into two short periods (Mon 30 Dec to Sun 5 Jan 2025 became a
+    # 2-day and a 5-day week, in the PE strata and the weekly AR alike). Month periods carry
+    # their year for the same reason.
+    week = as.numeric(format(event_date,"%V")),
+    iso_year = as.numeric(format(event_date,"%G")),
     month = as.numeric(format(event_date,"%m")),
     year = as.numeric(format(event_date,"%Y")),
     period = case_when(
-      period_pe == "month" ~ as.numeric(format(event_date, "%m")),
-      period_pe == "week"  ~ as.numeric(format(event_date, "%W")),
-      TRUE ~ as.numeric(format(event_date, "%W"))
+      period_pe == "month" ~ year * 100 + month,
+      TRUE                 ~ iso_year * 100 + week
     ),
     day_index = as.integer(seq_along(event_date)),
     week_index = as.integer(factor(
-      paste(year, sprintf("%02d", week)),
-      levels = unique(paste(year, sprintf("%02d", week)))
+      paste(iso_year, sprintf("%02d", week)),
+      levels = unique(paste(iso_year, sprintf("%02d", week)))
     )),
     month_index = as.integer(factor(paste(year,sprintf("%02d",month)),
                   levels=unique(paste(year,sprintf("%02d",month))))),

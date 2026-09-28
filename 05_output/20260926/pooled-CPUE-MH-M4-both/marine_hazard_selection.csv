@@ -1,0 +1,4 @@
+"population","covariate","label","p_adj","selected","reason","adj_estimate","rate_ratio","p_raw","rate_ratio_per_count"
+"shore","nws_sca_any","NWS SCA or higher, any zone",NA,TRUE,"manual",-0.0997823186109877,0.905034405741449,0.245391265946808,0.97202200168457
+"private_boat","nws_sca_any","NWS SCA or higher, any zone",NA,TRUE,"manual",-1.23786419214444,0.290002947533562,0.000555567526721307,0.291004807296757
+"private_boat","bar_restriction","USCG bar restriction (sampler tick)",NA,TRUE,"manual",-0.950137506712008,0.386687847624068,0.00031594428358275,0.324838503734212

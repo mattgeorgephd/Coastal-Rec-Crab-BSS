@@ -74,7 +74,7 @@ diagnose_tau_boat_sensitivity <- function(boat,
 
   tau_mu  <- suppressWarnings(as.numeric(params$tau_boat_prior_mu %||% 1.2))
   tau_sig <- suppressWarnings(as.numeric(params$tau_boat_prior_sigma %||% 0.3))
-  grid    <- params$tau_sensitivity_grid %||% c(0.9, 1.0, 1.2, 1.5, 1.8)
+  grid    <- params$tau_sensitivity_grid %||% c(2.0, 2.4, 2.7, 3.0, 3.4)   # 2026-09-08: re-centred on the overlap calibration
   grid    <- sort(unique(suppressWarnings(as.numeric(grid))))
   grid    <- grid[is.finite(grid) & grid > 0]
 
@@ -156,7 +156,7 @@ diagnose_tau_boat_sensitivity <- function(boat,
     sprintf("tau_boat prior mean = %.2f (sigma %.2f). Boat catch is proportional to tau_boat under prior dominance; ",
             tau_mu, tau_sig),
     if (isTRUE(prior_dominated)) "this run IS prior-dominated, so the projection is ~exact. "
-    else if (isFALSE(prior_dominated)) "this run is NOT prior-dominated (boat I/E informs tau), so treat the projection as an UPPER bound and confirm with run_tau_sweep.R. "
+    else if (isFALSE(prior_dominated)) "this run is NOT prior-dominated (the OSP/trailer overlap or boat I/E identifies tau through shared_tau), so treat the projection as an UPPER bound and confirm with run_tau_sweep.R. "
     else "prior dominance could not be confirmed; treat the projection as approximate. ",
     sprintf("Across tau_boat in [%.2f, %.2f] the port total spans ~%.0f%% of its base. ", span[1], span[2], abs(port_span_pct)),
     pd_note)
