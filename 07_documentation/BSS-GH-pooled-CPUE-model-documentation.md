@@ -282,9 +282,11 @@ effort is in neither the trailer count nor the OSP ramp total (Section 20).
 ## 8. Prerequisites and repository layout
 
 **Software.** R 4.2 or later, and **rstan** 2.32 or later (this pipeline uses rstan, not
-cmdstanr). Plus tidyverse, lubridate, suncalc, gt, patchwork, here, readxl, loo.
-`run_estimation.R` installs anything missing, so a fresh machine's first run may trigger a
-long Stan compile. The reference run was made with rstan 2.32.7 / StanHeaders 2.32.10. A run
+cmdstanr), and a C++ toolchain. The R packages are the ten in `bss_required_packages`
+(`03_R_functions/bss_packages.R`: tidyverse, lubridate, rstan, here, readxl, rmarkdown, knitr,
+loo, suncalc, digest), pinned with their dependencies in `renv.lock`; run `renv::restore()` once
+from a fresh clone (README, "Setting up R"). `bss_load_packages()` restores or installs anything
+missing, and the first run compiles the Stan models, which takes a while. The reference run was made with rstan 2.32.7 / StanHeaders 2.32.10. A run
 needs no network: the one input that comes from a web service, the NWS marine hazard archive
 the boat effort covariate reads (Section 21a), is committed, and its builder is run by hand
 before a season (`NEW_SEASON_GUIDE.md`, section 0).

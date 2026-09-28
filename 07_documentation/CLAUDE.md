@@ -7,9 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > ### PROJECT CONTEXT: nothing here has been published
 >
 > WDFW has published **no** recreational Dungeness crab harvest estimate from this pipeline.
-> The `main` branch is the state of the model *before* a meeting with the WDFW freshwater
-> creel team and *before* OSP confirmed they can supply daily boat counts; the
-> `OSP-boat-count-incorporation` branch is the work incorporating both. **There is no
+> Until 2026-09-28 the `main` branch was the state of the model *before* a meeting with the
+> WDFW freshwater creel team and *before* OSP confirmed they can supply daily boat counts
+> (`724eead`), and the `OSP-boat-count-incorporation` branch was the work incorporating both.
+> That branch merged into `main` on 2026-09-28 (pull request #5, merge commit `a878a87`), so
+> `main` now carries Method v2.0; the merge description is archived at
+> `07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md`. **There is no
 > published figure that a change has to stay consistent with**, so continuity with an
 > earlier internal run is not on its own a reason to prefer one modelling choice over
 > another. Judge changes on the evidence, and record what moved.
@@ -22,7 +25,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > limitation is that more **boat interviews** are needed next season, which no amount of
 > boat counting fixes.
 >
-> **THE PROGRAM GOAL (stated by Matt, 2026-09-09).** This branch will supersede `main`.
+> **THE PROGRAM GOAL (stated by Matt, 2026-09-09).** The OSP branch was to supersede `main`,
+> and did (2026-09-28).
 > The 2024-25 season was the DEVELOPMENT TEST SEASON, not the target: the model must run
 > on any season the user selects, a part of a season, or a multi-season span, and on a
 > naive new window it must hand the user the information to tune the fit (the AR ladder
@@ -34,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >
 > **The authoritative run** and its totals live in one place:
 > `07_documentation/development_notes/PIPELINE_STATUS.md`, in the box at the top.
-> **Every change on this branch and its status** (ADOPTED / BUILT, INERT / OPEN /
+> **Every change since the OSP work began, and its status** (ADOPTED / BUILT, INERT / OPEN /
 > REJECTED / BLOCKED) is tabulated in
 > `07_documentation/development_notes/CHANGE_REGISTER.md`. The adopted configuration includes
 > the shared boat turnover, the WEEKLY shore all-gear AR cap and the zero-inflated shore

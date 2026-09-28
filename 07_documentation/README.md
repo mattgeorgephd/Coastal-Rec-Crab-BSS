@@ -16,7 +16,7 @@ For the one-paragraph project overview and quick start, see the [root README](..
 
 | File | Role |
 |---|---|
-| `development_notes/CHANGE_REGISTER.md` | **Every change on the branch and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
+| `development_notes/CHANGE_REGISTER.md` | **Every change since the OSP work began, and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
 | `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model IS. The method of record, the full specification and the limitations. |
 | `development_notes/VALIDATION_CAMPAIGN.md` | **How it got there**: the dated run-by-run record of the 2026-08/09 campaign, Sections 1b to 1z (1b to 1v are the former sections of `PIPELINE_STATUS.md`; 1w to 1z were written there). |
 
@@ -40,6 +40,7 @@ Superseded method documents, kept unaltered below a banner because several later
 | `archive/method-v1.0-pooled-CPUE.md` | the pooled method of record, frozen against code v7.4, with a table of the nine places v1.0 and v2.0 differ |
 | `archive/method-v1.0-gear-resolved-CPUE.md` | the gear-resolved framework v5.6 |
 | `archive/method-v1.0-pooled-CPUE.html` | the rendered v1.0 pooled document |
+| `archive/PR-5-merge-OSP-boat-count-incorporation.md` | the description of pull request #5, which merged `OSP-boat-count-incorporation` into `main` on 2026-09-28 (the root `PULL_REQUEST.md` until then): the before-and-after port totals, what moved them, and the open decisions the merge carried. A record; its header predates B46 |
 | `archive/weather-tide-covariate-module-REMOVED.md` | the weather-tide covariate module's method document. The module was **removed 2026-09-13** (A29); its finding, exclusion, is kept live at `WEATHER_COVARIATE_ANALYSIS.md` because it is a decision record rather than module documentation |
 
 ## Development histories (the version-by-version change log)
@@ -88,4 +89,4 @@ The per-batch review documents below are the raw material that narrative was bui
 
 ## Change register
 
-`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED, and the further words the register's vocabulary line lists), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.
+`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch (merged into `main` 2026-09-28, pull request #5) and after it, with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED, and the further words the register's vocabulary line lists), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.

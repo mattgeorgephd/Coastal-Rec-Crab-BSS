@@ -1,3 +1,12 @@
+> **ARCHIVED: MERGED 2026-09-28.** This was the description of
+> [pull request #5](https://github.com/mattgeorgephd/Coastal-Rec-Crab-BSS/pull/5), kept at the
+> repository root as `PULL_REQUEST.md` until it merged into `main` (merge commit `a878a87`, from
+> head `880751b`). It is kept as the record of what the merge carried, and its figures are still
+> checked against the run folders it names. Its header lines (head `a766acd`, the scope counts,
+> "`main` has not moved") describe the branch before the merge and before B46, the last batch it
+> carried (`CHANGE_REGISTER.md` B46). For the current state read the box at the top of
+> `07_documentation/development_notes/PIPELINE_STATUS.md`, not this file.
+
 # Merge `OSP-boat-count-incorporation` into `main`: Method v2.0 becomes the method of record
 
 **Branch:** `OSP-boat-count-incorporation` → `main`
@@ -242,7 +251,7 @@ committed `.Rprofile` and `renv/activate.R` make `renv::restore()` work from a f
 those headers and carried five packages nothing loads (gt, patchwork, mgcv, V8, ragg). Expect roughly 12 to 14 h for
 the five-rung ladder; a single production run is a fraction of that.
 
-## 8. Where to read what, after the merge
+## 8. Where to read what, after the merge (now: see `README.md` and `07_documentation/README.md`)
 
 | document | job |
 |---|---|

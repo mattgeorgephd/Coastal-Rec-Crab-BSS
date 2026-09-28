@@ -581,7 +581,7 @@ stage_G0 <- function() {
         "pooled", if (identical(as.character(BASE$catch_zi_tracks %||% ""), "pooled")) "PASS" else "FAIL",
         paste("The D6 Stan port is inert until this key names this track. If it shipped as both,",
               "the next production gear render would silently change and the committed R5",
-              "cross-check figure quoted in PULL_REQUEST.md would go stale without anyone",
+              "cross-check figure quoted in the gear method document would go stale without anyone",
               "touching a number."))
   V1row("G0", "the SHIPPED gear all-gear period is still month",
         sprintf("gear_period_bss$all_gear = %s", BASE$gear_period_bss$all_gear %||% "NULL"),
@@ -725,7 +725,7 @@ verdict_G1 <- function(dir) {
               "it only in carrying a Stan file with the ZI block compiled in but switched off.",
               "theta_C is declared vector[zi_catch], so at zi_catch = 0 it is zero-size and",
               "consumes neither a parameter nor an initialization draw. If this FAILS, the edit",
-              "is not inert, the 93,274 R5 figure in PULL_REQUEST.md is no longer reproducible,",
+              "is not inert, the 93,274 R5 figure in the gear method document is no longer reproducible,",
               "and EVERY rung in this ladder is measuring the edit as well as its own lever."))
   # 2026-09-14 DEFECT FIX. This demanded 0.0000% on the PORT total, which is not a
   # deterministic function of the fits: the driver adds the census as a DRAW,
@@ -991,7 +991,7 @@ recommend <- function() {
               "\n     statistic before concluding anything.")
       else "D6 STAYS OPEN: no clause fails outright but not all pass."))
     if (pass)
-      cat("     ADOPTION EDIT: run_config.R catch_zi_tracks <- c(\"pooled\", \"gear_resolved\").\n     Note that this MOVES the committed R5 cross-check figure, so PULL_REQUEST.md and\n     the register's -1.17% gap have to be re-derived from a fresh gear render.\n")
+      cat("     ADOPTION EDIT: run_config.R catch_zi_tracks <- c(\"pooled\", \"gear_resolved\").\n     Note that this MOVES the committed R5 cross-check figure, so the gear method document and\n     the register's -1.17% gap have to be re-derived from a fresh gear render.\n")
     else
       cat("     The Stan port stays in the tree either way. It costs nothing when off (G1's\n     bit-identity verdict above is the proof), and it removes a real asymmetry: before\n     it, estimate_catch_zi = TRUE was read and silently ignored on this track.\n")
     REC$d6 <<- list(pick = if (pass) "adopt" else if (any_fail) "do not adopt" else "open",

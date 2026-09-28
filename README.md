@@ -2,7 +2,7 @@
 
 - **Agency:** Washington Department of Fish and Wildlife (WDFW)
 - **Lead:** Matt George
-- **Status:** active development on branch `OSP-boat-count-incorporation`. Pooled is the headline estimator and gear-resolved is its cross-check; they are the only two models (the weather-tide covariate module was removed 2026-09-13). 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
+- **Status:** active development on `main`, which since 2026-09-28 carries the OSP boat-count work ([pull request #5](https://github.com/mattgeorgephd/Coastal-Rec-Crab-BSS/pull/5), merged from `OSP-boat-count-incorporation`). Pooled is the headline estimator and gear-resolved is its cross-check; they are the only two models (the weather-tide covariate module was removed 2026-09-13). 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
 
 > **Where the work stands.** The method of record is **Method v2.0** (adopted 2026-09-12), specified in [`07_documentation/BSS-GH-pooled-CPUE-model-documentation.md`](07_documentation/BSS-GH-pooled-CPUE-model-documentation.md). Unlike the frozen Method v1.0 it tracks the working model, so that document is the answer to "what does this model do". For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). **The current authoritative run and its port total live in ONE place**, the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md), and no number anywhere else in this repository, including the method document, should be quoted without checking it there. Every change and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md); how each was arrived at, run by run, is [`07_documentation/development_notes/VALIDATION_CAMPAIGN.md`](07_documentation/development_notes/VALIDATION_CAMPAIGN.md).
 
@@ -43,7 +43,6 @@ Coastal-Rec-Crab-BSS/
 ├── README-R-functions.md   Inventory of the 03_R_functions/ helper library
 ├── README.md           This file
 ├── CLAUDE.md           Imports 07_documentation/CLAUDE.md (guidance for Claude Code)
-├── PULL_REQUEST.md     The description of this branch's merge into main
 ├── LICENSE             GPL-3.0 license text
 ├── NOTICE              Copyright and CreelEstimates attribution (an open confirmation item)
 ├── renv.lock           Package lockfile: the full dependency closure, pinned (see 'Setting up R')

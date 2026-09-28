@@ -3500,10 +3500,13 @@ local({
       length(regmatches(box, gregexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", box))[[1]]) >= 1)
   # position-independent: find the Repo line wherever it sits in the header
   .repo <- grep("^\\*\\*Repo:\\*\\*", L, value = TRUE)
-  chk("pointers: the status document names the working BRANCH, not main",
+  # 2026-09-28: the branch merged into main (PR #5, a878a87). Until then this asserted the
+  # line named the branch and not main; now it must name main AND say which state that is,
+  # so the pre-merge main (724eead) cannot be mistaken for the current one.
+  chk("pointers: the status document names main as merged from the OSP branch, and the pre-merge state",
       length(.repo) >= 1 &&
-      grepl("OSP-boat-count-incorporation", .repo[1], fixed = TRUE) &&
-      !grepl("`Coastal-Rec-Crab-BSS`, `main`\\.", .repo[1]))
+      grepl("branch `main`", .repo[1], fixed = TRUE) && grepl("a878a87", .repo[1], fixed = TRUE) &&
+      grepl("OSP-boat-count-incorporation", .repo[1], fixed = TRUE) && grepl("724eead", .repo[1], fixed = TRUE))
   chk("pointers: the status document names Method v2.0 as the method of record, and where it is specified",
       length(.repo) >= 1 && grepl("Method v2.0", .repo[1], fixed = TRUE) &&
       grepl("BSS-GH-pooled-CPUE-model-documentation.md", .repo[1], fixed = TRUE))
@@ -3530,7 +3533,7 @@ local({
             "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
             "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md",
             "07_documentation/development_notes/adoption-review-2026-09-08.md",
-            "PULL_REQUEST.md", "README.md", "07_documentation/CLAUDE.md",
+            "07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md", "README.md", "07_documentation/CLAUDE.md",
             # 2026-09-12: the per-folder READMEs were OUTSIDE this list, which is how
             # 06_diagnostics/README.md carried "is the authoritative run (port 72,027)" in
             # the present tense through two supersessions.
@@ -4268,7 +4271,7 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 72. PULL_REQUEST.md DESCRIBES THIS MERGE (2026-09-13)
+# 72. THE MERGE DOCUMENT (2026-09-13; PULL_REQUEST.md until the merge, archived 2026-09-28)
 #
 #     Matt: "Update the pull request document in preparation for the pull and merge of
 #     the two branches."
@@ -4285,7 +4288,9 @@ local({
 #     are informational; the folder names and totals are the checkable part.
 # ---------------------------------------------------------------------------
 local({
-  f <- "PULL_REQUEST.md"
+  # Merged as PR #5 on 2026-09-28 and archived; its totals are still read back against the
+  # run folders it names, because an archived record must not misquote them either.
+  f <- "07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md"
   chk("PR: the document exists", file.exists(f))
   L <- readLines(f, warn = FALSE); t <- paste(L, collapse = "\n")
   flat <- function(x) gsub("[ \n]+", " ", x)
@@ -4336,7 +4341,7 @@ local({
   }
   for (r in runs[dir.exists(runs)])
     chk(sprintf("PR: the totals it prints for %s match that folder's own CSV", basename(r)),
-        agrees(r), "(port_total_Dungeness_Kept.csv vs PULL_REQUEST.md)")
+        agrees(r), "(port_total_Dungeness_Kept.csv vs the archived merge document)")
 
   # the headline comparison ROW must carry BOTH triples, because the same figures recur
   # elsewhere in the file and an any-line check would be satisfied by the other table
@@ -4458,7 +4463,7 @@ local({
   chk("D6 SHIPS OFF FOR THE GEAR TRACK: catch_zi_tracks is pooled-only",
       identical(as.character(rc$catch_zi_tracks), "pooled"),
       paste("If this ever ships as both without the D6 decision, the next gear render",
-            "changes and the 93,274 R5 figure in PULL_REQUEST.md goes stale with nobody",
+            "changes and the 93,274 R5 figure in the gear method document goes stale with nobody",
             "touching a number."))
   # the contract that caught the 2026-08-25 disaster must still hold on the widened model
   chk("D6: every variable the gear Stan now declares is still built in its prep",
@@ -6108,7 +6113,7 @@ local({
   bad_rows <- character(0)
   for (f in c("07_documentation/development_notes/CHANGE_REGISTER.md", "07_documentation/development_notes/PIPELINE_STATUS.md",
               "07_documentation/development_notes/VALIDATION_CAMPAIGN.md", "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
-              "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md", "PULL_REQUEST.md", "07_documentation/CLAUDE.md",
+              "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md", "07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md", "07_documentation/CLAUDE.md",
               "07_documentation/NEW_SEASON_GUIDE.md", "README-R-functions.md", "06_diagnostics/README.md", "07_documentation/README.md", "04_input_files/README.md")) {
     L <- readLines(f, warn = FALSE); k <- 1L
     while (k < length(L)) {
@@ -6501,7 +6506,7 @@ local({
 # 73. THE HARNESS SIZE THE DOCUMENTS ADVERTISE (2026-09-13). Last, because the total is
 #     only known here.
 #
-#     PULL_REQUEST.md tells a reviewer how many assertions this file runs, and a reviewer
+#     06_diagnostics/README.md (PULL_REQUEST.md until its merge on 2026-09-28) tells a reader how many assertions this file runs, and a reader
 #     who runs it will see the real number. The dangerous direction is OVER-claiming, so
 #     that is what fails: a quoted count may not exceed the count actually executed. It
 #     may lag behind, because the count only ever grows and a lagging figure understates
@@ -6511,14 +6516,14 @@ local({
 # ---------------------------------------------------------------------------
 local({
   total <- ok + bad + 1L   # +1 for this assertion itself
-  f <- "PULL_REQUEST.md"
-  if (!file.exists(f)) { cat("NOTE  size: PULL_REQUEST.md absent; the count check is skipped\n") } else {
+  f <- "06_diagnostics/README.md"
+  if (!file.exists(f)) { cat("NOTE  size: 06_diagnostics/README.md absent; the count check is skipped\n") } else {
     tf <- gsub("[ \n]+", " ", paste(readLines(f, warn = FALSE), collapse = "\n"))
     n  <- regmatches(tf, gregexpr("\\*\\*[0-9,]+ assertions", tf))[[1]]
     q  <- if (length(n)) as.numeric(gsub("[^0-9]", "", n[1])) else NA_real_
     sites <- length(grep("^\\s*chk\\(", readLines("06_diagnostics/test_improvements_2026-08-25.R",
                                                   warn = FALSE)))
-    chk("size: PULL_REQUEST.md does not over-claim the harness, and is not wildly stale",
+    chk("size: 06_diagnostics/README.md does not over-claim the harness, and is not wildly stale",
         !is.na(q) && q <= total && q >= sites,
         sprintf("(quotes %s; executed %d; static call sites %d)",
                 if (is.na(q)) "nothing" else formatC(q, format = "d", big.mark = ","),

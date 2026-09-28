@@ -99,17 +99,18 @@
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
-# WHERE THIS WORK STANDS (context; updated 2026-09-12). Read this before treating any
+# WHERE THIS WORK STANDS (context; updated 2026-09-28). Read this before treating any
 # number in this repository as an estimate.
 #
 # NOTHING HAS BEEN PUBLISHED. WDFW has published no recreational Dungeness crab
-# harvest estimate from this pipeline. The `main` branch holds the state of the
-# model BEFORE two things happened: a meeting with the WDFW freshwater creel
-# team, and confirmation from OSP that they can supply daily boat-count data.
-# Everything on the `OSP-boat-count-incorporation` branch is work toward
-# incorporating both. There is therefore NO published figure that a change here
-# has to stay consistent with, and continuity with an earlier internal run is
-# not by itself a reason to prefer one modelling choice over another.
+# harvest estimate from this pipeline. Until 2026-09-28 the `main` branch held the
+# state of the model BEFORE two things happened: a meeting with the WDFW freshwater
+# creel team, and confirmation from OSP that they can supply daily boat-count data.
+# The `OSP-boat-count-incorporation` branch, the work incorporating both, merged
+# into `main` on 2026-09-28 (pull request #5). There is therefore NO published
+# figure that a change here has to stay consistent with, and continuity with an
+# earlier internal run is not by itself a reason to prefer one modelling choice
+# over another.
 #
 # WHAT METHOD v2.0 IS, in one paragraph. Boat effort is the OSP daily port count of
 # returning vessels, converted to crab effort by a crabbing fraction `f` that is a
