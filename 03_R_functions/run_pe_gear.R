@@ -29,7 +29,7 @@
 ###############################################################################
 
 run_pe_gear <- function(summ, days, params, population_name, population = NULL) {
-  catch_groups <- if (isTRUE(params$estimate_red_rock)) c("Dungeness_Kept", "Red_Rock_Kept") else "Dungeness_Kept"
+  catch_groups <- "Dungeness_Kept"   # the Red Rock group was removed 2026-09-28 (B44)
   results <- list()
 
   # P0 BUGFIX (2026-07): the caller passes `label` (e.g. "shore_all_gear") as
@@ -202,6 +202,11 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
 
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
     results[[paste0("imputed_", cg)]] <- sum(catch_strat$est_catch[catch_strat$imputed_effort_stratum], na.rm = TRUE)
+    # B44 (2026-09-28): the stratum catch, kept so the monthly split can spread each
+    # (period x day_type) cell's own catch over its own calendar days (pe_monthly_split()),
+    # instead of splitting the total by effort share at one season-wide CPUE.
+    results$catch_strata[[cg]] <- catch_strat |>
+      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch)
     if (cg == "Dungeness_Kept") results$pe_empty_cpue_source <- attr(empty_fill, "source")
 
     # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
@@ -223,10 +228,9 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     }
   }
 
-  rr_str <- if(params$estimate_red_rock) sprintf(", RR=%s", format(round(results$Red_Rock_Kept),big.mark=",")) else ""
-  cat(sprintf("  PE %s: Effort=%s %s, Dung=%s%s\n", population_name,
+  cat(sprintf("  PE %s: Effort=%s %s, Dung=%s\n", population_name,
               format(round(results$effort_total),big.mark=","), effort_unit_pe,
-              format(round(results$Dungeness_Kept),big.mark=","), rr_str))
+              format(round(results$Dungeness_Kept),big.mark=",")))
 
   return(results)
 }

@@ -298,11 +298,10 @@ params$crabbing_holiday_dates <- read_crabbing_holidays(params)
 crabbing_holiday_dates <- params$crabbing_holiday_dates
 
 # --- Derived: catch groups vector used throughout ---
-catch_groups <- if(params$estimate_red_rock) {
-  c("Dungeness_Kept", "Red_Rock_Kept")
-} else {
-  "Dungeness_Kept"
-}
+# Dungeness only. The Red Rock catch group and its estimate_red_rock switch were removed
+# 2026-09-28 (B44): never shipped on, and never validated (turning it on summed the two
+# species in the monthly tables). The loops over catch_groups stay, over one group.
+catch_groups <- "Dungeness_Kept"
 
 # --- Derived: sub-season date ranges (03_R_functions/build_subseasons.R) --------
 # Split by the pot-closure window (params$pot_closure_start / pot_closure_end, added
@@ -808,10 +807,6 @@ pe_summary <- tibble(
   Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
   Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
-if(params$estimate_red_rock) {
-  pe_summary$Red_Rock <- c(vapply(component_keys, function(k) pe_field(k, "Red_Rock_Kept"), numeric(1)),
-                           pe_port_total("Red_Rock_Kept"))
-}
 
 report_table(pe_summary |> mutate(across(where(is.numeric), ~round(.))), caption = "PE port totals by component")
 write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FALSE)
@@ -1063,7 +1058,7 @@ for(cg in bss_catch_groups) {
       # C_sum_gear is the predictive season total per gear. With G = 1 it is a
       # single 'All' column and sum(C_sum_gear) == C_sum. The Dirichlet pi_gear
       # machinery described in older comments is not present in the Stan model.
-      .gear_pars <- c("C_sum","E_sum","C_sum_gear","B1","B2",
+      .gear_pars <- c("C_sum","C_expected_sum","E_sum","C_sum_gear","B1","B2",
                       "r_C_gear_out","sigma_eps_C_gear_out")
       # improvement 4: opener effort covariates (labels in bss_data$.opener_labels).
       if (bss_data$K_open > 0) .gear_pars <- c(.gear_pars, "B_open_out")
@@ -1106,7 +1101,12 @@ for(cg in bss_catch_groups) {
                          opener = .olab),
                   file.path(output_dir, paste0("opener_covariates_", label, ".csv")), row.names = FALSE)
 
-      C_draws <- rstan::extract(fit, "C_sum")$C_sum
+      # 2026-09-28 (B44): the headline and every total are EXPECTED catch, as on the pooled
+      # track. C_sum is the predictive total (a Poisson draw per day on top of the expected
+      # catch); the gear driver used to sum it for the port total, so the cross-check compared
+      # the pooled track's expected catch with this track's predictive catch.
+      C_draws <- rstan::extract(fit, "C_sum")$C_sum                          # predictive (with Poisson noise)
+      C_exp_draws <- rstan::extract(fit, "C_expected_sum")$C_expected_sum  # expected (no noise)
       E_draws <- rstan::extract(fit, "E_sum")$E_sum
 
       C_gear_draws <- rstan::extract(fit, "C_sum_gear")$C_sum_gear  # [draws, G_gear]
@@ -1114,8 +1114,9 @@ for(cg in bss_catch_groups) {
 
       bss_all[[label]] <- list(
         C_sum = quantile(C_draws, c(0.025,0.5,0.975)),
+        C_expected_sum = quantile(C_exp_draws, c(0.025,0.5,0.975)),
         E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
-        C_draws = C_draws, E_draws = E_draws,
+        C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws,
         C_gear_draws = C_gear_draws,
         gear_type_labels = gear_labels,
         fit = fit, pe_fallback = FALSE,
@@ -1152,7 +1153,7 @@ for(cg in bss_catch_groups) {
 
       # Daily catch posteriors
       # v5.2: C_total is now the expected value (smooth trajectory, no Poisson noise).
-      # Uses C_total for trajectory plots; C_gear_pred used for season totals.
+      # Uses C_total for trajectory plots; the season total is C_expected_sum (B44).
       C_total_bss <- rstan::extract(fit, "C_total")$C_total  # [draws, D]
       C_daily <- tibble(
         event_date = days_ss$event_date,
@@ -1174,12 +1175,12 @@ for(cg in bss_catch_groups) {
       print(p_bss_catch)
 
       # Season total posterior densities
-      p_bss_post <- tibble(C_sum = C_draws, E_sum = E_draws) |>
+      p_bss_post <- tibble(C_expected_sum = C_exp_draws, E_sum = E_draws) |>
         pivot_longer(everything(), names_to = "param", values_to = "value") |>
         ggplot(aes(x = value)) +
         geom_density(fill = "steelblue", alpha = 0.4) +
         facet_wrap(~param, scales = "free", labeller = labeller(
-          param = c(C_sum = paste("Catch", cg), E_sum = "Effort (gear-deployments)")
+          param = c(C_expected_sum = paste("Expected catch", cg), E_sum = "Effort (gear-deployments)")
         )) +
         labs(title = sprintf("BSS Posteriors: %s", label), x = "Value", y = "Density") +
         theme_bw()
@@ -1257,12 +1258,13 @@ message("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
 
 n_draws_max <- max(sapply(bss_all, function(b) {
   if(bss_use_pe_for(b)) return(0)   # B1.8: a gate-failed fit contributes no BSS draws
-  length(b$C_draws)
+  length(b$C_exp_draws)
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
 
 for(cg in bss_catch_groups) {
-  bss_C_total <- rep(0, n_draws_max)
+  bss_C_total <- rep(0, n_draws_max)       # expected catch (the headline, as on the pooled track)
+  bss_C_pred_total <- rep(0, n_draws_max)  # predictive catch
   bss_E_total <- rep(0, n_draws_max)
 
   for(pop in c("shore","private_boat")) {
@@ -1273,11 +1275,13 @@ for(cg in bss_catch_groups) {
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
         bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
+        bss_C_pred_total <- bss_C_pred_total + (pe_all[[pe_label]][[cg]] %||% 0)
         bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
       } else {
-        n <- length(b$C_draws)
+        n <- length(b$C_exp_draws)
         idx <- rep_len(1:n, n_draws_max)
-        bss_C_total <- bss_C_total + b$C_draws[idx]
+        bss_C_total <- bss_C_total + b$C_exp_draws[idx]
+        bss_C_pred_total <- bss_C_pred_total + b$C_draws[idx]
         bss_E_total <- bss_E_total + b$E_draws[idx]
       }
     }
@@ -1298,16 +1302,21 @@ for(cg in bss_catch_groups) {
                     format(round(.cc$commercial_se %||% 0), big.mark = ","), .cc$census_expansion %||% "none", sum(!.cc$daily_full$observed)))
   }
   bss_C_total <- bss_C_total + .cc_draws
+  bss_C_pred_total <- bss_C_pred_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
 
+  # 2026-09-28 (B44): the same rows, labels and quantity as the pooled track's
+  # port_total_*.csv (Effort, Expected_Catch, Predictive_Catch), so the cross-check reads
+  # like for like. Effort is gear-deployments on both tracks.
   final_table <- tibble(
     Catch_Group = cg,
-    Estimate = c("Effort (gear-deployments)", "Catch"),
+    Estimate = c("Effort", "Expected_Catch", "Predictive_Catch"),
     PE = c(round(pe_port_total("effort_total")),
-           round(if(cg=="Dungeness_Kept") pe_port_total("Dungeness_Kept") else pe_port_total("Red_Rock_Kept"))),
-    BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total))),
-    BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025))),
-    BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)))
+           round(pe_port_total(cg)),
+           NA),
+    BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total)), round(median(bss_C_pred_total))),
+    BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025)), round(quantile(bss_C_pred_total,0.025))),
+    BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)), round(quantile(bss_C_pred_total,0.975)))
     ,
     # F5: this column is NOT pure BSS. It is the gate-selected combination:
     # BSS draws where the convergence gate passed, PE where it failed or data
@@ -1340,10 +1349,10 @@ if (isTRUE(params$diagnose_tau_sensitivity)) {
   b_boat   <- bss_all[[boat_key]]
   if (!is.null(b_boat) && !bss_use_pe_for(b_boat) && exists(".tau_port_draws")) {
     n_draws_max <- length(.tau_port_draws)
-    nb          <- length(b_boat$C_draws)
-    # Boat's aligned contribution to the port draws (same alignment as sec 6), so
-    # the projection swaps only the boat term.
-    boat_draws  <- b_boat$C_draws[rep_len(1:nb, n_draws_max)]
+    nb          <- length(b_boat$C_exp_draws)
+    # Boat's aligned contribution to the port draws (same alignment and the same expected
+    # catch as sec 6), so the projection swaps only the boat term.
+    boat_draws  <- b_boat$C_exp_draws[rep_len(1:nb, n_draws_max)]
     n_ie_boat   <- tryCatch(as.integer(b_boat$n_ie_obs %||% 0L), error = function(e) 0L)
     tau_sens <- diagnose_tau_boat_sensitivity(
       boat = b_boat, port_C_draws = .tau_port_draws, boat_C_draws = boat_draws,
@@ -1402,31 +1411,25 @@ for(cg in bss_catch_groups) {
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
-        summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
-        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
-        # Population-aware, so the boat PE-fallback now gets its deployment-scale effort
-        # here instead of the shore crabber-hours formula this block used inline before.
-        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
-
-        pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
-        pe_effort_total <- pe_all[[pe_label]]$effort_total
+        # B44 (2026-09-28): the PE's own strata, spread over their calendar days and summed
+        # by month (pe_monthly_split.R). The months add up to the component totals exactly
+        # and carry each cell's own CPUE; the effort-share split this replaced assumed one
+        # CPUE for the whole sub-season and weighted months by their sampled days only.
+        monthly_pe <- pe_monthly_split(pe_all[[pe_label]], days_ss, cg)
 
         for(m in monthly_pe$month_label) {
           if(m %in% all_months) {
-            sh <- monthly_pe$share[monthly_pe$month_label == m]
-            monthly_C_draws[, m] <- monthly_C_draws[, m] + pe_catch_total * sh
-            monthly_E_draws[, m] <- monthly_E_draws[, m] + pe_effort_total * sh
+            i_m <- monthly_pe$month_label == m
+            monthly_C_draws[, m] <- monthly_C_draws[, m] + monthly_pe$month_catch[i_m]
+            monthly_E_draws[, m] <- monthly_E_draws[, m] + monthly_pe$month_effort[i_m]
           }
         }
 
       } else {
-        # Use C_gear_pred (predictive, carries Poisson noise) for monthly
-        # totals so predictive uncertainty propagates into monthly CIs.
-        # C_total is now expected value (smooth) - good for daily plots but
-        # would underestimate monthly CI widths.
-        C_pred_mat <- rstan::extract(b$fit, "C_gear_pred")$C_gear_pred  # [draws, D, G_gear]
-        # Sum across gear types to get daily total with full uncertainty
-        C_daily_mat <- apply(C_pred_mat, c(1, 2), sum)  # [draws, D]
+        # 2026-09-28 (B44): EXPECTED daily catch (C_total, no Poisson noise), as the pooled
+        # track's monthly block uses C_expected, so the monthly figures sum to the port
+        # total's quantity. (This used C_gear_pred, the predictive daily catch.)
+        C_daily_mat <- rstan::extract(b$fit, "C_total")$C_total  # [draws, D]
         E_bss <- rstan::extract(b$fit, "E")$E  # [draws, S, D, G]
         E_daily_mat <- E_bss[,1,,1]
         n_fit_draws <- nrow(C_daily_mat)
@@ -1978,7 +1981,7 @@ for(pop in c("shore","private_boat")) {
     if(!is.null(b) && !bss_use_pe_for(b)) {   # B1.8: BSS only if it passed the gate
       E_bss <- rstan::extract(b$fit, "E")$E
       # v5.2: C_total is now expected value (smooth, no Poisson noise).
-      # Good for daily trajectory plots. Season totals use C_gear_pred.
+      # Good for daily trajectory plots. Season and monthly totals use it too (B44).
       C_total_bss <- rstan::extract(b$fit, "C_total")$C_total  # [draws, D]
 
       daily_pop$bss_effort_median <- apply(E_bss[,1,,1], 2, median)
@@ -2274,7 +2277,7 @@ for(pop in c("shore","private_boat")) {
     pe_effort <- pe_all[[pe_label]]$effort_total %||% 0
 
     if(!is.null(b) && (is.null(b$pe_fallback) || !b$pe_fallback)) {
-      bss_catch <- b$C_sum["50%"]
+      bss_catch <- b$C_expected_sum["50%"]   # B44: expected catch, as the pooled track
       bss_effort <- b$E_sum["50%"]
       catch_diff_pct <- round((bss_catch - pe_catch) / pe_catch * 100, 1)
       effort_diff_pct <- round((bss_effort - pe_effort) / pe_effort * 100, 1)
@@ -2348,7 +2351,7 @@ pt_file <- file.path(output_dir, paste0("port_total_", port_total_cg, ".csv"))
 if(file.exists(pt_file)) {
   port_total <- read.csv(pt_file)
 } else {
-  port_total <- tibble(Estimate = c("Effort","Catch"), PE = NA, BSS_median = NA, BSS_lo95 = NA, BSS_hi95 = NA)
+  port_total <- tibble(Estimate = c("Effort","Expected_Catch","Predictive_Catch"), PE = NA, BSS_median = NA, BSS_lo95 = NA, BSS_hi95 = NA)
 }
 
 mode_catch <- c(

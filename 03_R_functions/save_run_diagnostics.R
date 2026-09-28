@@ -40,10 +40,8 @@
 # Base R + rstan:: / stats:: / utils:: only, so it does not depend on attached
 # packages.
 #
-# NOTE on O7: the monthly PE share reproduces the v7.0 population-aware Fix-2 logic
-# (boat: count-weighted, day-length-free; shore: count * day_length). That logic
-# now lives in run_pe(), sections 7.8 and 7.8b, and here; it is a candidate for
-# consolidation into one shared helper (review item T4.4).
+# NOTE on O7: the monthly PE column comes from pe_monthly_split() (B44, 2026-09-28), the
+# helper sections 7.8 and 7.8b also use; the PE's daily effort is no longer re-derived here.
 # =============================================================================
 
 # Null-coalescing fallback, only if not already provided by rlang/purrr.
@@ -634,70 +632,12 @@ write_pe_empty_stratum_report <- function(pe_all, output_dir, params = list()) {
 }
 
 
-# Population-aware monthly effort share (v7.0 Fix-2 logic; see header note).
-#
-# IMPROVEMENT 1 FIX, PART 2 (2026-08-27). This was the SECOND copy of the shore
-# day-length weighting. The 2026-08-25 batch fixed pe_monthly_effort_share() and missed
-# this one, so `monthly_pe_vs_bss.csv` kept the pre-v7.7 crabber-hours split while the
-# drivers' own monthly tables used the corrected one. The 2026-08-26 ladder confirmed it:
-# the shore PE effort column here was numerically unchanged from the pre-fix reference run.
-#
-# The rule, stated once so the two copies cannot drift again: the monthly share is a
-# normalized weight, so ANY per-day multiplier that is constant across days cancels, and
-# EVERY per-day multiplier that is not constant must be applied. Two of them exist.
-#
-#   L. Weight by day length ONLY when the fit's L is an effective day length in HOURS (the
-#      crabber-hours and gear-hours shore units, where L varies day to day). When L is a
-#      TURNOVER -- both boat fits, and shore under gear-deployments, which is production --
-#      it is constant across days, so it cancels and applying `day_length` would silently
-#      re-weight the split toward long-day summer months. `.L_unit` is the tag
-#      bss_effort_spec() attaches to the stan_data for exactly this question; the fallbacks
-#      below cover a stan_data built before that tag existed.
-#   f. THE CRABBING FRACTION, added 2026-09-12 (CHANGE_REGISTER C). The boat's f was the
-#      scalar 0.30 when the rule above was written, so it cancelled and neither copy applied
-#      it. The dynamic monthly f adopted 2026-09-08 made it a per-day, month-varying factor
-#      and it stopped cancelling -- silently, because nothing at either call site changed.
-#      On 2024-25, where f runs 0.95 in December to 0.14 in September, the boat's monthly PE
-#      split was over-weighted 2.39x in September and pulled to 0.36x in December. That is
-#      the figure `monthly_pe_vs_bss.csv` carried, and it was read as a PE-vs-BSS
-#      disagreement. Component and port totals were never affected: the share is normalized
-#      and every total comes from run_pe_*(), which has always applied f.
-#
-# THE STANDING RULE FOR THE NEXT LEVER: before adding any per-day factor to run_pe_*(), ask
-# whether it is constant across days. If it is not, it belongs in BOTH monthly-share copies
-# (this one and pe_monthly_effort_share()) or the monthly split silently drifts from the
-# totals while every total stays right.
-.srd_monthly_share <- function(stan_data, days_ss, is_boat, params = list()) {
-  obs_days <- if (is_boat) stan_data$day_T else stan_data$day_Gear
-  counts   <- if (is_boat) stan_data$T_I  else stan_data$Gear_I
-  if (length(obs_days) == 0 || is.null(days_ss)) return(NULL)
-  mc <- tapply(counts, obs_days, mean)
-  di <- as.integer(names(mc))
-  ev <- as.Date(days_ss$event_date)[di]
-
-  l_unit <- stan_data[[".L_unit"]]
-  L_is_day_length <- if (!is.null(l_unit) && !is.na(l_unit)) {
-    grepl("day length", l_unit, ignore.case = TRUE)
-  } else {
-    # No .L_unit tag: infer from the effort unit, then from the population.
-    e_unit <- stan_data[[".effort_unit"]]
-    if (!is.null(e_unit) && !is.na(e_unit)) !identical(e_unit, "gear-deployments") && !is_boat
-    else !is_boat
-  }
-
-  dl <- if (L_is_day_length && "day_length" %in% names(days_ss))
-          as.numeric(days_ss$day_length)[di] else rep(1, length(di))
-  # The per-day crabbing fraction, on the same days the counts sit on. 1 for shore and for
-  # a run with use_crab_fraction off, so this is a no-op except on the boat.
-  fc <- tryCatch(as.numeric(crab_fraction_point_day(is_boat, days_ss, params))[di],
-                 error = function(e) rep(1, length(di)))
-  if (length(fc) != length(di) || !all(is.finite(fc))) fc <- rep(1, length(di))
-  w   <- as.numeric(mc) * dl * fc
-  mon <- format(ev, "%Y-%m")
-  agg <- tapply(w, mon, sum)
-  data.frame(month = names(agg), share = as.numeric(agg) / sum(agg, na.rm = TRUE),
-             row.names = NULL)
-}
+# The PE column of monthly_pe_vs_bss.csv comes from pe_monthly_split() (pe_monthly_split.R,
+# B44, 2026-09-28): the PE's own strata spread over their calendar days, so the months sum
+# to the component totals and carry each cell's own CPUE. It replaced .srd_monthly_share(),
+# a second copy of the PE's daily-effort formula that split the component total by effort
+# share at one season-wide CPUE and had to be patched by hand whenever run_pe_*() gained a
+# per-day factor (day length on 2026-08-27, the crabbing fraction on 2026-09-12).
 
 # BSS monthly summed draws for one fit -> month, median, lo95, hi95 (catch & effort).
 .srd_bss_monthly <- function(fit, days_ss, use_n = 2000) {
@@ -795,15 +735,12 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
     for (label in names(bss_all)) {
       b <- bss_all[[label]]
       if (is.null(b$population)) next
-      pop <- b$population; ds <- b$days_ss; sd_ <- b$bss_data
+      pop <- b$population; ds <- b$days_ss
       pe_label <- paste0(pop, "_", b$subseason)
-      pe_catch_tot <- pe_all[[pe_label]][[b$catch_group]] %||% NA
-      pe_eff_tot   <- pe_all[[pe_label]]$effort_total %||% NA
-      is_boat <- grepl("private_boat", pop)
-      share <- if (!is.null(sd_)) .srd_monthly_share(sd_, ds, is_boat, params) else NULL
-      pe_m <- if (!is.null(share)) data.frame(month = share$month,
-                                              PE_catch = pe_catch_tot * share$share,
-                                              PE_effort = pe_eff_tot * share$share) else NULL
+      sp <- if (!is.null(ds) && !is.null(pe_all[[pe_label]]))
+              pe_monthly_split(pe_all[[pe_label]], ds, b$catch_group) else NULL
+      pe_m <- if (!is.null(sp)) data.frame(month = sp$month_label, PE_catch = sp$month_catch,
+                                           PE_effort = sp$month_effort) else NULL
       bss_m <- if (!is.null(b$fit) && isTRUE(b$use_bss)) .srd_bss_monthly(b$fit, ds) else NULL
       months <- sort(unique(c(if (!is.null(pe_m)) pe_m$month, if (!is.null(bss_m)) bss_m$month)))
       if (length(months) == 0) next

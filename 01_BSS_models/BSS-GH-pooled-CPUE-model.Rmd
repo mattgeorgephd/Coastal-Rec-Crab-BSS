@@ -316,11 +316,10 @@ params$crabbing_holiday_dates <- read_crabbing_holidays(params)
 crabbing_holiday_dates <- params$crabbing_holiday_dates
 
 
-catch_groups <- if(params$estimate_red_rock) {
-  c("Dungeness_Kept", "Red_Rock_Kept")
-} else {
-  "Dungeness_Kept"
-}
+# Dungeness only. The Red Rock catch group and its estimate_red_rock switch were removed
+# 2026-09-28 (B44): never shipped on, and never validated (turning it on summed the two
+# species in the monthly tables). The loops over catch_groups stay, over one group.
+catch_groups <- "Dungeness_Kept"
 
 # Sub-seasons split by the pot-closure window (03_R_functions/build_subseasons.R).
 # The pot closure is when pots are not legal (non-pot gear only); its window is set
@@ -1164,10 +1163,6 @@ pe_summary <- tibble(
   Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
   Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
-if(params$estimate_red_rock) {
-  pe_summary$Red_Rock <- c(vapply(component_keys, function(k) pe_field(k, "Red_Rock_Kept"), numeric(1)),
-                           pe_port_total("Red_Rock_Kept"))
-}
 
 print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
 write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FALSE)
@@ -1869,7 +1864,7 @@ for(cg in bss_catch_groups) {
     Catch_Group = cg,
     Estimate = c("Effort", "Expected_Catch", "Predictive_Catch"),
     PE = c(round(pe_port_total("effort_total")),
-           round(if(cg=="Dungeness_Kept") pe_port_total("Dungeness_Kept") else pe_port_total("Red_Rock_Kept")),
+           round(pe_port_total(cg)),
            NA),
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total)), round(median(bss_C_pred_total))),
     BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025)), round(quantile(bss_C_pred_total,0.025))),
@@ -2029,27 +2024,17 @@ for(cg in bss_catch_groups) {
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
-        summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
-        # Fix 2 (v7.0), POOL-3 (v7.6): population-aware daily effort so the monthly
-        # PE SHARE uses the same effort definition run_pe_pooled() uses: the private boat on the
-        # gear-DEPLOYMENT scale, mean_count * gear_per_group * tau_boat * f_crab(day), and the
-        # shore as mean_count * tau_shore. Both are day-length-free. (This comment described
-        # the pre-v7.7 shore formula until 2026-09-12, and omitted the per-day f, which stopped
-        # cancelling out of the normalized share when f became a monthly walk.) The share is
-        # normalized, so component and port TOTALS are unaffected; only the across-
-        # month distribution changes. gear_per_group is recomputed here from the same
-        # sub-season interview filter run_pe_pooled() uses so the two stay consistent.
-        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
-        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
-
-        pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
-        pe_effort_total <- pe_all[[pe_label]]$effort_total
+        # B44 (2026-09-28): the PE's own strata, spread over their calendar days and summed
+        # by month (pe_monthly_split.R). The months add up to the component totals exactly
+        # and carry each cell's own CPUE; the effort-share split this replaced assumed one
+        # CPUE for the whole sub-season and weighted months by their sampled days only.
+        monthly_pe <- pe_monthly_split(pe_all[[pe_label]], days_ss, cg)
 
         for(m in monthly_pe$month_label) {
           if(m %in% all_months) {
-            sh <- monthly_pe$share[monthly_pe$month_label == m]
-            monthly_C_draws[, m] <- monthly_C_draws[, m] + pe_catch_total * sh
-            monthly_E_draws[, m] <- monthly_E_draws[, m] + pe_effort_total * sh
+            i_m <- monthly_pe$month_label == m
+            monthly_C_draws[, m] <- monthly_C_draws[, m] + monthly_pe$month_catch[i_m]
+            monthly_E_draws[, m] <- monthly_E_draws[, m] + monthly_pe$month_effort[i_m]
           }
         }
       } else {
@@ -2153,13 +2138,8 @@ The monthly trajectory split by mode (shore, private boat, commercial/charter). 
 #          automatically.
 #   Commercial/Charter (census): point distributed by sampled-harvest share with
 #          a catch-per-vessel sampling CV as the relative SE (small, high coverage).
-# Fix 2 (v7.0): the PE monthly effort share is now population-aware (see the PE
-# branch below). The boat uses the flat 24 h gear-hours run_pe_pooled() uses; shore keeps
-# crabber-hours * day_length. This removes the prior day_length over-weighting of
-# long-day summer months in the boat monthly distribution (totals were, and remain,
-# unaffected; only the across-month split changed). The same formula lives in 7.8;
-# the two PE-share blocks are still duplicated (with a minor na.rm difference) and
-# are a candidate for consolidation into one helper in a future pass.
+# The PE branch splits the component by month from the PE's own strata
+# (pe_monthly_split.R, B44), the same helper 7.8 uses, so the two blocks cannot drift.
 cat("\n", strrep("=",60), "\n MONTHLY ESTIMATES BY MODE\n", strrep("=",60), "\n")
 
 modes_lvl <- c("Shore", "Private Boat", "Commercial/Charter")
@@ -2186,17 +2166,9 @@ for(cg in bss_catch_groups) {
       days_ss$month_label <- format(days_ss$event_date, "%Y-%m")
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
-        summ_ss <- prep_population_summary(dwg, pop, ss$start, ss$end, params)
-        # Fix 2 (v7.0), POOL-3 (v7.6): population-aware daily effort, identical
-        # rationale to 7.8. Boat uses the gear-DEPLOYMENT scale
-        # (mean_count * gear_per_group * tau_boat * f_crab(day)); shore uses
-        # mean_count * tau_shore. Both day-length-free; see pe_monthly_effort_share.R.
-        # Share is normalized so totals are unaffected; only the monthly split changes,
-        # which is exactly why the per-day f has to be in it (2026-09-12).
-        # T4.4: shared monthly effort-share helper (03_R_functions/pe_monthly_effort_share.R).
-        monthly_pe <- pe_monthly_effort_share(pop, summ_ss, days_ss, params)
+        # B44 (2026-09-28): the PE's own strata by month (pe_monthly_split.R), as in 7.8.
+        monthly_pe <- pe_monthly_split(pe_all[[pe_label]], days_ss, cg)
 
-        pe_catch_total <- pe_all[[pe_label]][[cg]] %||% 0
         eff_total <- pe_all[[pe_label]]$effort_total %||% NA_real_
         eff_se    <- pe_all[[pe_label]]$effort_se %||% NA_real_
         rel_se <- if(!is.na(eff_total) && eff_total > 0 && !is.na(eff_se) && eff_se > 0)
@@ -2205,8 +2177,8 @@ for(cg in bss_catch_groups) {
 
         for(m in monthly_pe$month_label) {
           if(m %in% all_months) {
-            sh <- monthly_pe$share[monthly_pe$month_label == m]
-            bymode_C[[mode_nm]][, m] <- bymode_C[[mode_nm]][, m] + (pe_catch_total * sh) * scale_draws
+            bymode_C[[mode_nm]][, m] <- bymode_C[[mode_nm]][, m] +
+              monthly_pe$month_catch[monthly_pe$month_label == m] * scale_draws
           }
         }
       } else {

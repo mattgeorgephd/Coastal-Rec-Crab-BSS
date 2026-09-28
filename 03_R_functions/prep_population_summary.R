@@ -30,8 +30,7 @@
 ###############################################################################
 
 prep_population_summary <- function(dwg, population_name, date_start, date_end, params) {
-  # Derive catch groups from the centralized config (single source of truth).
-  catch_groups <- if (isTRUE(params$estimate_red_rock)) c("Dungeness_Kept", "Red_Rock_Kept") else "Dungeness_Kept"
+  catch_groups <- "Dungeness_Kept"   # the Red Rock group was removed 2026-09-28 (B44)
   ds <- as.Date(date_start); de <- as.Date(date_end)
   summ <- list()
 

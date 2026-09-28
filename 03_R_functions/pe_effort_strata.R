@@ -93,6 +93,28 @@
 #
 #   Every run reports BOTH the new SE and effort_se_sampled_only, the historical
 #   arithmetic, so no earlier number becomes unreachable.
+#
+# THE COMPONENT TOTAL'S VARIANCE IS NOT THE SUM OF THE CELLS' (2026-09-28, B44)
+#   Cells that borrow ONE donor mean share its sampling error, and a donor mean is built
+#   from the sampled days of the very cells it sits beside. Summing se_total^2 over cells
+#   treated all of them as independent, which drops two covariance terms and understates
+#   the total exactly where imputation is heaviest. For a donor group G (the sampled days a
+#   donor mean averages: a month x day_type, a day_type, or the whole sub-season) with n_G
+#   days, spread s_G, and A_G = sum of N_i over the imputed cells that borrow G:
+#     imputed x imputed   sum over pairs i != k in G of N_i N_k s_G^2 / n_G
+#                         = (A_G^2 - sum_i N_i^2) s_G^2 / n_G
+#     imputed x sampled   2 A_G (s_G^2 / n_G) B_G, B_G = sum over sampled cells j of
+#                         N_j m_jG / n_j, m_jG = the days of cell j that are in G
+#   (Cov(ybar_G, ybar_j) = m_jG s^2 / (n_G n_j) for days drawn with a common variance.)
+#   The total's variance is the sum of the cells' own variances plus these, carried as
+#   attr(st, "effort_var_total"); pe_effort_stratum_report() reads it. With no imputed
+#   cell both terms are zero and the total is unchanged.
+#   The same pass corrects the divisor of the donor mean's own error: it was the sample
+#   size of the level the SPREAD came from (the finest level with two or more days), not
+#   of the level the MEAN came from (the finest with one or more). A mean taken from a
+#   month x day_type with one sampled day was priced as if it averaged the whole day_type.
+#   It now divides by the mean's own n (donor_mean_n). pe_variance = "sampled_only" is the
+#   historical arithmetic and is left exactly as it was.
 ###############################################################################
 
 if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a)) b else a
@@ -206,6 +228,14 @@ pe_build_effort_strata <- function(daily_effort, days, params) {
     donor_n    = dplyr::case_when(sd_level == "month x day_type" ~ md_n,
                                   sd_level == "day_type"         ~ dt_n,
                                   TRUE                            ~ as.numeric(don$all_n)),
+    # B44: the sample size of the level the MEAN came from, which is what the donor
+    # mean's own error divides by, and the key of the donor group the mean averages.
+    donor_mean_n = dplyr::case_when(mean_level == "month x day_type" ~ md_n,
+                                    mean_level == "day_type"         ~ dt_n,
+                                    TRUE                             ~ as.numeric(don$all_n)),
+    donor_key  = dplyr::case_when(mean_level == "month x day_type" ~ paste0("md:", .pe_month, ":", day_type),
+                                  mean_level == "day_type"         ~ paste0("dt:", day_type),
+                                  TRUE                             ~ "all"),
     donor_level = mean_level)
 
   filled <- fill %in% c("day_type", "local_day_type")
@@ -238,7 +268,7 @@ pe_build_effort_strata <- function(daily_effort, days, params) {
       var_sd = dplyr::if_else(imputed_effort_stratum, donor_sd, var_sd),
       var_n  = dplyr::if_else(imputed_effort_stratum,
                               if (identical(vmode, "impute_aware"))
-                                1 / (1 / pmax(donor_n, 1) + 1) else pmax(donor_n, 1),
+                                1 / (1 / pmax(donor_mean_n, 1) + 1) else pmax(donor_mean_n, 1),
                               var_n),
       var_source = dplyr::if_else(imputed_effort_stratum,
                                   paste0(if (identical(vmode, "impute_aware")) "imputed (donor mean + between-cell): "
@@ -253,6 +283,14 @@ pe_build_effort_strata <- function(daily_effort, days, params) {
     # what a zeroed cell omits, so "zero" reports a bias instead of a silent hole
     zeroed_effort_bias = dplyr::if_else(empty_effort_stratum & !filled, donor_mean * n_total_days, 0))
 
+  # ---- the component total's variance, with the donor covariances (B44) ----------
+  var_cells <- sum(tidyr::replace_na(st$se_total^2, 0))
+  cov_terms <- if (vmode %in% c("impute_aware", "donor_mean_only"))
+    pe_donor_covariance(st, daily_effort, day_month) else c(imputed_imputed = 0, imputed_sampled = 0)
+  attr(st, "effort_var_cells") <- var_cells
+  attr(st, "effort_var_cov")   <- cov_terms
+  attr(st, "effort_var_total") <- var_cells + sum(cov_terms)
+
   attr(st, "pe_fill")  <- fill
   attr(st, "pe_variance") <- vmode
   attr(st, "counts") <- list(
@@ -265,6 +303,43 @@ pe_build_effort_strata <- function(daily_effort, days, params) {
     imputed_effort      = sum(st$est_total[st$imputed_effort_stratum], na.rm = TRUE),
     zeroed_effort_bias  = sum(st$zeroed_effort_bias, na.rm = TRUE))
   st
+}
+
+# ---------------------------------------------------------------------------
+# pe_donor_covariance(): the two covariance terms the sum of cell variances omits
+# (B44; the algebra is in the header). st is the frame from pe_build_effort_strata();
+# daily_effort the sampled days; day_month event_date -> .pe_month. Returns
+# c(imputed_imputed, imputed_sampled), each a variance contribution (>= 0).
+# ---------------------------------------------------------------------------
+pe_donor_covariance <- function(st, daily_effort, day_month) {
+  imp <- st[st$imputed_effort_stratum %in% TRUE & is.finite(st$donor_sd), , drop = FALSE]
+  if (!nrow(imp)) return(c(imputed_imputed = 0, imputed_sampled = 0))
+  grp <- split(imp, imp$donor_key)
+  # the sampled days, keyed to every donor group they could belong to
+  de <- daily_effort |> dplyr::left_join(day_month, by = "event_date")
+  samp <- st[st$n_sampled >= 1L, c("section_num", "period", "day_type", "n_sampled", "n_total_days"), drop = FALSE]
+  ii <- 0; is <- 0
+  for (g in names(grp)) {
+    x   <- grp[[g]]
+    n_G <- max(x$donor_mean_n[1], 1)
+    v_G <- x$donor_sd[1]^2 / n_G          # Var(ybar_G)
+    A_G <- sum(x$n_total_days)
+    ii  <- ii + (A_G^2 - sum(x$n_total_days^2)) * v_G
+    in_G <- if (startsWith(g, "md:")) {
+      parts <- strsplit(sub("^md:", "", g), ":", fixed = TRUE)[[1]]
+      as.character(de$.pe_month) == parts[1] & de$day_type == paste(parts[-1], collapse = ":")
+    } else if (startsWith(g, "dt:")) {
+      de$day_type == sub("^dt:", "", g)
+    } else rep(TRUE, nrow(de))
+    if (any(in_G) && nrow(samp)) {
+      m <- de[in_G, , drop = FALSE] |>
+        dplyr::count(section_num, period, day_type, name = "m_jG") |>
+        dplyr::inner_join(samp, by = c("section_num", "period", "day_type"))
+      B_G <- sum(m$n_total_days * m$m_jG / pmax(m$n_sampled, 1))
+      is  <- is + 2 * A_G * v_G * B_G
+    }
+  }
+  c(imputed_imputed = ii, imputed_sampled = is)
 }
 
 # ---------------------------------------------------------------------------
@@ -302,7 +377,9 @@ pe_empty_cpue_fill <- function(daily_cpue, strata, days, params) {
 pe_effort_stratum_report <- function(st, population_name, params) {
   k <- attr(st, "counts"); fill <- attr(st, "pe_fill"); vmode <- attr(st, "pe_variance")
   tot <- sum(st$est_total, na.rm = TRUE)
-  se  <- sqrt(sum(st$se_total^2, na.rm = TRUE))
+  # B44: the total's variance carries the donor covariances; the sum of cell variances
+  # is the fallback for a frame built before they were computed.
+  se  <- sqrt(attr(st, "effort_var_total") %||% sum(st$se_total^2, na.rm = TRUE))
   se0 <- sqrt(sum(st$se_total_sampled_only^2, na.rm = TRUE))
   cat(sprintf(paste0("  PE %s strata: %d of %d cells unsampled (%d of %d days, %.1f%%), %d cells with ONE ",
                      "sampled day (%d days); fill '%s', variance '%s'.\n"),

@@ -368,43 +368,14 @@ local({
 # ladder could not see because they live in the reporting layer.
 local({
 
-  # 10a. .srd_monthly_share(): the SECOND copy of the shore day-length weighting.
-  # The rule: the monthly share is a normalized weight, so a per-day multiplier that is
-  # constant across days cancels. Weight by day length ONLY when L is an effective day length
-  # in hours. Under gear-deployments (production) and for both boat fits, L is a turnover and
-  # the share must be count-weighted. Before the fix this file multiplied every SHORE share by
-  # days_ss$day_length regardless, re-weighting the split toward long-day summer months.
-  D <- 120L
-  days <- data.frame(event_date = as.Date("2024-12-01") + 0:(D-1),
-                     day_length = seq(9, 16, length.out = D))   # strongly seasonal
-  sd_dep <- list(day_Gear = rep(1:D, each = 1), Gear_I = rep(10, D),
-                 .L_unit = "turnover (trips per gear-slot per day)",
-                 .effort_unit = "gear-deployments")
-  sd_hrs <- list(day_Gear = rep(1:D, each = 1), Gear_I = rep(10, D),
-                 .L_unit = "effective day length (hours)",
-                 .effort_unit = "crabber-hours")
-  sh_dep <- .srd_monthly_share(sd_dep, days, is_boat = FALSE)
-  sh_hrs <- .srd_monthly_share(sd_hrs, days, is_boat = FALSE)
-  # With a flat count series, a turnover-unit shore share must be proportional to DAYS PER
-  # MONTH alone; an hours-unit share must tilt toward the long-day months at the end.
-  n_per_month <- as.numeric(table(format(days$event_date, "%Y-%m")))
-  chk("monthly share, deployments: count-weighted (day length cancels)",
-      isTRUE(all.equal(sh_dep$share, n_per_month / sum(n_per_month), tolerance = 1e-10)))
-  chk("monthly share, crabber-hours: still day-length weighted",
-      !isTRUE(all.equal(sh_hrs$share, n_per_month / sum(n_per_month), tolerance = 1e-6)) &&
-      tail(sh_hrs$share, 1) > tail(sh_dep$share, 1))
-  sd_boat <- list(day_T = 1:D, T_I = rep(4, D),
-                  .L_unit = "turnover (trips per present group per day)",
-                  .effort_unit = "gear-deployments")
-  chk("monthly share, boat: unchanged and count-weighted",
-      isTRUE(all.equal(.srd_monthly_share(sd_boat, days, is_boat = TRUE)$share,
-                       n_per_month / sum(n_per_month), tolerance = 1e-10)))
-  # Fallback path: a stan_data built before .L_unit existed must not crash and must keep the
-  # historical shore behaviour rather than silently switching units.
-  sd_old <- list(day_Gear = 1:D, Gear_I = rep(10, D))
-  chk("monthly share: pre-.L_unit stan_data falls back to the historical shore weighting",
-      !isTRUE(all.equal(.srd_monthly_share(sd_old, days, is_boat = FALSE)$share,
-                        n_per_month / sum(n_per_month), tolerance = 1e-6)))
+  # 10a. RETIRED 2026-09-28 (B44): .srd_monthly_share(), the second copy of the PE's
+  # daily-effort formula whose shore day-length weighting these assertions pinned, was
+  # removed with pe_monthly_effort_share(). monthly_pe_vs_bss.csv now takes its PE column
+  # from pe_monthly_split(), which reads the PE's own strata (section 81), so no per-day
+  # factor (day length, f) has a second formula to drift from. Assert the copy is gone.
+  chk("monthly share: the retired second copy (.srd_monthly_share) is gone",
+      !exists(".srd_monthly_share", mode = "function") &&
+      !any(grepl("^\\.srd_monthly_share <- function", readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE))))
 
   # 10b. The empty-effort-stratum report is a FILE, not a console line. The pooled driver's
   # PE chunk is results='hide', so the cat()-only version reached nothing on that track.
@@ -2357,7 +2328,7 @@ local({
                   boat_type_clean = rep(c("Commercial", "Charter"), 10), dungeness_kept = rep(c(40, 60), 10), red_rock_kept = 0)
   dwg <- list(comm_tally = tally, interview = ints)
   Pc0 <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
-              crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+              crabbing_holiday_dates = as.Date(character()))
   est_day <- tally$commercial_tally * 40 + tally$charter_tally * 60
   wkd <- !weekdays(tally$date) %in% c("Saturday", "Sunday")
   obs <- sum(est_day); imp <- 2 * mean(est_day[wkd]) + 2 * mean(est_day[!wkd])
@@ -2815,7 +2786,7 @@ local({
                    date = c(unsampled[1], unsampled[1], unsampled[3], samp[1], samp[2], samp[2], unsampled[2]),
                    status = c("missed", "missed", "interviewed", "interviewed", "interviewed", "missed", "canceled"), contact = NA, notes = NA)
   Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
-             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+             crabbing_holiday_dates = as.Date(character()))
   obs <- sum(tally$commercial_tally * 40 + tally$charter_tally * 60)
   dwg <- list(comm_tally = tally, interview = ints, charter_roster = roster)
   rt <- estimate_comm_charter(dwg, modifyList(Pc, list(charter_frame = "tally")))
@@ -2901,7 +2872,7 @@ local({
                    status = c(rep("interviewed", 3), rep("missed", 3), "interviewed", "interviewed", "missed", "canceled"),
                    contact = NA, notes = NA)
   Pc <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-15", days_wkend = c("Saturday", "Sunday"),
-             crabbing_holiday_dates = as.Date(character()), estimate_red_rock = FALSE)
+             crabbing_holiday_dates = as.Date(character()))
   dwg <- list(comm_tally = tally, interview = ints, charter_roster = roster)
   md_comm <- 40; mA <- 70; mB <- 30; mPool <- mean(ci$dungeness_kept)          # 54
   r <- estimate_comm_charter(dwg, Pc)
@@ -3067,12 +3038,15 @@ local({
       isTRUE(all.equal(attr(s1, "counts")$imputed_effort, 100 * n_fw)))
   chk("PE strata: an imputed cell was FREE under the old arithmetic (point estimate, no variance)",
       isTRUE(all.equal(.g(s1, feb_we, "weekend", "se_total"), 0)))
-  # impute_aware: var = N^2 s^2 (1/n_donor + 1); donor here is the sub-season (n = 6)
+  # impute_aware: var = N^2 s^2 (1/n_mean + 1). The SPREAD comes from the sub-season (the
+  # finest level with 2+ days, n = 6), but the MEAN is the day_type level's, ONE weekend day
+  # (100), so the donor mean's own error divides by 1, not 6. Until 2026-09-28 (B44) it
+  # divided by the spread level's n, pricing a one-day mean as a six-day one.
   chk("PE strata: an imputed cell now carries the donor-mean variance PLUS a between-cell term",
-      isTRUE(all.equal(.g(s2, feb_we, "weekend", "se_total"), n_fw * sd_all * sqrt(1/6 + 1))) &&
+      isTRUE(all.equal(.g(s2, feb_we, "weekend", "se_total"), n_fw * sd_all * sqrt(1/1 + 1))) &&
       grepl("^imputed \\(donor mean \\+ between-cell\\)", .g(s2, feb_we, "weekend", "var_source")))
   chk("PE strata: donor_mean_only drops the between-cell term and is the LOWER bound",
-      isTRUE(all.equal(.g(s3, feb_we, "weekend", "se_total"), n_fw * sd_all / sqrt(6))) &&
+      isTRUE(all.equal(.g(s3, feb_we, "weekend", "se_total"), n_fw * sd_all / sqrt(1))) &&
       .g(s3, feb_we, "weekend", "se_total") < .g(s2, feb_we, "weekend", "se_total"))
 
   # ---- 4. the mean and the spread come from DIFFERENT donor levels, on purpose --------
@@ -3359,9 +3333,16 @@ local({
     # catch it. So: at least one entry must name the ACTUAL current fingerprint, and any entry
     # that does not must say SUPERSEDED in its reason. That is cheap to satisfy (re-make the
     # claim, or drop it) and it makes the list re-examined rather than inherited.
-    chk("two-pass: at least one declaration names the ACTUAL current fingerprint",
+    # 2026-09-28 (B44): OR the tree was examined and declared NOT equivalent, with the reason,
+    # in CODE_NOT_EQUIVALENT. A change that does alter a fit must not be written into the
+    # equivalence list to satisfy this check; the second list is where it is recorded.
+    cne <- if (exists("CODE_NOT_EQUIVALENT", envir = e2, inherits = FALSE)) get("CODE_NOT_EQUIVALENT", envir = e2) else list()
+    chk("two-pass: the ACTUAL current fingerprint is declared, equivalent or examined-and-NOT-equivalent (with a reason)",
         any(vapply(names(ceq), function(k)
-              identical(strsplit(k, " => ", fixed = TRUE)[[1]][2], a), logical(1))),
+              identical(strsplit(k, " => ", fixed = TRUE)[[1]][2], a), logical(1))) ||
+        any(vapply(names(cne), function(k)
+              identical(strsplit(k, " => ", fixed = TRUE)[[1]][2], a) &&
+              grepl("NOT inference-equivalent", cne[[k]], fixed = TRUE) && nchar(cne[[k]]) > 200, logical(1))),
         sprintf("(current is %s)", a))
     chk("two-pass: every declaration that does NOT name the current fingerprint says SUPERSEDED",
         all(vapply(names(ceq), function(k) {
@@ -3749,8 +3730,9 @@ local({
   # weather module on 2026-09-13). It STAYS in the ladder's WINDOW pin deliberately: the
   # pin's key names feed .cfg_fingerprint(), so dropping it would change every stage digest
   # and RESUME would refuse the five committed rung folders, costing ~16 h of refitting to
-  # remove one inert key from a dated runner.
-  drift <- Filter(function(k) !identical(rc[[k]], W[[k]]), setdiff(names(W), "run_weather"))
+  # remove one inert key from a dated runner. estimate_red_rock is skipped for the same
+  # reason: removed from run_config on 2026-09-28 (B44), kept in the pin.
+  drift <- Filter(function(k) !identical(rc[[k]], W[[k]]), setdiff(names(W), c("run_weather", "estimate_red_rock")))
   chk("canonical: run_config AGREES WITH THE LADDER'S WINDOW PIN on every key it pins",
       length(drift) == 0, sprintf("(drifted: %s)", paste(drift, collapse = ", ")))
   # The paste-ready alternative windows live in this file as COMMENTS (restored 2026-09-13
@@ -3827,76 +3809,19 @@ local({
 #     ALIGNMENT of the two formulae, not a number, so the next lever cannot re-open the gap.
 # ---------------------------------------------------------------------------
 local({
-  src <- readLines("03_R_functions/pe_monthly_effort_share.R", warn = FALSE)
-  code <- paste(src[!grepl("^\\s*#", src)], collapse = "\n")
-  chk("monthly share: the boat branch applies the per-day crabbing fraction",
-      grepl("crab_fraction_point_day(is_boat_pe, days_ss, params)", code, fixed = TRUE) &&
-      grepl("mean_count * gpg_pe * tau_pe * .f_crab_pe", code, fixed = TRUE))
-  chk("monthly share: the shore branch still carries NO f (there is none on shore)",
-      grepl("else mean_count * gear_mult * (if (use_tau) tau_shore else day_length)", code, fixed = TRUE))
-  chk("monthly share: an unresolved turnover prior names the key and the resolver",
-      grepl("bss_resolve_tau_boat_prior", code, fixed = TRUE) &&
-      grepl("not a number", code, fixed = TRUE))
-  chk("monthly share: the header records why the omission was invisible until f moved",
-      any(grepl("stopped cancelling the moment it stopped being constant", src, fixed = TRUE)) ||
-      any(grepl("stopped cancelling", src, fixed = TRUE)))
-
-  # functional: on a fixture where f varies by month, the helper must equal the
-  # by-hand run_pe_pooled formula, and must NOT equal the f-free one.
-  source("03_R_functions/pe_monthly_effort_share.R")
-  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
-  days <- data.frame(event_date = seq(as.Date("2025-01-01"), as.Date("2025-03-31"), by = "day"))
-  days$month_label <- format(days$event_date, "%Y-%m")
-  days$day_length  <- 6
-  P <- list(bss_max_count_seq = 3, gear_per_group_default = 4, tau_boat_prior_mu = 3,
-            use_crab_fraction = TRUE)
-  f_by_month <- c("2025-01" = 0.9, "2025-02" = 0.5, "2025-03" = 0.1)
-  # stub the per-day f so the test does not depend on the crab_fraction machinery
-  cfp <- function(is_boat, days, params) if (isTRUE(is_boat)) unname(f_by_month[days$month_label]) else rep(1, nrow(days))
-  eff <- data.frame(event_date = days$event_date, count_sequence = 1L,
-                    count_quantity = rep(c(10, 20, 30), length.out = nrow(days)))
-  summ <- list(effort_index = eff, interview = data.frame(number_of_gear = numeric(0), angler_count = numeric(0)))
-  got <- local({ crab_fraction_point_day <- cfp
-                 environment(pe_monthly_effort_share) <- environment()
-                 pe_monthly_effort_share("private_boat", summ, days, P) })
-  want <- { z <- merge(eff, days, by = "event_date"); z$f <- unname(f_by_month[z$month_label])
-            a <- tapply(z$count_quantity * 4 * 3 * z$f, z$month_label, sum)
-            data.frame(month_label = names(a), share = as.numeric(a / sum(a))) }
-  nof <- { z <- merge(eff, days, by = "event_date")
-           a <- tapply(z$count_quantity * 4 * 3, z$month_label, sum)
-           as.numeric(a / sum(a)) }
-  chk("monthly share: the helper REPRODUCES run_pe_pooled's boat formula on a varying-f fixture",
-      isTRUE(all.equal(got$share[order(got$month_label)], want$share[order(want$month_label)])))
-  chk("monthly share: and it is NOT the f-free share (the fixture would not catch a no-op)",
-      !isTRUE(all.equal(got$share[order(got$month_label)], nof)))
-  chk("monthly share: with f constant the two agree, which is why the defect was invisible",
-      { f2 <- c("2025-01" = 0.3, "2025-02" = 0.3, "2025-03" = 0.3)
-        g2 <- local({ crab_fraction_point_day <- function(is_boat, days, params)
-                        if (isTRUE(is_boat)) unname(f2[days$month_label]) else rep(1, nrow(days))
-                      environment(pe_monthly_effort_share) <- environment()
-                      pe_monthly_effort_share("private_boat", summ, days, P) })
-        isTRUE(all.equal(g2$share[order(g2$month_label)], nof)) })
-
-  # the retired header claim in run_pe_pooled
+  # RETIRED 2026-09-28 (B44). This section pinned the per-day f in BOTH copies of the PE's
+  # daily-effort formula (pe_monthly_effort_share() and .srd_monthly_share()). Both copies
+  # were removed: the monthly split now reads the PE's own strata (pe_monthly_split(),
+  # section 81), which carry f, the turnover and every other per-day factor already, so
+  # there is no second formula for a factor to go missing from. What stays asserted is
+  # that the copies do not come back.
+  chk("monthly share: pe_monthly_effort_share() is retired (no definition, no call)",
+      !file.exists("03_R_functions/pe_monthly_effort_share.R") &&
+      !any(grepl("pe_monthly_effort_share(", unlist(lapply(c(list.files("03_R_functions", full.names = TRUE),
+                                                             list.files("01_BSS_models", pattern = "Rmd$", full.names = TRUE)),
+                                                           function(f) { x <- readLines(f, warn = FALSE); x[!grepl("^\\s*#", x)] })),
+                 fixed = TRUE)))
   ph <- readLines("03_R_functions/run_pe_pooled.R", warn = FALSE)
-  # THE SECOND COPY. .srd_monthly_share() splits the PE component total into months for
-  # monthly_pe_vs_bss.csv, which is the file that carried the 3.23x September figure. Its own
-  # header states the rule correctly ("any per-day multiplier that is constant cancels") and
-  # was written when day length was the only non-constant one.
-  sd_src <- readLines("03_R_functions/save_run_diagnostics.R", warn = FALSE)
-  sd_code <- paste(sd_src[!grepl("^\\s*#", sd_src)], collapse = "\n")
-  chk("monthly share (2nd copy): .srd_monthly_share takes params and applies the per-day f",
-      grepl(".srd_monthly_share <- function(stan_data, days_ss, is_boat, params = list())", sd_code, fixed = TRUE) &&
-      grepl("crab_fraction_point_day(is_boat, days_ss, params)", sd_code, fixed = TRUE) &&
-      grepl("w   <- as.numeric(mc) * dl * fc", sd_code, fixed = TRUE))
-  chk("monthly share (2nd copy): the monthly_pe_vs_bss caller passes params through",
-      grepl(".srd_monthly_share(sd_, ds, is_boat, params)", sd_code, fixed = TRUE))
-  chk("monthly share (2nd copy): it is BOTH copies or neither, and the header says so",
-      any(grepl("it belongs in BOTH monthly-share copies", sd_src, fixed = TRUE)))
-  chk("monthly share (2nd copy): a failure to compute f degrades to 1, never to NA",
-      grepl("error = function(e) rep(1, length(di))", sd_code, fixed = TRUE) &&
-      grepl("if (length(fc) != length(di) || !all(is.finite(fc))) fc <- rep(1, length(di))", sd_code, fixed = TRUE))
-
   chk("monthly share: run_pe_pooled's header no longer claims a weighted mean of daily ratios",
       !any(grepl("weighted mean of daily ratios) is intentionally left", ph, fixed = TRUE)) &&
       any(grepl("has\n# been RATIO-OF-SUMS ever since", paste(ph, collapse = "\n"), fixed = TRUE)) |
@@ -5314,11 +5239,15 @@ local({
   lift("digest_or_hash"); lift(".code_fingerprint")
   i <- grep("^CODE_EQUIVALENT_MH <- list\\(", rsrc); j <- i; while (!grepl("^\\)", rsrc[j])) j <- j + 1L
   eval(parse(text = rsrc[i:j]), envir = eR)
+  i <- grep("^CODE_NOT_EQUIVALENT_MH <- list\\(", rsrc)
+  if (length(i)) { j <- i; while (!grepl("^\\)", rsrc[j])) j <- j + 1L; eval(parse(text = rsrc[i:j]), envir = eR) }
   cur <- eR$.code_fingerprint()
-  chk("1x fix: CODE_EQUIVALENT_MH declares the five rungs' recorded fingerprint against the ACTUAL current one, with a reason",
-      length(eR$CODE_EQUIVALENT_MH) >= 1 &&
-      any(vapply(names(eR$CODE_EQUIVALENT_MH), function(k) identical(strsplit(k, " => ", fixed = TRUE)[[1]], c("stan:65b5adeb drivers:ae200663 fns:094c314f", cur)), logical(1))) &&
-      all(nchar(unlist(eR$CODE_EQUIVALENT_MH)) > 60),
+  .pair <- function(lst, rec) any(vapply(names(lst %||% list()), function(k) identical(strsplit(k, " => ", fixed = TRUE)[[1]], c(rec, cur)), logical(1)))
+  chk("1x fix: the five rungs' recorded fingerprint is declared against the ACTUAL current one (equivalent, or examined and NOT equivalent), with a reason",
+      length(eR$CODE_EQUIVALENT_MH) >= 1 && all(nchar(unlist(eR$CODE_EQUIVALENT_MH)) > 60) &&
+      (.pair(eR$CODE_EQUIVALENT_MH, "stan:65b5adeb drivers:ae200663 fns:094c314f") ||
+       (.pair(eR$CODE_NOT_EQUIVALENT_MH, "stan:65b5adeb drivers:ae200663 fns:094c314f") &&
+        all(grepl("NOT inference-equivalent", unlist(eR$CODE_NOT_EQUIVALENT_MH), fixed = TRUE)))),
       sprintf("(current is %s)", cur))
   chk("1x fix: the run's stamps carry the recorded fingerprint the declaration names",
       { st <- file.path(MH, "MH_STAGE.txt"); if (!all(file.exists(st))) TRUE else
@@ -5854,10 +5783,15 @@ local({
   liftM <- function(name) { i <- grep(sprintf("^%s <- function", gsub(".", "\\.", name, fixed = TRUE)), rsM); j <- i; while (!grepl("^\\}", rsM[j])) j <- j + 1L; eval(parse(text = rsM[i:j]), envir = eM) }
   liftM("digest_or_hash"); liftM(".code_fingerprint")
   i <- grep("^CODE_EQUIVALENT_MH <- list\\(", rsM); j <- i; while (!grepl("^\\)", rsM[j])) j <- j + 1L; eval(parse(text = rsM[i:j]), envir = eM)
+  i <- grep("^CODE_NOT_EQUIVALENT_MH <- list\\(", rsM)
+  if (length(i)) { j <- i; while (!grepl("^\\)", rsM[j])) j <- j + 1L; eval(parse(text = rsM[i:j]), envir = eM) }
   curM <- eM$.code_fingerprint(); m6st <- "05_output/20260927/pooled-CPUE-MH-M6-split/MH_STAGE.txt"
-  chk("A30 ladders: CODE_EQUIVALENT_MH declares M6's recorded fingerprint (4e23b15's) against the ACTUAL current one, naming B42 as the only fitting-layer change",
-      { k <- names(eM$CODE_EQUIVALENT_MH); hit <- k[vapply(k, function(x) identical(strsplit(x, " => ", fixed = TRUE)[[1]], c("stan:65b5adeb drivers:a65be4bc fns:6f65d84a", curM)), logical(1))]
-        length(hit) == 1 && grepl("B42", eM$CODE_EQUIVALENT_MH[[hit]], fixed = TRUE) &&
+  chk("A30 ladders: M6's recorded fingerprint (4e23b15's) is declared against the ACTUAL current one: equivalent naming B42, or examined and NOT equivalent naming B42 and B44",
+      { .hit <- function(lst) { k <- names(lst %||% list()); k[vapply(k, function(x) identical(strsplit(x, " => ", fixed = TRUE)[[1]], c("stan:65b5adeb drivers:a65be4bc fns:6f65d84a", curM)), logical(1))] }
+        h1 <- .hit(eM$CODE_EQUIVALENT_MH); h2 <- .hit(eM$CODE_NOT_EQUIVALENT_MH)
+        ((length(h1) == 1 && grepl("B42", eM$CODE_EQUIVALENT_MH[[h1]], fixed = TRUE)) ||
+         (length(h2) == 1 && grepl("B42", eM$CODE_NOT_EQUIVALENT_MH[[h2]], fixed = TRUE) &&
+          grepl("B44", eM$CODE_NOT_EQUIVALENT_MH[[h2]], fixed = TRUE))) &&
           (!file.exists(m6st) || any(grepl("^code: stan:65b5adeb drivers:a65be4bc fns:6f65d84a$", readLines(m6st, warn = FALSE)))) },
       sprintf("(current is %s)", curM))
   chk("A30 ladders: the marine ladder's M0 wiring row looks for the B42 call site, and counts marine_hazard_terms_for() among the module's entry points",
@@ -6153,7 +6087,8 @@ local({
   chk("80 docs: the register moves its authoritative run, marks A30 RENDERED, carries B43 and six 2026-09-28 defect rows",
       grepl("**Authoritative run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`, port total **96,118 [79,418, 120,558]**", cr, fixed = TRUE) &&
       grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the authoritative run**", cr, fixed = TRUE) && grepl("| B43 |", cr, fixed = TRUE) &&
-      length(gregexpr("| 2026-09-28 |", cr, fixed = TRUE)[[1]]) == 6 && grepl("**Confirmed in the field 2026-09-28**", cr, fixed = TRUE))
+      # at least B43's six: B44's five defect rows landed the same day (>= rather than ==, 2026-09-28)
+      length(gregexpr("| 2026-09-28 |", cr, fixed = TRUE)[[1]]) >= 6 && grepl("**Confirmed in the field 2026-09-28**", cr, fixed = TRUE))
   chk("80 docs: the campaign has 1z.5 and the 1z anchor names the render's commit and folder; the method document's reference run moved",
       grepl("### 1z.5 The confirming render (2026-09-28)", vc, fixed = TRUE) && grepl("`1d3409d` (the confirming render)", vc, fixed = TRUE) &&
       grepl("**Reference run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`", md, fixed = TRUE) &&
@@ -6179,6 +6114,151 @@ local({
   }
   chk("80 docs: every table row in the governed documents has its header's cell count (a `|` in code is escaped, no fifth cell in a four-column table)",
       length(bad_rows) == 0, sprintf("(%s)", paste(utils::head(bad_rows, 10), collapse = ", ")))
+})
+
+# ---------------------------------------------------------------------------
+# 81. B44 (2026-09-28): FOUR REVIEW FINDINGS, FIXED. The gear-resolved port total summed
+#     the PREDICTIVE catch while the pooled one sums the EXPECTED catch; distinct
+#     interviews sharing an interview_id were each given the id's summed catch; the PE's
+#     monthly split assumed one CPUE for the sub-season and weighted months by sampled days
+#     only; and the PE effort SE summed cells that share a donor mean as if independent.
+# ---------------------------------------------------------------------------
+local({
+  # ---- 81a. the gear port total is the pooled quantity, under the pooled labels ----------
+  g  <- readLines("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd", warn = FALSE)
+  gc <- paste(g[!grepl("^\\s*#", g)], collapse = "\n")
+  chk("B44 gear: the fit entry carries the expected-catch draws (C_expected_sum)",
+      grepl('C_exp_draws <- rstan::extract(fit, "C_expected_sum")$C_expected_sum', gc, fixed = TRUE) &&
+      grepl("C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws", gc, fixed = TRUE))
+  chk("B44 gear: the port total sums C_exp_draws (expected) and carries C_draws as Predictive_Catch",
+      grepl("bss_C_total <- bss_C_total + b$C_exp_draws[idx]", gc, fixed = TRUE) &&
+      grepl("bss_C_pred_total <- bss_C_pred_total + b$C_draws[idx]", gc, fixed = TRUE) &&
+      !grepl("bss_C_total <- bss_C_total + b$C_draws[idx]", gc, fixed = TRUE))
+  chk("B44 gear: port_total rows are the pooled track's (Effort / Expected_Catch / Predictive_Catch)",
+      grepl('Estimate = c("Effort", "Expected_Catch", "Predictive_Catch")', gc, fixed = TRUE) &&
+      !grepl('Estimate = c("Effort (gear-deployments)", "Catch")', gc, fixed = TRUE))
+  chk("B44 gear: the monthly block sums the expected daily catch (C_total), not C_gear_pred",
+      grepl('C_daily_mat <- rstan::extract(b$fit, "C_total")$C_total', gc, fixed = TRUE) &&
+      !grepl('rstan::extract(b$fit, "C_gear_pred")', gc, fixed = TRUE))
+  chk("B44 gear: the PE-vs-BSS comparison and the tau projection read the expected catch",
+      grepl('bss_catch <- b$C_expected_sum["50%"]', gc, fixed = TRUE) &&
+      grepl("boat_draws  <- b_boat$C_exp_draws[rep_len(1:nb, n_draws_max)]", gc, fixed = TRUE))
+  chk("B44 gear: every runner that reads the row matches Expected_Catch by the shared pattern",
+      all(vapply(c("06_diagnostics/run_adoption_2026-09-07.R"), function(f)
+        any(grepl('grepl("^(Expected_)?Catch$", x$Estimate)', readLines(f, warn = FALSE), fixed = TRUE)), logical(1))) &&
+      grepl("^(Expected_)?Catch$", "Expected_Catch") && !grepl("^(Expected_)?Catch$", "Predictive_Catch"))
+
+  # ---- 81b. repair_interview_ids() -----------------------------------------------------
+  source("03_R_functions/fetch_crab_data.R")
+  u <- data.frame(interview_id = c("S1_1", "S1_2", "S2_1"), season = "2024-25", dungeness_kept = c(1, 2, 3))
+  chk("B44 ids: a frame without shared ids passes through identical (no attribute, no rename)",
+      identical(repair_interview_ids(u, quiet = TRUE), u))
+  d <- data.frame(interview_id = c("S1_NA", "S1_NA", "S2_7", "S1_NA", "S3_1"),
+                  season = c("2022-23", "2022-23", "2024-25", "2022-23", "2024-25"),
+                  dungeness_kept = c(1, 0, 4, 8, 2))
+  r <- repair_interview_ids(d, quiet = TRUE)
+  chk("B44 ids: shared ids become unique per row, in row order, and unique ids are untouched",
+      identical(r$interview_id, c("S1_NA__r1", "S1_NA__r2", "S2_7", "S1_NA__r3", "S3_1")) &&
+      !anyDuplicated(r$interview_id))
+  chk("B44 ids: the repair is logged (id, rows, seasons) and loses no row",
+      nrow(r) == nrow(d) && identical(attr(r, "interview_id_repairs")$interview_id, "S1_NA") &&
+      attr(r, "interview_id_repairs")$n_rows == 3L && attr(r, "interview_id_repairs")$seasons == "2022-23")
+  cw <- r |> dplyr::group_by(interview_id) |> dplyr::summarise(fish = sum(dungeness_kept), .groups = "drop")
+  back <- dplyr::left_join(r, cw, by = "interview_id")
+  chk("B44 ids: after the repair the catch join returns each row its OWN catch (9 over the id, not 27)",
+      identical(back$fish, d$dungeness_kept) && sum(back$fish) == sum(d$dungeness_kept))
+  fc <- readLines("03_R_functions/fetch_crab_data.R", warn = FALSE)
+  i_rep <- grep("gh_interview <- repair_interview_ids(gh_interview)", fc, fixed = TRUE)
+  i_cat <- grep("  catch <- gh_interview |> filter(dungeness_kept>0) |>", fc, fixed = TRUE)
+  chk("B44 ids: fetch_crab_data() repairs the ids BEFORE the catch table is built",
+      length(i_rep) == 1 && length(i_cat) == 1 && i_rep < i_cat)
+
+  # ---- 81c. pe_monthly_split() ---------------------------------------------------------
+  source("03_R_functions/pe_monthly_split.R")
+  cal <- data.frame(event_date = as.Date("2025-01-29") + 0:9)
+  cal$period <- c(1, 1, 1, 1, 2, 2, 2, 2, 2, 2)[seq_len(nrow(cal))]   # period 1 straddles Jan/Feb
+  cal$day_type <- "weekday"; cal$open_section_1 <- TRUE
+  es <- data.frame(section_num = 1, period = c(1, 2), day_type = "weekday",
+                   n_total_days = c(4, 6), est_total = c(40, 60))
+  cs <- cbind(es, est_catch = c(80, 6))   # cell 1 CPUE 2.0, cell 2 CPUE 0.1
+  res <- list(effort_strata = es, catch_strata = list(Dungeness_Kept = cs))
+  sp <- pe_monthly_split(res, cal, "Dungeness_Kept")
+  chk("B44 split: the months sum to the component totals exactly (effort and catch)",
+      isTRUE(all.equal(sum(sp$month_effort), 100)) && isTRUE(all.equal(sum(sp$month_catch), 86)))
+  chk("B44 split: a cell is spread over its OWN calendar days (period 1: 3 Jan days, 1 Feb day)",
+      isTRUE(all.equal(sp$month_effort, c(30, 70))) && isTRUE(all.equal(sp$month_catch, c(60, 26))))
+  chk("B44 split: each month carries its cells' own CPUE, not the season-wide one",
+      !isTRUE(all.equal(sp$month_catch, 86 * sp$month_effort / 100)))
+  chk("B44 split: no catch strata for the group -> catch 0 in every month, effort intact",
+      { z <- pe_monthly_split(list(effort_strata = es), cal, "Red_Herring")
+        isTRUE(all.equal(z$month_catch, c(0, 0))) && isTRUE(all.equal(z$month_effort, c(30, 70))) })
+  chk("B44 split: closed days are not in the calendar a cell spreads over",
+      { c2 <- cal; c2$open_section_1[1] <- FALSE; es2 <- es; es2$n_total_days[1] <- 3
+        z <- pe_monthly_split(list(effort_strata = es2), c2, "x"); isTRUE(all.equal(sum(z$month_effort), 100)) })
+  for (f in c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R"))
+    chk(sprintf("B44 split: %s keeps the stratum catch", basename(f)),
+        any(grepl("results$catch_strata[[cg]] <- catch_strat |>", readLines(f, warn = FALSE), fixed = TRUE)))
+  uses <- vapply(c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd",
+                   "03_R_functions/save_run_diagnostics.R"),
+                 function(f) length(grep("pe_monthly_split(pe_all[[pe_label]]", readLines(f, warn = FALSE), fixed = TRUE)),
+                 integer(1))
+  chk("B44 split: 7.8 and 7.8b (pooled), 7 (gear) and monthly_pe_vs_bss.csv all use it",
+      identical(unname(uses), c(2L, 1L, 1L)), paste(uses, collapse = "/"))
+
+  # ---- 81d. the PE effort variance carries the donor covariances --------------------------
+  source("03_R_functions/pe_effort_strata.R")
+  days <- data.frame(event_date = as.Date("2025-01-06") + 0:19)
+  days$period <- rep(1:4, each = 5); days$day_type <- "weekday"; days$month <- 1; days$open_section_1 <- TRUE
+  vals <- c(10, 14, 12, 20, 16)
+  de <- data.frame(event_date = days$event_date[c(1, 2, 3, 6, 8)], section_num = 1,
+                   period = c(1, 1, 1, 2, 2), day_type = "weekday", est_daily_effort = vals)
+  st <- pe_build_effort_strata(de, days, list(pe_empty_effort_stratum = "local_day_type", pe_variance = "impute_aware"))
+  s2 <- stats::var(vals); nG <- 5
+  cells <- 25 * 4 / 3 + 25 * 8 / 2 + 2 * 25 * s2 * (1 / nG + 1)
+  ii <- (10^2 - 2 * 25) * s2 / nG                         # the two imputed cells share one donor mean
+  is_ <- 2 * 10 * (s2 / nG) * (5 * 3 / 3 + 5 * 2 / 2)       # ... built from the sampled cells' days
+  chk("B44 var: the cell variances are the documented ones (the donor mean divides by ITS n)",
+      isTRUE(all.equal(attr(st, "effort_var_cells"), cells)))
+  chk("B44 var: imputed x imputed and imputed x sampled covariances are the algebra in the header",
+      isTRUE(all.equal(unname(attr(st, "effort_var_cov")), c(ii, is_))))
+  rep_ <- NULL; invisible(utils::capture.output(rep_ <- pe_effort_stratum_report(st, "fixture", list())))
+  chk("B44 var: the component total's variance is cells + covariances, and the report reads it",
+      isTRUE(all.equal(attr(st, "effort_var_total"), cells + ii + is_)) &&
+      isTRUE(all.equal(rep_$effort_se, sqrt(cells + ii + is_))))
+  chk("B44 var: with no imputed cell the total is the plain sum of cell variances (nothing moves)",
+      { de2 <- rbind(de, data.frame(event_date = days$event_date[c(11, 12, 16, 17)], section_num = 1,
+                                    period = c(3, 3, 4, 4), day_type = "weekday", est_daily_effort = c(9, 11, 13, 15)))
+        st2 <- pe_build_effort_strata(de2, days, list(pe_variance = "impute_aware"))
+        isTRUE(all.equal(attr(st2, "effort_var_total"), sum(st2$se_total^2))) && sum(attr(st2, "effort_var_cov")) == 0 })
+  chk("B44 var: pe_variance = 'sampled_only' is the historical arithmetic, no covariance",
+      { st3 <- pe_build_effort_strata(de, days, list(pe_variance = "sampled_only"))
+        sum(attr(st3, "effort_var_cov")) == 0 && isTRUE(all.equal(attr(st3, "effort_var_total"), 25 * 4 / 3 + 25 * 8 / 2)) })
+  # Monte Carlo (iid days, sd 3): the total is sum_d w_d y_d, each sampled day's weight
+  # being its own cell's N/n plus N/n_G for each imputed cell borrowing its donor mean, so
+  # its true variance is sum(w^2) sigma^2 = 80.83 sigma^2. The donor_mean_only estimator's
+  # expectation is the same 80.83 sigma^2; the independent sum it replaced expects 40.83.
+  .old_rng <- if (exists(".Random.seed", envir = globalenv())) get(".Random.seed", envir = globalenv()) else NULL
+  set.seed(44); sig <- 3
+  mc <- t(replicate(400, { dd <- de; dd$est_daily_effort <- stats::rnorm(5, 14, sig)
+    z <- pe_build_effort_strata(dd, days, list(pe_variance = "donor_mean_only"))
+    c(total = sum(z$est_total), v = attr(z, "effort_var_total"), v_indep = attr(z, "effort_var_cells")) }))
+  if (!is.null(.old_rng)) assign(".Random.seed", .old_rng, envir = globalenv())
+  w <- c(rep(5/3 + 10/5, 3), rep(5/2 + 10/5, 2)); truth <- sum(w^2) * sig^2
+  chk("B44 var: Monte Carlo, the estimator's variance is sum(w^2) sigma^2 (the algebra is the design's)",
+      abs(stats::var(mc[, "total"]) / truth - 1) < 0.2, sprintf("(%.0f vs %.0f)", stats::var(mc[, "total"]), truth))
+  chk("B44 var: Monte Carlo, the covariance-aware SE is unbiased for it; the independent sum was about half",
+      abs(mean(mc[, "v"]) / truth - 1) < 0.1 && mean(mc[, "v_indep"]) / truth < 0.6,
+      sprintf("(mean estimate %.0f and %.0f vs truth %.0f)", mean(mc[, "v"]), mean(mc[, "v_indep"]), truth))
+  # ---- 81e. the Red Rock catch group is gone --------------------------------------------
+  .live <- function(f) { x <- readLines(f, warn = FALSE); x[!grepl("^\\s*#", x)] }
+  .files <- c("run_config.R", "run_estimation.R", list.files("03_R_functions", full.names = TRUE),
+              list.files("01_BSS_models", pattern = "Rmd$", full.names = TRUE))
+  chk("B44 Red Rock: no live code reads estimate_red_rock or builds a Red_Rock_Kept group",
+      !any(grepl("estimate_red_rock|Red_Rock_Kept", unlist(lapply(.files, .live)))))
+  chk("B44 Red Rock: run_config.R no longer defines the key",
+      { e <- new.env(); sys.source("run_config.R", envir = e); is.null(e$run_config$estimate_red_rock) })
+  chk("B44 Red Rock: the fished-gear evidence (red_rock_kept in the unfished-zero-catch guard) is kept",
+      any(grepl(".zero_catch    = (dungeness_kept <= 0) & (red_rock_kept <= 0)", .live("03_R_functions/fetch_crab_data.R"), fixed = TRUE)))
 })
 
 # ---------------------------------------------------------------------------

@@ -338,6 +338,8 @@ WINDOW <- list(
   # -- run-level, held fixed so no rung differs in a way nobody declared -------------
   run_weather = FALSE, bss_seed = 20260619, bss_chains = 4, bss_cores = 4,
   bss_sampler_override = NULL, ar_force = NULL, ar_escalate = FALSE,
+  # estimate_red_rock is no longer a config key (removed 2026-09-28, B44); like run_weather it
+  # STAYS in this pin because the pin's key names feed the stage digests.
   estimate_red_rock = FALSE)
 
 # THE F BLOCK, named once so both modes read the same definition.
@@ -750,7 +752,19 @@ CODE_EQUIVALENT <- list(
           "And the 2026-09-27 ADOPTION (A30, B42): run_config.R now ships the boat advisory term, and this runner pins marine_hazard_mode = off in resolve_cfg() (not in WINDOW, so no digest moves), which is the configuration every rung here rendered under;",
           "marine_hazard_terms_for() and its two prep call sites are inert under off (an empty selection stays empty); the drivers moved by report prose and comments only.",
           "And the 2026-09-28 review of the first render of the method of record (B43), all of it after every fit: both drivers report the fitted day covariates (bss_day_covariate_report.R, new),",
-          "the pooled driver's season totals carry the census draws the port total carries, and write_effort_overdispersion_diag() seeds its draw subsample (effort_overdispersion_*.csv now reproduce).")
+          "the pooled driver's season totals carry the census draws the port total carries, and write_effort_overdispersion_diag() seeds its draw subsample (effort_overdispersion_*.csv now reproduce).",
+          "SUPERSEDED 2026-09-28 by B44, which is NOT inference-equivalent (see CODE_NOT_EQUIVALENT below).")
+)
+# FINGERPRINT PAIRS EXAMINED AND DECLARED NOT EQUIVALENT (2026-09-28). The list above may only
+# hold a pair whose default code path provably cannot change a fit; a change that CAN, and
+# does, belongs in a re-fit. This list records that the current tree WAS examined against the
+# recorded rungs and found not equivalent, with the reason, so the harness can tell an
+# examined tree from an unexamined one without a false equivalence being written above. It
+# changes nothing at run time: a code delta the list above does not excuse is reported as
+# REVIEW at the rung, as it always was.
+CODE_NOT_EQUIVALENT <- list(
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:73ad4086 fns:7d4c7964" =
+    "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin)."
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

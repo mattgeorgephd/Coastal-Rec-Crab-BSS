@@ -302,6 +302,7 @@ WINDOW <- list(
   opener_covariate_mode = "off", razor_dig_mode = "no",
   # sampler and AR: one seed, the shipped caps, no ladder, no override
   bss_seed = 20260619, bss_chains = 4, bss_cores = 4, bss_sampler_override = NULL,
+  # estimate_red_rock: retired 2026-09-28 (B44), kept in the pin so no stage digest moves
   ar_force = NULL, ar_escalate = FALSE, ar_rung_adequacy = TRUE, estimate_red_rock = FALSE,
   # the flag definition, pinned so a run_config edit cannot redefine the covariate mid-batch
   marine_hazard_candidates_shore = c("nws_sca_any"),
@@ -425,7 +426,8 @@ CODE_EQUIVALENT_MH <- list(
           "measured on the real 2024-25 inputs, M2 to M5 resolve to the same per-population selection, the same per-date values of every selected column, the same screen table and the same selection table before and after the change, and M1 (off) returns before the module reads anything, so every rung's Stan data is unchanged.",
           "And the 2026-09-27 ADOPTION (A30, B42): marine_hazard_terms_for() in the module and one call in each prep, confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner sets that key to BOTH regimes in resolve_cfg(), which is what every rung here did,",
           "so the preps build the same X_open for M1 to M6 (checked on the real inputs: the boat pot-closure prep under both regimes carries the term as M2's did); the drivers moved by report prose and comments only (the marine_hazard_prepare() call is unchanged).",
-          "And the 2026-09-28 render review (B43), after every fit: the fitted day-covariate table in both reports (bss_day_covariate_report.R), the census draws carried into the pooled season totals, and a seeded draw subsample in write_effort_overdispersion_diag()."),
+          "And the 2026-09-28 render review (B43), after every fit: the fitted day-covariate table in both reports (bss_day_covariate_report.R), the census draws carried into the pooled season totals, and a seeded draw subsample in write_effort_overdispersion_diag().",
+          "SUPERSEDED 2026-09-28 by B44, which is NOT inference-equivalent (see CODE_NOT_EQUIVALENT_MH below)."),
   # M6 rendered on 2026-09-27 from the tree at 4e23b15 (the block-CV results patch applied; its stamp
   # is that commit's fingerprint, recomputed and matched), so its recorded side is the second entry's
   # current side. The only fitting-layer change since is B42, covered by the last sentence above.
@@ -433,7 +435,16 @@ CODE_EQUIVALENT_MH <- list(
     paste("M6 rendered from the tree with B40 and B41 applied (4e23b15). Since then only B42 (A30, the 2026-09-27 adoption) touched the fitting layer: marine_hazard_terms_for() in the module and one call in each prep,",
           "confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner pins that key to BOTH regimes in resolve_cfg(), under which the function returns the selection unchanged for every fit, so M6's Stan data is what it was",
           "(the M0 desk row 'M6 vs M2 differs in K_open and X_open_flat only, columns sum' is recomputed on the current tree at every run). The pooled driver moved by the section 3.7 prose only; the marine_hazard_prepare() call is unchanged.",
-          "B43 (2026-09-28) is post-fit reporting and diagnostics only (the day-covariate table, the season totals' census draws, the overdispersion subsample's seed).")
+          "B43 (2026-09-28) is post-fit reporting and diagnostics only (the day-covariate table, the season totals' census draws, the overdispersion subsample's seed).",
+          "SUPERSEDED 2026-09-28 by B44, which is NOT inference-equivalent (see CODE_NOT_EQUIVALENT_MH below).")
+)
+# EXAMINED AND DECLARED NOT EQUIVALENT (2026-09-28), as run_improvements_2026-09-08.R's
+# CODE_NOT_EQUIVALENT: the current tree was checked against these rungs and B44 changes the
+# shore all-gear Stan data, so no equivalence is written above. Record only; RESUME reports
+# the code delta as REVIEW, as it did before this list existed.
+CODE_NOT_EQUIVALENT_MH <- list(
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:85d4192b fns:eb3a250a" = "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin).",
+  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:65b5adeb drivers:85d4192b fns:eb3a250a" = "M6 as the five rungs: B42 was the only fitting-layer change between M6's tree and the adoption; B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin)."
 )
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),

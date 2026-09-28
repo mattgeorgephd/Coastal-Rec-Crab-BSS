@@ -83,6 +83,14 @@ configuration as the pooled reference run.
 | commercial + charter | 8,538 | (the same) | n/a | not modelled | - |
 | **port total** | **93,274 [76,537, 117,227]** | **85,076** | **-8.8%** | | |
 
+**Read the port total with B44 (2026-09-28).** Until B44 this track's port total, and every
+component median above, summed the PREDICTIVE catch (`C_sum`: a Poisson draw per day on top
+of the expected catch) under the row label `Catch`; the pooled headline is the EXPECTED catch
+(`C_expected_sum`, `Expected_Catch`). The medians differ by little, the intervals by more. From
+B44 this driver writes the pooled track's three rows (`Effort`, `Expected_Catch`,
+`Predictive_Catch`) from the same quantities, so a cross-check rendered at or after B44 compares
+like with like; the run above predates it.
+
 All four fits passed the gate. Sampler health is clean: every R-hat within 1.0011, `n_eff`
 from 8,008 to 11,715 against the 400 floor, treedepth saturation 0%, and the worst divergence
 fraction well inside the 5% backstop. Percentages are PE relative to BSS, as in the pooled
@@ -161,8 +169,9 @@ or set `model <- "gear_resolved"` in the RUN SELECTION block at the top of `run_
 There is nothing else to run alongside it: the weather-tide module, which was pooled-only
 anyway, was removed on 2026-09-13 (A29), so the orchestrator is single-path.
 
-**Run it AFTER a pooled run, on the same configuration, and compare the port totals.** That
-is what it is for. The pre-set criterion is agreement within 2%. If the gap exceeds it, the
+**Run it AFTER a pooled run, on the same configuration, and compare the port totals** (the
+`Expected_Catch` rows of the two `port_total_*.csv`; both tracks write the same rows since B44).
+That is what it is for. The pre-set criterion is agreement within 2%. If the gap exceeds it, the
 first thing to check is whether the two tracks are at the same AR resolution, because that
 has explained every gap so far.
 

@@ -117,7 +117,7 @@ estimate_comm_charter <- function(dwg, params) {
     })
     names(per) <- names(cw)
     tot <- per[[1]]
-    sum_keys <- c("effort_total", "Dungeness_Kept", "Red_Rock_Kept", "observed_dung", "imputed_dung",
+    sum_keys <- c("effort_total", "Dungeness_Kept", "observed_dung", "imputed_dung",
                   "Dungeness_Kept_var", "carried_var", "imputation_var",
                   "commercial_dung", "commercial_vessels", "commercial_var",
                   "charter_dung", "charter_observed_dung", "charter_var", "charter_trips", "charter_interviews", "commercial_interviews",
@@ -225,7 +225,6 @@ estimate_comm_charter <- function(dwg, params) {
                                   mean_daily_dung = numeric(), s2_day = numeric(), s2_source = character(),
                                   n_unsampled_days = integer(), imputed_dung = numeric(), observed_dung = numeric(),
                                   var_imputed = numeric())
-    if (isTRUE(params$estimate_red_rock)) out$Red_Rock_Kept <- 0
     return(out)
   }
 
@@ -242,14 +241,8 @@ estimate_comm_charter <- function(dwg, params) {
   md_char <- .m(ci_char, "dungeness_kept", pooled_mean_dung)
   sd_char <- if (n_char > 1) stats::sd(ci_char$dungeness_kept) else NA_real_
   charter_obs <- if (n_char) sum(ci_char$dungeness_kept) else 0
-  if (isTRUE(params$estimate_red_rock)) {
-    pooled_mean_rr <- sum(comm_int$red_rock_kept) / nrow(comm_int)
-    mr_comm <- .m(ci_comm, "red_rock_kept", pooled_mean_rr)
-    mr_char <- .m(ci_char, "red_rock_kept", pooled_mean_rr)
-  }
   cat(sprintf("  Tally days: %d, Interviews: %d (commercial %d, charter %d)\n", nrow(tally), nrow(comm_int), n_comm, n_char))
-  cat(sprintf("  Mean Dungeness per vessel-trip: commercial %.1f, charter %.1f%s\n", md_comm, md_char,
-              if (isTRUE(params$estimate_red_rock)) sprintf(" | Red Rock: comm %.1f, charter %.1f", mr_comm, mr_char) else ""))
+  cat(sprintf("  Mean Dungeness per vessel-trip: commercial %.1f, charter %.1f\n", md_comm, md_char))
 
   # =========================================================================
   # 1. THE CHARTER TRIP FRAME
@@ -318,8 +311,6 @@ estimate_comm_charter <- function(dwg, params) {
            est_dung      = est_dung_comm + est_dung_char,
            day_of_week   = weekdays(date),
            day_type      = .day_type(date))
-  if (isTRUE(params$estimate_red_rock))
-    daily_est <- daily_est |> mutate(est_rr_exp = commercial_tally * mr_comm + if (ride_along) charter_n * mr_char else 0)
 
   strat <- census_calendar |> count(day_type, name = "n_total_days") |>
     left_join(daily_est |> count(day_type, name = "n_sampled_days"), by = "day_type") |>
@@ -330,8 +321,6 @@ estimate_comm_charter <- function(dwg, params) {
                           mean_daily_char_v  = mean(charter_n),
                           mean_daily_vessels = mean(commercial_tally + if (ride_along) charter_n else 0),
                           .groups = "drop"), by = "day_type")
-  if (isTRUE(params$estimate_red_rock))
-    strat <- strat |> left_join(daily_est |> group_by(day_type) |> summarise(mean_daily_rr = mean(est_rr_exp), .groups = "drop"), by = "day_type")
   # Review item 4 (2026-09-08): a day type with NO sampled day used to expand to NA and
   # take the whole component with it (a short per-season window can hit this). It borrows
   # the pooled sampled-day mean and says so; its imputation variance uses the pooled one.
@@ -341,7 +330,6 @@ estimate_comm_charter <- function(dwg, params) {
     strat$mean_daily_comm_v[.ns]  <- mean(daily_est$commercial_tally)
     strat$mean_daily_char_v[.ns]  <- mean(daily_est$charter_n)
     strat$mean_daily_vessels[.ns] <- mean(daily_est$commercial_tally + if (ride_along) daily_est$charter_n else 0)
-    if (isTRUE(params$estimate_red_rock)) strat$mean_daily_rr[.ns] <- mean(daily_est$est_rr_exp)
     cat(sprintf("  NOTE: no sampled day in the %s stratum; its %d day(s) take the pooled sampled-day mean.\n",
                 paste(strat$day_type[.ns], collapse = "/"), sum(strat$n_total_days[.ns])))
   }
@@ -567,12 +555,8 @@ estimate_comm_charter <- function(dwg, params) {
     charter_detail = charter_detail, roster_reconciliation = roster_recon,
     charter_roster_dung = charter_roster_dung, n_roster_only_days = n_roster_only_days, n_roster_trips = n_roster_trips
   )
-  if (isTRUE(params$estimate_red_rock))
-    result$Red_Rock_Kept <- sum(strat$mean_daily_rr * strat$n_expand_days) + if (ride_along) 0 else charter_trips * mr_char
-
-  cat(sprintf("\n  Est Dungeness (commercial census + charter expansion): %s%s | total SE %s; %s carried under census_uncertainty = '%s'\n",
+  cat(sprintf("\n  Est Dungeness (commercial census + charter expansion): %s | total SE %s; %s carried under census_uncertainty = '%s'\n",
               format(round(total_dung), big.mark = ","),
-              if (isTRUE(params$estimate_red_rock)) sprintf(", Red Rock: %s", format(round(result$Red_Rock_Kept), big.mark = ",")) else "",
               format(round(sqrt(var_total)), big.mark = ","), format(round(sqrt(carried_var)), big.mark = ","), census_mode))
 
   return(result)

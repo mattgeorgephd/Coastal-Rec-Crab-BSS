@@ -177,6 +177,15 @@ fetch_crab_data <- function(params) {
   # See apply_fishing_time_filters() below (a pure helper so the harness can test it).
   gh_interview <- apply_fishing_time_filters(gh_interview, params, req_boat_gear_time)
 
+  # --- Duplicate interview_id repair (2026-09-28, B44) -----------------------------------
+  # interview_id is survey_id + "_" + interview_num, and the catch table below is keyed on
+  # it. Distinct interviews can share one (a blank interview_num: 2022-23 has survey days
+  # where every interview reads "S1_NA"; or a number re-used within a survey), and then the
+  # catch join gives EVERY row sharing the id the SUM of their catches, while the BSS preps'
+  # distinct(interview_id) keeps only the first row. The repair makes the id unique per
+  # row, before the catch table is built, and says which ids it touched.
+  gh_interview <- repair_interview_ids(gh_interview)
+
   # --- SHORE EFFORT: Pair Float 20 + Float 17-21 gear counts ---
   dock_f20 <- params$shore_dock_float20 %||% "Westport Docks Float 20"
   dock_f17 <- params$shore_dock_float17 %||% "Westport Docks Float 17-21"
@@ -240,16 +249,12 @@ fetch_crab_data <- function(params) {
   cat(sprintf("  Boat effort obs: %d (%d days)\n", nrow(boat_effort), n_distinct(boat_effort$event_date)))
   cat(sprintf("  Commercial tally days: %d\n", nrow(comm_tally)))
 
-  catch <- bind_rows(
-    gh_interview |> filter(dungeness_kept>0) |>
-      transmute(interview_id,event_date,population,species="Dungeness",fate="Kept",
-                fish_count=as.integer(dungeness_kept),catch_group="Dungeness_Kept"),
-    if(params$estimate_red_rock) {
-      gh_interview |> filter(red_rock_kept>0) |>
-        transmute(interview_id,event_date,population,species="Red_Rock",fate="Kept",
-                  fish_count=as.integer(red_rock_kept),catch_group="Red_Rock_Kept")
-    } else { tibble() }
-  )
+  # Dungeness only. The Red Rock catch rows (estimate_red_rock) were removed 2026-09-28
+  # (B44). red_rock_kept stays on the interview frame: the unfished-zero-catch guard in
+  # apply_fishing_time_filters() reads it as evidence that the gear was fished.
+  catch <- gh_interview |> filter(dungeness_kept>0) |>
+    transmute(interview_id,event_date,population,species="Dungeness",fate="Kept",
+              fish_count=as.integer(dungeness_kept),catch_group="Dungeness_Kept")
 
   # 2026-09-09: say what the season selection captured, and stop loudly when it captured
   # nothing. See 03_R_functions/validate_season_window.R for why this exists.
@@ -334,6 +339,45 @@ fetch_charter_roster <- function(params, quiet = FALSE) {
 # rows (complete-trip CPUE 0.979 -> 0.976), boat 162 -> 184 (3.26 -> 3.17),
 # commercial/charter unchanged.
 ###############################################################################
+###############################################################################
+# repair_interview_ids()  (2026-09-28, B44)
+#
+# Makes df$interview_id unique per row. Rows that share an id keep it with a suffix
+# "__r<k>" (k = 1, 2, ... in row order within the id); rows with a unique id are
+# untouched, so a dataset without the defect passes through byte-identical. The repaired
+# ids are recorded in attr(df, "interview_id_repairs") (one row per original id: the id,
+# how many rows shared it, and their seasons) and printed unless quiet = TRUE.
+#
+# Why a suffix and not a de-duplication: every shared id found in 2022-23 to 2025-26 (14
+# ids, 37 Grays Harbor rows) is two or more DIFFERENT interviews (different party size,
+# gear, catch or time), never one interview entered twice, so dropping rows would lose
+# real interviews. Pure; base R only.
+###############################################################################
+repair_interview_ids <- function(df, quiet = FALSE) {
+  if (!is.data.frame(df) || !nrow(df) || !"interview_id" %in% names(df)) return(df)
+  id  <- as.character(df$interview_id)
+  dup <- id %in% id[duplicated(id)]
+  if (!any(dup)) return(df)
+  k <- stats::ave(seq_along(id), id, FUN = seq_along)
+  seasons <- if ("season" %in% names(df)) as.character(df$season) else rep(NA_character_, length(id))
+  shared  <- unique(id[dup])
+  log <- data.frame(
+    interview_id = shared,
+    n_rows       = vapply(shared, function(x) sum(id == x), integer(1)),
+    seasons      = vapply(shared, function(x) paste(unique(seasons[id == x]), collapse = ","), character(1)),
+    stringsAsFactors = FALSE, row.names = NULL)
+  id[dup] <- paste0(id[dup], "__r", k[dup])
+  df$interview_id <- id
+  attr(df, "interview_id_repairs") <- log
+  if (!isTRUE(quiet))
+    cat(sprintf(paste0("  Interview ids: %d id(s) were shared by %d rows (distinct interviews under one ",
+                       "survey_id + interview_num); each row now carries its own id, so its own catch.\n",
+                       "    %s\n"),
+                nrow(log), sum(log$n_rows),
+                paste(sprintf("%s x%d (%s)", log$interview_id, log$n_rows, log$seasons), collapse = "; ")))
+  df
+}
+
 apply_fishing_time_filters <- function(df, params, req_boat_gear_time = TRUE, quiet = FALSE) {
   .shore_unit <- params$shore_effort_unit %||% "crabber-hours"
   .time_units <- c("crabber-hours", "gear-hours")

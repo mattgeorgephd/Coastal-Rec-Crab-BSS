@@ -998,8 +998,18 @@ moves the point estimate, which is how the fill was first got wrong.
 |---|---|---|
 | `n_h >= 2` | `s_h^2 / n_h` | the cell's own sampled days |
 | `n_h == 1` | `s_donor^2` | a collapsed stratum: the donor spread with divisor 1. `sd()` of one observation is NA, and replacing it with 0 is what made a singleton cell contribute its full point estimate and no variance at all |
-| `n_h == 0`, filled | `s_donor^2 * (1/n_donor + 1)` | the donor mean's own error plus one between-cell deviation, which is what imputing a cell actually costs |
+| `n_h == 0`, filled | `s_donor^2 * (1/n_mean + 1)` | the donor mean's own error plus one between-cell deviation, which is what imputing a cell actually costs. `n_mean` is the sample size of the level the MEAN came from (since 2026-09-28, B44; it was the spread level's, which priced a one-day mean as a many-day one) |
 | `n_h == 0`, zeroed | `0`, and a **bias** is reported instead | the point estimate is 0 and the error is a bias, not a variance. An SE around a zero would imply the truth could be negative |
+
+**The component SE is not the sum of the cells' (B44, 2026-09-28).** Imputed cells that borrow
+ONE donor mean share its error, and the donor mean is built from the sampled days of the cells
+beside it, so the component variance adds two covariance terms to the cells' own: for a donor
+group `G` with `n_G` days and spread `s_G`, and `A_G` the calendar days of the imputed cells
+borrowing it, `(A_G^2 - sum N_i^2) s_G^2 / n_G` between the imputed cells and
+`2 A_G (s_G^2 / n_G) sum_j N_j m_jG / n_j` against the sampled cells whose `m_jG` days are in
+`G` (`pe_donor_covariance()`). On 2024-25 the effort SE moves from 3.9% to 4.9% (shore
+all-gear) and 9.4% to 11.5% (boat all-gear); on a Monte Carlo fixture the independent sum
+averaged 38% of the true variance and the covariance-aware estimate 101%.
 
 That last row is why the retired `"zero"` fill is retired: on 2024-25 it priced 45 of 289
 shore all-gear days and 48 of 289 boat days at zero effort, with the empty cells sitting in
@@ -1302,14 +1312,17 @@ catch**, which is stated so the effort can be judged before it is spent. Tracked
 predictive draw is Poisson on the expected rate and carries neither `r_C` nor the
 zero-inflation, so it is under-dispersed relative to the fitted observation model.
 
-**7. The annual PE-BSS agreement is not monthly agreement.** On the reference run the shore
-all-gear annual totals agree to 1.8% while the PE over-allocates January to March by about
-2.2x and under-allocates June and July, and the errors cancel. Do not cite the annual
-agreement as month-by-month agreement. (The boat half of this comparison was additionally
-distorted until 2026-09-12 by a reporting defect: the monthly share omitted the per-day
-crabbing fraction, which was exact while `f` was a constant and stopped being exact when `f`
-became a monthly walk. Fixed; the boat monthly comparison needs re-reading on the next
-render.)
+**7. The annual PE-BSS agreement is not monthly agreement, for the boat.** On the reference run
+the PE's monthly figures were split from the component total by effort share at ONE season-wide
+CPUE, over sampled days only; that split, not the PE, produced the shore "over-allocates January
+to March by about 2.2x, under-allocates June and July" this item used to report. Since B44
+(2026-09-28) the split spreads each stratum's own estimate over its own calendar days
+(`pe_monthly_split()`). Against the reference run's BSS months, recomputed on the same inputs:
+the shore all-gear PE now reads 0.90x to 1.28x of the BSS in every month (was 0.35x to 2.26x);
+the boat all-gear reads 0.34x to 1.60x (was 0.23x to 2.34x), the boat's thin interview sample
+showing through its stratum CPUEs. So the shore agrees month by month; the boat does not, and
+its annual agreement must not be cited as monthly agreement. `monthly_pe_vs_bss.csv` carries
+the new split from the next render.
 
 **8. The design-based layer is inconsistent on finite-population corrections, and the PE has
 no catch variance.** Section 15 states both. Neither affects the headline, because the

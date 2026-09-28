@@ -435,7 +435,7 @@ run_config <- list(
   # ============================================================================
 
   # --- 2.1 Scope and strata ------------------------------------------------
-  estimate_red_rock = FALSE,          # TRUE adds Red_Rock_Kept alongside Dungeness
+  # (estimate_red_rock, the Red Rock catch group, was removed 2026-09-28, B44: Dungeness only.)
   # WEEKEND DEFINITION (changed 2026-08-25, improvement 3). Friday was previously
   # typed as a weekend day; the 2024-25 data say it is a weekday. Within month, paired
   # across the 12 months carrying both day types:

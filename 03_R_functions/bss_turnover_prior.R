@@ -56,7 +56,7 @@
 #   overlap days from one side or the other.
 #
 # The resolved value REPLACES params$tau_boat_prior_mu (numeric) so every existing
-# consumer (bss_effort_spec, run_pe_pooled / run_pe_gear, pe_monthly_effort_share,
+# consumer (bss_effort_spec, run_pe_pooled / run_pe_gear,
 # diagnose_tau_boat_sensitivity, the gear driver's daily-combined series) reads one
 # number. The provenance is kept in params$tau_boat_prior_source and
 # params$tau_boat_prior_calibration_table.

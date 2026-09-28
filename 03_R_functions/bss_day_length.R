@@ -656,7 +656,7 @@ write_shore_turnover <- function(st, output_dir) {
 
 # Resolve tau_shore_prior_mu / _sigma = "derived" from the estimate above. The resolved
 # numbers REPLACE the keys (as bss_resolve_tau_boat_prior does), so every consumer (the
-# effort spec, run_pe_pooled / run_pe_gear, pe_monthly_effort_share, the gear driver's
+# effort spec, run_pe_pooled / run_pe_gear, the gear driver's
 # daily-combined series) reads one value. When the level is derived, the shared-turnover
 # informed-day floor is waived for shore (params$shared_tau_min_obs$shore <- 0): the floor
 # existed to stop four in-window I/E days dragging a level that rested on a 0.3 log-SD
