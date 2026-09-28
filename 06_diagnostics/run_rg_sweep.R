@@ -22,34 +22,37 @@
 ###############################################################################
 # run_rg_sweep.R  --  T1.3 R_G prior-sensitivity sweep (pooled model).
 #
-# Renders three pooled runs back-to-back, one per R_G_prior_mu value, each into
-# its OWN dated output folder so they do not overwrite each other:
+# Renders three pooled runs back-to-back, one per R_G_prior_mu value, each into its OWN
+# output folder so they do not overwrite each other:
 #
-#     05_output/<date>/pooled-CPUE-run5-RG-1.00
-#     05_output/<date>/pooled-CPUE-run5-RG-1.28   (~ the empirical value)
-#     05_output/<date>/pooled-CPUE-run5-RG-1.50
+#     05_output/<date>/pooled-CPUE-RG-sweep-1.00
+#     05_output/<date>/pooled-CPUE-RG-sweep-1.28   (~ the 2024-25 empirical value)
+#     05_output/<date>/pooled-CPUE-RG-sweep-1.50
 #
-# The R_G prior is data-driven by default; this sweep OVERRIDES it via
-# run_config$R_G_prior_mu (already wired in 03_R_functions/prep_bss_crab_pooled.R).
-# A tighter R_G_prior_sigma makes the prior bind harder; 0.3 matches production.
+# The R_G prior is data-driven by default (the season's interview ratio; both tracks since
+# B46); this sweep OVERRIDES it via run_config$R_G_prior_mu, which both preps read first.
+# R_G_prior_sigma stays at 0.3, the production value.
+#
+# SHIPS DRY_RUN <- TRUE (2026-09-28, B49). As committed until then it had no dry-run mode
+# (sourcing it started three multi-hour renders) and its grid held two rungs while this
+# header described three (the 1.00 rung was dropped mid-batch on 2026-07-14). The dry run
+# prints each rung's resolved configuration, its output folder and the keys it changes
+# against run_config.R, and fits nothing. Set DRY_RUN <- FALSE to render.
 #
 # Run it like run_estimation.R (Source, not Knit):
-#     source("run_rg_sweep.R")
+#     source("06_diagnostics/run_rg_sweep.R")
 #
-# When it finishes, compare the port total across the three folders against the
-# STALE BASELINE WARNING (2026-09-03). The 83,035 below is pooled Run 1 (20260713), which
-# was superseded by Run 6 (83,488) on 2026-07-15 and by five authoritative runs since. This
-# line has named a "current production total" three times (71,513, then 94,376 until
-# 2026-09-28) and been wrong each time the box moved, so it names none: that is the reason
-# the rule below exists. COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF
+# COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF
 # 07_documentation/development_notes/PIPELINE_STATUS.md, never against a number written into
-# a runner comment. Note also that rg_grid below has only
-# TWO rungs while this file's header describes three: the 1.00 rung was dropped mid-batch on
-# 2026-07-14 and never restored, so as committed this script cannot reproduce the Run 5 sweep.
-# Run-1 baseline (83,035): read each pooled-CPUE-run5-RG-*/port_total_Dungeness_Kept.csv.
-# This is a robustness study, not a correctness fix; if the port total is stable
-# across the three priors, the boat does not rest heavily on the R_G prior.
+# a runner comment (this header named a "current production total" three times and was wrong
+# each time the box moved). The script ends by printing each rung's Expected_Catch median and
+# interval from its own port_total_Dungeness_Kept.csv and writes them to
+# 05_output/rg_sweep_<date>_summary.csv. This is a robustness study, not a correctness fix: if
+# the port total is stable across the three priors, the estimate does not rest on the R_G
+# prior (the 2026-07-14/15 sweep found every component within about 0.5%).
 ###############################################################################
+
+DRY_RUN <- TRUE
 
 suppressPackageStartupMessages({
   library(here)
@@ -68,54 +71,72 @@ model_rmd <- here::here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd")
 stopifnot(file.exists(model_rmd))
 
 # ---- Sweep grid ---------------------------------------------------------------
-rg_grid  <- c(1.28, 1.5)   # R_G_prior_mu values (1.28 ~ the empirical value)
-rg_sigma <- 0.3                 # prior SD; tighter binds harder (0.3 = production)
+rg_grid  <- c(1.00, 1.28, 1.50)   # R_G_prior_mu values (1.28 ~ the 2024-25 empirical value)
+rg_sigma <- 0.3                   # prior SD; tighter binds harder (0.3 = production)
 
 banner <- function(msg) cat("\n", strrep("=", 74), "\n ", msg,
                             "\n", strrep("=", 74), "\n", sep = "")
-
-results <- list()
-for (rg in rg_grid) {
-  tag <- sprintf("run5-RG-%s", formatC(rg, format = "f", digits = 2))  # run5-RG-1.00
+rung_cfg <- function(rg) {
   cfg <- run_config
   cfg$R_G_prior_mu    <- rg
   cfg$R_G_prior_sigma <- rg_sigma
-  cfg$run_tag         <- tag
-
-  banner(sprintf("R_G SWEEP  |  R_G_prior_mu = %.2f  |  tag = %s  |  start %s",
-                 rg, tag, format(Sys.time(), "%H:%M:%S")))
-  t0 <- Sys.time()
-
-  run_env <- new.env(parent = globalenv())
-  run_env$run_config <- cfg
-
-  html <- rmarkdown::render(model_rmd, envir = run_env, quiet = FALSE)
-
-  # Relocate the rendered HTML into the driver's dated output folder (the driver
-  # set output_dir inside run_env from cfg$run_tag), matching run_estimation.R.
-  outdir <- if (exists("output_dir", envir = run_env, inherits = FALSE)) {
-    get("output_dir", envir = run_env, inherits = FALSE)
-  } else dirname(html)
-  tryCatch({
-    if (dir.exists(outdir) &&
-        normalizePath(dirname(html)) != normalizePath(outdir)) {
-      dest <- file.path(outdir, basename(html))
-      if (isTRUE(file.copy(html, dest, overwrite = TRUE))) {
-        suppressWarnings(file.remove(html))
-      }
-    }
-  }, error = function(e) message("  (note: could not relocate HTML: ",
-                                 conditionMessage(e), ")"))
-
-  mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
-  banner(sprintf("R_G_prior_mu = %.2f DONE in %s min  ->  %s", rg, mins, outdir))
-  results[[tag]] <- list(R_G_prior_mu = rg, outdir = outdir, minutes = mins)
+  cfg$run_tag         <- sprintf("RG-sweep-%s", formatC(rg, format = "f", digits = 2))
+  cfg
 }
 
-banner("R_G SWEEP COMPLETE")
-cat("Compare the port total across the three runs against the Run-1 baseline (83,035):\n")
-for (tag in names(results)) {
-  r <- results[[tag]]
-  cat(sprintf("  R_G_prior_mu = %.2f  ->  %s\n",
-              r$R_G_prior_mu, file.path(r$outdir, "port_total_Dungeness_Kept.csv")))
+if (isTRUE(DRY_RUN)) {
+  banner(sprintf("R_G SWEEP, DRY RUN: %d rung(s), nothing is fitted", length(rg_grid)))
+  for (rg in rg_grid) {
+    cfg <- rung_cfg(rg)
+    changed <- names(cfg)[!vapply(names(cfg), function(k) identical(cfg[[k]], run_config[[k]]), logical(1))]
+    cat(sprintf("  R_G_prior_mu = %.2f  sigma = %.2f  ->  05_output/%s/pooled-CPUE-%s\n      keys changed against run_config.R: %s\n",
+                rg, rg_sigma, format(Sys.Date(), "%Y%m%d"), cfg$run_tag, paste(changed, collapse = ", ")))
+  }
+  cat("\n  The pooled and gear preps read R_G_prior_mu before the season's empirical ratio:",
+      any(grepl("params$R_G_prior_mu %||%", readLines(here::here("03_R_functions", "prep_bss_crab_pooled.R")), fixed = TRUE)) &&
+      any(grepl("params$R_G_prior_mu %||%", readLines(here::here("03_R_functions", "prep_bss_crab_gear.R")), fixed = TRUE)), "\n")
+  cat("  Set DRY_RUN <- FALSE to render the three rungs (about one production run each).\n")
+} else {
+  results <- list()
+  for (rg in rg_grid) {
+    cfg <- rung_cfg(rg)
+    banner(sprintf("R_G SWEEP  |  R_G_prior_mu = %.2f  |  tag = %s  |  start %s",
+                   rg, cfg$run_tag, format(Sys.time(), "%H:%M:%S")))
+    t0 <- Sys.time()
+    run_env <- new.env(parent = globalenv())
+    run_env$run_config <- cfg
+    # one rung failing must not lose the others: record it and move on
+    html <- tryCatch(rmarkdown::render(model_rmd, envir = run_env, quiet = FALSE),
+                     error = function(e) { message("  RUNG FAILED: ", conditionMessage(e)); NULL })
+    outdir <- if (exists("output_dir", envir = run_env, inherits = FALSE))
+      get("output_dir", envir = run_env, inherits = FALSE) else NA_character_
+    # Relocate the rendered HTML into the driver's output folder, matching run_estimation.R.
+    if (!is.null(html) && !is.na(outdir)) tryCatch({
+      if (dir.exists(outdir) && normalizePath(dirname(html)) != normalizePath(outdir)) {
+        dest <- file.path(outdir, basename(html))
+        if (isTRUE(file.copy(html, dest, overwrite = TRUE))) suppressWarnings(file.remove(html))
+      }
+    }, error = function(e) message("  (note: could not relocate HTML: ", conditionMessage(e), ")"))
+    mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
+    banner(sprintf("R_G_prior_mu = %.2f %s in %s min  ->  %s", rg,
+                   if (is.null(html)) "FAILED" else "DONE", mins, outdir))
+    results[[cfg$run_tag]] <- list(R_G_prior_mu = rg, outdir = outdir, minutes = mins, failed = is.null(html))
+  }
+
+  banner("R_G SWEEP COMPLETE")
+  rows <- lapply(names(results), function(tag) {
+    r <- results[[tag]]
+    pt <- if (!is.na(r$outdir)) file.path(r$outdir, "port_total_Dungeness_Kept.csv") else ""
+    d <- if (nzchar(pt) && file.exists(pt)) utils::read.csv(pt, stringsAsFactors = FALSE) else NULL
+    e <- if (!is.null(d)) d[d[[2]] == "Expected_Catch", , drop = FALSE] else NULL
+    data.frame(R_G_prior_mu = r$R_G_prior_mu, R_G_prior_sigma = rg_sigma, failed = r$failed, minutes = r$minutes,
+               port_median = if (NROW(e)) e$BSS_median else NA, port_lo95 = if (NROW(e)) e$BSS_lo95 else NA,
+               port_hi95 = if (NROW(e)) e$BSS_hi95 else NA, folder = r$outdir)
+  })
+  summ <- do.call(rbind, rows)
+  print(summ, row.names = FALSE)
+  out <- here::here("05_output", sprintf("rg_sweep_%s_summary.csv", format(Sys.Date(), "%Y%m%d")))
+  utils::write.csv(summ, out, row.names = FALSE)
+  cat("Written:", out, "\nCompare against the box at the top of PIPELINE_STATUS.md, on the same configuration.\n")
+  if (any(summ$failed)) stop("R_G sweep: ", sum(summ$failed), " rung(s) failed; see above.", call. = FALSE)
 }

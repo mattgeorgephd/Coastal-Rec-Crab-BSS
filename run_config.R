@@ -657,18 +657,32 @@ run_config <- list(
   osp_match_trailer_area = "Westport Boat Launch",  # the trailer site the OSP/trailer overlap calibration pairs with
   osp_effort_col        = "WestportPrivateEffort",  # OSP daily ALL-boat total column
   # OSP CRAB-ONLY column (improvement 8, 2026-08-25). Optional extra column in
-  # WBL_boat_counts.xlsx holding the count of boats OSP labelled as crabbing ONLY.
-  # Absent today (the field request is outstanding) -> every OSP feature below is inert
-  # and f behaves exactly as it does now. See the use_osp_crab_lower block for the
-  # combo-trip problem this column does and does not solve.
-  osp_crab_only_col     = "WestportCrabOnlyEffort",
-  # AWAITED WITH THE CRAB-ONLY DATA (2026-09-28, B46): OSP's sampling frequency. If OSP
-  # classifies only some boats on busy days (every Nth), deliver the number CLASSIFIED per day
-  # in this column; it becomes the binomial n of the crab-only share. Absent: every returning
-  # boat is taken as classified. osp_crab_only_unit says whether the crab-only column is a
-  # "count" of boats or a "fraction" of the classified boats (a fraction read as a count stops).
+  # WBL_boat_counts.xlsx holding the count of SAMPLED boats OSP labelled as crabbing ONLY.
+  # OSP will deliver it as "crabbing_only" (Matt, 2026-09-28); the first name present wins.
+  # Absent today -> every OSP feature below is inert and f behaves exactly as it does now.
+  # See the use_osp_crab_lower block for the combo-trip problem this column does and does
+  # not solve.
+  osp_crab_only_col     = c("crabbing_only", "WestportCrabOnlyEffort"),
+  # OSP'S SAMPLING (2026-09-28, B48; Erica, OSP). OSP samples every k-th private boat at a rate
+  # fixed for the day from the anticipated effort and the staff on the docks, so the crab-only
+  # count is out of the boats SAMPLED, and the floor on f is crabbing_only / (rate x total).
+  # The binomial n per day comes from, first available: the number sampled
+  # (osp_crab_checked_col), the day's rate (osp_sample_rate_col, 0.5 or 50) times the day's
+  # total, else the manual's MINIMUM-rate schedule for the day's count
+  # (04_input_files/osp_sampling_rates.xlsx: <30 all, 30-50 80%, 51-75 2/3, 76-100 50%,
+  # 101-150 40%, 151-200 1/3, >200 25%). A schedule day's n is a lower bound (OSP may sample
+  # above the minimum), so ask OSP for the day's rate or count. osp_sampling_rate_source:
+  # "auto" (that order), "column" (stop on a day with neither column), "schedule" (ignore the
+  # columns), "none" (n = the day's total: the pre-B48 reading, only for an every-boat census).
   osp_crab_checked_col  = "WestportCrabClassified",
+  osp_sample_rate_col   = "WestportPrivateSampleRate",
+  osp_sampling_rate_source = "auto",
+  osp_sampling_rates_file  = "osp_sampling_rates.xlsx",
+  # the crab-only column's unit: "count" of boats, or "fraction" of the boats sampled; and its
+  # basis: "sampled" (a count among the sampled boats, OSP's raw tally) or "expanded" (already
+  # divided by the rate to all boats; converted back to the sampled count)
   osp_crab_only_unit    = "count",
+  osp_crab_only_basis   = "sampled",
   # SEASON-DERIVED from the 2024-25 OSP/trailer overlap days:
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
                                       #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;

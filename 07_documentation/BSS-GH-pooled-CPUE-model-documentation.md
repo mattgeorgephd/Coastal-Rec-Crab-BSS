@@ -724,6 +724,28 @@ construction of `f`:
   genuine hard bound: `f = f_lower + (1 - f_lower) * theta`, so `f` can never fall below the
   crab-only share OSP observed directly.
 
+**What `osp_f_total` is: the boats OSP SAMPLED, not the boats that returned (B48, 2026-09-28).**
+OSP does not interview every boat. Per its sampling manual (Erica, OSP, 2026-09-28), a sampler
+samples every k-th returning private boat past a fixed landmark, all day, at a rate set in the
+morning from the anticipated effort and the staff on the docks; the manual's schedule gives the
+minimum rate by the day's exit/entrance count (<30 every boat, 30-50 80%, 51-75 two in three,
+76-100 half, 101-150 40%, 151-200 one in three, >200 one in four; charters are sampled at an
+independent rate). The `crabbing_only` count is therefore out of `n_d = r_d x N_d` boats, `N_d`
+the day's private total and `r_d` the day's rate, and that `n_d` is the beta-binomial's trials:
+
+```
+osp_f_crab[d] ~ beta_binomial(n_d, p * osp_f_kappa, (1 - p) * osp_f_kappa),   n_d = r_d * N_d
+```
+
+Dividing by `N_d` instead would read a 50%-rate day's share at half. The reader resolves `n_d`
+per day (`osp_sampling_rates.R`): the number sampled if OSP delivers it, else the day's rate
+times the total, else the schedule's rate for the day's count. The schedule is a MINIMUM (a
+sampler may run above it), so a schedule day's `n_d` is a lower bound and its share an upper
+bound; each run with crab rows writes `osp_crab_only_daily.csv` saying which source each day
+used. Every-k-th sampling past a landmark is a systematic sample, which the binomial treats as
+simple random; with the boats' arrival order unrelated to their trip type that is the standard
+approximation, and the beta-binomial's `osp_f_kappa` absorbs extra day-to-day spread.
+
 > **`f_lower_out` MEANS TWO DIFFERENT THINGS under the same name, and this is a cross-run
 > hazard.** Under the legacy construction it is the hard lower bound just described. Under
 > the dynamic construction, which is production, it is **not a bound at all**: it is the
@@ -1365,6 +1387,9 @@ more zeros AND fewer ones than a zero-inflated NB can produce, i.e. it is more b
 that mixture can be. A hurdle model, or a two-component NB with its own mean in the low
 regime, is the shape that would fit it. **The remaining gain is bounded at roughly 6% of the
 catch**, which is stated so the effort can be judged before it is spent. Tracked as D4.
+**Decided 2026-09-28 (Matt): the catch likelihood stays as it is.** The interviews carrying
+the misfit (0 or 1 crab) hold 5.8% of the shore all-gear catch and 0.4% of the boat's on the
+reference run, and the misfit is a limitation of the method, stated here, not a pending change.
 
 **6. `Predictive_Catch` is a prediction interval only as good as the observation model.**
 Until B46 (2026-09-28) it was a Poisson draw on the expected rate and under-dispersed; it now

@@ -25,15 +25,14 @@ If you use, modify, or redistribute this software: retain this NOTICE and the
 LICENSE, keep the per-file copyright and license headers, and cite CreelEstimates
 as the upstream source.
 
-Confirm before publishing (WDFW). STATUS: OPEN as of 2026-09-28; nothing below
-has been confirmed yet. Nothing from this pipeline has been published, and these
-must be answered before anything is. Each item is answered by WDFW (someone able
-to speak for the agency on copyright and licensing; Matt routes the questions),
-except C4, which is a question for the CreelEstimates authors. Record each answer,
-with who gave it and the date, in the CONFIRMATION RECORD at the end of this file
-AND in the Tier 4 item "GPL-3.0 licensing + CreelEstimates attribution" of
-07_documentation/development_notes/PIPELINE_STATUS.md; the item closes when all
-of C1 to C4 carry an answer in both places.
+Confirmation before publishing (WDFW). STATUS: CLOSED 2026-09-28. All four items
+below were answered on 2026-09-28 by Matt George (WDFW, the project lead); the
+answers are in the CONFIRMATION RECORD at the end of this file and in the Tier 4
+item "GPL-3.0 licensing + CreelEstimates attribution" of
+07_documentation/development_notes/PIPELINE_STATUS.md. C4 was framed as a question
+for the CreelEstimates authors; it is answered as this project's election of
+GPL-3.0-only, which is valid whatever the upstream authors intended (see the last
+point below), so no answer from them is needed for this project's license.
 
   C1. Copyright holder and years: is "Washington Department of Fish and Wildlife
       (WDFW)", 2024-2026, the correct holder and span for the WDFW-authored
@@ -64,7 +63,15 @@ The points behind C1 to C4, as originally written:
 
 CONFIRMATION RECORD
 -------------------
-  C1 copyright holder and years ........ not yet confirmed
-  C2 release of WDFW changes, GPL-3.0 .. not yet confirmed
-  C3 attribution to CreelEstimates ..... not yet confirmed
-  C4 license version (upstream authors)  not yet confirmed
+  C1 copyright holder and years ........ CONFIRMED: "Washington Department of Fish
+                                         and Wildlife (WDFW)", 2024-2026, as written.
+                                         Matt George (WDFW), 2026-09-28.
+  C2 release of WDFW changes, GPL-3.0 .. CONFIRMED: yes, under GPL-3.0.
+                                         Matt George (WDFW), 2026-09-28.
+  C3 attribution to CreelEstimates ..... CONFIRMED: naming the CreelEstimates
+                                         project and its URL is sufficient; no
+                                         individual authors are named.
+                                         Matt George (WDFW), 2026-09-28.
+  C4 license version ................... DECIDED: GPL-3.0-only, as the headers,
+                                         this NOTICE and LICENSE already state.
+                                         Matt George (WDFW), 2026-09-28.

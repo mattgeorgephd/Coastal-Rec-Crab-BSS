@@ -488,6 +488,12 @@ osp_boat <- tryCatch(fetch_osp_boat_counts(params),
 # OSP labels combo trips by the non-crab fishery). Lifted so the PE and the BSS read the
 # same rows from one file read. Empty until the crab-only column exists.
 params$osp_crab_rows <- attr(osp_boat, "osp_crab_rows")
+# B48 (2026-09-28): the per-day crab-only rows as the model reads them (the boats SAMPLED, the
+# rate behind that n and where it came from), so the f floor can be audited day by day.
+if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
+  tryCatch(utils::write.csv(dplyr::mutate(params$osp_crab_rows, crab_only_share = osp_crab_only / osp_total),
+                            file.path(output_dir, "osp_crab_only_daily.csv"), row.names = FALSE),
+           error = function(e) cat("  osp_crab_only_daily.csv not written:", conditionMessage(e), "\n"))
 
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
                         error = function(e) { message("  OSP overlap diagnostic skipped: ", conditionMessage(e)); NULL })

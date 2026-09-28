@@ -44,7 +44,7 @@ Coastal-Rec-Crab-BSS/
 ├── README.md           This file
 ├── CLAUDE.md           Imports 07_documentation/CLAUDE.md (guidance for Claude Code)
 ├── LICENSE             GPL-3.0 license text
-├── NOTICE              Copyright and CreelEstimates attribution (an open confirmation item)
+├── NOTICE              Copyright and CreelEstimates attribution (confirmed 2026-09-28)
 ├── renv.lock           Package lockfile: the full dependency closure, pinned (see 'Setting up R')
 ├── .Rprofile           Activates the project's renv library when R starts in the repository root
 ├── renv/               renv's bootstrap script (activate.R); the library it installs is git-ignored
@@ -57,7 +57,7 @@ Coastal-Rec-Crab-BSS/
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
 | `02_stan_models/` | The two Stan models (pooled, gear-resolved) | [02_stan_models/README.md](02_stan_models/README.md) |
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
-| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`) | [04_input_files/README.md](04_input_files/README.md) |
+| `04_input_files/` | Eleven `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`), and OSP's sampling-rate schedule (read only when an OSP crab-only column is delivered; B48) | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
 | `06_diagnostics/` | The regression harness and the dated validation batch runners | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
@@ -216,6 +216,6 @@ See each model's development-history document for details.
 
 ## License and attribution
 
-Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 (GPL-3.0)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 only (GPL-3.0-only)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife. The holder, the years, the GPL-3.0 release of WDFW's changes, the attribution and the version election were confirmed on 2026-09-28 (the CONFIRMATION RECORD in [`NOTICE`](NOTICE)).
 
 This pipeline is a **derivative work of [CreelEstimates](https://github.com/dfw-wa/CreelEstimates)**, the WDFW freshwater creel estimation framework (also GPL-3.0). The BSS and PE methodology, the project structure, and substantial portions of the R and Stan code originate in CreelEstimates and remain copyright their authors under GPL-3.0; the adaptation to recreational Dungeness crab is by WDFW. See [`NOTICE`](NOTICE) for the full attribution. Every source file carries a GPL-3.0 header with the copyright and this attribution. If you use or redistribute this software, retain the license, the per-file headers, and this attribution, and cite CreelEstimates as the upstream source.
