@@ -62,9 +62,15 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # gear_time_total filter and the L/h branches below can use it.
   is_shore <- (population_name == "shore")
 
+  # 2026-09-28 (B45): no fishing-time filter here. The CPUE denominator filter below keeps
+  # an interview when the effort unit's OWN column (number_of_gear under gear-deployments)
+  # is finite and positive, as the pooled prep does. This line used to drop every interview
+  # without a positive fishing_time_total as well, whatever the unit, so the gear track fitted
+  # a strict subset of the pooled track's interviews: 3 in four seasons (2022-23 to 2025-26,
+  # none in 2024-25), all shore, all of them with crab kept, i.e. crabbing interviews missing
+  # only the hours the deployment unit does not use (Matt, 2026-09-28: keep them on both).
   int_cg <- summ$interview |>
-    mutate(fish_count = .data[[est_catch_group]]) |>
-    filter(!is.na(fishing_time_total), fishing_time_total > 0)
+    mutate(fish_count = .data[[est_catch_group]])
 
   int_d <- int_cg |>
     left_join(days |> select(event_date,day_index,day_type,day_type_idx), by="event_date") |>

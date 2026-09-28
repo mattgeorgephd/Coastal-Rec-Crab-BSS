@@ -201,26 +201,10 @@ fetch_crab_data <- function(params) {
 
   f17 <- dock_effort |> filter(creel_area==dock_f17)
 
-  if(nrow(f17) > 0) {
-    f17_paired <- f17 |>
-      left_join(f20 |> select(event_date,count_sequence,f20_time=count_time_posix),
-                by="event_date", relationship="many-to-many") |>
-      mutate(time_diff=abs(as.numeric(difftime(count_time_posix,f20_time,units="mins")))) |>
-      group_by(event_date,survey_id,count_time) |> slice_min(time_diff,n=1,with_ties=FALSE) |> ungroup() |>
-      select(event_date,count_sequence,f17_gear=total_gear_count)
-  } else {
-    f17_paired <- tibble(event_date=Date(),count_sequence=integer(),f17_gear=numeric())
-  }
-
-  shore_effort <- f20 |>
-    # 2026-09-08 (review item 2): keep the count's clock time (decimal hour) so the shore
-    # turnover can be evaluated at the hours the counts were actually taken.
-    mutate(count_hour = as.numeric(format(count_time_posix, "%H")) +
-                        as.numeric(format(count_time_posix, "%M")) / 60) |>
-    select(event_date,count_sequence,f20_gear=total_gear_count,count_hour) |>
-    left_join(f17_paired, by=c("event_date","count_sequence")) |>
-    mutate(f17_gear=replace_na(f17_gear,0), count_quantity=f20_gear+f17_gear,
-           section_num=1, count_type="Gear Count", population="shore")
+  # 2026-09-28 (B45): a Float 20 count with no Float 17-21 count beside it is UNSAMPLED at
+  # Float 17-21, not empty (see shore_dock_counts() below), and is filled by ratio.
+  shore_effort <- shore_dock_counts(f20, f17, params) |>
+    mutate(section_num=1, count_type="Gear Count", population="shore")
 
   # --- BOAT EFFORT ---
   boat_effort <- gh_effort |>
@@ -339,6 +323,107 @@ fetch_charter_roster <- function(params, quiet = FALSE) {
 # rows (complete-trip CPUE 0.979 -> 0.976), boat 162 -> 184 (3.26 -> 3.17),
 # commercial/charter unchanged.
 ###############################################################################
+###############################################################################
+# shore_dock_counts()  (2026-09-28, B45)
+#
+# The shore gear count is Float 20 + Float 17-21, one row per Float 20 count. Float 17-21
+# is counted only when a second sampler is on shift and has time (Matt, 2026-09-28: with
+# one sampler, Float 20 is sampled and Float 17-21 is not; with two, one is posted at Float
+# 20 and the other at the boat launch samples Float 17-21 when they can). So a Float 20
+# count with no Float 17-21 count beside it is UNSAMPLED at Float 17-21, not empty.
+#
+# Until B45 every such count was given Float 17-21 = 0. On 2024-25 that is 70 of 197 shore
+# count days where Float 17-21 was counted fewer times than Float 20, and 29 days where it
+# was not counted at all (28 of them one-sampler days by sampler_shifts.xlsx); the mean
+# daily shore gear count read about 9% low.
+#
+#   shore_f17_fill = "ratio" (shipped): each Float 20 count keeps the Float 17-21 count
+#     paired to it (nearest in time, as before; two Float 17-21 counts paired to one Float
+#     20 count are averaged, where they used to duplicate the row). An unpaired count gets
+#     round(R_month x its own Float 20 count), R_month the ratio of sums of the time-paired
+#     counts in its calendar month ("%Y-%m"), falling back to the ratio over every pair in
+#     the data when the month has fewer than shore_f17_ratio_min_pairs pairs. Scaling the
+#     concurrent Float 20 count carries the within-day pattern (Float 17-21's within-day CV
+#     0.29 against Float 20's 0.34 on the 2024-25 days with repeat counts), which carrying
+#     one Float 17-21 value across the day would not. Rounded, so the count stays an integer
+#     for the NB2 likelihood.
+#   shore_f17_fill = "zero": the pre-B45 behaviour, kept so the change can be priced.
+#
+# A Float 17-21 count on a day with no Float 20 count has no row to join to and is not
+# used (Float 20 is the anchor, as it always was). Returns the shore effort rows with
+# f20_gear, f17_gear, count_quantity, count_hour and f17_source ("observed", "ratio
+# (month)", "ratio (all pairs)", "zero"); attr(, "f17_fill") carries the per-month ratios
+# and counts, and a summary line is printed unless quiet = TRUE. Pure given its inputs.
+###############################################################################
+shore_dock_counts <- function(f20, f17, params = list(), quiet = FALSE) {
+  fill <- params$shore_f17_fill %||% "ratio"
+  if (!fill %in% c("ratio", "zero"))
+    stop(sprintf("shore_dock_counts(): shore_f17_fill = '%s' is not one of ratio | zero.", fill), call. = FALSE)
+  min_pairs <- as.numeric(params$shore_f17_ratio_min_pairs %||% 5)
+
+  base <- f20 |>
+    # 2026-09-08 (review item 2): keep the count's clock time (decimal hour) so the shore
+    # turnover can be evaluated at the hours the counts were actually taken.
+    mutate(count_hour = as.numeric(format(count_time_posix, "%H")) +
+                        as.numeric(format(count_time_posix, "%M")) / 60) |>
+    select(event_date, count_sequence, f20_gear = total_gear_count, count_hour)
+
+  f17_paired <- if (nrow(f17) > 0 && nrow(f20) > 0) {
+    f17 |>
+      left_join(f20 |> select(event_date, count_sequence, f20_time = count_time_posix),
+                by = "event_date", relationship = "many-to-many") |>
+      filter(!is.na(f20_time)) |>
+      mutate(time_diff = abs(as.numeric(difftime(count_time_posix, f20_time, units = "mins")))) |>
+      group_by(event_date, survey_id, count_time) |> slice_min(time_diff, n = 1, with_ties = FALSE) |> ungroup() |>
+      group_by(event_date, count_sequence) |>
+      summarise(f17_gear = mean(as.numeric(total_gear_count)), n_f17 = n(), .groups = "drop")
+  } else tibble(event_date = as.Date(character()), count_sequence = integer(), f17_gear = numeric(), n_f17 = integer())
+
+  out <- base |>
+    left_join(f17_paired, by = c("event_date", "count_sequence")) |>
+    mutate(.observed = !is.na(f17_gear), .month = format(event_date, "%Y-%m"))
+
+  pairs <- out |> filter(.observed)
+  r_all <- if (nrow(pairs) && sum(pairs$f20_gear, na.rm = TRUE) > 0)
+             sum(pairs$f17_gear, na.rm = TRUE) / sum(pairs$f20_gear, na.rm = TRUE) else NA_real_
+  by_month <- pairs |> group_by(.month) |>
+    summarise(n_pairs = n(), f17_sum = sum(f17_gear, na.rm = TRUE), f20_sum = sum(f20_gear, na.rm = TRUE), .groups = "drop") |>
+    mutate(r_month = if_else(f20_sum > 0, f17_sum / f20_sum, NA_real_))
+
+  if (identical(fill, "ratio") && is.finite(r_all)) {
+    out <- out |>
+      left_join(by_month |> select(.month, n_pairs, r_month), by = ".month") |>
+      mutate(.use_month = is.finite(r_month) & !is.na(n_pairs) & n_pairs >= min_pairs,
+             .r = if_else(.use_month, r_month, r_all),
+             f17_source = case_when(.observed ~ "observed",
+                                    .use_month ~ "ratio (month)",
+                                    TRUE ~ "ratio (all pairs)"),
+             f17_gear = if_else(.observed, round(f17_gear), round(.r * f20_gear)))
+  } else {
+    if (identical(fill, "ratio") && !quiet)
+      cat("  *** Float 17-21: no Float 17-21 count is paired with a Float 20 count anywhere in the data, so there is no ratio to fill from; unpaired counts are 0 (shore_f17_fill = 'ratio' could not apply). ***\n")
+    out <- out |> mutate(f17_source = if_else(.observed, "observed", "zero"),
+                         f17_gear = if_else(.observed, round(f17_gear), 0))
+  }
+  out <- out |>
+    mutate(count_quantity = f20_gear + f17_gear) |>
+    select(event_date, count_sequence, f20_gear, f17_gear, count_quantity, count_hour, f17_source)
+
+  attr(out, "f17_fill") <- list(fill = fill, r_all = r_all, by_month = by_month, min_pairs = min_pairs,
+                                n_counts = nrow(out), n_observed = sum(out$f17_source == "observed"),
+                                n_filled = sum(grepl("^ratio", out$f17_source)),
+                                filled_gear = sum(out$f17_gear[grepl("^ratio", out$f17_source)]))
+  if (!quiet) {
+    k <- attr(out, "f17_fill")
+    cat(sprintf(paste0("  Float 17-21 (shore_f17_fill = '%s'): %d of %d Float 20 counts carry an observed Float 17-21 count; ",
+                       "%d unpaired filled by ratio (all-pairs ratio %.3f; month ratios %s), %s gear.\n"),
+                fill, k$n_observed, k$n_counts, k$n_filled, if (is.finite(r_all)) r_all else NA_real_,
+                if (nrow(by_month)) paste(sprintf("%.2f", range(by_month$r_month, na.rm = TRUE)), collapse = "-") else "none",
+                format(round(k$filled_gear), big.mark = ",")))
+  }
+  out
+}
+
 ###############################################################################
 # repair_interview_ids()  (2026-09-28, B44)
 #

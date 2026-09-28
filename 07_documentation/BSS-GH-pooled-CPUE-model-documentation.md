@@ -112,7 +112,7 @@ the National Weather Service's own hazard decision for the waters the boats cros
 
 | stream | what it is | what it identifies |
 |---|---|---|
-| **Shore gear counts** | instantaneous counts of gear in the water at the dock, jetty and beach, up to three per day | shore effort |
+| **Shore gear counts** | instantaneous counts of gear in the water at Float 20 and Floats 17-21, up to three per day. Float 20 is counted on every shore survey; Floats 17-21 only when a second sampler is on shift and free, so an unpaired Float 20 count takes round(R x its Float 20 count), R the month's ratio of time-paired counts (0.14 to 0.28 in 2024-25; `shore_f17_fill = "ratio"`, B45). The jetty and beach are interviewed but not counted | shore effort |
 | **Boat trailer counts** | instantaneous counts of trailers in the censused launch lot | boat effort |
 | **OSP daily port count** | the total number of private vessels returning to the Westport Boat Launch each day, supplied by Oregon State Police | boat effort, and the within-day boat turnover |
 | **Interviews** | creel samplers' completed-trip interviews: gear count, hours, catch by species and fate, trip type | catch per unit effort, the gear-per-group ratios, and the crabbing fraction |

@@ -411,6 +411,13 @@ run_config <- list(
                          "Ocean Shores Boat Launch","Damon Point"),   # effort creel_area whitelist
   shore_dock_float20 = "Westport Docks Float 20",              # paired shore gear-count floats
   shore_dock_float17 = "Westport Docks Float 17-21",
+  # A Float 20 count with no Float 17-21 count beside it is UNSAMPLED at Float 17-21 (a second
+  # sampler counts it when on shift and free), not empty. "ratio" (METHOD OF RECORD since
+  # 2026-09-28, B45) fills it with round(R x that Float 20 count), R the month's ratio of
+  # time-paired Float 17-21 to Float 20 counts (the all-pairs ratio when the month has fewer
+  # than shore_f17_ratio_min_pairs pairs); "zero" is the pre-B45 behaviour, for pricing it.
+  shore_f17_fill = "ratio",
+  shore_f17_ratio_min_pairs = 5,
   boat_launch_areas  = c("Westport Boat Launch","Ocean Shores Boat Launch"),  # boat-trailer count sites
   charter_roster_port = "Westport",
   ie_shore_location = "WDF20",       # location_name kept as the SHORE I/E series

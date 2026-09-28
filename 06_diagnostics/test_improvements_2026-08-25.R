@@ -6262,6 +6262,59 @@ local({
 })
 
 # ---------------------------------------------------------------------------
+# 82. B45 (2026-09-28): AN UNSAMPLED FLOAT 17-21 COUNT IS NOT ZERO, AND THE GEAR TRACK FITS
+#     THE POOLED TRACK'S INTERVIEWS. Float 17-21 is counted only when a second sampler is
+#     free; an unpaired Float 20 count now takes round(R_month x its own Float 20 count).
+# ---------------------------------------------------------------------------
+local({
+  source("03_R_functions/fetch_crab_data.R")
+  tz <- "America/Los_Angeles"
+  mk <- function(d, hm, g) data.frame(event_date = as.Date(d), survey_id = "S1", count_time = paste0(hm, ":00"),
+                                       count_time_posix = as.POSIXct(paste(d, paste0(hm, ":00")), tz = tz),
+                                       total_gear_count = g, stringsAsFactors = FALSE)
+  # January: three days with both floats at every count (the pairs), one day with Float 17-21 once
+  f20 <- rbind(mk("2025-01-06", c("10:00", "12:00"), c(10, 20)), mk("2025-01-07", c("10:00", "12:00"), c(30, 40)),
+               mk("2025-01-08", c("10:00", "12:00", "14:00"), c(50, 20, 10)), mk("2025-01-09", "11:00", 40))
+  f20 <- f20[order(f20$event_date, f20$count_time_posix), ]
+  f20$count_sequence <- stats::ave(seq_len(nrow(f20)), f20$event_date, FUN = seq_along)
+  f17 <- rbind(mk("2025-01-06", c("10:05", "12:05"), c(2, 4)), mk("2025-01-07", c("10:05", "12:05"), c(6, 8)),
+               mk("2025-01-08", "12:10", 5))
+  P <- list(shore_f17_fill = "ratio", shore_f17_ratio_min_pairs = 5)
+  r <- shore_dock_counts(f20, f17, P, quiet = TRUE)
+  R <- (2 + 4 + 6 + 8 + 5) / (10 + 20 + 30 + 40 + 20)       # five time-paired counts in January
+  chk("B45 f17: an observed Float 17-21 count is kept where it pairs with a Float 20 count",
+      identical(r$f17_source[r$event_date == as.Date("2025-01-08") & r$count_sequence == 2], "observed") &&
+      r$f17_gear[r$event_date == as.Date("2025-01-08") & r$count_sequence == 2] == 5)
+  chk("B45 f17: an unpaired count is round(R_month x its own Float 20 count), not 0",
+      identical(r$f17_gear[r$event_date == as.Date("2025-01-08")], c(round(R * 50), 5, round(R * 10))) &&
+      r$f17_gear[r$event_date == as.Date("2025-01-09")] == round(R * 40) &&
+      all(r$f17_source[r$f17_source != "observed"] == "ratio (month)"))
+  chk("B45 f17: the count stays an integer and is Float 20 + Float 17-21",
+      all(r$count_quantity == round(r$count_quantity)) && isTRUE(all.equal(r$count_quantity, r$f20_gear + r$f17_gear)))
+  chk("B45 f17: a month below shore_f17_ratio_min_pairs uses the all-pairs ratio",
+      { r6 <- shore_dock_counts(f20, f17, list(shore_f17_ratio_min_pairs = 6), quiet = TRUE)
+        all(r6$f17_source[r6$f17_source != "observed"] == "ratio (all pairs)") })
+  chk("B45 f17: shore_f17_fill = 'zero' reproduces the pre-B45 counts",
+      { z <- shore_dock_counts(f20, f17, list(shore_f17_fill = "zero"), quiet = TRUE)
+        identical(z$f17_gear[z$f17_source != "observed"], rep(0, sum(z$f17_source != "observed"))) })
+  chk("B45 f17: two Float 17-21 counts paired to one Float 20 count are averaged, not a duplicated row",
+      { f17b <- rbind(f17, mk("2025-01-09", c("10:50", "11:10"), c(3, 5)))
+        rb <- shore_dock_counts(f20, f17b, P, quiet = TRUE)
+        nrow(rb) == nrow(f20) && rb$f17_gear[rb$event_date == as.Date("2025-01-09")] == 4 })
+  chk("B45 f17: an unknown fill mode stops rather than guessing",
+      inherits(try(shore_dock_counts(f20, f17, list(shore_f17_fill = "carry"), quiet = TRUE), silent = TRUE), "try-error"))
+  chk("B45 f17: fetch_crab_data() builds the shore effort through shore_dock_counts(), and run_config ships 'ratio'",
+      any(grepl("shore_effort <- shore_dock_counts(f20, f17, params) |>", readLines("03_R_functions/fetch_crab_data.R", warn = FALSE), fixed = TRUE)) &&
+      { e <- new.env(); sys.source("run_config.R", envir = e); identical(e$run_config$shore_f17_fill, "ratio") &&
+        identical(e$run_config$shore_f17_ratio_min_pairs, 5) })
+  # the gear prep no longer drops interviews without a positive fishing time (Matt: keep on both)
+  gp <- readLines("03_R_functions/prep_bss_crab_gear.R", warn = FALSE); gp <- gp[!grepl("^\\s*#", gp)]
+  chk("B45 interviews: the gear prep filters on the effort unit's own column, as the pooled prep, not on fishing time",
+      !any(grepl("filter(!is.na(fishing_time_total), fishing_time_total > 0)", gp, fixed = TRUE)) &&
+      any(grepl("int_d <- int_d[is.finite(v) & v > 0, , drop = FALSE]", gp, fixed = TRUE)))
+})
+
+# ---------------------------------------------------------------------------
 # 73. THE HARNESS SIZE THE DOCUMENTS ADVERTISE (2026-09-13). Last, because the total is
 #     only known here.
 #
