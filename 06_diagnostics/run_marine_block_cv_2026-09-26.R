@@ -125,7 +125,7 @@
 # compute (minutes). Restore TRUE before committing: the harness asserts it.
 ###############################################################################
 
-DRY_RUN <- TRUE
+DRY_RUN <- FALSE
 RUNGS   <- c(M1 = "MH-M1-off", M2 = "MH-M2-sca", M3 = "MH-M3-bar", M4 = "MH-M4-both", M5 = "MH-M5-auto",
              M6 = "MH-M6-split")   # M6 (B41, the season split) added 2026-09-27; absent until run_marine_hazard_batch renders it
 K_MAX   <- 0.7          # PSIS reliability threshold
