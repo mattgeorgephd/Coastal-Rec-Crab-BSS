@@ -46,10 +46,10 @@
 #     source("06_diagnostics/run_tau_sweep.R")
 #
 # When it finishes, compare the boat all-gear catch and the port total across the
-# STALE BASELINE WARNING (2026-09-03). The numbers on this line are from 2026-07 and are
-# now badly wrong: production boat all-gear is 31,008 (not 43,314, -40%) and the port total
-# is 94,376 (not 82,957) under Method v2.0; this line named 71,513 until 2026-09-12, which
-# was itself already superseded. Read the box at the top of PIPELINE_STATUS.md instead of
+# STALE BASELINE WARNING (2026-09-03). The numbers on this line (43,314 boat all-gear, 82,957
+# port) are from 2026-07 and are badly wrong under Method v2.0; the "current" figures this
+# line quoted in their place went stale in turn (71,513 until 2026-09-12, 94,376 until
+# 2026-09-28), so it quotes none. Read the box at the top of PIPELINE_STATUS.md instead of
 # any number written into a runner comment. MORE IMPORTANT: this sweep is superseded. diagnose_tau_boat
 # _sensitivity (run_config.R diagnose_tau_sensitivity = TRUE, a 5-point grid) reproduces its
 # refits to ~0.2% on every run, and production adopted shared_tau = TRUE on 2026-09-01, which

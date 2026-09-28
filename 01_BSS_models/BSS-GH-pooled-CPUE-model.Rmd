@@ -1786,6 +1786,7 @@ n_draws_max <- max(sapply(bss_all, function(b) {
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
 
+.cc_draws_by_cg <- list()   # 2026-09-28 (B43): the census draws, kept for the season totals below
 for(cg in bss_catch_groups) {
   bss_C_total <- rep(0, n_draws_max)    # expected catch
   bss_C_pred_total <- rep(0, n_draws_max) # predictive catch
@@ -1862,6 +1863,7 @@ for(cg in bss_catch_groups) {
   bss_C_total <- bss_C_total + .cc_draws
   bss_C_pred_total <- bss_C_pred_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
+  .cc_draws_by_cg[[cg]] <- .cc_draws
 
   final_table <- tibble(
     Catch_Group = cg,
@@ -1897,6 +1899,52 @@ for(cg in bss_catch_groups) {
 # rendered in the HTML when the run spans more than one season.
 # ============================================================================
 .seasons <- unique(na.omit(vapply(subseasons, function(x) x$season %||% NA_character_, character(1))))
+# 2026-09-28 (B43): THE CENSUS ENTERS A SEASON TOTAL THE WAY IT ENTERS THE PORT TOTAL. It entered
+# as a constant, so a season total lacked the charter expansion's uncertainty and, on a single
+# season, disagreed with port_total_*.csv by a few crab: the first render of the method of record
+# wrote 96,110 [79,428, 120,560] here against 96,118 [79,418, 120,558] there, and every run that
+# carried the census SE had the same kind of gap (2 to 13 crab). The season that holds the WHOLE census
+# reuses the port block's seeded draws, so a single-season total IS the port total, draw for draw;
+# seasons that share the census (per-season windows) draw their own, seeded from bss_seed and the
+# season's position, with the caller's RNG restored.
+# The scalar census (no census_windows) belongs to the season whose sub-seasons contain
+# census_start_date; failing that (a window that starts inside the census window), to the season
+# whose sub-seasons overlap [census_start_date, census_end_date]; failing that, to the only season.
+# Before 2026-09-28 the second and third cases dropped the census from the season total while the
+# port total kept it.
+.scalar_census_season <- local({
+  cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
+  ce <- suppressWarnings(as.Date(params$census_end_date %||% NA))
+  s_of <- function(test) unique(na.omit(vapply(subseasons, function(x) if (isTRUE(test(x))) x$season %||% NA_character_ else NA_character_, character(1))))
+  hit <- s_of(function(x) !is.na(cs) && cs >= x$start && cs <= x$end)
+  if (!length(hit)) hit <- s_of(function(x) !is.na(cs) && !is.na(ce) && x$start <= ce && x$end >= cs)
+  if (!length(hit) && length(.seasons) == 1L) hit <- .seasons
+  if (length(hit)) hit[1] else NA_character_
+})
+.ccs_for <- function(sn) {
+  cc <- pe_all$comm_charter
+  if (!is.null(cc$by_season)) return(cc$by_season[[sn]])
+  if (identical(sn, .scalar_census_season)) cc else NULL
+}
+.n_census_seasons <- sum(vapply(.seasons, function(sn) !is.null(.ccs_for(sn)), logical(1)))
+# The port block's census draws may stand in for a season's census only when that season holds the
+# WHOLE census: the scalar path, or per-season windows of which this run's season is the only one
+# (a census_windows entry for a season outside the run is in the port total, so it is not this
+# season's to absorb).
+.census_is_whole <- function(sn) {
+  cc <- pe_all$comm_charter
+  is.null(cc$by_season) || (length(cc$by_season) == 1L && identical(names(cc$by_season), sn))
+}
+.season_census_draws <- function(ccs, cg, n, seed) {
+  if (!identical(cg, "Dungeness_Kept") || !is.finite(ccs$carried_se %||% NA) || (ccs$carried_se %||% 0) <= 0)
+    return(rep(ccs[[cg]] %||% 0, n))
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (had) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit(if (had) assign(".Random.seed", old, envir = globalenv())
+          else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
+  set.seed(seed)
+  pmax(rnorm(n, ccs$Dungeness_Kept, ccs$carried_se), ccs$observed_dung %||% 0)
+}
 if (length(.seasons)) {
   season_rows <- list()
   for (cg in bss_catch_groups) for (sn in .seasons) {
@@ -1915,15 +1963,12 @@ if (length(.seasons)) {
         sC <- sC + b$C_exp_draws[idx]; sE <- sE + b$E_draws[idx]
       }
     }
-    # census: per season when available, else attribute the scalar window's season
-    cc <- pe_all$comm_charter
-    ccs <- if (!is.null(cc$by_season)) cc$by_season[[sn]] else {
-      cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
-      one <- vapply(subseasons, function(x) identical(x$season %||% NA_character_, sn) &&
-                      !is.na(cs) && cs >= x$start && cs <= x$end, logical(1))
-      if (any(one)) cc else NULL
-    }
-    sC <- sC + (ccs[[cg]] %||% 0); sE <- sE + (ccs$effort_total %||% 0)
+    # census: per season when available, else attribute the scalar window's season (B43: as draws)
+    ccs <- .ccs_for(sn)
+    if (!is.null(ccs))
+      sC <- sC + if (.n_census_seasons == 1L && .census_is_whole(sn) && !is.null(.cc_draws_by_cg[[cg]])) .cc_draws_by_cg[[cg]] else
+        .season_census_draws(ccs, cg, n_draws_max, as.integer(params$bss_seed %||% 1L) + match(sn, .seasons))
+    sE <- sE + (ccs$effort_total %||% 0)
     season_rows[[paste(cg, sn)]] <- tibble(
       Catch_Group = cg, Season = sn,
       Census = if (!is.null(ccs)) round(ccs[[cg]] %||% 0) else 0,
@@ -2879,6 +2924,33 @@ if(length(expansion_results) > 0) {
 
 ```{r expansion-show, echo=TRUE}
 if (exists('expansion_df')) report_table(expansion_df, 'Expansion-ratio posteriors (R_G, R_G_boat).')
+```
+
+### 12.2 Effort day covariates as fitted
+
+Every fit's day-covariate block (`K_open`): which columns it carries, on how many of its days each column is set, and the fitted effect on the latent effort (`B_open_out`, with its rate ratio). Under the method of record (CHANGE_REGISTER A30) the private-boat all-gear fit carries the NWS Small-Craft-Advisory flag `nws_sca_any` and every other fit carries nothing (`marine_hazard_gear_regimes`, B42); an other-fishery opener column appears here only when `opener_covariate_mode` selects one. Section 3.7 shows the covariate's pre-fit screen on the sampled days; this table is the fitted model. Written to `effort_day_covariates.csv`.
+
+```{r day-covariates, results='hide'}
+# ---- 7.16b EFFORT DAY COVARIATES AS FITTED (2026-09-28, B43) ----
+# Until 2026-09-28 the report showed the covariate's pre-fit screen and the configured scope,
+# and never the fitted coefficient or which fits carried the column: the preps print that per
+# fit, and the fit loop's chunk hides its output. bss_day_covariate_report.R builds the table
+# from bss_all, so it is the fits that are reported, not the configuration.
+day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params), error = function(e) {
+  cat("  effort day covariates: table not built:", conditionMessage(e), "\n"); NULL })
+if (!is.null(day_cov_df) && nrow(day_cov_df) > 0) {
+  for (i in seq_len(nrow(day_cov_df)))
+    cat(sprintf("  %s: %s%s\n", day_cov_df$fit[i], day_cov_df$covariate[i],
+                if (is.na(day_cov_df$rate_ratio[i])) "" else sprintf(" on %d of %d days, rate ratio %s",
+                  day_cov_df$days_flagged[i], day_cov_df$fit_days[i], day_cov_df$rate_ratio[i])))
+  write.csv(day_cov_df, file.path(output_dir, "effort_day_covariates.csv"), row.names = FALSE)
+}
+```
+
+```{r day-covariates-show, echo=TRUE}
+if (!is.null(day_cov_df) && nrow(day_cov_df) > 0)
+  report_table(day_cov_df[, c("fit", "covariate", "source", "days_flagged", "column_sum", "fit_days", "coef_median", "coef_lo95", "coef_hi95", "rate_ratio")],
+               'Effort day covariates as fitted: per fit, the columns of the K_open block, the days each flags (column_sum is the column total, which differs for an imputed fractional column), and the posterior of its coefficient (rate ratio = exp(coefficient), the multiplier on latent effort on a flagged day).')
 ```
 
 ## 13. PE vs BSS comparison

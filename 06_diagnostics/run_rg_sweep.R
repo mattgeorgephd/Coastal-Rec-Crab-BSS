@@ -38,10 +38,10 @@
 #
 # When it finishes, compare the port total across the three folders against the
 # STALE BASELINE WARNING (2026-09-03). The 83,035 below is pooled Run 1 (20260713), which
-# was superseded by Run 6 (83,488) on 2026-07-15 and by four authoritative runs since; the
-# current production total is 94,376 (20260910/pooled-CPUE-IMP-R4-shore-tau-newf, Method
-# v2.0; this line named 71,513 until 2026-09-12 and was itself superseded twice over, which
-# is the reason the rule below exists). COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF
+# was superseded by Run 6 (83,488) on 2026-07-15 and by five authoritative runs since. This
+# line has named a "current production total" three times (71,513, then 94,376 until
+# 2026-09-28) and been wrong each time the box moved, so it names none: that is the reason
+# the rule below exists. COMPARE A NEW SWEEP AGAINST THE BOX AT THE TOP OF
 # 07_documentation/development_notes/PIPELINE_STATUS.md, never against a number written into
 # a runner comment. Note also that rg_grid below has only
 # TWO rungs while this file's header describes three: the 1.00 rung was dropped mid-batch on

@@ -2161,6 +2161,22 @@ write.csv(cpue_summary, file.path(output_dir, "interview_cpue_summary.csv"), row
 
 ```
 
+### 13.1 Effort day covariates as fitted
+
+Every fit's day-covariate block (`K_open`): which columns it carries, on how many of its days each column is set, and the fitted effect on the latent effort (`B_open_out`, with its rate ratio). Under the method of record (CHANGE_REGISTER A30) the private-boat all-gear fit carries the NWS Small-Craft-Advisory flag `nws_sca_any` and every other fit carries nothing (`marine_hazard_gear_regimes`, B42). Written to `effort_day_covariates.csv`; the same table as the pooled report's section 12.2, so the cross-check compares like with like.
+
+```{r gear-sec13-day-covariates}
+# 2026-09-28 (B43): the fitted day covariates per fit, from bss_all (bss_day_covariate_report.R).
+day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params), error = function(e) {
+  message("  effort day covariates: table not built: ", conditionMessage(e)); NULL })
+if (!is.null(day_cov_df) && nrow(day_cov_df) > 0)
+  write.csv(day_cov_df, file.path(output_dir, "effort_day_covariates.csv"), row.names = FALSE)
+# the table must be the chunk's LAST, top-level, visible value, or knitr shows the code and no table
+if (!is.null(day_cov_df) && nrow(day_cov_df) > 0)
+  report_table(day_cov_df[, c("fit", "covariate", "source", "days_flagged", "column_sum", "fit_days", "coef_median", "coef_lo95", "coef_hi95", "rate_ratio")],
+               caption = "Effort day covariates as fitted: per fit, the columns of the K_open block, the days each flags (column_sum is the column's total, which differs for an imputed fractional column), and the posterior of its coefficient (rate ratio = exp(coefficient)).")
+```
+
 ## 14. Expansion ratios (R_G and R_G_boat)
 
 The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale. **Healthy:** the shore R_G is data-identified (a tight interval near ~1.3 gear per crabber); the boat R_G is prior-driven (no gear counts in boat fits), so read its wide interval as expected, not a failure.

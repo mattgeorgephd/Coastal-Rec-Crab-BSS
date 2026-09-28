@@ -14,6 +14,14 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-09-28, THE METHOD OF RECORD RENDERED: a new authoritative run, and what reading it found (branch `OSP-boat-count-incorporation`)
+
+**NEW AUTHORITATIVE RUN: `05_output/20260927/pooled-CPUE-canonical-2024-25`, port total 96,118 [79,418, 120,558]**, superseding R4's 94,376 (**+1.85%**), 4 of 4 components fitted and every one reporting BSS. It was rendered by `source("run_estimation.R")` on `run_config.R` as shipped rather than by a batch runner (as no authoritative run had been since the 2026-08-04 OSP validation pair), and it is the method of record: Method v2.0 (adopted 2026-09-12) plus the NWS Small-Craft-Advisory day flag on the private-boat all-gear effort process (CHANGE_REGISTER A30, built 2026-09-25, adopted 2026-09-27 after a ladder, a leave-one-week-out block cross-validation and a season-split rung; `VALIDATION_CAMPAIGN.md` Sections 1x to 1z). Every fit's full posterior summary is byte-identical to the fit the adoption named: the shore fits and the boat pot-closure fit are R4's, the boat all-gear fit is the covariate ladder's rung M2 (coefficient -1.16 [-1.45, -0.87], rate ratio 0.31, on 102 of 289 days). The +1,742 is that one term, all on the boat all-gear component (45,604 to 47,319).
+
+Between 2026-09-11 and this entry the version log was not kept; the register and the campaign carry that interval in full. In one line each: Method v2.0 adopted as the method of record (2026-09-12); the weather-tide module removed (A29, 2026-09-13); the gear track's AR period and zero-inflated catch run and re-read (Section 1w, 2026-09-14); the marine hazard covariates built, laddered, cross-validated and adopted (A30, B35 to B42, 2026-09-25 to 2026-09-27); the port total made reproducible between identical fits (B38), confirmed in the field by this render.
+
+**READING IT FOUND FOUR DEFECTS, fixed in B43** (register C rows, 2026-09-28): `season_totals.csv` added the census as a constant and read 96,110 against the port total's 96,118; the report never showed the fitted day covariate (now pooled section 12.2); the effort overdispersion diagnostic's draw subsample was the last unseeded one; the run manifest recorded 99 of the configuration's 177 keys. And two documentation defects: the sampler figures the status box quoted for R4 were the whole ladder's extremes, and eight rows of the change register rendered short.
+
 ### 2026-09-11, THE LADDER RAN: a new authoritative run, and what moved it (branch `OSP-boat-count-incorporation`)
 
 Harness **836 assertions**, 0 failing. Full account in `PIPELINE_STATUS.md` Section 1v and the box at the top of that file; every change on this branch and its status in `development_notes/CHANGE_REGISTER.md`.

@@ -741,14 +741,16 @@ CODE_EQUIVALENT <- list(
   # pointwise LOO written beside gear / trailer / catch) and .bma_core() (the adequacy
   # aggregate kept on the three streams it always read, so model_adequacy.csv is comparable
   # across the change). Same coverage and the same PORT TOTAL caveat as the row above.
-  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:4661ee8f fns:7ebf7137" =
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:0a4543cf fns:006a4ae0" =
     paste("the 2026-09-11 ladder run vs the tree after the 2026-09-27 block-CV results patch: as the row above, plus the joint effort table / identical-fit floor in",
           "bss_block_cv.R, loo_pointwise_osp_*.csv from write_loo_diagnostics(), and the adequacy aggregate filtered to gear / trailer / catch (all post-fit diagnostics); and B41 in",
           "bss_marine_hazard_covariates.R, a PREP-layer change that offers two more marine candidates (nws_sca_any_winter / _rest). The 2026-09-11 ladder ran with the module absent and",
           "marine_hazard_mode off (the shipped value), under which marine_hazard_prepare() returns before reading anything, so the K_open block and every Stan datum are what they were.",
           "Does NOT cover the PORT TOTAL (moves once by the jitter B38 removes), monthly_pe_vs_bss.csv, or a file-level inventory comparison (now also loo_pointwise_osp_*.csv and loo_block_joint_*.csv).",
           "And the 2026-09-27 ADOPTION (A30, B42): run_config.R now ships the boat advisory term, and this runner pins marine_hazard_mode = off in resolve_cfg() (not in WINDOW, so no digest moves), which is the configuration every rung here rendered under;",
-          "marine_hazard_terms_for() and its two prep call sites are inert under off (an empty selection stays empty); the drivers moved by report prose and comments only.")
+          "marine_hazard_terms_for() and its two prep call sites are inert under off (an empty selection stays empty); the drivers moved by report prose and comments only.",
+          "And the 2026-09-28 review of the first render of the method of record (B43), all of it after every fit: both drivers report the fitted day covariates (bss_day_covariate_report.R, new),",
+          "the pooled driver's season totals carry the census draws the port total carries, and write_effort_overdispersion_diag() seeds its draw subsample (effort_overdispersion_*.csv now reproduce).")
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),

@@ -18,6 +18,10 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-28, THE POOLED METHOD OF RECORD RENDERED; THIS TRACK'S CROSS-CHECK UNDER IT IS OWED (branch `OSP-boat-count-incorporation`)
+
+The pooled track's authoritative run moved to `05_output/20260927/pooled-CPUE-canonical-2024-25`, 96,118 [79,418, 120,558]: Method v2.0 plus the NWS Small-Craft-Advisory day flag on the private-boat all-gear effort process (CHANGE_REGISTER A30, adopted 2026-09-27). This track's prep confines the term the same way (`marine_hazard_terms_for()`, B42), so the like-for-like cross-check is `Rscript run_estimation.R --model gear_resolved` on the shipped configuration, judged on the pre-set 2%; the last gear cross-check at the production configuration, ladder rung R5 (93,274), is at R4's configuration, -1.17% from R4 (the D3 ladder's rungs G1 to G5, 2026-09-13/14, varied the AR period and are not cross-checks). The driver gained the fitted day-covariate table (section 13.1, `effort_day_covariates.csv`, B43), the same table as the pooled report's, so the two renders can be compared term for term. The version log was not kept between 2026-09-11 and this entry; `development_notes/CHANGE_REGISTER.md` and `VALIDATION_CAMPAIGN.md` Sections 1w to 1z carry the interval.
+
 ### 2026-09-11, THE LADDER RAN: a new authoritative run, and what moved it (branch `OSP-boat-count-incorporation`)
 
 Harness **836 assertions**, 0 failing. Full account in `PIPELINE_STATUS.md` Section 1v and the box at the top of that file; every change on this branch and its status in `development_notes/CHANGE_REGISTER.md`.

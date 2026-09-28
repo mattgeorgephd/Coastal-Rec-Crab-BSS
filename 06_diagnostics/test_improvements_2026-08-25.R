@@ -3764,16 +3764,18 @@ local({
         length(hits) >= 1 && all(grepl("^\\s*#", hits)) })
   # the desk check recorded in the box: these are the values the shipped config resolves to,
   # pinned so a lever that changes one of them cannot pass silently.
+  # 2026-09-28: the authoritative run IS the shipped configuration (rendered by run_estimation.R), so
+  # the desk check became a render; the values it resolves to stay pinned in the box.
   chk("canonical: the box records the desk check that the shipped config reproduces the run's inputs",
       { ps <- paste(readLines("07_documentation/development_notes/PIPELINE_STATUS.md", warn = FALSE), collapse = "\n")
         f <- gsub("[ \n>]+", " ", ps)
-        grepl("shipped configuration reproduces this run's inputs exactly", f, fixed = TRUE) &&
+        grepl("The shipped configuration IS this run, so its resolved inputs are the shipped ones", f, fixed = TRUE) &&
         grepl("2.4771", f, fixed = TRUE) && grepl("3.0300", f, fixed = TRUE) &&
         grepl("commercial 6,405 plus charter 2,133 = 8,538", f, fixed = TRUE) &&
-        grepl("zero warnings on the read", f, fixed = TRUE) })
+        grepl("none of them a missing frame", f, fixed = TRUE) })
   chk("canonical: the header names the authoritative run and points at the one box",
-      any(grepl("pooled-CPUE-IMP-R4-shore-tau-newf", src, fixed = TRUE)) &&
-      any(grepl("94,376", src, fixed = TRUE)) &&
+      any(grepl("pooled-CPUE-canonical-2024-25", src, fixed = TRUE)) &&
+      any(grepl("96,118", src, fixed = TRUE)) &&
       any(grepl("PIPELINE_STATUS.md", src, fixed = TRUE)))
 
   # ---- (b) the file is ordered ---------------------------------------------
@@ -4377,7 +4379,7 @@ local({
   runs <- unique(regmatches(t, gregexpr("05_output/[0-9]{8}/[A-Za-z0-9._-]+", t))[[1]])
   chk("PR: it names both the branch's authoritative run and main's, and both exist",
       length(runs) >= 2 && all(dir.exists(runs)) &&
-      any(grepl("pooled-CPUE-IMP-R4-shore-tau-newf", runs)) &&
+      any(grepl("20260927/pooled-CPUE-canonical-2024-25", runs)) &&
       any(grepl("20260715/pooled-CPUE-230256", runs)),
       sprintf("(named: %s)", paste(runs, collapse = ", ")))
   # A total and its interval must appear TOGETHER ON ONE LINE, in median / lo / hi order.
@@ -4416,7 +4418,8 @@ local({
     list(med = as.numeric(r$BSS_median), lo = as.numeric(r$BSS_lo95),
          hi = as.numeric(r$BSS_hi95), pe = as.numeric(r$PE))
   }
-  A <- total_of("05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf")   # this branch
+  A <- total_of("05_output/20260927/pooled-CPUE-canonical-2024-25")       # this branch (since 2026-09-28)
+  A4 <- total_of("05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf")  # R4, the configuration R5 was rendered at
   M <- total_of("05_output/20260715/pooled-CPUE-230256")                  # main
   G <- total_of("05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf")
   row <- grep("\\*\\*Port total\\*\\*", L, value = TRUE)
@@ -4442,12 +4445,15 @@ local({
       !is.null(A) && !is.null(M) &&
       grepl(sprintf("+%s", fm(A$pe - M$pe)), tf, fixed = TRUE),
       sprintf("(expected +%s)", fm(A$pe - M$pe)))
+  # the gear cross-check is like for like only at the configuration it was rendered at (R4's); under
+  # the method of record it is owed, and the document must say so rather than compare R5 with 96,118
   chk("PR: the gear cross-check gap is the arithmetic of the two runs",
-      !is.null(A) && !is.null(G) &&
+      !is.null(A4) && !is.null(G) &&
       triple_on_a_line(G$med, G$lo, G$hi) &&
-      grepl(sprintf("%.2f%% below", abs(100 * (G$med - A$med) / A$med)), tf, fixed = TRUE),
-      sprintf("(gear %s vs pooled %s = %.2f%%)", fm(G$med), fm(A$med),
-              100 * (G$med - A$med) / A$med))
+      grepl(sprintf("%.2f%% below", abs(100 * (G$med - A4$med) / A4$med)), tf, fixed = TRUE) &&
+      grepl("The same check under the method of record is owed", tf, fixed = TRUE),
+      sprintf("(gear %s vs pooled R4 %s = %.2f%%)", fm(G$med), fm(A4$med),
+              100 * (G$med - A4$med) / A4$med))
 
   # (3) the ladder table must be the ladder CSV, rung for rung
   lf <- "05_output/improvements_2026-09-08_ladder-newf.csv"
@@ -5450,7 +5456,9 @@ local({
       grepl("RUN 2026-09-25/26 (Section 1x); NOT ADOPTED under the pre-committed rule", cr, fixed = TRUE))
   chk("1x docs: the campaign has Section 1x with its git anchor, and the status document's box records the port jitter and B38",
       grepl("## 1x. The marine hazard ladder", vc, fixed = TRUE) && grepl("> | 1x | 2026-09-26 |", vc, fixed = TRUE) &&
-      grepl("8b3f661", vc, fixed = TRUE) && grepl("The last three digits of the port total are Monte Carlo", ps, fixed = TRUE))
+      grepl("8b3f661", vc, fixed = TRUE) &&
+      # 2026-09-28: the box moved to a post-B38 run, so it records B38 confirmed rather than the jitter it removed
+      grepl("The port total is now reproducible to the crab (B38, confirmed in the field)", ps, fixed = TRUE))
   chk("1x docs: the method document's reproducibility section no longer says the port total resamples without qualification",
       grepl("The port total used to resample; since 2026-09-26 it does not.", md, fixed = TRUE) &&
       !grepl("**The port total resamples.**", md, fixed = TRUE))
@@ -5742,7 +5750,7 @@ local({
       grepl("desk_sca_season_split_2026-09-27.R", vc, fixed = TRUE) && grepl("0.43 [0.29, 0.62]", vc, fixed = TRUE) &&
       grepl("### 1y.5 The decision this leaves with Matt", vc, fixed = TRUE))
   chk("1y docs: the status document, the diagnostics README, run_config.R and the design note carry the block-CV outcome",
-      grepl("ADOPTED 2026-09-27; A30; CONFIRMING RENDER OWED", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
+      grepl("ADOPTED 2026-09-27; A30; RENDERED 2026-09-28, `1d3409d`, the authoritative run", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
       grepl("THAT RAN 2026-09-26 (Section 1y)", rc, fixed = TRUE) && grepl("## 11. What the block cross-validation said", dn, fixed = TRUE))
 })
 
@@ -5905,9 +5913,11 @@ local({
       grepl("### 21a. The marine hazard covariate: built 2026-09-25, adopted 2026-09-27 for the boat all-gear fit", md, fixed = TRUE) &&
       grepl("**12. The boat advisory term describes all private boats.**", md, fixed = TRUE) && grepl("**13. The advisory term is one coefficient for the season", md, fixed = TRUE) &&
       !grepl("Production ships `marine_hazard_mode = \"off\"`", md, fixed = TRUE))
-  chk("A30 docs: the box says R4 predates the method of record by one term, names the adopted boat fit and the expected total, and the stale span paragraph is gone",
-      grepl("IT PREDATES THE METHOD OF RECORD BY ONE TERM (2026-09-27, A30 ADOPTED)", ps, fixed = TRUE) && grepl("**private boat all-gear 47,319**", ps, fixed = TRUE) &&
-      grepl("expect a port total near **96,000**", ps, fixed = TRUE) && !grepl("WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW", ps, fixed = TRUE) &&
+  # 2026-09-28: the render the box predicted exists, so the box is the render (section 80 pins its numbers)
+  chk("A30 docs: the box is the render the adoption predicted (no longer R4 with a pending render), names the adopted boat fit, and the stale span paragraph is gone",
+      grepl("THE AUTHORITATIVE RUN: THE METHOD OF RECORD, RENDERED", ps, fixed = TRUE) && grepl("**private boat all-gear 47,319**", ps, fixed = TRUE) &&
+      !grepl("IT PREDATES THE METHOD OF RECORD BY ONE TERM", ps, fixed = TRUE) && !grepl("render pending", ps, fixed = TRUE) &&
+      !grepl("WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW", ps, fixed = TRUE) &&
       grepl("[FOUND AND FIXED 2026-09-27] The improvement ladder's five stage digests had drifted from their folders, by a label.", ps, fixed = TRUE) &&
       grepl("hashes `run_tag`", ps, fixed = TRUE) && !grepl("[OPEN 2026-09-27] The improvement ladder's R4 stage digest", ps, fixed = TRUE))
   chk("A30 docs: the register says ADOPTED with the scope, carries B42, records D28 resolved and D32 as a limitation of the adopted method",
@@ -5918,6 +5928,257 @@ local({
       grepl("## 1z. Rung M6 and the four-season screen read; the decision", vc, fixed = TRUE) && grepl("> | 1z | 2026-09-27 |", vc, fixed = TRUE) && grepl("7e83fab", vc, fixed = TRUE) &&
       grepl("**Required since 2026-09-27**", ng, fixed = TRUE) && grepl("The NWS archive covers the window", ng, fixed = TRUE) &&
       grepl("the method of record since 2026-09-27", cl, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 80. THE METHOD OF RECORD, RENDERED (2026-09-28; VALIDATION_CAMPAIGN Section 1z.5,
+#     CHANGE_REGISTER A30 RENDERED, B43, six C rows).
+#
+#     Matt rendered run_config.R as shipped (source("run_estimation.R"), code 74d9731) and
+#     committed the folder as 1d3409d. (1) The render as evidence: the numbers the box quotes,
+#     read back from the folder's own files, and the claim that makes the render a
+#     confirmation rather than a new result: every fit's full posterior summary is
+#     byte-identical to the fit the adoption named. (2) B43, the four defects reading it
+#     found: the season totals' census, the report's missing fitted term, the last unseeded
+#     diagnostic, the manifest's truncated configuration; tested by running them where the
+#     harness can (the totals chunks, the table, the manifest) and by their source where it
+#     cannot (the overdispersion subsample and the report chunks need a stanfit or a render). (3) The documents, including a check that every table row in the governed
+#     documents has its header's cell count (eight register rows did not).
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+  P  <- "05_output/20260927/pooled-CPUE-canonical-2024-25"
+  R4 <- "05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf"
+  M2 <- "05_output/20260925/pooled-CPUE-MH-M2-sca"
+  M6 <- "05_output/20260927/pooled-CPUE-MH-M6-split"
+  FIT <- c(spc = "shore_ring_net_only_Dungeness_Kept", sag = "shore_all_gear_Dungeness_Kept",
+           bpc = "private_boat_ring_net_only_Dungeness_Kept", bag = "private_boat_all_gear_Dungeness_Kept")
+  same <- function(a, b, f) file.exists(file.path(a, f)) && file.exists(file.path(b, f)) &&
+    identical(unname(tools::md5sum(file.path(a, f))), unname(tools::md5sum(file.path(b, f))))
+
+  # ---- (1) the render as evidence ---------------------------------------------------------------
+  if (dir.exists(P) && file.exists(file.path(P, "port_total_Dungeness_Kept.csv"))) {
+    rp <- readLines(file.path(P, "run_parameters.txt"), warn = FALSE)
+    chk("80 render: run_parameters.txt records the method of record's keys (manual, boat nws_sca_any, all_gear, no shore term)",
+        any(grepl('marine_hazard_mode\\s*: chr "manual"', rp)) && any(grepl('marine_hazard_manual_boat\\s*: chr "nws_sca_any"', rp)) &&
+        any(grepl('marine_hazard_gear_regimes\\s*: chr "all_gear"', rp)) && any(grepl("marine_hazard_manual_shore\\s*: chr\\(0\\)", rp)))
+    cv <- read.csv(file.path(P, "convergence_report.csv"), stringsAsFactors = FALSE)
+    chk("80 render: 4 of 4 fits report BSS and pass the gate; worst divergence fraction 1.78%, R-hat within 1.0007, impact at most 0.0016 SD",
+        nrow(cv) == 4 && all(cv$method_selected == "BSS") && all(cv$pass_convergence) &&
+        abs(max(cv$divergence_fraction) - 0.0178) < 1e-9 && max(cv$C_sum_rhat, cv$E_sum_rhat, cv$B1_C_rhat) <= 1.0007 &&
+        max(cv$impact_C_sd, cv$impact_E_sd) <= 0.0016 && min(cv$C_sum_neff, cv$E_sum_neff) == 4604 && max(cv$C_sum_neff, cv$E_sum_neff) == 12334)
+    ae <- read.csv(file.path(P, "ar_escalation_log.csv"), stringsAsFactors = FALSE)
+    comp <- setNames(round(ae$catch_median), ae$fit)
+    ps_ <- read.csv(file.path(P, "pe_port_summary.csv"), stringsAsFactors = FALSE)
+    chk("80 render: the components are the ones the adoption predicted (8,963 / 29,210 / 1,372 / 47,319; census 8,538; medians sum to 95,402)",
+        identical(unname(comp[FIT]), c(8963, 29210, 1372, 47319)) &&
+        round(ps_$Dungeness[ps_$Component == "Commercial/Charter"]) == 8538 &&
+        round(sum(ae$catch_median) + ps_$Dungeness[ps_$Component == "Commercial/Charter"]) == 95402)
+    pt <- read.csv(file.path(P, "port_total_Dungeness_Kept.csv"), stringsAsFactors = FALSE)
+    row_ <- function(k) unlist(pt[pt$Estimate == k, c("BSS_median", "BSS_lo95", "BSS_hi95")])
+    chk("80 render: port 96,118 [79,418, 120,558]; predictive 96,119 [79,418, 120,553]; effort 58,963 [50,888, 68,244]; PE 85,076",
+        identical(unname(row_("Expected_Catch")), c(96118L, 79418L, 120558L)) &&
+        identical(unname(row_("Predictive_Catch")), c(96119L, 79418L, 120553L)) &&
+        identical(unname(row_("Effort")), c(58963L, 50888L, 68244L)) && pt$PE[pt$Estimate == "Expected_Catch"] == 85076)
+    if (all(dir.exists(c(R4, M2)))) {
+      fs <- function(k) sprintf("bss_full_summary_%s.csv", FIT[[k]])
+      chk("80 render: every fit's full posterior summary is byte-identical to the fit the adoption named (shore and boat pot closure = R4, boat all-gear = M2)",
+          same(P, R4, fs("spc")) && same(P, R4, fs("sag")) && same(P, R4, fs("bpc")) && same(P, M2, fs("bag")))
+      chk("80 render: and nothing else: the boat all-gear fit is not R4's (the term moved it) and the pot-closure boat fit is not M2's (the term was withheld, B42)",
+          !same(P, R4, fs("bag")) && !same(P, M2, fs("bpc")))
+    } else cat("NOTE  80: R4 or M2 folder absent; the byte-identity checks are skipped\n")
+    sp <- read.csv(file.path(P, sprintf("structural_params_%s.csv", FIT[["bag"]])), stringsAsFactors = FALSE)
+    bo <- sp[sp$parameter == "B_open[1]", ]
+    oc <- list.files(P, pattern = "^opener_covariates_.*\\.csv$")
+    chk("80 render: the adopted coefficient is -1.16 [-1.45, -0.87], and only the boat all-gear fit carries a K_open column (nws_sca_any)",
+        nrow(bo) == 1 && abs(bo$median + 1.1625) < 5e-4 && abs(bo$lo95 + 1.4521) < 5e-4 && abs(bo$hi95 + 0.8678) < 5e-4 &&
+        identical(oc, sprintf("opener_covariates_%s.csv", FIT[["bag"]])) &&
+        identical(read.csv(file.path(P, oc[1]), stringsAsFactors = FALSE)$opener, "nws_sca_any"))
+    st <- read.csv(file.path(P, "season_totals.csv"), stringsAsFactors = FALSE)
+    chk("80 render: its season_totals.csv reads 96,110 [79,428, 120,560], the census-as-a-constant defect B43 fixes (kept as rendered)",
+        nrow(st) == 1 && st$BSS_median == 96110 && st$BSS_lo95 == 79428 && st$BSS_hi95 == 120560)
+    mf <- "05_output/20260927/run_manifest_20260927_192233.txt"
+    if (file.exists(mf)) chk("80 render: its manifest names code 74d9731 and was cut off at 99 keys by str() (the defect B43 fixes)",
+        { m <- readLines(mf, warn = FALSE); any(grepl("^git sha\\s*: 74d9731$", m)) && any(grepl("list output truncated", m, fixed = TRUE)) &&
+          !any(grepl("marine_hazard_mode", m, fixed = TRUE)) })
+    if (dir.exists(M6)) {
+      chk("80 render: B38 in the field: M6 and this render (both post-B38) wrote byte-identical saved draws for the shore fits; R4 (pre-B38) did not",
+          same(P, M6, sprintf("bss_draws_summed_%s.csv", FIT[["sag"]])) && same(P, M6, sprintf("bss_draws_summed_%s.csv", FIT[["spc"]])) &&
+          (!dir.exists(R4) || !same(P, R4, sprintf("bss_draws_summed_%s.csv", FIT[["sag"]]))))
+      chk("80 render: the overdispersion diagnostic was the unseeded exception (M6 and this render differ there, on identical shore fits)",
+          !same(P, M6, sprintf("effort_overdispersion_decomp_%s.csv", FIT[["sag"]])) && same(P, M6, sprintf("ppc_calibration_%s.csv", FIT[["sag"]])))
+    }
+  } else cat("NOTE  80: the authoritative run's folder is absent; the render assertions are skipped\n")
+
+  # ---- (2) B43: the season totals carry the census draws (run both chunks on synthetic draws) --
+  rmd <- readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE)
+  chunk <- function(name) { i <- grep(sprintf("^```\\{r %s[,}]", name), rmd); j <- i + 1L
+                            while (!grepl("^```\\s*$", rmd[j])) j <- j + 1L; rmd[(i + 1L):(j - 1L)] }
+  # mode: "one" (a single season, census inside it), "one_late" (a single season whose window starts inside the
+  # census window, so census_start_date is in no sub-season), "two" (two seasons, per-season census windows),
+  # "one_plus_foreign" (a single season with a census_windows entry for a season outside the run)
+  run_totals <- function(mode, seed_before, big_se = FALSE) {
+    e <- new.env(parent = globalenv())
+    sys.source("03_R_functions/bss_convergence_gate.R", envir = e)
+    e$`%||%` <- `%||%`; e$timer_start <- function(...) invisible(NULL); e$report_table <- function(...) invisible(NULL)
+    e$tibble <- tibble::tibble; e$bss_catch_groups <- "Dungeness_Kept"; e$output_dir <- tempfile(); dir.create(e$output_dir)
+    e$params <- list(bss_seed = 20260619, census_start_date = if (mode == "one_late") "2024-11-15" else "2024-12-01",
+                     census_end_date = "2025-02-08", bss_chains = 4, bss_iter_default = 2000, bss_warmup_default = 1000)
+    ss_ <- function(nm, a, b, sn) list(name = nm, start = as.Date(a), end = as.Date(b), season = sn)
+    e$subseasons <- if (mode == "one_late") list(ss_("all_gear", "2024-12-01", "2025-09-15", "2024-25")) else
+      list(ss_("ring_net_only", "2024-09-16", "2024-11-30", "2024-25"), ss_("all_gear", "2024-12-01", "2025-09-15", "2024-25"))
+    if (mode == "two") e$subseasons <- c(e$subseasons, list(ss_("ring_net_only_2025-26", "2025-09-16", "2025-11-30", "2025-26"),
+                                                             ss_("all_gear_2025-26", "2025-12-01", "2026-09-15", "2025-26")))
+    set.seed(1); e$bss_all <- list(); e$pe_all <- list()
+    for (pop in c("shore", "private_boat")) for (s0 in e$subseasons) {
+      m <- if (pop == "shore") 20000 else 30000
+      e$bss_all[[paste0(pop, "_", s0$name, "_Dungeness_Kept")]] <- list(C_exp_draws = rlnorm(4000, log(m), 0.15), C_draws = rlnorm(4000, log(m), 0.16),
+                                                                         E_draws = rlnorm(4000, log(m / 2), 0.1), pe_fallback = FALSE, use_bss = TRUE)
+      e$pe_all[[paste0(pop, "_", s0$name)]] <- list(Dungeness_Kept = m * 0.9, effort_total = m / 2)
+    }
+    cc1 <- list(Dungeness_Kept = 8538, carried_se = 73, observed_dung = 7691, effort_total = 198, census_uncertainty = "charter",
+                frame_warnings = character(0), daily_full = data.frame(observed = c(TRUE, FALSE)), Dungeness_Kept_se = 140,
+                charter_se = 73, commercial_se = 123, imputation_var = 0, census_expansion = "none")
+    cc2 <- modifyList(cc1, list(Dungeness_Kept = 5000, carried_se = if (big_se) 3000 else 300, observed_dung = 0))
+    e$pe_all$comm_charter <- switch(mode,
+      one = cc1, one_late = cc1,
+      two = , one_plus_foreign = modifyList(cc1, list(Dungeness_Kept = 13538, carried_se = sqrt(73^2 + cc2$carried_se^2), observed_dung = 7691,
+                                                     by_season = list(`2024-25` = cc1, `2025-26` = cc2))))
+    e$pe_port_total <- function(field) sum(vapply(e$pe_all[names(e$pe_all) != "comm_charter"], function(x) x[[field]] %||% 0, numeric(1))) +
+      (e$pe_all$comm_charter[[field]] %||% 0)
+    utils::capture.output(eval(parse(text = chunk("port-total")), envir = e))
+    set.seed(seed_before); before <- get(".Random.seed", envir = globalenv())
+    utils::capture.output(eval(parse(text = chunk("season-totals")), envir = e))
+    # the season's own draws with the census as a CONSTANT, the pre-2026-09-28 construction, to compare widths against
+    const <- lapply(unique(vapply(e$subseasons, function(x) x$season, character(1))), function(sn) {
+      z <- rep(0, 4000); for (pop in c("shore", "private_boat")) for (s0 in e$subseasons) if (identical(s0$season, sn))
+        z <- z + e$bss_all[[paste0(pop, "_", s0$name, "_Dungeness_Kept")]]$C_exp_draws
+      z + (if (is.null(e$pe_all$comm_charter$by_season)) e$pe_all$comm_charter$Dungeness_Kept else e$pe_all$comm_charter$by_season[[sn]]$Dungeness_Kept) })
+    list(pt = read.csv(file.path(e$output_dir, "port_total_Dungeness_Kept.csv")), st = read.csv(file.path(e$output_dir, "season_totals.csv")),
+         rng_restored = identical(before, get(".Random.seed", envir = globalenv())),
+         const_width = vapply(const, function(z) diff(stats::quantile(z, c(0.025, 0.975), names = FALSE)), numeric(1)))
+  }
+  one <- tryCatch(run_totals("one", 99), error = function(e) e)
+  same_as_port <- function(r) !inherits(r, "error") && { x <- r$pt[r$pt$Estimate == "Expected_Catch", ]
+    nrow(r$st) == 1 && identical(c(x$BSS_median, x$BSS_lo95, x$BSS_hi95), c(r$st$BSS_median, r$st$BSS_lo95, r$st$BSS_hi95)) }
+  chk("B43: on one season, season_totals.csv IS the port total (median and interval, draw for draw), and the season block restores the RNG",
+      same_as_port(one) && one$rng_restored, if (inherits(one, "error")) sprintf("[%s]", conditionMessage(one)) else "")
+  late <- tryCatch(run_totals("one_late", 99), error = function(e) e)
+  chk("B43: a single season whose window starts inside the census window still carries the census (the season total IS the port total)",
+      same_as_port(late) && late$st$Census == 8538, if (inherits(late, "error")) sprintf("[%s]", conditionMessage(late)) else "")
+  two_a <- tryCatch(run_totals("two", 99, big_se = TRUE), error = function(e) e); two_b <- tryCatch(run_totals("two", 5, big_se = TRUE), error = function(e) e)
+  chk("B43: on two seasons each season draws its OWN census: the interval is wider than a constant census gives, the totals do not depend on the RNG state before, and the RNG is restored",
+      !inherits(two_a, "error") && !inherits(two_b, "error") && nrow(two_a$st) == 2 && identical(two_a$st, two_b$st) &&
+      two_a$rng_restored && two_b$rng_restored && two_a$st$Census[2] == 5000 &&
+      (two_a$st$BSS_hi95[2] - two_a$st$BSS_lo95[2]) > 1.05 * two_a$const_width[2])
+  foreign <- tryCatch(run_totals("one_plus_foreign", 99), error = function(e) e)
+  chk("B43: a census window for a season outside the run stays out of this season's total (the port draws, which carry it, are not reused)",
+      !inherits(foreign, "error") && nrow(foreign$st) == 1 && foreign$st$Census == 8538 &&
+      foreign$st$BSS_median < foreign$pt$BSS_median[foreign$pt$Estimate == "Expected_Catch"] - 3000)
+  chk("B43: the port block keeps its census draws for the season block, which reuses them when one season holds the whole census",
+      any(grepl(".cc_draws_by_cg[[cg]] <- .cc_draws", rmd, fixed = TRUE)) &&
+      any(grepl("if (.n_census_seasons == 1L && .census_is_whole(sn) && !is.null(.cc_draws_by_cg[[cg]])) .cc_draws_by_cg[[cg]] else", rmd, fixed = TRUE)) &&
+      !any(grepl("sC <- sC + (ccs[[cg]] %||% 0); sE <- sE + (ccs$effort_total %||% 0)", rmd, fixed = TRUE)))
+
+  # ---- (2b) B43: the fitted day-covariate table -------------------------------------------------
+  ed <- new.env(); sys.source("03_R_functions/bss_day_covariate_report.R", envir = ed)
+  X1 <- c(rep(1, 10), rep(0, 30)); stub <- function(fit) fit$draws
+  mk <- function(pop, ss, K, lab, gear = FALSE, draws = NULL) {
+    bd <- list(K_open = K, D = 40L, X_open_flat = if (K) rep(X1, K) else numeric(0))
+    if (gear) bd$.opener_labels <- paste(lab, collapse = ",") else attr(bd, "opener_labels") <- lab
+    list(fit = list(draws = draws), bss_data = bd, pe_fallback = FALSE, population = pop, subseason = ss)
+  }
+  set.seed(3); dr <- matrix(rnorm(4000, -1.16, 0.15), ncol = 1)
+  ba <- list(a = mk("shore", "all_gear", 0L, character(0)), b = mk("private_boat", "all_gear", 1L, "nws_sca_any", draws = dr),
+             c = mk("private_boat", "ring_net_only", 1L, "halibut_open", gear = TRUE, draws = dr))
+  tb <- ed$bss_day_covariate_table(ba, list(marine_hazard_selected = list(private_boat = "nws_sca_any")), extract_b_open = stub)
+  chk("B43 table: one row per fit x column, '(none)' for a fit without one, the flagged days counted, marine and opener sources told apart, both prep conventions read",
+      identical(tb$covariate, c("(none)", "nws_sca_any", "halibut_open")) && identical(tb$source, c(NA, "marine hazard", "other-fishery opener")) &&
+      identical(tb$days_flagged, c(NA, 10L, 10L)) && all(tb$fit_days == 40L) &&
+      abs(tb$coef_median[2] - stats::median(dr)) < 1e-3 && identical(tb$rate_ratio[2], sprintf("%.2f (%.2f-%.2f)", exp(stats::median(dr)),
+        exp(stats::quantile(dr, 0.025, names = FALSE)), exp(stats::quantile(dr, 0.975, names = FALSE)))))
+  chk("B43 table: a fit whose labels do not match its K_open is refused, and a PE-fallback fit is skipped",
+      inherits(try(ed$bss_day_covariate_table(list(x = mk("private_boat", "all_gear", 2L, "nws_sca_any", draws = cbind(dr, dr))), list(), extract_b_open = stub), silent = TRUE), "try-error") &&
+      nrow(ed$bss_day_covariate_table(list(x = modifyList(ba$b, list(pe_fallback = TRUE))), list(), extract_b_open = stub)) == 0)
+  gd <- readLines("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd", warn = FALSE)
+  chk("B43 table: in the gear report the table is the chunk's last, top-level, visible value (inside an if-block with a write.csv after it, knitr shows the code and no table)",
+      { k <- grep("the table must be the chunk's LAST, top-level, visible value", gd, fixed = TRUE)
+        length(k) == 1 && grepl("^if \\(!is.null\\(day_cov_df\\) && nrow\\(day_cov_df\\) > 0\\)$", gd[k + 1]) && grepl("^  report_table\\(", gd[k + 2]) } &&
+      { k <- grep("^```\\{r day-covariates-show", rmd); length(k) == 1 && grepl("^if \\(!is.null\\(day_cov_df\\)", rmd[k + 1]) && grepl("^  report_table\\(", rmd[k + 2]) })
+  chk("B43 table: both reports carry it (pooled 12.2, gear 13.1) and write effort_day_covariates.csv",
+      any(grepl("^### 12.2 Effort day covariates as fitted", rmd)) && any(grepl("^### 13.1 Effort day covariates as fitted", gd)) &&
+      any(grepl("day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params)", rmd, fixed = TRUE)) &&
+      any(grepl("day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params)", gd, fixed = TRUE)) &&
+      sum(grepl('"effort_day_covariates.csv"', c(rmd, gd), fixed = TRUE)) == 2)
+
+  # ---- (2c) B43: the overdispersion subsample is seeded, the caller's RNG restored -------------
+  od <- readLines("03_R_functions/diagnose_effort_overdispersion.R", warn = FALSE)
+  chk("B43: write_effort_overdispersion_diag() takes a seed, sets it before its sample.int(), and restores the caller's RNG on exit",
+      any(grepl("n_draws_use = 2000, seed = 1L) {", od, fixed = TRUE)) &&
+      { i <- grep("set.seed(as.integer(seed))", od, fixed = TRUE); j <- grep("use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use))", od, fixed = TRUE)
+        length(i) == 1 && length(j) == 1 && i < j } &&
+      any(grepl('if (.had_seed) assign(".Random.seed", .old_seed, envir = globalenv())', od, fixed = TRUE)))
+
+  # ---- (2d) B43: the manifest records every key and the tree state (written and read back) ------
+  rs <- readLines("run_estimation.R", warn = FALSE)
+  i <- grep("^write_manifest <- function", rs); j <- i; while (!grepl("^\\}", rs[j])) j <- j + 1L
+  em <- new.env(); eval(parse(text = rs[i:j]), envir = em)
+  sys.source("run_config.R", envir = em); em$run_stamp <- "HARNESS"; em$model <- "pooled"
+  mfp <- tryCatch(em$write_manifest(list(model = list(minutes = 1, outdir = "x")), tempdir()), error = function(e) NA_character_)
+  chk("B43: the manifest writes every run_config key (no truncation) and a git-tree line",
+      !is.na(mfp) && file.exists(mfp) && { m <- readLines(mfp, warn = FALSE)
+        sum(grepl("^ \\$ ", m)) == length(em$run_config) && !any(grepl("list output truncated", m, fixed = TRUE)) &&
+        any(grepl("^git tree    : ", m)) && any(grepl("marine_hazard_gear_regimes", m, fixed = TRUE)) })
+  # outside a repository git answers nothing with a non-zero status: that must read "unknown", never "clean"
+  od <- setwd(tempdir())   # restored on the next line whatever happens; an on.exit() here would fire only when local() ends
+  mfo <- tryCatch({ x <- NA_character_; suppressWarnings(utils::capture.output(x <- em$write_manifest(list(model = list(minutes = 1, outdir = "x")), tempdir()), type = "message")); x },
+                  error = function(e) NA_character_)
+  setwd(od)
+  chk("B43: where git does not answer (not a repository), the manifest says the tree is unknown rather than clean",
+      !is.na(mfo) && file.exists(mfo) && { m <- readLines(mfo, warn = FALSE)
+        any(grepl("^git tree    : unknown", m)) && !any(grepl("^git tree    : clean", m)) })
+  chk("B43: both ladders' code-equivalence declarations name the 2026-09-28 post-fit changes",
+      grepl("2026-09-28 review of the first render of the method of record (B43)", rd("06_diagnostics/run_improvements_2026-09-08.R"), fixed = TRUE) &&
+      grepl("B43 (2026-09-28) is post-fit reporting and diagnostics only", rd("06_diagnostics/run_marine_hazard_batch_2026-09-25.R"), fixed = TRUE))
+
+  # ---- (3) the documents ------------------------------------------------------------------------------
+  ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
+  vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  flat <- function(x) gsub("[ \n>]+", " ", x)
+  chk("80 docs: the box names the render, its total and interval, the byte-identity, and the two files that read differently",
+      grepl("**`05_output/20260927/pooled-CPUE-canonical-2024-25`, port total 96,118 [79,418, 120,558]**", ps, fixed = TRUE) &&
+      grepl("It is exactly what the adoption said it would be.", flat(ps), fixed = TRUE) &&
+      grepl("`season_totals.csv` reads 96,110 [79,428, 120,560]", flat(ps), fixed = TRUE) && grepl("Section 1z.5", ps, fixed = TRUE))
+  chk("80 docs: the register moves its authoritative run, marks A30 RENDERED, carries B43 and six 2026-09-28 defect rows",
+      grepl("**Authoritative run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`, port total **96,118 [79,418, 120,558]**", cr, fixed = TRUE) &&
+      grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the authoritative run**", cr, fixed = TRUE) && grepl("| B43 |", cr, fixed = TRUE) &&
+      length(gregexpr("| 2026-09-28 |", cr, fixed = TRUE)[[1]]) == 6 && grepl("**Confirmed in the field 2026-09-28**", cr, fixed = TRUE))
+  chk("80 docs: the campaign has 1z.5 and the 1z anchor names the render's commit and folder; the method document's reference run moved",
+      grepl("### 1z.5 The confirming render (2026-09-28)", vc, fixed = TRUE) && grepl("`1d3409d` (the confirming render)", vc, fixed = TRUE) &&
+      grepl("**Reference run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`", md, fixed = TRUE) &&
+      grepl("| **port total** | **96,118 [79,418, 120,558]** | **85,076** | **-11.5%** | |", md, fixed = TRUE) &&
+      !grepl("worst divergence fraction 2.17% against the\n5% backstop", md, fixed = TRUE))
+  # every table row in the governed documents has its header's cell count (GitHub drops excess cells)
+  ncell <- function(line) { x <- sub("^\\s*>?\\s*", "", line); x <- sub("^\\|", "", x); x <- sub("\\s+$", "", x)
+                            if (grepl("[^\\\\]\\|$", x)) x <- sub("\\|$", "", x)
+                            length(regmatches(x, gregexpr("(?<!\\\\)\\|", x, perl = TRUE))[[1]]) + 1L }
+  bad_rows <- character(0)
+  for (f in c("07_documentation/development_notes/CHANGE_REGISTER.md", "07_documentation/development_notes/PIPELINE_STATUS.md",
+              "07_documentation/development_notes/VALIDATION_CAMPAIGN.md", "07_documentation/BSS-GH-pooled-CPUE-model-documentation.md",
+              "07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md", "PULL_REQUEST.md", "07_documentation/CLAUDE.md",
+              "07_documentation/NEW_SEASON_GUIDE.md", "README-R-functions.md", "06_diagnostics/README.md", "07_documentation/README.md", "04_input_files/README.md")) {
+    L <- readLines(f, warn = FALSE); k <- 1L
+    while (k < length(L)) {
+      if (grepl("^\\s*>?\\s*\\|", L[k]) && grepl("^\\s*>?\\s*\\|?\\s*:?-{3,}", L[k + 1L])) {
+        h <- ncell(L[k]); m <- k + 2L
+        while (m <= length(L) && grepl("^\\s*>?\\s*\\|", L[m])) { if (ncell(L[m]) != h) bad_rows <- c(bad_rows, sprintf("%s:%d", basename(f), m)); m <- m + 1L }
+        k <- m
+      } else k <- k + 1L
+    }
+  }
+  chk("80 docs: every table row in the governed documents has its header's cell count (a `|` in code is escaped, no fifth cell in a four-column table)",
+      length(bad_rows) == 0, sprintf("(%s)", paste(utils::head(bad_rows, 10), collapse = ", ")))
 })
 
 # ---------------------------------------------------------------------------

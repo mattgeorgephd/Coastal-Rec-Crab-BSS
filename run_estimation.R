@@ -139,14 +139,33 @@ write_manifest <- function(stages, base_dir) {
   path <- file.path(base_dir, sprintf("run_manifest_%s.txt", run_stamp))
   con  <- file(path, "w")
   on.exit(close(con), add = TRUE)
-  git_sha <- tryCatch(system("git rev-parse --short HEAD", intern = TRUE),
+  # system2(stderr = FALSE): outside a repository git's "fatal: not a git repository" would
+  # otherwise reach the console at the end of a successful render and read as a failure.
+  git_sha <- tryCatch(suppressWarnings(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE, stderr = FALSE)),
                       error = function(e) NA_character_)
+  # 2026-09-28 (B43): the sha names the COMMIT; whether the render ran on exactly that commit
+  # is a separate fact, so the tracked files that differed from it are listed. (Untracked files
+  # are not: run outputs and delivery folders would swamp it.) Read at manifest time, after the
+  # render; an edit made during a 3-4 h render would show here too, which is the conservative side.
+  git_dirty <- tryCatch(suppressWarnings(system2("git", c("status", "--porcelain", "--untracked-files=no"), stdout = TRUE, stderr = FALSE)),
+                        error = function(e) structure(NA_character_, status = -1L))
+  # system2(stdout = TRUE) does not error when git itself fails (not a repository, a refused
+  # safe.directory): it returns what git printed, often nothing, with a non-zero "status"
+  # attribute. Nothing printed must not read as "clean", so the status and the sha are both checked.
+  git_ok <- is.null(attr(git_dirty, "status")) && !(length(git_dirty) == 1 && is.na(git_dirty)) &&
+    length(git_sha) == 1 && !is.na(git_sha) && is.null(attr(git_sha, "status")) && grepl("^[0-9a-f]{7,}$", git_sha)
+  tree <- if (!git_ok) "unknown (git did not answer for this folder; the sha above may not identify the code)" else
+    if (!length(git_dirty)) "clean (the render ran on the committed tree)" else
+      sprintf("%d tracked file(s) differ from %s: %s%s", length(git_dirty), if (length(git_sha)) git_sha else "HEAD",
+              paste(utils::head(trimws(substring(git_dirty, 4)), 20), collapse = ", "),
+              if (length(git_dirty) > 20) ", ..." else "")
   writeLines(c(
     "Run manifest",
     "============",
     paste("timestamp   :", run_stamp),
     paste("model       :", model),
     paste("git sha     :", if (length(git_sha)) git_sha else NA),
+    paste("git tree    :", tree),
     "",
     "Stages:"), con)
   for (nm in names(stages)) {
@@ -157,8 +176,15 @@ write_manifest <- function(stages, base_dir) {
       writeLines(sprintf("  %-8s %6s min   %s", nm, s$minutes, s$outdir), con)
     }
   }
-  writeLines(c("", "run_config (run-level overrides applied to the model):"), con)
-  utils::capture.output(utils::str(run_config), file = con)
+  # 2026-09-28 (B43): EVERY key. str() stops at 99 list elements by default, and run_config has
+  # carried more than 99 keys since 2026-08-25 (109 then, 177 now). No run_estimation.R render
+  # happened between that date and 2026-09-27, so the first render of the method of record wrote
+  # the first truncated manifest: 99 keys and "[list output truncated]", the 78 missing ones
+  # including all of section 2.10, the term the run was made to confirm. The driver's own
+  # run_parameters.txt had the same defect until 2026-09-04 and was fixed there, not here; it is
+  # complete in every run folder since, including this one.
+  writeLines(c("", sprintf("run_config (run-level overrides applied to the model; all %d keys):", length(run_config))), con)
+  utils::capture.output(utils::str(run_config, list.len = length(run_config) + 1L, vec.len = 8), file = con)
   writeLines(c("", "sessionInfo():"), con)
   utils::capture.output(print(utils::sessionInfo()), file = con)
   path

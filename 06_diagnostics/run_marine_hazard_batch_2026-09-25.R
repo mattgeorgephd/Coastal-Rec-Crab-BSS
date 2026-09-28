@@ -419,19 +419,21 @@ CODE_EQUIVALENT_MH <- list(
   # model_adequacy.csv stays comparable. No likelihood, prior or Stan datum is touched.
   "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:a65be4bc fns:8022c96c" =
     "B38 (the draw permutation rebuilt from the Stan seed after each fit, and the seeded census draw) and B39 (block-CV diagnostics) landed after the run; neither reaches a likelihood, a prior or the Stan data, so every per-fit summary the verdicts read is the run's own. The port median is the one number B38 would change on a re-render (once, by the MC jitter it removes). SUPERSEDED 2026-09-27 by the entry below (fns moved again, in post-fit diagnostics only).",
-  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:5a01223d fns:c8f2052a" =
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:73ee167d fns:fd9f0d80" =
     paste("As above, plus the 2026-09-27 block-CV results patch (Section 1y): bss_block_cv.R gained the joint effort table, the identical-fit floor and the per-week helper; write_loo_diagnostics() now writes loo_pointwise_osp_*.csv; .bma_core() filters the adequacy aggregate to gear / trailer / catch (all post-fit diagnostics);",
           "and B41 in bss_marine_hazard_covariates.R, a PREP-layer change: two further candidate columns (nws_sca_any_winter, nws_sca_any_rest) and the one-definition rule treating that pair as one. Offered, not selected, by any of these five rungs' configurations:",
           "measured on the real 2024-25 inputs, M2 to M5 resolve to the same per-population selection, the same per-date values of every selected column, the same screen table and the same selection table before and after the change, and M1 (off) returns before the module reads anything, so every rung's Stan data is unchanged.",
           "And the 2026-09-27 ADOPTION (A30, B42): marine_hazard_terms_for() in the module and one call in each prep, confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner sets that key to BOTH regimes in resolve_cfg(), which is what every rung here did,",
-          "so the preps build the same X_open for M1 to M6 (checked on the real inputs: the boat pot-closure prep under both regimes carries the term as M2's did); the drivers moved by report prose and comments only (the marine_hazard_prepare() call is unchanged)."),
+          "so the preps build the same X_open for M1 to M6 (checked on the real inputs: the boat pot-closure prep under both regimes carries the term as M2's did); the drivers moved by report prose and comments only (the marine_hazard_prepare() call is unchanged).",
+          "And the 2026-09-28 render review (B43), after every fit: the fitted day-covariate table in both reports (bss_day_covariate_report.R), the census draws carried into the pooled season totals, and a seeded draw subsample in write_effort_overdispersion_diag()."),
   # M6 rendered on 2026-09-27 from the tree at 4e23b15 (the block-CV results patch applied; its stamp
   # is that commit's fingerprint, recomputed and matched), so its recorded side is the second entry's
   # current side. The only fitting-layer change since is B42, covered by the last sentence above.
-  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:65b5adeb drivers:5a01223d fns:c8f2052a" =
+  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:65b5adeb drivers:73ee167d fns:fd9f0d80" =
     paste("M6 rendered from the tree with B40 and B41 applied (4e23b15). Since then only B42 (A30, the 2026-09-27 adoption) touched the fitting layer: marine_hazard_terms_for() in the module and one call in each prep,",
           "confining a selected term to the sub-seasons in marine_hazard_gear_regimes; this runner pins that key to BOTH regimes in resolve_cfg(), under which the function returns the selection unchanged for every fit, so M6's Stan data is what it was",
-          "(the M0 desk row 'M6 vs M2 differs in K_open and X_open_flat only, columns sum' is recomputed on the current tree at every run). The pooled driver moved by the section 3.7 prose only; the marine_hazard_prepare() call is unchanged.")
+          "(the M0 desk row 'M6 vs M2 differs in K_open and X_open_flat only, columns sum' is recomputed on the current tree at every run). The pooled driver moved by the section 3.7 prose only; the marine_hazard_prepare() call is unchanged.",
+          "B43 (2026-09-28) is post-fit reporting and diagnostics only (the day-covariate table, the season totals' census draws, the overdispersion subsample's seed).")
 )
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),
@@ -1029,7 +1031,8 @@ recommend <- function() {
   if (adopted) {
     cat("\n  ADOPTED 2026-09-27 (Matt's decision, Section 1z; A30): run_config.R section 2.10 ships manual,\n")
     cat("  boat nws_sca_any, no shore term, marine_hazard_gear_regimes = \"all_gear\". These rungs are the record\n")
-    cat("  the decision was taken on; the confirming production render (run_estimation.R as shipped) is the owed step.\n")
+    cat("  the decision was taken on. The production render of the shipped file is the authoritative run since 2026-09-28\n")
+    cat("  (05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118); the gear-resolved cross-check under it is the owed step.\n")
   } else {
     cat("\n  ADOPTION EDIT, if you take it: run_config.R section 2.10, marine_hazard_mode <- \"manual\" with\n")
     cat("  marine_hazard_manual_boat = \"nws_sca_any\", no shore term, marine_hazard_gear_regimes = \"all_gear\"\n")

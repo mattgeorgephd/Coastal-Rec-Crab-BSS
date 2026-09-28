@@ -42,14 +42,20 @@
 #
 # ---------------------------------------------------------------------------
 # THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative
-# run: the single 2024-25 season, pooled model, Method v2.0 throughout.
+# run: the single 2024-25 season, pooled model, Method v2.0 and the boat all-gear
+# advisory-day term (section 2.10, A30) throughout.
 #
-#   05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf
-#   port total 94,376  [77,566, 118,602]      4 of 4 components fitted, all BSS
+#   05_output/20260927/pooled-CPUE-canonical-2024-25
+#   port total 96,118  [79,418, 120,558]      4 of 4 components fitted, all BSS
 #
-# That folder is ladder rung R4 of 06_diagnostics/run_improvements_2026-09-08.R, whose
-# configuration is this file plus a window pin that is now redundant because the window
-# below IS the 2024-25 season (CHANGE_REGISTER D28, closed 2026-09-12). The authoritative
+# That folder was rendered from THIS file by source("run_estimation.R") (2026-09-27,
+# committed 2026-09-28), so it is not a ladder rung with a window pin: sourcing the
+# orchestrator on this file as shipped reproduces its configuration, and on the same machine
+# and toolchain its numbers to the crab (B38). It superseded
+# ladder rung R4 (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits
+# are this file's with marine_hazard_mode = "off" (rung M1 of the marine ladder re-rendered
+# them bit for bit; CHANGE_REGISTER D28 closed 2026-09-12 the window gap that once separated
+# the shipped file from the ladder). The authoritative
 # total and its caveats live in ONE place, the box at the top of
 # 07_documentation/development_notes/PIPELINE_STATUS.md; do not take an estimate from
 # anywhere else in the repository without checking it there.
@@ -227,7 +233,8 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376 [77,566, 118,602].
+  # 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118 [79,418, 120,558] (and of R4,
+  # 05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376, the run before it).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on

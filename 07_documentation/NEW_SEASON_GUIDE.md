@@ -112,8 +112,9 @@ Two things to know about a span. The first is NOT what this section used to say:
 windows live here. Each block replaces the nine per-season keys in section 1.2 of that file as a
 set; change one, change them all.
 
-**The canonical run (shipped; no edit needed).** The window of
-`05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, port total 94,376 [77,566, 118,602]:
+**The canonical run (shipped; no edit needed).** The window of the authoritative run,
+`05_output/20260927/pooled-CPUE-canonical-2024-25`, port total 96,118 [79,418, 120,558], which
+was rendered from `run_config.R` exactly as shipped (and of R4, 94,376, the run before it):
 
 ```r
   est_date_start    = "2024-09-16",   est_date_end      = "2025-09-15",

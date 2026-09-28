@@ -157,7 +157,20 @@
 }
 
 write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
-                                             n_draws_use = 2000) {
+                                             n_draws_use = 2000, seed = 1L) {
+  # 2026-09-28: SEEDED, with the caller's RNG restored. The draw subsample below was the last
+  # unseeded one in the per-fit outputs: the 2026-08-27 pass seeded save_run_diagnostics() and
+  # bss_ppc_calibration() and missed this one, so effort_overdispersion_* moved between two
+  # renders of bit-identical fits (measured on the authoritative run against rung M6, same
+  # shore fits: rE_median 5.338 -> 5.371, the variance shares in the third decimal) while
+  # every other per-fit file matched byte for byte. The restore keeps any later RNG consumer
+  # where it was.
+  .had_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  .old_seed <- if (.had_seed) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit({
+    if (.had_seed) assign(".Random.seed", .old_seed, envir = globalenv())
+    else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv())
+  }, add = TRUE)
   res <- tryCatch({
     if (is.null(fit)) { cat(sprintf("  %s: no fit; skipped.\n", label)); return(invisible(NULL)) }
     if (is.null(stan_data)) {
@@ -169,6 +182,7 @@ write_effort_overdispersion_diag <- function(fit, stan_data, label, output_dir,
     trailer_par <- bss_trailer_par(fit)
     ex <- rstan::extract(fit, pars = bss_extract_pars(fit, c("lambda_E_S", "r_E", "R_G")))
     ndraw <- length(ex$r_E)
+    set.seed(as.integer(seed))
     use <- if (ndraw > n_draws_use) sort(sample.int(ndraw, n_draws_use)) else seq_len(ndraw)
     nd  <- length(use)
 

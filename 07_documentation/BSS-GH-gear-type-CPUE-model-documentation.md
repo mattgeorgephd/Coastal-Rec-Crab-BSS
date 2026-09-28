@@ -7,7 +7,7 @@
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the **CROSS-CHECK** to the pooled model, not the headline estimator, and that is a design decision rather than a ranking of quality (Section 2).
 **Framework version:** 6.0, adopted 2026-09-12, when the method of record moved to Method v2.0 and this track was brought onto the same configuration. Framework v5.6, frozen against the same era as Method v1.0, is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
-**Reference run:** `05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, ladder rung R5 on the pooled reference run's configuration.
+**Reference run:** `05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, ladder rung R5 on the configuration of pooled R4 (the 2026-09-12 method). The pooled reference run has since moved to the method of record, which adds the boat all-gear advisory-day term (A30, 2026-09-27); this track has not yet been rendered with it (the gear prep confines the term the same way), so its cross-check against the current pooled total is owed.
 **Convention:** no em dashes.
 
 > ### READ THE POOLED DOCUMENT FIRST
@@ -36,10 +36,14 @@ catch rates. With `gear_resolved_G = TRUE` the shore fits carry a genuine per-ge
 process, so a per-gear catch estimate carries posterior uncertainty from the model.
 
 **An independent check on the port total.** The two models share the effort side and differ
-in the catch side, which makes their agreement informative. On the reference configuration
-the gear track reads **93,274 [76,537, 117,227]** against the pooled **94,376 [77,566,
-118,602]**: **-1.17%**, inside the pre-set 2% criterion. The shared turnover agrees to 0.02%
-across the two parameterizations and the monthly crabbing fraction to 0.002.
+in the catch side, which makes their agreement informative. On R4's configuration (the
+2026-09-12 method, before the boat advisory-day term) the gear track reads **93,274 [76,537,
+117,227]** against the pooled **94,376 [77,566, 118,602]**: **-1.17%**, inside the pre-set 2%
+criterion. Under the method of record the pooled track reads 96,118 [79,418, 120,558]; the
+like-for-like check is `Rscript run_estimation.R --model gear_resolved` on the shipped
+configuration, judged on the same 2%. At R4's configuration the shared turnover agreed to 0.02%
+across the two parameterizations and the monthly crabbing fraction to 0.002 (the pooled boat
+turnover has since moved with the term, 2.977 to 3.118 in the mean, so both need re-reading).
 
 That agreement is the single most useful external validation the project has, because the two
 implementations were written separately and reconcile through no shared catch code.
