@@ -69,13 +69,21 @@
 #   osp_boat_counts_file  = "WBL_boat_counts.xlsx"
 #   osp_boat_counts_sheet = "Sheet1"
 #   osp_effort_col        = "WestportPrivateEffort"
-#   osp_crab_only_col     = "WestportCrabOnlyEffort"   # optional; improvement 8
+#   osp_crab_only_col     = c("crabbing_only", "WestportCrabOnlyEffort")   # optional; first present wins
+#   osp_crab_checked_col  = "WestportCrabClassified"      # optional; private boats SAMPLED that day
+#   osp_sample_rate_col   = "WestportPrivateSampleRate"   # optional; the day's sampling rate (0.5 or 50)
+#   osp_sampling_rate_source = "auto"    # auto | column | schedule | none (osp_sampling_rates.R)
+#   osp_sampling_rates_file  = "osp_sampling_rates.xlsx"  # the manual's minimum-rate schedule
+#   osp_crab_only_unit    = "count"      # count | fraction (of the boats sampled)
+#   osp_crab_only_basis   = "sampled"    # sampled | expanded (already divided by the rate)
 #   osp_dupe_resolve      = "mean"    # mean | sum | max | first (only on DISAGREEING dupes)
 #   est_date_start / est_date_end     # the estimation window (reused, already in run_config)
 #
 # RETURNS a tibble with the boat_effort schema:
 #   event_date, count_sequence, count_quantity, section_num, count_type, population
-# plus attr(., "osp_crab_rows") = tibble(event_date, osp_total, osp_crab_only) or empty.
+# plus attr(., "osp_crab_rows") = tibble(event_date, osp_total (the boats SAMPLED, the binomial n),
+#   osp_crab_only, osp_boat_total, osp_sample_rate, osp_rate_source) or empty; the drivers write it
+#   as osp_crab_only_daily.csv.
 #
 # Requires: dplyr, tibble, readxl, here.
 ###############################################################################
@@ -95,8 +103,13 @@ fetch_osp_boat_counts <- function(params) {
   }
 
   val_col  <- params$osp_effort_col    %||% "WestportPrivateEffort"
-  crab_col <- params$osp_crab_only_col %||% "WestportCrabOnlyEffort"
   raw <- read_input_workbook(osp_file, sheet = params$osp_boat_counts_sheet %||% "Sheet1")
+  # B48 (2026-09-28): the crab-only column may be named by any of several candidates, the first
+  # present wins. OSP will deliver it as "crabbing_only" (Matt, 2026-09-28); the older
+  # placeholder name stays accepted.
+  crab_cands <- params$osp_crab_only_col %||% c("crabbing_only", "WestportCrabOnlyEffort")
+  crab_col <- intersect(crab_cands, names(raw))[1]
+  if (is.na(crab_col)) crab_col <- crab_cands[1]
 
   # Build event_date from Year/Month/Day, or from a pre-existing ISO `date` column.
   if (all(c("Year", "Month", "Day") %in% names(raw))) {
@@ -123,6 +136,17 @@ fetch_osp_boat_counts <- function(params) {
   #                         a share to a count would read almost every day as 0 crab-only boats.
   chk_col  <- params$osp_crab_checked_col %||% "WestportCrabClassified"
   has_chk  <- chk_col %in% names(raw)
+  # B48 (2026-09-28): OSP samples every k-th private boat at a rate fixed for the day (its
+  # sampling manual), so the crab-only count is out of the boats SAMPLED. The day's rate, when
+  # delivered, is read here; osp_resolve_sample_n() (osp_sampling_rates.R) turns it, the sampled
+  # count above or the manual's schedule into the binomial n. osp_crab_only_basis says whether
+  # the crab-only column counts SAMPLED boats ("sampled", the default) or has already been
+  # expanded to all boats ("expanded", divided by the rate), in which case it is converted back.
+  rate_col  <- params$osp_sample_rate_col %||% "WestportPrivateSampleRate"
+  has_rate  <- rate_col %in% names(raw)
+  crab_basis <- params$osp_crab_only_basis %||% "sampled"
+  if (!crab_basis %in% c("sampled", "expanded"))
+    stop("fetch_osp_boat_counts: osp_crab_only_basis must be \"sampled\" or \"expanded\" (got '", crab_basis, "').", call. = FALSE)
   crab_unit <- params$osp_crab_only_unit %||% "count"
   if (!crab_unit %in% c("count", "fraction"))
     stop("fetch_osp_boat_counts: osp_crab_only_unit must be \"count\" or \"fraction\" (got '", crab_unit, "').", call. = FALSE)
@@ -130,7 +154,8 @@ fetch_osp_boat_counts <- function(params) {
     dplyr::mutate(osp_boat_total = suppressWarnings(as.numeric(.data[[val_col]])),
                   osp_crab_only  = if (has_crab_col) suppressWarnings(as.numeric(.data[[crab_col]]))
                                    else NA_real_,
-                  osp_checked    = if (has_chk) suppressWarnings(as.numeric(.data[[chk_col]])) else NA_real_) |>
+                  osp_checked    = if (has_chk) suppressWarnings(as.numeric(.data[[chk_col]])) else NA_real_,
+                  osp_rate       = if (has_rate) osp_rate_as_fraction(.data[[rate_col]], rate_col) else NA_real_) |>
     dplyr::filter(!is.na(event_date), !is.na(osp_boat_total), osp_boat_total >= 0)  # keep observed zeros
 
   # --- Defensive de-duplication ---
@@ -152,12 +177,14 @@ fetch_osp_boat_counts <- function(params) {
                                         else agg(osp_crab_only[!is.na(osp_crab_only)]),
                        osp_checked    = if (all(is.na(osp_checked))) NA_real_
                                         else agg(osp_checked[!is.na(osp_checked)]),
+                       osp_rate       = if (all(is.na(osp_rate))) NA_real_
+                                        else agg(osp_rate[!is.na(osp_rate)]),
                        .groups = "drop")
     cat(sprintf(paste0("  De-dup: %d date(s) had >1 row; %d had DISAGREEING values ",
                        "(combined by '%s'); the rest were identical copies collapsed losslessly.\n"),
                 length(dup_dates), n_disagree, resolve))
   } else {
-    osp <- osp |> dplyr::select(event_date, osp_boat_total, osp_crab_only, osp_checked)
+    osp <- osp |> dplyr::select(event_date, osp_boat_total, osp_crab_only, osp_checked, osp_rate)
   }
 
   # --- Restrict to the estimation window; OSP-dark days stay ABSENT (= NS/latent) ---
@@ -182,7 +209,8 @@ fetch_osp_boat_counts <- function(params) {
 
   # --- improvement 8: crab-only rows (the lower bound on f) -------------------
   crab_rows <- tibble::tibble(event_date = as.Date(character()),
-                              osp_total = numeric(), osp_crab_only = numeric())
+                              osp_total = numeric(), osp_crab_only = numeric(), osp_boat_total = numeric(),
+                              osp_sample_rate = numeric(), osp_rate_source = character())
   if (has_crab_col) {
     v <- osp$osp_crab_only[is.finite(osp$osp_crab_only)]
     if (identical(crab_unit, "count") && length(v) && all(v <= 1) && any(v != round(v)) &&
@@ -190,27 +218,39 @@ fetch_osp_boat_counts <- function(params) {
       stop(sprintf(paste0("fetch_osp_boat_counts: '%s' holds values in [0, 1] with fractions, against daily totals above 1: ",
                           "it looks like a SHARE of the boats, not a count. Set osp_crab_only_unit = \"fraction\" in run_config.R ",
                           "(or deliver counts)."), crab_col), call. = FALSE)
-    cr <- osp |>
-      dplyr::mutate(osp_n = dplyr::if_else(is.finite(osp_checked) & osp_checked > 0, osp_checked, osp_boat_total),
-                    osp_crab_only = if (identical(crab_unit, "fraction")) round(osp_crab_only * osp_n) else osp_crab_only) |>
+    cr <- osp |> dplyr::filter(!is.na(osp_crab_only))
+    sn <- osp_resolve_sample_n(cr$osp_boat_total, cr$osp_checked, cr$osp_rate, params)
+    cr <- cr |>
+      dplyr::mutate(osp_n = sn$n, osp_sample_rate = sn$rate, osp_rate_source = sn$source,
+                    osp_crab_only = if (identical(crab_unit, "fraction")) round(osp_crab_only * osp_n)
+                                    else if (identical(crab_basis, "expanded")) round(osp_crab_only * osp_sample_rate)
+                                    else osp_crab_only) |>
       dplyr::filter(!is.na(osp_crab_only), osp_crab_only >= 0, osp_n > 0) |>
       dplyr::transmute(event_date,
-                       osp_total     = osp_n,              # the binomial n: boats CLASSIFIED
-                       osp_crab_only = osp_crab_only,
-                       osp_boat_total = osp_boat_total)
-    if (has_chk)
-      cat(sprintf("  OSP classified-boat column '%s' present: the crab-only share is out of %.0f classified boats (of %.0f returning) on its days.\n",
-                  chk_col, sum(cr$osp_total), sum(cr$osp_boat_total)))
+                       osp_total      = osp_n,              # the binomial n: boats SAMPLED (classified)
+                       osp_crab_only  = osp_crab_only,
+                       osp_boat_total = osp_boat_total,
+                       osp_sample_rate = osp_sample_rate,
+                       osp_rate_source = osp_rate_source)
+    if (nrow(cr)) {
+      tb <- table(cr$osp_rate_source)
+      cat(sprintf("  OSP sampling: the crab-only share is out of %.0f SAMPLED boats (of %.0f returning); n from %s.\n",
+                  sum(cr$osp_total), sum(cr$osp_boat_total), paste(sprintf("%s on %d day(s)", names(tb), as.integer(tb)), collapse = ", ")))
+      if (any(cr$osp_rate_source == "schedule (minimum rate)"))
+        cat(paste0("  NOTE: days on the schedule take the manual's MINIMUM rate; OSP may have sampled above it, so on\n",
+                   "        those days n is a lower bound and the crab-only share an upper bound. Deliver the day's rate\n",
+                   "        (osp_sample_rate_col) or the number sampled (osp_crab_checked_col) to remove this.\n"))
+    }
     n_over <- sum(cr$osp_crab_only > cr$osp_total)
     if (n_over > 0) {
-      cat(sprintf(paste0("  WARNING: %d OSP day(s) report MORE crab-only boats than total boats. ",
+      cat(sprintf(paste0("  WARNING: %d OSP day(s) report MORE crab-only boats than boats sampled. ",
                          "That is a data error, not a combo-trip effect; clamped to the total. ",
                          "Check the delivery.\n"), n_over))
       cr$osp_crab_only <- pmin(cr$osp_crab_only, cr$osp_total)
     }
     crab_rows <- cr
     if (nrow(cr) > 0)
-      cat(sprintf(paste0("  OSP crab-only classification: %d day(s), %.0f crab-only of %.0f total boats ",
+      cat(sprintf(paste0("  OSP crab-only classification: %d day(s), %.0f crab-only of %.0f sampled boats ",
                          "(raw share %.3f). This is a LOWER BOUND on the crabbing fraction f: OSP ",
                          "labels combo trips by the non-crab fishery.\n"),
                   nrow(cr), sum(cr$osp_crab_only), sum(cr$osp_total),

@@ -2,7 +2,7 @@
 
 - **Agency:** Washington Department of Fish and Wildlife (WDFW)
 - **Lead:** Matt George
-- **Status:** active development on branch `OSP-boat-count-incorporation`. Pooled is the headline estimator and gear-resolved is its cross-check; they are the only two models (the weather-tide covariate module was removed 2026-09-13). 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
+- **Status:** active development on `main`, which since 2026-09-28 carries the OSP boat-count work ([pull request #5](https://github.com/mattgeorgephd/Coastal-Rec-Crab-BSS/pull/5), merged from `OSP-boat-count-incorporation`). Pooled is the headline estimator and gear-resolved is its cross-check; they are the only two models (the weather-tide covariate module was removed 2026-09-13). 2024-25 was the **development test season**, not the target: the pipeline is built to run any season, a part-season window, or a multi-season span (see [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md)). **Nothing has been published from this pipeline.**
 
 > **Where the work stands.** The method of record is **Method v2.0** (adopted 2026-09-12), specified in [`07_documentation/BSS-GH-pooled-CPUE-model-documentation.md`](07_documentation/BSS-GH-pooled-CPUE-model-documentation.md). Unlike the frozen Method v1.0 it tracks the working model, so that document is the answer to "what does this model do". For running the model on a NEW season or window, start at [`07_documentation/NEW_SEASON_GUIDE.md`](07_documentation/NEW_SEASON_GUIDE.md). **The current authoritative run and its port total live in ONE place**, the box at the top of [`07_documentation/development_notes/PIPELINE_STATUS.md`](07_documentation/development_notes/PIPELINE_STATUS.md), and no number anywhere else in this repository, including the method document, should be quoted without checking it there. Every change and its status is tabulated in [`07_documentation/development_notes/CHANGE_REGISTER.md`](07_documentation/development_notes/CHANGE_REGISTER.md); how each was arrived at, run by run, is [`07_documentation/development_notes/VALIDATION_CAMPAIGN.md`](07_documentation/development_notes/VALIDATION_CAMPAIGN.md).
 
@@ -43,9 +43,8 @@ Coastal-Rec-Crab-BSS/
 ├── README-R-functions.md   Inventory of the 03_R_functions/ helper library
 ├── README.md           This file
 ├── CLAUDE.md           Imports 07_documentation/CLAUDE.md (guidance for Claude Code)
-├── PULL_REQUEST.md     The description of this branch's merge into main
 ├── LICENSE             GPL-3.0 license text
-├── NOTICE              Copyright and CreelEstimates attribution (an open confirmation item)
+├── NOTICE              Copyright and CreelEstimates attribution (confirmed 2026-09-28)
 ├── renv.lock           Package lockfile: the full dependency closure, pinned (see 'Setting up R')
 ├── .Rprofile           Activates the project's renv library when R starts in the repository root
 ├── renv/               renv's bootstrap script (activate.R); the library it installs is git-ignored
@@ -58,7 +57,7 @@ Coastal-Rec-Crab-BSS/
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
 | `02_stan_models/` | The two Stan models (pooled, gear-resolved) | [02_stan_models/README.md](02_stan_models/README.md) |
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
-| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`) | [04_input_files/README.md](04_input_files/README.md) |
+| `04_input_files/` | Eleven `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`), and OSP's sampling-rate schedule (read only when an OSP crab-only column is delivered; B48) | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
 | `06_diagnostics/` | The regression harness and the dated validation batch runners | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
@@ -217,6 +216,6 @@ See each model's development-history document for details.
 
 ## License and attribution
 
-Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 (GPL-3.0)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+Coastal-Rec-Crab-BSS is free software, licensed under the **GNU General Public License, version 3 only (GPL-3.0-only)**; see [`LICENSE`](LICENSE). Copyright (C) 2024-2026 Washington Department of Fish and Wildlife. The holder, the years, the GPL-3.0 release of WDFW's changes, the attribution and the version election were confirmed on 2026-09-28 (the CONFIRMATION RECORD in [`NOTICE`](NOTICE)).
 
 This pipeline is a **derivative work of [CreelEstimates](https://github.com/dfw-wa/CreelEstimates)**, the WDFW freshwater creel estimation framework (also GPL-3.0). The BSS and PE methodology, the project structure, and substantial portions of the R and Stan code originate in CreelEstimates and remain copyright their authors under GPL-3.0; the adaptation to recreational Dungeness crab is by WDFW. See [`NOTICE`](NOTICE) for the full attribution. Every source file carries a GPL-3.0 header with the copyright and this attribution. If you use or redistribute this software, retain the license, the per-file headers, and this attribution, and cite CreelEstimates as the upstream source.
