@@ -53,10 +53,10 @@ suppressPackageStartupMessages({
   library(rmarkdown)
 })
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for(lib in install.lib) install.packages(lib, dependencies=TRUE)
-sapply(load.lib, require, character=TRUE)
+# 2026-09-28 (B46): one package list and loader (03_R_functions/bss_packages.R): renv.lock's
+# versions when renv is active, a stop naming the package when one cannot be had.
+if (!requireNamespace("here", quietly = TRUE)) stop("Package 'here' is missing: run renv::restore() first.", call. = FALSE)
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
@@ -65,34 +65,47 @@ purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 source(here::here("run_config.R"))     # defines: model, run_config
 
 # ---- 2. CLI overrides (optional) ----------------------------------------------
+# 2026-09-28 (B46): parsed strictly. `--model X` and `--model=X` both work; X is pooled,
+# gear_resolved or both. A flag this script does not know, or --model with no value, STOPS
+# the run: they used to be ignored silently and the run went ahead as pooled.
 .args <- commandArgs(trailingOnly = TRUE)
 if (length(.args)) {
-  if ("--model" %in% .args) {
-    .i <- which(.args == "--model")
-    if (.i < length(.args)) model <- .args[.i + 1]
-  }
-  # --weather / --no-weather were removed with the weather module (2026-09-13). A run
-  # that still passes one should say so rather than silently ignoring it.
   if (any(c("--weather", "--no-weather") %in% .args))
     stop("--weather / --no-weather were removed with the weather-tide module on 2026-09-13. ",
          "See 07_documentation/WEATHER_COVARIATE_ANALYSIS.md for why covariates are excluded.",
          call. = FALSE)
+  .i <- 1L
+  while (.i <= length(.args)) {
+    a <- .args[.i]
+    if (grepl("^--model=", a)) {
+      model <- sub("^--model=", "", a)
+    } else if (identical(a, "--model")) {
+      if (.i == length(.args) || grepl("^--", .args[.i + 1]))
+        stop("--model needs a value: pooled, gear_resolved or both.", call. = FALSE)
+      model <- .args[.i + 1]; .i <- .i + 1L
+    } else {
+      stop(sprintf("Unknown argument '%s'. The only flag is --model (pooled | gear_resolved | both).", a), call. = FALSE)
+    }
+    .i <- .i + 1L
+  }
 }
 
 # ---- 3. Validate --------------------------------------------------------------
-if (!model %in% c("pooled", "gear_resolved")) {
-  stop("model must be 'pooled' or 'gear_resolved' (got '", model, "').",
+# "both" renders the pooled model, then the gear-resolved cross-check, and compares their
+# port totals (the gear track's purpose). Each renders in its OWN environment.
+if (length(model) != 1 || !model %in% c("pooled", "gear_resolved", "both")) {
+  stop("model must be 'pooled', 'gear_resolved' or 'both' (got '", paste(model, collapse = ","), "').",
        call. = FALSE)
 }
-model_rmd <- switch(model,
+models <- if (identical(model, "both")) c("pooled", "gear_resolved") else model
+model_rmds <- c(
   pooled        = here::here("01_BSS_models", "BSS-GH-pooled-CPUE-model.Rmd"),
-  gear_resolved = here::here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd")
-)
-stopifnot(file.exists(model_rmd))
+  gear_resolved = here::here("01_BSS_models", "BSS-GH-gear-type-CPUE-model.Rmd"))[models]
+stopifnot(all(file.exists(model_rmds)))
 
-# ---- 4. Shared render environment ---------------------------------------------
-run_env <- new.env(parent = globalenv())
-run_env$run_config <- run_config
+# ---- 4. Render environments ----------------------------------------------------
+# One environment per model, created in section 6; each gets run_config and writes its own
+# output_dir there.
 
 # ---- 5. Helpers ---------------------------------------------------------------
 run_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
@@ -105,10 +118,13 @@ banner <- function(msg) {
 # wrote (the driver sets its own `output_dir` inside run_env). Returns a small
 # result list; the post-render file copy is protected so it can never turn a
 # successful render into a reported failure.
-render_stage <- function(rmd, label) {
+render_stage <- function(rmd, label, run_env) {
   banner(sprintf("%s  |  %s  |  start %s",
                  label, basename(rmd), format(Sys.time(), "%H:%M:%S")))
   t0   <- Sys.time()
+  # a blank run_tag falls back to this timestamp (a stale one from an earlier standalone
+  # knit in the same session must not name this run's folder)
+  options(crab_run_tag = format(Sys.time(), "%H%M%S"))
   html <- rmarkdown::render(rmd, envir = run_env, quiet = FALSE)
   outdir <- if (exists("output_dir", envir = run_env, inherits = FALSE)) {
     get("output_dir", envir = run_env, inherits = FALSE)
@@ -163,17 +179,18 @@ write_manifest <- function(stages, base_dir) {
     "Run manifest",
     "============",
     paste("timestamp   :", run_stamp),
-    paste("model       :", model),
+    paste("model       :", paste(get0("models", ifnotfound = model), collapse = " + ")),
     paste("git sha     :", if (length(git_sha)) git_sha else NA),
     paste("git tree    :", tree),
     "",
     "Stages:"), con)
   for (nm in names(stages)) {
     s <- stages[[nm]]
-    if (is.null(s)) {
-      writeLines(sprintf("  %-8s FAILED", nm), con)
+    if (isTRUE(s$failed)) {
+      writeLines(sprintf("  %-14s FAILED after %s min: %s%s", nm, s$minutes %||% "?", s$error,
+                         if (!is.na(s$outdir %||% NA)) paste0("   (partial folder: ", s$outdir, ")") else ""), con)
     } else {
-      writeLines(sprintf("  %-8s %6s min   %s", nm, s$minutes, s$outdir), con)
+      writeLines(sprintf("  %-14s %6s min   %s", nm, s$minutes, s$outdir), con)
     }
   }
   # 2026-09-28 (B43): EVERY key. str() stops at 99 list elements by default, and run_config has
@@ -191,34 +208,72 @@ write_manifest <- function(stages, base_dir) {
 }
 
 # ---- 6. Run -------------------------------------------------------------------
-banner(sprintf("CRAB CREEL ESTIMATION  |  model = %s", model))
+banner(sprintf("CRAB CREEL ESTIMATION  |  model = %s", paste(models, collapse = " + ")))
 
+# 2026-09-28 (B46): a failed render is RECORDED, not fatal here. The manifest (section 7) is
+# written either way, so a multi-hour run that dies late still leaves its configuration, commit
+# and sessionInfo beside its partial folder; the script then exits with an error (section 8).
+# It used to stop() before the manifest, so the FAILED branch could never run.
 stages <- list()
-
-stages$model <- tryCatch(
-  render_stage(model_rmd, sprintf("MODEL [%s]", model)),
-  error = function(e) {
-    message("\n*** MODEL render FAILED: ", conditionMessage(e), " ***")
-    NULL
-  })
-
-if (is.null(stages$model)) {
-  stop("Model stage failed. See console output above.", call. = FALSE)
+for (m in models) {
+  run_env <- new.env(parent = globalenv())
+  run_env$run_config <- run_config
+  t0 <- Sys.time()
+  stages[[m]] <- tryCatch(
+    render_stage(model_rmds[[m]], sprintf("MODEL [%s]", m), run_env),
+    error = function(e) {
+      message("\n*** MODEL render FAILED [", m, "]: ", conditionMessage(e), " ***")
+      list(failed = TRUE, error = conditionMessage(e),
+           minutes = round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1),
+           outdir = if (exists("output_dir", envir = run_env, inherits = FALSE))
+                      get("output_dir", envir = run_env, inherits = FALSE) else NA_character_)
+    })
 }
 
-# ---- 7. Manifest --------------------------------------------------------------
-# Base the manifest location on the last stage's output folder's PARENT, i.e.
-# 05_output/<run_date>/, so it sits alongside the per-model subfolders.
-last_outdir <- if (exists("output_dir", envir = run_env, inherits = FALSE)) {
-  get("output_dir", envir = run_env, inherits = FALSE)
-} else {
-  here::here("05_output")
-}
-manifest_path <- tryCatch(write_manifest(stages, dirname(last_outdir)),
+# ---- 7. Manifest and the cross-check -----------------------------------------------
+# The manifest sits in 05_output/<run_date>/, beside the per-model folders.
+.outdirs <- vapply(stages, function(s) s$outdir %||% NA_character_, character(1))
+.base <- if (any(!is.na(.outdirs))) dirname(.outdirs[!is.na(.outdirs)][1]) else
+  here::here("05_output", format(Sys.Date(), "%Y%m%d"))
+dir.create(.base, recursive = TRUE, showWarnings = FALSE)
+manifest_path <- tryCatch(write_manifest(stages, .base),
                           error = function(e) {
                             message("  (note: manifest not written: ",
                                     conditionMessage(e), ")"); NA_character_
                           })
 
-banner(sprintf("ALL DONE  |  manifest: %s",
-               if (is.na(manifest_path)) "(not written)" else manifest_path))
+# Both tracks rendered: compare their port totals, like for like (both write Expected_Catch
+# since B44). The pre-set criterion is agreement within run_config$cross_check_tolerance (2%).
+cross_check_path <- NA_character_
+if (length(models) == 2 && !any(vapply(stages, function(s) isTRUE(s$failed), logical(1)))) {
+  cross_check_path <- tryCatch({
+    rd <- function(m) {
+      pt <- utils::read.csv(file.path(stages[[m]]$outdir, "port_total_Dungeness_Kept.csv"), stringsAsFactors = FALSE)
+      pt[pt$Estimate == "Expected_Catch", c("BSS_median", "BSS_lo95", "BSS_hi95")]
+    }
+    p <- rd("pooled"); g <- rd("gear_resolved")
+    tol <- as.numeric(run_config$cross_check_tolerance %||% 0.02)
+    rel <- (g$BSS_median - p$BSS_median) / p$BSS_median
+    cc <- data.frame(pooled_median = p$BSS_median, pooled_lo95 = p$BSS_lo95, pooled_hi95 = p$BSS_hi95,
+                     gear_median = g$BSS_median, gear_lo95 = g$BSS_lo95, gear_hi95 = g$BSS_hi95,
+                     gear_minus_pooled_pct = round(100 * rel, 2), tolerance_pct = 100 * tol,
+                     verdict = if (abs(rel) <= tol) "PASS" else "REVIEW",
+                     pooled_folder = basename(stages$pooled$outdir), gear_folder = basename(stages$gear_resolved$outdir))
+    f <- file.path(.base, sprintf("cross_check_%s.csv", run_stamp))
+    utils::write.csv(cc, f, row.names = FALSE)
+    banner(sprintf("CROSS-CHECK  |  pooled %s  gear %s  (%+.2f%%, criterion %.0f%%): %s",
+                   format(p$BSS_median, big.mark = ","), format(g$BSS_median, big.mark = ","),
+                   100 * rel, 100 * tol, cc$verdict))
+    f
+  }, error = function(e) { message("  (note: cross-check not written: ", conditionMessage(e), ")"); NA_character_ })
+}
+
+banner(sprintf("ALL DONE  |  manifest: %s%s",
+               if (is.na(manifest_path)) "(not written)" else manifest_path,
+               if (is.na(cross_check_path)) "" else paste0("  |  cross-check: ", cross_check_path)))
+
+# ---- 8. Exit status ---------------------------------------------------------------
+.failed <- names(stages)[vapply(stages, function(s) isTRUE(s$failed), logical(1))]
+if (length(.failed))
+  stop(sprintf("Model stage(s) failed: %s. The manifest above records the error and the partial folder.",
+               paste(.failed, collapse = ", ")), call. = FALSE)

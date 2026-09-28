@@ -267,7 +267,7 @@ A cap justified by a pathology that no longer exists is not a cap, it is a prefe
 **Status 2026-09-02: ALL DONE, and the untested corner is now measured.** The boat pot-closure 2x2 completes at 849 (monthly, turnover off) / 1,018 (monthly, on) / 735 (biweekly, off) / **939 (biweekly, on)**, interaction +35 crab, additive like the all-gear one. V4 also re-confirms the `ar_force` leak is closed: the all-gear component returned 31,008, the production value exactly.
 
 **Status 2026-08-30: all DONE except the stage C re-run, which is stage S5 of the batch.**
-- **Align the boat pot-closure AR maps** across the two tracks (plan 3.1 is answered: biweekly reconciles them to 1.1%).
+- **Align the boat pot-closure AR maps** across the two tracks (plan 3.1 is answered: biweekly reconciles them to 1.1%). *(Annotation 2026-09-28: the answer was found but the alignment is NOT in the shipped configuration. The pooled boat pot-closure fit runs MONTHLY (`ar_max_resolution$pooled$private_boat`; the authoritative run's `convergence_report.csv`) while the gear track runs it BIWEEKLY (`gear_period_bss$pot_closure`), so "ALL DONE" above overstates this item; the per-population gear period question is CHANGE_REGISTER D3.)*
 - **`tau_bar` is missing from `prior_vs_posterior_*.csv`**, so the one parameter this batch existed to evaluate has no contraction or `prior_influential` diagnostic. Add it.
 - **`expansion_ratios.csv` prints decoupled shore `R_G_boat` values without the flag** that `structural_params_*.csv` now carries. Propagate `decoupled` to that file.
 - **`n_interviews_fitted` is NA for every gear-track fit** while the pooled track populates it.

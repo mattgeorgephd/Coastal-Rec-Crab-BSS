@@ -61,10 +61,13 @@ gear_primary_class <- function(gear_type) {
 #             catch-bearing trips a replicate holds, which is part of the sampling variance.
 # Returns an n_boot x length(levels) matrix of shares (rows sum to 1). If no trip carries
 # catch the shares are undefined: every row is NA and the caller decides the fallback.
+# B46 (2026-09-28): seed defaults to 1 (was NULL, unseeded) and the caller's RNG is restored.
 gear_share_bootstrap <- function(interviews, n_boot = 4000, levels = gear_primary_levels,
-                                 seed = NULL) {
+                                 seed = 1L) {
   stopifnot(is.data.frame(interviews), all(c("gear_primary", "catch") %in% names(interviews)))
-  if (!is.null(seed)) set.seed(seed)
+  bss_with_seed(seed, .gear_share_bootstrap_core(interviews, n_boot, levels))
+}
+.gear_share_bootstrap_core <- function(interviews, n_boot, levels) {
   n <- nrow(interviews)
   out <- matrix(NA_real_, n_boot, length(levels), dimnames = list(NULL, levels))
   ct <- as.numeric(interviews$catch); ct[!is.finite(ct) | ct < 0] <- 0

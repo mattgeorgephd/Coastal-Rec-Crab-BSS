@@ -19,7 +19,7 @@ Three crabbing populations are estimated independently and summed for the port t
 
 1. **Shore crabbers** (dock + jetty + beach), effort from gear counts, BSS + PE.
 2. **Private boat crabbers**, effort from trailer counts, BSS + PE. Boat effort now also uses the OSP daily boat-total as a second effort stream, and a crabbing fraction f converts all-boat counts to crab effort.
-3. **Commercial/charter vessels**, effort from a daily vessel tally, census expansion.
+3. **Commercial/charter vessels**, not modeled: an exact census of the commercial vessels over the daily vessel tally, plus an expansion of the charter trips over the charter trip roster (`estimate_comm_charter.R`; split 2026-09-11).
 
 Both BSS models share the same effort model, the PE estimator, the I/E (ingress/egress) handling, the modular R pipeline in `03_R_functions/`, and a single run configuration in `run_config.R`. They differ in how catch-per-unit-effort (CPUE) is modeled.
 
@@ -42,6 +42,13 @@ Coastal-Rec-Crab-BSS/
 ├── run_estimation.R    Run orchestrator (sources run_config.R)
 ├── README-R-functions.md   Inventory of the 03_R_functions/ helper library
 ├── README.md           This file
+├── CLAUDE.md           Imports 07_documentation/CLAUDE.md (guidance for Claude Code)
+├── PULL_REQUEST.md     The description of this branch's merge into main
+├── LICENSE             GPL-3.0 license text
+├── NOTICE              Copyright and CreelEstimates attribution (an open confirmation item)
+├── renv.lock           Package lockfile: the full dependency closure, pinned (see 'Setting up R')
+├── .Rprofile           Activates the project's renv library when R starts in the repository root
+├── renv/               renv's bootstrap script (activate.R); the library it installs is git-ignored
 ├── .gitignore
 └── Coastal-Rec-Crab-BSS.Rproj
 ```
@@ -51,7 +58,7 @@ Coastal-Rec-Crab-BSS/
 | `01_BSS_models/` | The two production analysis drivers (`*-pooled-CPUE-model.Rmd`, `*-gear-type-CPUE-model.Rmd`) | [01_BSS_models/README.md](01_BSS_models/README.md) |
 | `02_stan_models/` | The two Stan models (pooled, gear-resolved) | [02_stan_models/README.md](02_stan_models/README.md) |
 | `03_R_functions/` | All R helper functions; the drivers source the whole folder via `purrr::walk` | [README-R-functions.md](README-R-functions.md) |
-| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read only when `marine_hazard_mode` is on) | [04_input_files/README.md](04_input_files/README.md) |
+| `04_input_files/` | Ten `.xlsx` inputs: nine model and diagnostic workbooks plus the `build_*.R` scripts that generate six of them from the per-season creel workbooks in `raw/`, and the NWS marine hazard archive with its own builder (read by every production run: `marine_hazard_mode` ships `"manual"`) | [04_input_files/README.md](04_input_files/README.md) |
 | `05_output/` | Dated run folders, each with a per-model subfolder of CSVs and plots | [05_output/README.md](05_output/README.md) |
 | `06_diagnostics/` | The regression harness and the dated validation batch runners | [06_diagnostics/README.md](06_diagnostics/README.md) |
 | `07_documentation/` | Per-model documentation, change logs, the rendered equations/landing pages, and the WDFW instruction docs | [07_documentation/README.md](07_documentation/README.md) |
@@ -60,7 +67,7 @@ Coastal-Rec-Crab-BSS/
 
 Every file read or written by the drivers is resolved with `here::here()`, which anchors paths to the repository root (located via the `.Rproj` / `.git` sentinels), **not** to the location of the `.Rmd`. Consequences:
 
-- An `.Rmd` can sit in any subfolder (the drivers live in `01_BSS_models/` and `06_diagnostics/`) and still resolve `here("04_input_files", ...)` correctly, because `here()` walks up to the repo root regardless of the knit working directory.
+- An `.Rmd` can sit in any subfolder (the drivers live in `01_BSS_models/`; until 2026-09-13 the weather-tide driver lived in `06_diagnostics/`) and still resolve `here("04_input_files", ...)` correctly, because `here()` walks up to the repo root regardless of the knit working directory.
 - The directory **names** inside `here(...)` must match the folder names on disk. The numbered reorganization therefore required updating every `here("R_functions"/"stan_models"/"input_files"/"output", ...)` call to its numbered equivalent (`03_R_functions`, `02_stan_models`, `04_input_files`, `05_output`). If a stage folder is ever renamed again, update the corresponding string in the drivers.
 
 ---
@@ -81,7 +88,7 @@ Despite the name, the pooled model is not minimal: effort is measured in **gear-
 
 ### 2. Gear-Resolved CPUE Model (production)
 
-The cross-check model. With `gear_resolved_G = TRUE` the SHORE fits carry a genuine per-gear CPUE process with shared AR(1) dynamics (all-gear `G = 5`, pot-closure `G = 4`; boat stays `G = 1`), so gear-type catch estimates carry posterior uncertainty directly from the model; the **default is `G = 1`**, where the gear split is apportioned from interview proportions just as in the pooled model, and the optional `gear_share_dirichlet` (sampled 2026-09-01, default off) propagates gear-share uncertainty into those per-gear intervals. Also includes a separate holiday effort effect (`B2`), day-type stratified commercial/charter census expansion, an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
+The cross-check model. With `gear_resolved_G = TRUE` the SHORE fits carry a genuine per-gear CPUE process with shared AR(1) dynamics (all-gear `G = 5`, pot-closure `G = 4`; boat stays `G = 1`), so gear-type catch estimates carry posterior uncertainty directly from the model; the **default is `G = 1`**, where the gear split is apportioned from interview proportions just as in the pooled model, and the optional `gear_share_dirichlet` (sampled 2026-09-01, default off) propagates gear-share uncertainty into those per-gear intervals. Also includes a separate holiday effort effect (`B2`), the same commercial census plus charter roster expansion as the pooled model (the day-type-stratified census expansion it used to carry was retired 2026-09-09 to 2026-09-11), an incomplete-trip filter, and explicit regulatory gear exclusions per sub-season. Use this when you need gear-type catch estimates with uncertainty.
 
 | File | Description |
 |---|---|
@@ -123,23 +130,31 @@ The `.Rmd` files select their Stan model via the `bss_model_file` parameter. Ear
 
 ## Quick Start
 
-1. Clone this repository.
+1. Clone this repository and set up R once (see **Setting up R** below).
 2. Put input data in `04_input_files/`. **Most of it is BUILT, not placed.** Drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` and run:
 
    ```sh
    Rscript 04_input_files/build_all_inputs.R
    ```
 
-   which regenerates `interview_combined.xlsx`, `effort_combined.xlsx`, `sampler_shifts.xlsx`, `wes_commercial_tally.xlsx`, `charter_trips.xlsx` and `crabbing_holidays.xlsx` in dependency order. **Do not hand-edit those six**; an edit is discarded the next time anyone adds a season. Three inputs are maintained by hand because their sources are not the season workbooks:
+   which regenerates `interview_combined.xlsx`, `effort_combined.xlsx`, `sampler_shifts.xlsx`, `wes_commercial_tally.xlsx`, `charter_trips.xlsx` and `crabbing_holidays.xlsx` in dependency order. **Do not hand-edit those six**; an edit is discarded the next time anyone adds a season. Four inputs are not built by `build_all_inputs.R`, because their sources are not the season workbooks; the first three are maintained by hand and the fourth has its own builder:
    - `ingress_egress.xlsx` (I/E surveys; the shore turnover and `L_effective`)
    - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when `use_osp_boat_counts = TRUE`)
    - `fishery_opener_dates.xlsx` (the other-fishery opener calendar; pooled report diagnostic only)
-   - `nws_marine_hazards.xlsx` (the NWS Small Craft Advisory archive for the bar and coastal zones; read only when `marine_hazard_mode` is not `"off"`, which is the shipped value; rebuilt by `Rscript 04_input_files/build_nws_marine_hazards.R`, which needs the network and is not part of `build_all_inputs.R`)
-3. Edit `run_config.R`: choose the `model` ("pooled" or "gear_resolved"), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
-4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal. You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
+   - `nws_marine_hazards.xlsx` (the NWS Small Craft Advisory archive for the bar and coastal zones; read by every production run, since `marine_hazard_mode` ships `"manual"` (the method of record since 2026-09-27), and a run stops if it does not cover the window; only `"off"` skips it; rebuilt before each new season by `Rscript 04_input_files/build_nws_marine_hazards.R`, which needs the network and is not part of `build_all_inputs.R`)
+3. Edit `run_config.R`: choose the `model` ("pooled", "gear_resolved", or "both", which renders the pooled headline and then the gear-resolved cross-check on the same configuration and writes `cross_check_<timestamp>.csv` comparing the two port totals against `cross_check_tolerance`), set a `run_tag` (letters, digits, `-`, `_`; a season token such as `2025-26` in the tag must match `season_filter`, and a tag that already names a non-empty folder gets `-HHMMSS` appended rather than overwriting it), set the season window (`est_date_start`, `est_date_end`), and set any other toggles. As of the 2026-07-11 consolidation, `run_config.R` is the single control surface for a run; you do not edit the `.Rmd` files for a routine run.
+4. Launch the run with `source("run_estimation.R")` in RStudio (Source, not Knit) or `Rscript run_estimation.R` from a terminal (`Rscript run_estimation.R --model both` overrides `model`; an unknown flag stops the run rather than being ignored, and a failed model stage is recorded in the run manifest before the orchestrator exits non-zero). You can still knit a model `.Rmd` directly; it sources `run_config.R` automatically when `run_config` is not already present.
 5. Output is written to `05_output/YYYYMMDD/<model>-<run_tag>/`.
 
-**Requirements:** R 4.2+, rstan 2.32+, loo, tidyverse, lubridate, suncalc, gt, patchwork, here, readxl. The weather-tide module's extra dependencies (mgcv, httr, jsonlite, geosphere) and its NOAA CO-OPS / NDBC / Iowa IEM network calls went with it on 2026-09-13, so a run now needs no network access at all.
+### Setting up R
+
+**Requirements:** R 4.2+ and a C++ toolchain for Stan (Rtools on Windows, Xcode command-line tools on macOS, `build-essential` on Linux). The R packages are the ten in `bss_required_packages` (`03_R_functions/bss_packages.R`: tidyverse, lubridate, rstan, here, readxl, rmarkdown, knitr, loo, suncalc, digest) and their dependencies; `renv.lock` pins all 120 of them, including the BH and RcppEigen headers rstan compiles every model against. The weather-tide module's extra dependencies (mgcv, httr, jsonlite, geosphere) and its network calls went with it on 2026-09-13, so a run needs no network access once the packages are installed.
+
+1. Open R in the repository root (open `Coastal-Rec-Crab-BSS.Rproj` in RStudio, or start R there). The committed `.Rprofile` runs `renv/activate.R`, which installs renv 1.0.3 on first use if it is missing and points the session at the project library.
+2. Run `renv::restore()` once. It installs the pinned versions into the project library (`renv/library/`, git-ignored). On Windows install Rtools matching your R version first; rstan and StanHeaders are compiled from source when no binary exists.
+3. Check with `rstan::stan_version()` and `source("03_R_functions/bss_packages.R"); bss_load_packages()`, which stops naming any package still missing.
+
+Every driver and runner loads packages through `bss_load_packages()`. With renv active it restores a missing package from the lockfile; with renv not active it installs from CRAN and says so, because those are then not the pinned versions. To run against a site library instead (a container, or the harness), set `RENV_ACTIVATE_PROJECT=FALSE` for that session: `RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/test_improvements_2026-08-25.R`. The lockfile records R 4.2.2, the version of the confirmation run; renv warns but restores under a newer R, and the harness passes under R 4.3.3.
 
 ---
 

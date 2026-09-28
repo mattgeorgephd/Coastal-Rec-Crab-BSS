@@ -32,13 +32,15 @@
 # define Method v2.0, so its baseline rung would be fitted with today's configuration and
 # labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
 # measurement behind that number and for the override.
+# 2026-09-28 (B46): the guard FAILS CLOSED. It was located relative to the working directory
+# and skipped when not found, so sourcing this file from two or more folders deep ran it
+# unguarded; here::here() finds the repository root from anywhere, and a missing guard stops.
 if (!exists("bss_superseded_runner")) {
-  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
-                   "03_R_functions", "bss_superseded_runner.R")
-  if (file.exists(.sr)) source(.sr)
+  .sr <- here::here("03_R_functions", "bss_superseded_runner.R")
+  if (!file.exists(.sr)) stop("The superseded-runner guard was not found at ", .sr, "; refusing to run.", call. = FALSE)
+  source(.sr)
 }
-if (exists("bss_superseded_runner"))
-  bss_superseded_runner(
+bss_superseded_runner(
     runner   = "06_diagnostics/run_osp_validation.R",
     question = paste("does the OSP boat-count stream integrate, and what does it do to the boat component"),
     settled_by = paste("the OSP stream is in PRODUCTION: osp_scale_is_tau ships TRUE, the dense OSP series identifies tau_bar, and the calibration is CHANGE_REGISTER A7 / phase1-osp-second-stream.md (\"EXECUTED and in production\")"),
@@ -48,10 +50,8 @@ if (exists("bss_superseded_runner"))
 suppressPackageStartupMessages({ library(here); library(rmarkdown) })
 
 # ---- environment: mirror run_estimation.R so renders behave identically ------
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-invisible(sapply(load.lib, require, character.only = TRUE))
+# 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 invisible(purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source))

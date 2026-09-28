@@ -44,7 +44,7 @@
                "L_out", "kappa_OSP", "r_OSP", "theta_C")
 
 save_bss_ppc_draws <- function(fit, stan_data, label, output_dir,
-                               pars = .sbd_pars, max_draws = NULL, quiet = FALSE) {
+                               pars = .sbd_pars, max_draws = NULL, quiet = FALSE, seed = 1L) {
   if (is.null(fit) || is.null(stan_data)) return(invisible(NULL))
   out <- tryCatch({
     have <- intersect(pars, fit@sim$pars_oi %||% pars)
@@ -62,8 +62,9 @@ save_bss_ppc_draws <- function(fit, stan_data, label, output_dir,
     # Optional thinning. The PPC averages over draws, so a subset is an unbiased but
     # noisier estimate; the default keeps everything because the point of the file is to
     # reproduce the run's numbers EXACTLY, not approximately.
+    # B46 (2026-09-28): the thinning is seeded (it was not) and the caller's RNG restored.
     idx <- if (!is.null(max_draws) && nd > max_draws)
-             sort(sample.int(nd, max_draws)) else seq_len(nd)
+             bss_with_seed(seed, sort(sample.int(nd, max_draws))) else seq_len(nd)
     # Index the first dimension of an array of ANY rank (the 4-d lambda_*_S included).
     take <- function(x, i) {
       if (is.null(dim(x))) return(x[i])

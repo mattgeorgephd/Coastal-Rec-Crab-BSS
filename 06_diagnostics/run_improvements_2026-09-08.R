@@ -38,7 +38,10 @@
 #   R2   + item 3: tau_boat prior from the OSP/trailer calibration (shared_tau_sigma 0.15)
 #   R3a  + item 1A: monthly f from the sampler contacts, LEGACY per-stratum construction
 #   R3   + item 1B: the dynamic f (shipped; R4 below is the FULL shipped configuration)
-#   R4   + item 2: tau_shore_prior_mu = "derived" (ADOPTED 2026-09-09: the shipped configuration)
+#   R4   + item 2: tau_shore_prior_mu = "derived" (ADOPTED 2026-09-09: the shipped configuration
+#        OF 2026-09-12. Since 2026-09-27 the method of record adds the boat marine term, which
+#        resolve_cfg() pins OFF here, and B44 / B45 (2026-09-28) changed the shore data; R4 is
+#        the ladder's reference rung, not the current method. Note added 2026-09-28, B46.)
 #   R5   the gear-resolved cross-check on the configuration GEAR_FOLLOWS names
 #
 # 2026-09-09 (after the patches were applied): the census is exact over the tally days
@@ -208,10 +211,8 @@ fmt <- function(x, d = 1) {
 
 if (!isTRUE(DRY_RUN)) {
   suppressPackageStartupMessages({ library(here); library(rmarkdown) })
-  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-  install.lib <- load.lib[!load.lib %in% installed.packages()]
-  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-  invisible(sapply(load.lib, require, character.only = TRUE))
+  # 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+  source(file.path(.root, "03_R_functions", "bss_packages.R")); bss_load_packages()
   rstan_options(auto_write = TRUE)
 } else {
   suppressWarnings(suppressPackageStartupMessages(
@@ -220,7 +221,7 @@ if (!isTRUE(DRY_RUN)) {
         silent = TRUE)))
 }
 invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE),
-                 function(f) try(source(f), silent = TRUE)))
+                 function(f) source(f)))   # B46: a file that fails to source stops the runner (it was hidden by try())
 source(.here("run_config.R"))
 BASE <- run_config
 
@@ -391,7 +392,7 @@ STAGE_DEFS <- list(
   R3  = list(id = "R3",  model = "pooled", tag = .tag("R3-f-dynamic"),   delta = D_R3,
              headline = "+ item 1B: the dynamic f"),
   R4  = list(id = "R4",  model = "pooled", tag = .tag("R4-shore-tau"),   delta = D_R4,
-             headline = "+ item 2: shore turnover derived from the I/E time column (the shipped configuration)"),
+             headline = "+ item 2: shore turnover derived from the I/E time column (the 2026-09-12 shipped configuration)"),
   R5  = list(id = "R5",  model = "gear_resolved", tag = .tag("R5-gear-crosscheck"),
              delta = if (identical(GEAR_FOLLOWS, "R4")) D_R4 else D_R3,
              headline = sprintf("gear-resolved cross-check on the %s configuration", GEAR_FOLLOWS)))
@@ -763,18 +764,36 @@ CODE_EQUIVALENT <- list(
 # changes nothing at run time: a code delta the list above does not excuse is reported as
 # REVIEW at the rung, as it always was.
 CODE_NOT_EQUIVALENT <- list(
-  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:2f9895d1 drivers:73ad4086 fns:693000ed" =
-    "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25)."
+  "stan:523f4e63 drivers:4c2ce454 fns:30ed14fb => stan:097f36ee drivers:0e696486 fns:162d8d91" =
+    "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25). And B46 (2026-09-28), which also reaches fits: prep_days_crab() keys the PE period and week_index by ISO week and ISO year (%V, %G) where it used %W, which on 2024-25 joins the week of 30 December 2024 to 5 January 2025 (a 2-day and a 5-day period before), so a fit at weekly AR resolution (the shore all-gear fit, where a rung fits it weekly) has one fewer AR period (43, not 44) and the PE port moves 88,819 to 88,758; the gear Stan's R_G prior centre is the season's interview ratio rather than the literal 1.3 (gear track only); both Stan files reject osp_crab_lower = 1 with a dynamic f and no dynamic c (unreachable under these pins). The rest of B46 is post-fit, reporting or infrastructure: Predictive_Catch rebuilt from the fitted ZINB (Expected_Catch unchanged), bss_with_seed() restoring the caller's RNG, the gate's NA verdict, the output folder, the package loader."
 )
 code_fingerprint <- function() {
   paste(sprintf("stan:%s", .code_group("02_stan_models", "\\.stan$")),
         sprintf("drivers:%s", .code_group("01_BSS_models", "\\.Rmd$")),
         sprintf("fns:%s", .code_group("03_R_functions", "\\.R$")), sep = " ")
 }
+# 2026-09-28 (B46): WHAT THE DIGEST CANNOT SEE. The stage digest hashes the pinned keys only
+# (DELTA_KEYS and WINDOW), and the code fingerprint covers Stan, drivers and 03_R_functions;
+# neither covers the input workbooks or the run_config.R keys outside the pin. So a rebuilt
+# effort_combined.xlsx, or an edited unpinned key, left RESUME reusing a rung fitted to other
+# data. This fingerprint (every workbook under 04_input_files/, raw/ included, and the whole of
+# run_config.R) is stamped beside the code line and checked the same way: reported at the rung
+# and downgrading its cross-rung claims, not enforced, so no digest moves.
+inputs_fingerprint <- function() {
+  fs <- sort(list.files(.here("04_input_files"), pattern = "[.]xlsx$", full.names = TRUE, recursive = TRUE))
+  # run_config.R by its VALUES (sourced into a scratch environment), so a comment edit does not count
+  rc <- tryCatch({ e <- new.env(); sys.source(.here("run_config.R"), envir = e)
+                   paste(deparse(e$run_config[sort(names(e$run_config))]), collapse = "") },
+                 error = function(e) "run_config.R unreadable")
+  txt <- paste(c(paste(basename(fs), unname(tools::md5sum(fs))), rc), collapse = "\n")
+  b <- as.integer(charToRaw(txt))
+  sprintf("%08x", as.integer(sum(as.numeric(b) * seq_along(b)) %% 2147483647))
+}
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid), sprintf("F_METHOD: %s", F_METHOD),
                sprintf("digest: %s", stage_digest(sid)),
                sprintf("code: %s", code_fingerprint()),
+               sprintf("inputs: %s", inputs_fingerprint()),
                sprintf("rstan: %s / StanHeaders %s", utils::packageVersion("rstan"),
                        tryCatch(as.character(utils::packageVersion("StanHeaders")), error = function(e) "?")),
                sprintf("written: %s", format(Sys.time())),
@@ -1296,6 +1315,16 @@ run_stage <- function(sid) {
     if (identical(dg, stage_digest(sid))) {
       .cd <- .code_delta(.stage_code_of(existing))
       cat("  RESUME: output present at", basename(existing), "with a MATCHING config digest - skipping the fit.\n")
+      .inp <- .stamp_field(existing, "inputs")
+      if (is.na(.inp)) cat("          (no inputs fingerprint recorded in that folder: it predates 2026-09-28.)\n")
+      else if (!identical(.inp, inputs_fingerprint())) {
+        cat("          *** THE INPUT WORKBOOKS OR run_config.R HAVE CHANGED SINCE THAT FIT. The folder is REUSED; any verdict comparing it is downgraded. ***\n")
+        V1row(sid, "reused fit was produced from DIFFERENT inputs than this run",
+              sprintf("folder %s; inputs %s against %s now", basename(existing), .inp, inputs_fingerprint()),
+              "the reused folder's inputs fingerprint matches the current tree", "REVIEW",
+              paste("RESUME matched this rung's CONFIG digest (the pinned keys) and reused the fit, but an input",
+                    "workbook or an unpinned run_config.R key has changed since. Delete the folder to re-fit it."))
+      }
       if (is.na(.cd %||% NA))
         cat("          (no code fingerprint recorded in that folder: it predates 2026-09-10.)\n")
       else if (nzchar(.cd)) {

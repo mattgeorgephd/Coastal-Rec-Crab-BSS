@@ -136,9 +136,15 @@ incomplete_trip_arm_frames <- function(interview, arm, h_col, catch_col = "Dunge
 # shore PE counts gear directly and is unaffected either way. That asymmetry is improvement
 # 5's central finding, and the 2026-08-26 ladder confirmed it numerically (the shipped boat
 # PE equals the gear_only arm of this table), so it must be labelled rather than flattened.
-incomplete_trip_production_arm <- function(is_shore, filter_incomplete_trips = TRUE) {
+# 2026-09-28 (B46): the boat PE's arm follows pe_gear_ratio_arm. Since 2026-09-02 the shipped
+# "match_bss" takes the boat gear-per-group from the SAME incomplete-trip-filtered frame as the
+# BSS (pe_gear_ratio_frame()), so the boat PE runs "exclude"; only "gear_only" reproduces the
+# asymmetry described above. The label had stayed "gear_only" regardless.
+incomplete_trip_production_arm <- function(is_shore, filter_incomplete_trips = TRUE,
+                                           pe_gear_ratio_arm = "match_bss") {
   if (!isTRUE(filter_incomplete_trips)) return(c(bss = "keep", pe = "keep"))
-  c(bss = "exclude", pe = if (isTRUE(is_shore)) "exclude" else "gear_only")
+  boat_pe <- if (identical(pe_gear_ratio_arm, "gear_only")) "gear_only" else "exclude"
+  c(bss = "exclude", pe = if (isTRUE(is_shore)) "exclude" else boat_pe)
 }
 
 diagnose_incomplete_trips <- function(dwg, subseasons, params, L_eff_model,
@@ -250,7 +256,8 @@ diagnose_incomplete_trips <- function(dwg, subseasons, params, L_eff_model,
       production_arm_bss = incomplete_trip_production_arm(
                              TRUE, params$filter_incomplete_trips)[["bss"]],
       production_arm_pe  = vapply(.data$is_shore_component, function(z)
-                             incomplete_trip_production_arm(z, params$filter_incomplete_trips)[["pe"]],
+                             incomplete_trip_production_arm(z, params$filter_incomplete_trips,
+                                                            params$pe_gear_ratio_arm %||% "match_bss")[["pe"]],
                              character(1)),
       production_arm     = production_arm_bss) |>
     dplyr::select(-base_catch, -base_effort, -base_gear, -is_shore_component)

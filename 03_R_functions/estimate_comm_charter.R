@@ -49,8 +49,10 @@
 # THE ESTIMATOR, per charter stratum (a vessel, or one pooled stratum):
 #     est_v = N_v * m_v                      m_v = mean catch per interviewed trip
 #     var_v = N_v^2 (1 - n_v / N_v) s_v^2 / n_v          (SRS with the FPC)
-# A vessel with fewer than two interviews, or none, borrows the pooled charter mean and
-# SD and the pooled n, and says so in charter_detail$mean_source. n_v >= N_v (every trip
+# A vessel with NO interview borrows the pooled charter mean, SD and n; a vessel with ONE
+# keeps its own mean and borrows the pooled SD (one trip has no spread). Both say so in
+# charter_detail$mean_source. (Corrected 2026-09-28: this said "fewer than two ... borrows
+# the pooled mean", which the code has not done for n = 1.) n_v >= N_v (every trip
 # interviewed) gives zero: that stratum is itself a census.
 #
 # WHY NOT THE SPREADSHEET'S ARITHMETIC. The "charter trips" sheet estimates the unobserved
@@ -181,9 +183,9 @@ estimate_comm_charter <- function(dwg, params) {
   charter_frame <- if (use_roster) "roster" else "tally"
 
   .day_type <- function(d) case_when(d %in% crabbing_holiday_dates ~ "weekend",
-                                     weekdays(d) %in% params$days_wkend ~ "weekend", TRUE ~ "weekday")
+                                     bss_weekday(d) %in% params$days_wkend ~ "weekend", TRUE ~ "weekday")
   census_calendar <- tibble(date = seq.Date(census_start, census_end, by = "day")) |>
-    mutate(day_of_week = weekdays(date), day_type = .day_type(date))
+    mutate(day_of_week = bss_weekday(date), day_type = .day_type(date))
 
   # 2026-09-13: frame_warnings carries every condition a READER OF THE REPORT needs, not
   # just the console. Matt, on whether this should stop instead: "a warning is fine -
@@ -309,7 +311,7 @@ estimate_comm_charter <- function(dwg, params) {
            est_dung_char = charter_n * md_char,
            est_dung_exp  = est_dung_comm + if (ride_along) est_dung_char else 0,
            est_dung      = est_dung_comm + est_dung_char,
-           day_of_week   = weekdays(date),
+           day_of_week   = bss_weekday(date),
            day_type      = .day_type(date))
 
   strat <- census_calendar |> count(day_type, name = "n_total_days") |>
@@ -492,7 +494,7 @@ estimate_comm_charter <- function(dwg, params) {
 
   daily_est_out <- daily_full |>
     filter(est_dung > 0 | observed) |>
-    transmute(date, day_of_week = weekdays(date), day_type, commercial_tally, charter_tally,
+    transmute(date, day_of_week = bss_weekday(date), day_type, commercial_tally, charter_tally,
               charter_n = charter_trips, total_comm_charter = replace_na(commercial_tally, 0) + charter_trips, est_dung)
 
   # 2026-09-13: the other conditions a reader of the report has to know about, collected

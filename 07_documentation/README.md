@@ -10,6 +10,7 @@ For the one-paragraph project overview and quick start, see the [root README](..
 |---|---|
 | `NEW_SEASON_GUIDE.md` | **How to run the model on a new season, a part-season window, or a multi-season span**: the naive-run -> ladder -> pin-resolutions -> production workflow, the per-season config checklist, and the failure-mode table. The 2024-25 season was the development test season; this is the document for every season after it. |
 | `development_notes/PIPELINE_STATUS.md` | **The single living status document**: current state, what is done, and the prioritized backlog. Read this first to see where the pipeline is. |
+| `CLAUDE.md` | Guidance for Claude Code (and any new reader): the architecture, the conventions that bite, and the five governed documents with their jobs. The repository root's `CLAUDE.md` imports it. |
 
 ## Start here, part 2
 
@@ -17,7 +18,7 @@ For the one-paragraph project overview and quick start, see the [root README](..
 |---|---|
 | `development_notes/CHANGE_REGISTER.md` | **Every change on the branch and its status** (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence, the effect on the number, the defects found and what each cost. The tabular companion to `PIPELINE_STATUS.md`. |
 | `BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model IS. The method of record, the full specification and the limitations. |
-| `development_notes/VALIDATION_CAMPAIGN.md` | **How it got there**: the dated run-by-run record of the 2026-08/09 campaign (the former Sections 1b to 1v). |
+| `development_notes/VALIDATION_CAMPAIGN.md` | **How it got there**: the dated run-by-run record of the 2026-08/09 campaign, Sections 1b to 1z (1b to 1v are the former sections of `PIPELINE_STATUS.md`; 1w to 1z were written there). |
 
 ## Method documentation (Method v2.0, LIVE)
 
@@ -61,7 +62,7 @@ The method documents summarize the history in one screen and point here for deta
 
 `PIPELINE_STATUS.md` (above) consolidated and superseded the generic historical working notes that used to live here. The folder now holds the living status document, the original critique, and the design and validation notes for the larger feature branches:
 
-**Since 2026-09-12 the dated run-by-run narrative lives in `development_notes/VALIDATION_CAMPAIGN.md`**, which is what were Sections 1b to 1v of `PIPELINE_STATUS.md`, moved out unaltered so the status document can be the current state and the backlog. Every "Section 1x" reference in the repository resolves there. Read it for WHY a decision was taken and what the run said.
+**Since 2026-09-12 the dated run-by-run narrative lives in `development_notes/VALIDATION_CAMPAIGN.md`**, which is what were Sections 1b to 1v of `PIPELINE_STATUS.md`, moved out unaltered so the status document can be the current state and the backlog, and has since grown to Section 1z. Every "Section 1x" reference in the repository resolves there. Read it for WHY a decision was taken and what the run said.
 
 The per-batch review documents below are the raw material that narrative was built from, newest first; each supersedes parts of the one before:
 
@@ -81,9 +82,10 @@ The per-batch review documents below are the raw material that narrative was bui
 | `20260331-model-critique.docx` | Keep. The original external critique (primary source). |
 | `PIPELINE_STATUS.md` | The single living status document (also linked under "Start here" above). |
 | `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
+| `marine-hazard-covariates-2026-09-25.md` | Design note for the NWS marine hazard effort covariates (A30): the flag definitions, the archive, the ladder design and its decision rule. The term it designed is the method of record since 2026-09-27. |
 
 **OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (its stale rendered `.html` was removed 2026-09-27), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
 
 ## Change register
 
-`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.
+`development_notes/CHANGE_REGISTER.md` lists every change made on the `OSP-boat-count-incorporation` branch with its status (ADOPTED / BUILT, INERT / OPEN / REJECTED / BLOCKED, and the further words the register's vocabulary line lists), the evidence for it, and its effect on the reported number, plus the defects found and what each cost. Start there for a view of where the work stands; `development_notes/PIPELINE_STATUS.md` is the narrative version with the run-by-run detail.

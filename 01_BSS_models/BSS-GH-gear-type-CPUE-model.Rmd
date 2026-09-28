@@ -1,6 +1,7 @@
 ---
-title: "BSS-GH-gear-type-CPUE-model"
-author: "Matt George"
+title: "Grays Harbor Recreational Crab Harvest Estimate"
+subtitle: "`r local({ if (!exists('run_config')) source(here::here('run_config.R'), local = TRUE); s <- as.character(run_config$season_filter); sprintf('Gear-Resolved CPUE Model (cross-check) - %s %s (%s to %s)', paste(s, collapse = ' + '), if (length(s) > 1) 'Seasons' else 'Season', run_config$est_date_start, run_config$est_date_end) })`"
+author: "Washington Department of Fish and Wildlife"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -86,7 +87,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 ```{r}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor  |  Gear-Resolved CPUE Model
-# 2024-25 Season  |  Framework v5.6 (2026-07-12)
+# Framework v6.0 (2026-09-12)  |  the season(s) run_config.R selects
 #
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # with a per-gear-type CPUE process (shared AR(1) dynamics), so gear-type catch can
@@ -95,7 +96,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # (Sep 16 - Nov 30, no pots, non-pot gear only, biweekly BSS periods) and all-gear (Dec 1 - Sep 15,
 # monthly BSS periods).
 #
-# CURRENT STATE (v5.6): both shore and boat run on the gear-DEPLOYMENT effort unit
+# STATE AT v5.6 (v6.0 since 2026-09-12 carries it forward): both shore and boat run on the gear-DEPLOYMENT effort unit
 # (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
 # Helper functions live in 03_R_functions/ (sourced wholesale in the setup chunk),
 # and every user-selectable toggle lives in run_config.R (the single file you edit);
@@ -123,10 +124,10 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # 0. SETUP - Load packages and configure environment
 # ===========================================================================
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for(lib in install.lib) install.packages(lib, dependencies=TRUE)
-sapply(load.lib, require, character=TRUE)
+# 2026-09-28 (B46): one package list and loader (03_R_functions/bss_packages.R): renv.lock's
+# versions when renv is active, a stop naming the package when one cannot be had.
+if (!requireNamespace("here", quietly = TRUE)) stop("Package 'here' is missing: run renv::restore() first.", call. = FALSE)
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
@@ -137,12 +138,8 @@ purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 # options(crab_run_tag=) so a standalone RStudio knit keeps its HTML and this
 # driver's CSVs in the SAME folder.
 run_date <- format(Sys.Date(), "%Y%m%d")
-.run_tag <- if (exists("run_config") && is.list(run_config) &&
-                !is.null(run_config$run_tag) && nzchar(run_config$run_tag)) {
-  run_config$run_tag
-} else getOption("crab_run_tag", format(Sys.time(), "%H%M%S"))
-output_dir <- here("05_output", run_date, paste0("gear-type-CPUE-model-", .run_tag))
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+# 2026-09-28 (B46): see bss_output_dir.R (no reuse of a filled folder, no mislabelled season).
+output_dir <- bss_output_dir("gear-type-CPUE-model-", if (exists("run_config")) run_config else NULL)
 
 
 # --- Timing ---
@@ -239,8 +236,8 @@ params <- list(
   # --- R_G fixed value for boat fits (Issue 5) ---
   R_G_fixed_boat = 1.3,
 
-  # --- Boat I/E minimum obs to identify tau (paired with use_boat_ie in run_config) ---
-  ie_min_obs_boat  = 2,
+  # (ie_min_obs_boat moved to run_config.R only, 2026-09-28, B46: a key in both lists is
+  # decided silently by this one, so editing run_config's value changed nothing.)
 
   # --- Project centroid (Westport), used for the civil-twilight computation ---
   centroid_lat = 46.904,
@@ -666,7 +663,7 @@ timer_stop("2_diagnostic_plots")
 
 The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the season, independently of the BSS. It is the model-free cross-check the gate can fall back to. This block also runs the commercial/charter census and the PE port totals.
 
-**The unsampled and singleton (week x day-type) cells** are handled by the same three settings the pooled track uses, from one shared implementation (`03_R_functions/pe_effort_strata.R`, rebuilt 2026-09-12): the effort of an unsampled cell is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`), its CPUE from that month's ratio-of-sums (`pe_empty_stratum = "local"`), and a cell resting on one sampled day or none now contributes variance rather than the zero the retired `sd()`-of-one formula gave it (`pe_variance = "impute_aware"`). On 2024-25 that is 44% of the shore all-gear days and 43% of the boat's. `run_config.R` documents each with its measured effect; `pe_empty_effort_strata.csv` carries the per-component numbers for this run.
+**The unsampled and singleton (week x day-type) cells** are handled by the same three settings the pooled track uses, from one shared implementation (`03_R_functions/pe_effort_strata.R`, rebuilt 2026-09-12): the effort of an unsampled cell is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`), its CPUE from that month's ratio-of-sums (`pe_empty_stratum = "local"`), and a cell resting on one sampled day or none now contributes variance rather than the zero the retired `sd()`-of-one formula gave it (`pe_variance = "impute_aware"`); how many of this run's days that covers is in `pe_empty_effort_strata.csv` (it was 44% and 43% of the shore and boat all-gear days on the 2024-25 development season). `run_config.R` documents each with its measured effect; `pe_empty_effort_strata.csv` carries the per-component numbers for this run.
 
 ```{r gear-sec3-pe}
 # ---- 7.2 PE ESTIMATES ----
@@ -1018,7 +1015,11 @@ for(cg in bss_catch_groups) {
         # "first_pass" reproduces the pre-2026-09-04 behaviour exactly.
         .stop_rule   <- params$ar_escalate_stop   %||% "first_pass"
         .select_rule <- params$ar_escalate_select %||% "first_pass"
-        .passed      <- is.null(gate_try) || isTRUE(gate_try$pass_convergence)
+        # 2026-09-28 (B46): a gate that ERRORS is a rung not shown to pass, so it escalates
+        # (bounded by ar_escalate_max_attempts) instead of stopping the ladder as a pass.
+        # The authoritative gate in the totals section recomputes the verdict either way.
+        if (is.null(gate_try)) message(sprintf("  WARNING: %s attempt %d: the convergence gate errored; treated as NOT passed.", label, attempt))
+        .passed      <- !is.null(gate_try) && isTRUE(gate_try$pass_convergence)
         .keep <- if (is.null(fit)) TRUE
                  else if (identical(.stop_rule, "first_pass")) TRUE
                  else if (!.passed) FALSE
@@ -1105,9 +1106,13 @@ for(cg in bss_catch_groups) {
       # track. C_sum is the predictive total (a Poisson draw per day on top of the expected
       # catch); the gear driver used to sum it for the port total, so the cross-check compared
       # the pooled track's expected catch with this track's predictive catch.
-      C_draws <- rstan::extract(fit, "C_sum")$C_sum                          # predictive (with Poisson noise)
+      C_draws <- rstan::extract(fit, "C_sum")$C_sum                          # Stan's Poisson predictive (reconciliation only)
       C_exp_draws <- rstan::extract(fit, "C_expected_sum")$C_expected_sum  # expected (no noise)
       E_draws <- rstan::extract(fit, "E_sum")$E_sum
+      # B46 (2026-09-28): the predictive total from the fitted observation model (party-level
+      # ZINB, bss_predictive_catch.R), as on the pooled track.
+      C_pred_draws <- tryCatch(bss_predictive_catch(fit, bss_data, bss_predictive_seed(params$bss_seed, label)),
+                               error = function(e) { message("  predictive catch: ", conditionMessage(e)); NULL }) %||% C_draws
 
       C_gear_draws <- rstan::extract(fit, "C_sum_gear")$C_sum_gear  # [draws, G_gear]
       gear_labels <- bss_data$.gear_type_labels
@@ -1116,7 +1121,7 @@ for(cg in bss_catch_groups) {
         C_sum = quantile(C_draws, c(0.025,0.5,0.975)),
         C_expected_sum = quantile(C_exp_draws, c(0.025,0.5,0.975)),
         E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
-        C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws,
+        C_draws = C_draws, C_exp_draws = C_exp_draws, C_pred_draws = C_pred_draws, E_draws = E_draws,
         C_gear_draws = C_gear_draws,
         gear_type_labels = gear_labels,
         fit = fit, pe_fallback = FALSE,
@@ -1262,6 +1267,7 @@ n_draws_max <- max(sapply(bss_all, function(b) {
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
 
+.cc_draws_by_cg <- list()   # 2026-09-28 (B46): the census draws, kept for the season totals below
 for(cg in bss_catch_groups) {
   bss_C_total <- rep(0, n_draws_max)       # expected catch (the headline, as on the pooled track)
   bss_C_pred_total <- rep(0, n_draws_max)  # predictive catch
@@ -1281,7 +1287,7 @@ for(cg in bss_catch_groups) {
         n <- length(b$C_exp_draws)
         idx <- rep_len(1:n, n_draws_max)
         bss_C_total <- bss_C_total + b$C_exp_draws[idx]
-        bss_C_pred_total <- bss_C_pred_total + b$C_draws[idx]
+        bss_C_pred_total <- bss_C_pred_total + (b$C_pred_draws %||% b$C_draws)[idx]
         bss_E_total <- bss_E_total + b$E_draws[idx]
       }
     }
@@ -1293,8 +1299,8 @@ for(cg in bss_catch_groups) {
   .cc <- pe_all$comm_charter
   .cc_draws <- rep(.cc[[cg]] %||% 0, n_draws_max)
   if (cg == "Dungeness_Kept" && is.finite(.cc$carried_se %||% NA) && (.cc$carried_se %||% 0) > 0) {
-    set.seed(as.integer(params$bss_seed %||% 1L))   # 2026-09-26 (B38): a reproducible port total
-    .cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se), .cc$observed_dung %||% 0)
+    # 2026-09-26 (B38): a reproducible port total; B46 (2026-09-28): the caller's RNG restored.
+    .cc_draws <- bss_with_seed(params$bss_seed %||% 1L, pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se), .cc$observed_dung %||% 0))
     message(sprintf(paste0("  Census enters the port interval with SE %s under census_uncertainty = '%s' (total SE %s: charter expansion %s, ",
                            "commercial per-vessel mean %s; census_expansion = '%s', %d unsampled calendar days)."),
                     format(round(.cc$carried_se), big.mark = ","), .cc$census_uncertainty %||% "charter",
@@ -1304,6 +1310,7 @@ for(cg in bss_catch_groups) {
   bss_C_total <- bss_C_total + .cc_draws
   bss_C_pred_total <- bss_C_pred_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
+  .cc_draws_by_cg[[cg]] <- .cc_draws
 
   # 2026-09-28 (B44): the same rows, labels and quantity as the pooled track's
   # port_total_*.csv (Effort, Expected_Catch, Predictive_Catch), so the cross-check reads
@@ -1339,21 +1346,143 @@ if (exists(".port_total_disp")) report_table(.port_total_disp,
   caption = "Port total: PE, BSS median, and 95% credible interval (combined effort and catch)")
 ```
 
+### 6a. Season totals
+
+Per-season totals, written to `season_totals.csv` every run (and shown here when the run spans more than one season). Since 2026-09-28 (B46) the gear track writes them too, from the same code as the pooled track.
+
+```{r gear-season-totals, echo=FALSE, results='asis'}
+# ============================================================================
+# SEASON-LEVEL TOTALS (2026-09-10; caption corrected 2026-09-08, review item 7). On a
+# multi-season span every sub-season carries a `season` tag from build_subseasons(), so
+# the port-total draw assembly above can be rerun PER SEASON: same draws, same PE
+# fallbacks, same gate decisions, grouped by the season each fitted sub-season belongs
+# to. Each sub-season is an INDEPENDENT Stan fit (the driver loops over the sub-season
+# list); a span shares nothing across seasons except the I/E day-length regression and
+# the config priors, so season totals from a span match standalone runs up to those. The commercial/charter census contributes
+# per season when census_windows is configured (estimate_comm_charter()$by_season);
+# with the scalar census keys its single window is attributed to the season containing
+# census_start_date, and the table says so. Written to season_totals.csv always;
+# rendered in the HTML when the run spans more than one season.
+# ============================================================================
+.seasons <- unique(na.omit(vapply(subseasons, function(x) x$season %||% NA_character_, character(1))))
+# 2026-09-28 (B43): THE CENSUS ENTERS A SEASON TOTAL THE WAY IT ENTERS THE PORT TOTAL. It entered
+# as a constant, so a season total lacked the charter expansion's uncertainty and, on a single
+# season, disagreed with port_total_*.csv by a few crab: the first render of the method of record
+# wrote 96,110 [79,428, 120,560] here against 96,118 [79,418, 120,558] there, and every run that
+# carried the census SE had the same kind of gap (2 to 13 crab). The season that holds the WHOLE census
+# reuses the port block's seeded draws, so a single-season total IS the port total, draw for draw;
+# seasons that share the census (per-season windows) draw their own, seeded from bss_seed and the
+# season's position, with the caller's RNG restored.
+# The scalar census (no census_windows) belongs to the season whose sub-seasons contain
+# census_start_date; failing that (a window that starts inside the census window), to the season
+# whose sub-seasons overlap [census_start_date, census_end_date]; failing that, to the only season.
+# Before 2026-09-28 the second and third cases dropped the census from the season total while the
+# port total kept it.
+.scalar_census_season <- local({
+  cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
+  ce <- suppressWarnings(as.Date(params$census_end_date %||% NA))
+  s_of <- function(test) unique(na.omit(vapply(subseasons, function(x) if (isTRUE(test(x))) x$season %||% NA_character_ else NA_character_, character(1))))
+  hit <- s_of(function(x) !is.na(cs) && cs >= x$start && cs <= x$end)
+  if (!length(hit)) hit <- s_of(function(x) !is.na(cs) && !is.na(ce) && x$start <= ce && x$end >= cs)
+  if (!length(hit) && length(.seasons) == 1L) hit <- .seasons
+  if (length(hit)) hit[1] else NA_character_
+})
+.ccs_for <- function(sn) {
+  cc <- pe_all$comm_charter
+  if (!is.null(cc$by_season)) return(cc$by_season[[sn]])
+  if (identical(sn, .scalar_census_season)) cc else NULL
+}
+.n_census_seasons <- sum(vapply(.seasons, function(sn) !is.null(.ccs_for(sn)), logical(1)))
+# The port block's census draws may stand in for a season's census only when that season holds the
+# WHOLE census: the scalar path, or per-season windows of which this run's season is the only one
+# (a census_windows entry for a season outside the run is in the port total, so it is not this
+# season's to absorb).
+.census_is_whole <- function(sn) {
+  cc <- pe_all$comm_charter
+  is.null(cc$by_season) || (length(cc$by_season) == 1L && identical(names(cc$by_season), sn))
+}
+.season_census_draws <- function(ccs, cg, n, seed) {
+  if (!identical(cg, "Dungeness_Kept") || !is.finite(ccs$carried_se %||% NA) || (ccs$carried_se %||% 0) <= 0)
+    return(rep(ccs[[cg]] %||% 0, n))
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (had) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit(if (had) assign(".Random.seed", old, envir = globalenv())
+          else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
+  set.seed(seed)
+  pmax(rnorm(n, ccs$Dungeness_Kept, ccs$carried_se), ccs$observed_dung %||% 0)
+}
+if (length(.seasons)) {
+  season_rows <- list()
+  for (cg in bss_catch_groups) for (sn in .seasons) {
+    sC <- rep(0, n_draws_max); sE <- rep(0, n_draws_max); s_pe_C <- 0; s_pe_E <- 0
+    for (pop in c("shore", "private_boat")) for (ss in subseasons) {
+      if (!identical(ss$season %||% NA_character_, sn)) next
+      label <- paste0(pop, "_", ss$name, "_", cg); pe_label <- paste0(pop, "_", ss$name)
+      b <- bss_all[[label]]
+      s_pe_C <- s_pe_C + (pe_all[[pe_label]][[cg]] %||% 0)
+      s_pe_E <- s_pe_E + (pe_all[[pe_label]]$effort_total %||% 0)
+      if (bss_use_pe_for(b)) {
+        sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)
+        sE <- sE + (pe_all[[pe_label]]$effort_total %||% 0)
+      } else {
+        idx <- rep_len(seq_along(b$C_exp_draws), n_draws_max)
+        sC <- sC + b$C_exp_draws[idx]; sE <- sE + b$E_draws[idx]
+      }
+    }
+    # census: per season when available, else attribute the scalar window's season (B43: as draws)
+    ccs <- .ccs_for(sn)
+    if (!is.null(ccs))
+      sC <- sC + if (.n_census_seasons == 1L && .census_is_whole(sn) && !is.null(.cc_draws_by_cg[[cg]])) .cc_draws_by_cg[[cg]] else
+        .season_census_draws(ccs, cg, n_draws_max, as.integer(params$bss_seed %||% 1L) + match(sn, .seasons))
+    sE <- sE + (ccs$effort_total %||% 0)
+    season_rows[[paste(cg, sn)]] <- tibble(
+      Catch_Group = cg, Season = sn,
+      Census = if (!is.null(ccs)) round(ccs[[cg]] %||% 0) else 0,
+      PE_catch = round(s_pe_C + (ccs[[cg]] %||% 0)),
+      BSS_median = round(median(sC)), BSS_lo95 = round(quantile(sC, 0.025)),
+      BSS_hi95 = round(quantile(sC, 0.975)),
+      Effort_median = round(median(sE)))
+  }
+  season_totals <- dplyr::bind_rows(season_rows)
+  utils::write.csv(season_totals, file.path(output_dir, "season_totals.csv"), row.names = FALSE)
+  if (length(.seasons) > 1) {
+    cat("\n### Season totals\n\n")
+    report_table(season_totals, caption = paste(
+      "Per-season totals over the multi-season span. Each season sums its own fitted",
+      "sub-seasons (same posterior draws and gate decisions as the port total above) plus",
+      "its census component. Every sub-season is an INDEPENDENT fit with its own effort,",
+      "CPUE and turnover parameters; nothing is shared across seasons except the I/E",
+      "day-length regression (pooled across seasons unless ie_filter_by_season = TRUE)",
+      "and the config priors, so a season's total here equals a standalone single-season",
+      "run of the same data up to those two inputs and Monte Carlo error."))
+  }
+}
+```
+
 ## 6b. Boat `tau_boat` prior sensitivity (optional)
 
-The boat harvest is proportional to the boat deployment turnover `tau_boat` whenever no in-window boat ingress/egress days pin it (the 2024-25 case: 0 boat I/E days, so the boat total rests on the `tau_boat` prior, GR-12). With `run_config$diagnose_tau_sensitivity = TRUE` this section projects the boat and port totals across a grid of `tau_boat` prior means **in a single run (no refit)**, and states whether the projection is exact (tau prior-dominated) or an upper bound. For the exact multi-refit check, source `06_diagnostics/run_tau_sweep.R`. **Healthy:** if the boat scales ~linearly with `tau_boat`, the boat is prior-driven and the field priority is boat I/E (egress-classification) coverage; if it barely moves, tau is data-identified and the prior is not the lever.
+The boat harvest is proportional to the boat deployment turnover `tau_boat` whenever no in-window boat ingress/egress days pin it (as on the 2024-25 development season, with 0 boat I/E days; the count for this run's fit is used below), so the boat total rests on the `tau_boat` prior (GR-12). With `run_config$diagnose_tau_sensitivity = TRUE` this section projects the boat and port totals across a grid of `tau_boat` prior means **in a single run (no refit)**, and states whether the projection is exact (tau prior-dominated) or an upper bound. For the exact multi-refit check, source `06_diagnostics/run_tau_sweep.R`. **Healthy:** if the boat scales ~linearly with `tau_boat`, the boat is prior-driven and the field priority is boat I/E (egress-classification) coverage; if it barely moves, tau is data-identified and the prior is not the lever.
 
 ```{r gear-sec6b-tau-sensitivity, results='asis'}
 if (isTRUE(params$diagnose_tau_sensitivity)) {
-  boat_key <- "private_boat_all_gear_Dungeness_Kept"
+  # 2026-09-28 (B46): every private-boat ALL-GEAR sub-season, found from the sub-season list
+  # (a multi-season span names them all_gear_<season>; the key was hard-coded to the scalar
+  # "all_gear"), and the boat I/E day count read from the fit's own Stan data (IE_n; it was
+  # read from an n_ie_obs field no fit entry carries, so it was always 0).
+  .boat_keys <- paste0("private_boat_", vapply(Filter(function(z) identical(z$gear_regime %||% "all_gear", "all_gear"),
+                                                        subseasons), function(z) z$name, character(1)), "_Dungeness_Kept")
+  .ran <- FALSE
+  for (boat_key in .boat_keys) {
   b_boat   <- bss_all[[boat_key]]
   if (!is.null(b_boat) && !bss_use_pe_for(b_boat) && exists(".tau_port_draws")) {
+    .ran <- TRUE
+    if (length(.boat_keys) > 1) cat(sprintf("\n**%s**\n\n", boat_key))
     n_draws_max <- length(.tau_port_draws)
     nb          <- length(b_boat$C_exp_draws)
     # Boat's aligned contribution to the port draws (same alignment and the same expected
     # catch as sec 6), so the projection swaps only the boat term.
     boat_draws  <- b_boat$C_exp_draws[rep_len(1:nb, n_draws_max)]
-    n_ie_boat   <- tryCatch(as.integer(b_boat$n_ie_obs %||% 0L), error = function(e) 0L)
+    n_ie_boat   <- as.integer(b_boat$bss_data$IE_n %||% 0L)
     tau_sens <- diagnose_tau_boat_sensitivity(
       boat = b_boat, port_C_draws = .tau_port_draws, boat_C_draws = boat_draws,
       params = params, n_ie_boat = n_ie_boat, output_dir = output_dir)
@@ -1361,15 +1490,16 @@ if (isTRUE(params$diagnose_tau_sensitivity)) {
       cat(paste(knitr::kable(
         tau_sens$table |> dplyr::select(tau_boat_prior_mu, boat_catch_median,
           boat_lo95, boat_hi95, boat_pct_change, port_total_median, port_pct_change),
-        caption = "Projected boat and port totals across the tau_boat prior grid.",
+        caption = sprintf("Projected boat and port totals across the tau_boat prior grid (%s).", boat_key),
         format.args = list(big.mark = ",")), collapse = "\n"), "\n\n")
       cat("*", tau_sens$note, "*\n\n", sep = "")
     } else {
       cat("_", tau_sens$note, "_\n\n", sep = "")
     }
-  } else {
-    cat("_Boat tau sensitivity not applicable (boat used the PE fallback, or no port draws were stashed)._\n\n")
   }
+  }
+  if (!.ran)
+    cat("_Boat tau sensitivity not applicable (every boat all-gear fit used the PE fallback, or no port draws were stashed)._\n\n")
 } else {
   cat("_Set `diagnose_tau_sensitivity = TRUE` in run_config.R to project the boat and port sensitivity to the `tau_boat` prior (single run, no refit). Writes `tau_boat_sensitivity.csv`._\n\n")
 }
@@ -1656,7 +1786,10 @@ comm_catch <- pe_all$comm_charter$Dungeness_Kept %||% 0
 gear_results[[length(gear_results)+1]] <- tibble(
   population="comm_charter", subseason="census", gear_type="Pot",
   BSS_median=NA, BSS_lo95=NA, BSS_hi95=NA,
-  PE_catch=round(comm_catch), method="Census (day-type stratified)"
+  PE_catch=round(comm_catch),
+  # B46 (2026-09-28): the label follows census_expansion (the shipped "none" is an exact
+  # commercial census plus the charter roster expansion, not a day-type stratification)
+  method = if (identical(params$census_expansion %||% "none", "none")) "Commercial census + charter expansion" else "Census (day-type stratified)"
 )
 
 gear_df <- bind_rows(gear_results)
@@ -1706,7 +1839,7 @@ p_gear <- gear_port |>
   geom_text(aes(label = sprintf("%s\n(%.0f%%)", format(catch, big.mark=","), proportion*100)),
             hjust = -0.1, size = 3) +
   labs(title = "Estimated Dungeness Catch by Gear Type",
-       subtitle = "From BSS gear-type CPUE model (v5.6)",
+       subtitle = "From BSS gear-type CPUE model (framework v6.0)",
        x = "Gear Type", y = "Estimated Catch") +
   theme_bw() +
   theme(legend.position = "none") +
@@ -1885,7 +2018,12 @@ for(label in names(bss_all)) {
   # loo_block_<stream>_<label>.csv, tryCatch-wrapped, changes no estimate (bss_block_cv.R).
   write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)
   # F4: CPUE estimator triad, saturation exponent, and the E/h unit assertion.
-  write_cpue_diagnostics(b, label, output_dir)
+  # 2026-09-28 (B46): wrapped, as on the pooled track. bss_assert_effort_units() stop()s by
+  # design, and an unwrapped error here aborted the render AFTER every fit, losing the rest
+  # of the report, run_parameters.txt, session_info.txt and the manifest.
+  tryCatch(write_cpue_diagnostics(b, label, output_dir),
+           error = function(e)
+             message(sprintf("  CPUE diagnostics skipped for %s: %s", label, conditionMessage(e))))
 }
 
 # Run-level rollups (O10-O12). gear_props = NULL: the gear-resolved model carries
@@ -2378,7 +2516,7 @@ total_interview_n <- nrow(dwg$interview)
 season_days <- as.integer(as.Date(params$est_date_end) - as.Date(params$est_date_start) + 1)
 
 message("\n  ╔══════════════════════════════════════════════════════╗\n")
-message("  ║         SEASON SUMMARY: 2024-25 GRAYS HARBOR        ║\n")
+message(sprintf("  ║  SEASON SUMMARY: %-36s║\n", paste(paste(params$season_filter, collapse = " + "), "GRAYS HARBOR")))
 message("  ╠══════════════════════════════════════════════════════╣\n")
 message(sprintf("  ║  Season: %s to %s (%d days)   ║\n",
             params$est_date_start, params$est_date_end, season_days))
@@ -2557,6 +2695,15 @@ timer_stop("6_outputs")
 # elided either.
 writeLines(capture.output(str(params, list.len = 1000, nchar.max = 2000, vec.len = 100)),
            file.path(output_dir, "run_parameters.txt"))
+
+# 2026-09-28 (B46): session and version capture, as the pooled driver (B1.6). A gear run
+# wrote neither, so its package and Stan versions were recorded nowhere but a manifest.
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "session_info.txt"))
+cat(sprintf("\nrstan %s; StanHeaders %s; bss_seed %s\n",
+            utils::packageVersion("rstan"),
+            utils::packageVersion("StanHeaders"),
+            params$bss_seed),
+    file = file.path(output_dir, "session_info.txt"), append = TRUE)
 
 message(sprintf("\nAll outputs saved to: %s\n", output_dir))
 message(paste(" ", list.files(output_dir), collapse="\n"), "\n")

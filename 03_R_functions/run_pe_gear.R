@@ -219,10 +219,16 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
       rel <- implied / ros
       cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
                   population_name, cg, implied, ros, rel, effort_unit_pe))
+      # 2026-09-28 (B46): a WARNING, not a stop, and a flag in the check table (report 4.4).
+      # Outside [0.5, 2] the likeliest cause is still a unit mismatch, but a new season whose
+      # interviews sit in low-CPUE months while its effort sits in high ones (month-local
+      # fills, a strong CPUE gradient) can legitimately land there, and stopping the whole
+      # run before any fit was the wrong response to that.
       if (rel < 0.5 || rel > 2.0) {
-        stop(sprintf(paste0("run_pe(): PE implied CPUE (%.4f) is %.2fx the interview ",
-                            "ratio-of-sums (%.4f) for %s / %s. Catch and effort are not on ",
-                            "the same scale."),
+        warning(sprintf(paste0("run_pe(): PE implied CPUE (%.4f) is %.2fx the interview ",
+                            "ratio-of-sums (%.4f) for %s / %s. Either catch and effort are not on ",
+                            "the same scale (a defect: check the effort unit) or the season's CPUE ",
+                            "gradient is steep; read report section 4.4 before the totals."),
                      implied, rel, ros, population_name, cg), call. = FALSE)
       }
     }

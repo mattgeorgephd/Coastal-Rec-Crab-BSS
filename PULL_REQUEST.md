@@ -1,9 +1,10 @@
 # Merge `OSP-boat-count-incorporation` into `main`: Method v2.0 becomes the method of record
 
 **Branch:** `OSP-boat-count-incorporation` → `main`
-**Head:** `1d3409d` plus the 2026-09-28 render-review patch (hashes change when a patch is applied, so read the tip with `git log -1`) · **Merge base:** `724eead` (2026-07-28, "WBL count data")
-**Scope:** 106 commits · 145 files outside `05_output/` · +43,669 / −5,041 lines · 85 files added, 8 removed (measured 2026-09-28)
+**Head:** `a766acd` (B45) on 2026-09-28; the authoritative run was committed at `1d3409d` (hashes change when a patch is applied, so read the tip with `git log -1`) · **Merge base:** `724eead` (2026-07-28, "WBL count data")
+**Scope:** 108 commits ahead of `main` at `a766acd` (`git rev-list --count origin/main..HEAD`); 145 files outside `05_output/` · +43,669 / −5,041 lines · 85 files added, 8 removed (measured 2026-09-28 at 106 commits, before B44 and B45)
 **`main` has not moved since the merge base** (0 commits), so this merges without conflict.
+**Committed after the authoritative render and not yet rendered:** B44 (four branch-review fixes: the gear port total is now the expected catch, interview ids are unique, the PE monthly split reads the PE's own strata, the PE effort SE carries the donor covariances; the Red Rock group removed) and B45 (an unsampled Float 17-21 count is filled by the month's ratio instead of read as zero; the gear prep fits the pooled track's interviews). **B45 moves the number** (the shore gear count +9.0%; the status box expects the port near 99,000 to 100,000), so a re-render of the shipped configuration, and the gear cross-check at or after B44, are owed before the figures below are final. `CHANGE_REGISTER.md` B44 and B45.
 
 > **What this changes for anyone reading `main`.** `main` today is the pre-FW-creel-meeting,
 > pre-OSP pipeline: **Method v1.0**, one effort stream, literal turnover constants
@@ -29,17 +30,20 @@ byte; its boat all-gear fit carries the advisory-day term adopted 2026-09-27 (Se
 |---|---|---|---|
 | Shore, pot closure | 6,275 BSS | **8,963** BSS | +2,688 |
 | Shore, all gear | 20,608 BSS | **29,210** BSS | +8,602 |
-| Private boat, pot closure | 1,170 **PE** (gate failed) | **1,372** BSS | +202, and it now fits |
+| Private boat, pot closure | 1,170 **PE** (never fitted: too few interviews) | **1,372** BSS | +202, and it now fits |
 | Private boat, all gear | 43,221 BSS | **47,319** BSS | +4,098 |
 | Commercial / charter | 11,986 imputed census | **8,538** census + expansion | **−3,448** |
 | **Port total** | **83,488** [70,866, 102,897] | **96,118** [79,418, 120,558] | **+12,630 (+15.1%)** |
 | Port total, PE | 71,157 | 85,076 | +13,919 |
 | Effort (gear-deployments) | 44,484 | 58,963 | +14,479 |
 
+`main`'s BSS figures are the medians of the EXPECTED catch (`C_expected_sum`), the quantity this branch reports; `PIPELINE_STATUS.md` quotes the same run's predictive-catch medians (6,271 and 43,180 for the shore pot-closure and boat all-gear rows), which is the only reason the two documents' Run 6 figures differ.
+
 Two features of that table matter more than the headline.
 
-**Every BSS fit now passes the gate.** On `main`, four of five components reported BSS and the
-boat pot-closure component fell back to its PE point. Here **4 of 4 fits report BSS**, with the
+**Every BSS fit now passes the gate.** On `main`, three of the four modelled components reported
+BSS; the boat pot-closure component had too few interviews to be fitted at all
+(`PE (insufficient data)` in its `convergence_report.csv`) and entered at its PE point. Here **4 of 4 fits report BSS**, with the
 worst R-hat 1.0007, the smallest relevant n_eff 4,604, the largest divergent fraction 1.78%
 against a 5% backstop, and 0% treedepth saturation on every fit.
 
@@ -110,9 +114,11 @@ its own. This is the R2 → R2f delta above.
 **Effort is gear-deployments throughout**, both tracks, so turnovers are dimensionless and the
 PE expands on the same turnover the BSS fits. No shore expansion anywhere is in hours.
 
-**Multi-season spans are supported** (`pot_closures` takes one closure window per season). The
-shipped configuration is the single 2024-25 season; the 2023-25 span is staged as a commented
-block and **blocked on data**, because there is no 2023-24 vessel tally or charter roster (D8).
+**Multi-season spans are supported** (`pot_closures` takes one closure window per season), for
+seasons from 2024-25 onward. The shipped configuration is the single 2024-25 season. The seasons
+before 2024-25 (2022-23, 2023-24) were exploratory, with insufficient sampling coverage and not
+the current protocol, and are **out of scope** for this modelling approach (Matt, 2026-09-28), so
+the 2023-25 span still commented in `run_config.R` is not a run to make (D8, closed).
 
 **The weather-tide covariate module is removed** (A29). The FWC advised against its use and
 weather alone was not informative. Its Stan fork, its driver and the `run_weather` toggle are
@@ -148,7 +154,7 @@ B38 rebuilds it from the Stan seed after each fit, and the authoritative run is 
 
 | check | how | current result |
 |---|---|---|
-| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **1,250 assertions, 0 failing**, no rstan needed, seconds |
+| Regression harness | `Rscript 06_diagnostics/test_improvements_2026-08-25.R` | **1,338 assertions** or more: the harness prints its own count and every FAIL (1,338 executed and passing as of 2026-09-28, after B46), no rstan needed, about two minutes |
 | The authoritative run IS the shipped config | rendered by `source("run_estimation.R")` on `run_config.R` as shipped, 2026-09-27 (its manifest, `run_manifest_20260927_192233.txt`, sits beside the folder) | sub-seasons `ring_net_only [2024-09-16..2024-11-30]` / `all_gear [2024-12-01..2025-09-15]`, tau_shore 2.4771, tau_boat prior 3.0300 from 61 paired days, census 6,405 + 2,133 = 8,538 SE 73; every fit byte-identical to R4's (shore, boat pot closure) or M2's (boat all-gear) |
 | Convergence gate | `convergence_report.csv` in the run folder | 4/4 BSS; worst R-hat 1.0007, min n_eff 4,604, max divergent fraction 1.78% vs the 5% backstop |
 | PE / BSS agreement | `pe_vs_bss_comparison.csv` | shore within 2 to 4%; boat all-gear PE runs 22% below BSS (19% on R4, before the boat term raised the BSS), which is the turnover, `f` and advisory-day treatment and is expected (D19) |
@@ -173,7 +179,7 @@ inherits the questions rather than a silence.
 | **D6** | The gear track's zero-inflated shore catch. | **ADOPT**, on evidence indistinguishable from the pooled adoption: +11.3 nats at 2.29 paired SE (pooled: +11.6 at 2.30), count bins halving 3.69 to 2.03 and −6.13 to −3.33 (pooled: 3.7 to 2.0, −6.1 to −3.3), `theta_C` 0.170, Pareto k 0 to 0. One ~35 min render at the matched configuration makes it citable. |
 | **D3** | The gear track cannot express a PER-POPULATION AR period, which is what the cross-track gap was. | At a matched configuration (shore weekly, boat monthly, as the pooled track fits them) the two tracks agree to **+0.28% at the PORT**, the first like-for-like comparison of the whole estimate. `bss_gear_period()` adds the lever; one ~35 min render closes it. |
 | **D29** | The BOAT all-gear AR period, untested on either track and opened accidentally by the D3 ladder. | **±12,000 crab**, and adequacy does not settle it: the boat fit is adequate at monthly, biweekly and weekly, failing only at daily, while the estimate moves +0.18% / +10.22% / +17.49% / +24.93% against the pooled monthly fit. The pooled cap was derived in 2026-07 on the pre-OSP model. **This should outrank D3.** |
-| **D8 / D18** | The 2023-25 span (no 2023-24 tally or roster) and OSP counts stopping 2025-10-18. | Blocks the multi-season run and a 2025-26 boat fit on OSP. Data requests, not code. |
+| **D8 / D18** | D8, the 2023-25 span, is CLOSED 2026-09-28 as out of scope: pre-2024-25 seasons are not to be run with this approach. D18: the 2025-26 OSP record is partial, 23 days from 17 Sep to 18 Oct 2025 (14 paired with trailer counts), the rest awaited from OSP. | A 2025-26 boat fit has OSP counts for the autumn only, and the shared turnover calibration would fire on that autumn-only overlap until the full record arrives. A data request, not code. |
 | **D30 / D32** | The adopted boat advisory-day term's two limitations: it describes ALL private boats, and the crabbing fraction cannot see a differential response of crabbing boats (D30); it is one coefficient for the season, and the four-season trailer record says the winter effect is about half the summer's (D32). | D32 moves the winter months, not the season: a season split left the boat total within 29 crab and halved January's correction. A multi-season boat fit (D8's data) is the winter's test. |
 | **CLOSED** | Should `estimate_comm_charter()` **stop** rather than warn when the census frame is missing? | **It warns** (Matt, 2026-09-13: "a warning is fine, included in the html report"). The warning now reaches the report: the function returns `frame_warnings`, both drivers print it in a visible block and write `census_frame_warnings.csv`, and five conditions are disclosed rather than one. A bare `warning()` did not satisfy the ask, because knitr defers warnings, `html_document` can hide them, and a batch runner rendering with `quiet = TRUE` never shows them. |
 
@@ -225,17 +231,22 @@ and every default the authoritative run used. The authoritative run was rendered
 returns its 96,118 to the crab (across platforms or compilers Stan's floating point, and so the
 last digits, may differ). `run_config.R` is organized in five sections, method-affecting
 levers first, with rarely-used and diagnostic-only toggles moved to the end. Paste-ready
-commented blocks for the 2025-26 season and the blocked 2023-25 span sit in section 1.2.
+commented blocks for the 2025-26 season and the 2023-25 span sit in section 1.2; the span is out
+of scope since 2026-09-28 (D8) and is not to be run.
 
-Environment: R 4.2.2, rstan 2.32.7 / StanHeaders 2.32.10, pinned in the top-level `renv.lock`
-(~99 CRAN packages from the confirmation run's `session_info.txt`). Expect roughly 12 to 14 h for
+Environment: R 4.2.2, rstan 2.32.7 / StanHeaders 2.32.10. The top-level `renv.lock` (repaired
+2026-09-28, B46) pins the full closure of the ten packages every driver loads, 120 in all,
+including the BH and RcppEigen headers rstan compiles against and the renv bootstrap; the
+committed `.Rprofile` and `renv/activate.R` make `renv::restore()` work from a fresh clone
+(README, "Setting up R"). The previous lock, reconstructed from `session_info.txt`, missed
+those headers and carried five packages nothing loads (gt, patchwork, mgcv, V8, ragg). Expect roughly 12 to 14 h for
 the five-rung ladder; a single production run is a fraction of that.
 
 ## 8. Where to read what, after the merge
 
 | document | job |
 |---|---|
-| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model is. Specification and the eleven limitations, ordered by risk |
+| `07_documentation/BSS-GH-pooled-CPUE-model-documentation.md` | **Method v2.0**: what the model is. Specification and the fourteen limitations of Section 20 (as of 2026-09-28; the fourteenth is the out-of-scope pre-2024-25 seasons), ordered by risk |
 | `07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md` | framework v6.0, the cross-check track; defers everything shared |
 | `07_documentation/development_notes/PIPELINE_STATUS.md` | current state and backlog. **The authoritative run and its total are in the box at the top, and that box is the only place to take a number from** |
 | `07_documentation/development_notes/CHANGE_REGISTER.md` | every change, its status, its evidence, its effect on the number; every defect and what it cost |
@@ -249,6 +260,6 @@ in narrative form, in `VALIDATION_CAMPAIGN.md`.
 
 ---
 
-**Recommended merge:** no squash. The 85 commits are the audit trail; each one passes the harness
+**Recommended merge:** no squash. The commits (108 at `a766acd`) are the audit trail; each one passes the harness
 on its own, which is what makes the branch bisectable, and several commit messages are the only
 record of a defect and why the fix is shaped the way it is.

@@ -117,13 +117,15 @@
 # define Method v2.0, so its baseline rung would be fitted with today's configuration and
 # labelled as the earlier state. See 03_R_functions/bss_superseded_runner.R for the
 # measurement behind that number and for the override.
+# 2026-09-28 (B46): the guard FAILS CLOSED. It was located relative to the working directory
+# and skipped when not found, so sourcing this file from two or more folders deep ran it
+# unguarded; here::here() finds the repository root from anywhere, and a missing guard stops.
 if (!exists("bss_superseded_runner")) {
-  .sr <- file.path(if (dir.exists("03_R_functions")) "." else "..",
-                   "03_R_functions", "bss_superseded_runner.R")
-  if (file.exists(.sr)) source(.sr)
+  .sr <- here::here("03_R_functions", "bss_superseded_runner.R")
+  if (!file.exists(.sr)) stop("The superseded-runner guard was not found at ", .sr, "; refusing to run.", call. = FALSE)
+  source(.sr)
 }
-if (exists("bss_superseded_runner"))
-  bss_superseded_runner(
+bss_superseded_runner(
     runner   = "06_diagnostics/run_shore_ar_zi_2026-09-03.R",
     question = paste("the shore all-gear AR resolution and whether a zero-inflated shore catch likelihood earns its parameter"),
     settled_by = paste("CHANGE_REGISTER A4 and A5: weekly shore AR and the ZINB both ADOPTED 2026-09-07 and CONFIRMED by the adoption render 2026-09-08 (VALIDATION_CAMPAIGN 1m)"),
@@ -159,10 +161,8 @@ fmt    <- function(x, d = 1) if (length(x) == 0 || is.na(x)) "NA" else
 
 if (!isTRUE(DRY_RUN)) {
   suppressPackageStartupMessages({ library(here); library(rmarkdown) })
-  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-  install.lib <- load.lib[!load.lib %in% installed.packages()]
-  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-  invisible(sapply(load.lib, require, character.only = TRUE))
+  # 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+  source(file.path(.root, "03_R_functions", "bss_packages.R")); bss_load_packages()
   rstan_options(auto_write = TRUE)
   invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE), source))
   .P1_ready <- TRUE

@@ -155,12 +155,16 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
   # of 2,000 draw indices were shared between two runs of the same fits. Seeding makes the
   # diagnostic files reproducible; note that the PORT TOTAL remains RNG-sensitive regardless,
   # because it is built from rstan::extract(permuted = TRUE), which permutes on its own.
-  set.seed(as.integer(seed))
-  use_pit  <- if (ndraw > n_pit_draws) sort(sample.int(ndraw, n_pit_draws)) else use_full
+  # B46 (2026-09-28): both subsamples drawn in ONE seeded block, in the order they always were
+  # drawn, so the indices are the ones earlier runs wrote; the caller's RNG is then restored.
+  .subs <- bss_with_seed(seed, list(
+    pit  = if (ndraw > n_pit_draws) sort(sample.int(ndraw, n_pit_draws)) else use_full,
+    keep = if (ndraw > n_draw_save) sort(sample.int(ndraw, n_draw_save)) else use_full))
+  use_pit <- .subs$pit
 
   # ---- O8. Summed-quantity posterior draws ---------------------------------
   ok("O8", {
-    keep <- if (ndraw > n_draw_save) sort(sample.int(ndraw, n_draw_save)) else use_full
+    keep <- .subs$keep
     df <- data.frame(draw = keep,
                      C_sum = as.numeric(ex$C_sum)[keep],
                      C_expected_sum = as.numeric(ex$C_expected_sum)[keep],
@@ -640,10 +644,11 @@ write_pe_empty_stratum_report <- function(pe_all, output_dir, params = list()) {
 # per-day factor (day length on 2026-08-27, the crabbing fraction on 2026-09-12).
 
 # BSS monthly summed draws for one fit -> month, median, lo95, hi95 (catch & effort).
-.srd_bss_monthly <- function(fit, days_ss, use_n = 2000) {
+.srd_bss_monthly <- function(fit, days_ss, use_n = 2000, seed = 1L) {
   ex <- rstan::extract(fit, pars = c("C_expected", "E"))
   nd <- dim(ex$C_expected)[1]
-  use <- if (nd > use_n) sort(sample.int(nd, use_n)) else seq_len(nd)
+  # B46 (2026-09-28): seeded (it was not) and the caller's RNG restored.
+  use <- if (nd > use_n) bss_with_seed(seed, sort(sample.int(nd, use_n))) else seq_len(nd)
   C <- .srd_get_DG(ex$C_expected, use); E <- .srd_get_DG(ex$E, use)   # [draws, D]
   ev <- as.Date(days_ss$event_date); mon <- format(ev, "%Y-%m"); um <- sort(unique(mon))
   out <- lapply(um, function(m) {

@@ -158,6 +158,7 @@
   # archived runs. model_diagnostics.R now computes the randomized version too, so for runs
   # from 2026-09-01 onward the two sources agree and this preference is a no-op.
   cov_worst <- NA_real_; cov_stream <- NA_character_; pit_sd_worst <- NA_real_
+  cov_worst_value <- NA_real_   # 2026-09-28 (B46): the coverage itself, so the message keeps its sign
   cov_src <- NA_character_
   cov_tbl <- NULL
   if (!is.null(byobs) && all(c("data_type", "in_50") %in% names(byobs))) {
@@ -176,6 +177,7 @@
     if (any(is.finite(d50))) {
       i <- which.max(replace(d50, !is.finite(d50), -Inf))
       cov_worst <- round(d50[i], 4)
+      cov_worst_value <- round(cov_tbl$coverage_50[i], 4)
       cov_stream <- as.character(cov_tbl$data_type[i])
     }
   }
@@ -226,6 +228,7 @@
     pit_worst_bias = pit_worst,
     pit_worst_stream = pit_stream,
     cov50_worst_dev = cov_worst,
+    cov50_worst_value = cov_worst_value,
     cov50_worst_stream = cov_stream,
     cov50_source = cov_src,
     pit_sd_worst_dev = pit_sd_worst,
@@ -388,7 +391,9 @@ write_model_adequacy <- function(bss_all, output_dir, params = list()) {
           sprintf("PIT mean is %.3f off nominal on the %s stream", r$pit_worst_bias, r$pit_worst_stream),
         if (isTRUE(r$flag_miscalibrated))
           sprintf("a nominal 50%% interval covers %.0f%% of the %s stream (PIT sd %.3f off the uniform 0.289)",
-                  100 * (0.5 + r$cov50_worst_dev), r$cov50_worst_stream, r$pit_sd_worst_dev),
+                  # B46 (2026-09-28): the coverage itself. cov50_worst_dev is |coverage - 0.5|,
+                  # so 0.5 + dev printed an UNDER-covering 30% as "covers 70%".
+                  100 * { v <- suppressWarnings(as.numeric(r$cov50_worst_value)); if (length(v) == 1 && is.finite(v)) v else 0.5 + r$cov50_worst_dev }, r$cov50_worst_stream, r$pit_sd_worst_dev),
         if (isTRUE(r$flag_dispersion_neff))
           sprintf("%s has n_eff %.0f, below the gate's own floor", r$disp_neff_min_par, r$disp_neff_min))
       cat(sprintf("    %s [%s]: %s\n", r$fit, r$method_selected, paste(msgs, collapse = "; ")))

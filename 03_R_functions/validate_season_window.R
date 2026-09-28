@@ -78,6 +78,21 @@ validate_season_window <- function(effort, interview, params, quiet = FALSE) {
               call. = FALSE)
   }
 
+  # 2026-09-28 (B46): A SPAN NEEDS ITS CALENDAR. With pot_closures NULL, build_subseasons()
+  # takes the scalar path: ONE pot closure (pot_closure_start/end) and one all-gear block tagged
+  # season_filter[1], so a window over two seasons would fit the second season's pot closure as
+  # all-gear and credit every sub-season to the first season, silently (every scalar date can
+  # still lie inside the window). A multi-season season_filter, or a window longer than a
+  # season, must say where each season's closure is.
+  n_seasons <- length(unique(seasons_requested))
+  span_days <- as.numeric(we - ws) + 1
+  if (is.null(params$pot_closures) && (n_seasons > 1 || span_days > 366))
+    stop(sprintf(paste0("validate_season_window(): the window %s to %s (%d days, season_filter = %s) spans more ",
+                        "than one season but pot_closures is NULL. Set pot_closures (one closure window per ",
+                        "season) and census_windows (one census window per season); see run_config.R section 1.2 ",
+                        "and NEW_SEASON_GUIDE.md section 7."),
+                 ws, we, span_days, paste(seasons_requested, collapse = " + ")), call. = FALSE)
+
   n_eff_in <- sum(eff_dates >= ws & eff_dates <= we, na.rm = TRUE)
   n_int_in <- sum(int_dates >= ws & int_dates <= we, na.rm = TRUE)
   if (n_eff_in == 0 && n_int_in == 0)
@@ -110,6 +125,25 @@ validate_season_window <- function(effort, interview, params, quiet = FALSE) {
     }
   }
 
+  # B46 (2026-09-28): the census is the recreational fishing of commercial and charter vessels
+  # BEFORE the coastal commercial opener; a census window that runs past the opener would count
+  # commercial-season trips as recreational. commercial_opener is otherwise only a plot marker.
+  co <- suppressWarnings(as.Date(params$commercial_opener %||% NA))
+  ce0 <- suppressWarnings(as.Date(params$census_end_date %||% NA))
+  if (is.null(params$census_windows) && !is.na(co) && !is.na(ce0) && ce0 >= co)
+    warning(sprintf("census_end_date (%s) is on or after commercial_opener (%s): the census should end before the commercial opener.",
+                    ce0, co), call. = FALSE)
+  # B46 (2026-09-28): with census_windows set, check THOSE (the scalar keys are then unused).
+  if (!is.null(params$census_windows)) {
+    for (cw in params$census_windows) {
+      cw <- unlist(cw)   # a named list, season -> c(start, end)
+      cs <- suppressWarnings(as.Date(cw[1])); ce <- suppressWarnings(as.Date(cw[2]))
+      if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))
+        warning(sprintf("A census_windows entry (%s to %s) lies entirely outside the estimation window; that season's census component will be empty.",
+                        cs, ce), call. = FALSE)
+    }
+    return(invisible(TRUE))
+  }
   cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
   ce <- suppressWarnings(as.Date(params$census_end_date   %||% NA))
   if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))

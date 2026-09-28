@@ -181,11 +181,13 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "pooled"        # "pooled"  or  "gear_resolved"
+model       <- "pooled"        # "pooled", "gear_resolved" or "both"
                                # "pooled" is the HEADLINE estimator and the one the
                                # authoritative run used. "gear_resolved" is the
-                               # cross-check; run it after a pooled run and compare
-                               # the port totals (criterion: within 2%).
+                               # cross-check. "both" (2026-09-28) renders the two in turn
+                               # and writes 05_output/<date>/cross_check_<stamp>.csv
+                               # comparing their Expected_Catch port totals against
+                               # run_config$cross_check_tolerance (2%).
 
 # REMOVED 2026-09-13: `run_weather`, and with it the weather-tide covariate module.
 # The FWC creel team advised against using weather covariates and weather on its own was
@@ -223,13 +225,19 @@ run_config <- list(
   # HHMMSS timestamp instead. Purely cosmetic: config_delta() ignores it and no fit or
   # estimate depends on it. run_rg_sweep.R and the dated batch runners set it per run, so a
   # batch's folders never collide with a production one.
+  # 2026-09-28 (B46, bss_output_dir.R): a tag naming a season (yyyy-yy) that season_filter
+  # does not hold STOPS the run, so change it with the window; a second same-day render under
+  # one tag gets "-HHMMSS" appended instead of mixing its files into the first run's folder.
   run_tag           = "canonical-2024-25",
+  # the "both" cross-check criterion: the gear-resolved Expected_Catch port total within this
+  # fraction of the pooled one (run_estimation.R section 7; the 2% agreed 2026-08-26)
+  cross_check_tolerance = 0.02,
   # These unify the two models onto one set of strings. The committed gear-resolved driver
   # used "Rec Crab Grays Harbor Westport 2024-25" while pooled used the string below;
   # centralizing here makes both use one value. If either string must be preserved verbatim
   # as an output identifier, give that model its own value in its .Rmd instead.
-  project_name      = "Coastal Recreational Crab",
-  fishery_name      = "Rec Crab Grays Harbor 2024-25",
+  # (project_name and fishery_name were removed 2026-09-28, B46: no code read them, and the
+  # fishery name hard-coded "2024-25". The reports name the modelled seasons from season_filter.)
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
@@ -315,13 +323,18 @@ run_config <- list(
   #   census_windows    = NULL,
   #   census_start_date = "2025-12-01",   census_end_date   = "2026-01-03",
   #   commercial_opener = "2026-01-04",   run_tag           = "season-2025-26",
-  #   KNOWN FIRST: no OSP rows and no WBL boat I/E days exist for 2025-26 yet (D18,
-  #   WBL_boat_counts.xlsx stops 2025-10-18), so the boat runs on the trailer counts with
-  #   per-day turnover draws and the SHARED boat turnover is REFUSED for want of overlap
-  #   days. The tally has 23 days and the charter roster 11 Westport trips.
+  #   KNOWN FIRST (corrected 2026-09-28): the 2025-26 OSP record is PARTIAL and the rest is awaited
+  #   from OSP. WBL_boat_counts.xlsx holds 23 OSP days (17 Sep to 18 Oct 2025, 14 of them paired
+  #   with Westport trailer counts) and ingress_egress.xlsx one WBL boat day (2025-12-19), so the
+  #   turnover calibration would fire on autumn-only overlap and apply it to the winter. Wait for
+  #   the full record before quoting a 2025-26 boat total. The tally has 23 days and the charter
+  #   roster 11 Westport trips.
   #
-  # -- two-season span 2023-25 (STAGED AND BLOCKED; this is what shipped here until ----
-  #    2026-09-12, CHANGE_REGISTER D28) -------------------------------------------
+  # -- two-season span 2023-25: OUT OF SCOPE (Matt, 2026-09-28). Kept only as the record of what
+  #    shipped here until 2026-09-12 (CHANGE_REGISTER D28). Seasons before 2024-25 were exploratory:
+  #    their sampling coverage and protocol (one peak count a day in 2023-24) do not support this
+  #    model, so do NOT run this block. A multi-season span is supported mechanically from 2024-25
+  #    on (pot_closures + census_windows; NEW_SEASON_GUIDE.md section 7). --------------------
   #   est_date_start    = "2023-09-16",   est_date_end      = "2025-09-15",
   #   season_filter     = c("2023-24", "2024-25"),
   #   pot_closures      = list(
@@ -634,6 +647,13 @@ run_config <- list(
   # model degrades to trailer-only outside them. Changes the boat effort posterior,
   # so validate by run.
   use_osp_boat_counts   = TRUE,
+  # 2026-09-28 (B46): the OSP workbook's location and reading rules, surfaced here (they were
+  # %||% defaults inside fetch_osp_boat_counts.R and diagnose_osp_trailer_overlap.R, so a new
+  # file or port could not be set from the control surface).
+  osp_boat_counts_file  = "WBL_boat_counts.xlsx",   # 04_input_files/; Year, Month, Day + the columns below
+  osp_boat_counts_sheet = "Sheet1",
+  osp_dupe_resolve      = "mean",                   # a date with DISAGREEING duplicate rows: mean | sum | max | first
+  osp_match_trailer_area = "Westport Boat Launch",  # the trailer site the OSP/trailer overlap calibration pairs with
   osp_effort_col        = "WestportPrivateEffort",  # OSP daily ALL-boat total column
   # OSP CRAB-ONLY column (improvement 8, 2026-08-25). Optional extra column in
   # WBL_boat_counts.xlsx holding the count of boats OSP labelled as crabbing ONLY.
@@ -641,6 +661,13 @@ run_config <- list(
   # and f behaves exactly as it does now. See the use_osp_crab_lower block for the
   # combo-trip problem this column does and does not solve.
   osp_crab_only_col     = "WestportCrabOnlyEffort",
+  # AWAITED WITH THE CRAB-ONLY DATA (2026-09-28, B46): OSP's sampling frequency. If OSP
+  # classifies only some boats on busy days (every Nth), deliver the number CLASSIFIED per day
+  # in this column; it becomes the binomial n of the crab-only share. Absent: every returning
+  # boat is taken as classified. osp_crab_only_unit says whether the crab-only column is a
+  # "count" of boats or a "fraction" of the classified boats (a fraction read as a count stops).
+  osp_crab_checked_col  = "WestportCrabClassified",
+  osp_crab_only_unit    = "count",
   # SEASON-DERIVED from the 2024-25 OSP/trailer overlap days:
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
                                       #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;

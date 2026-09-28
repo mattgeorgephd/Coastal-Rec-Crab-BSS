@@ -207,7 +207,7 @@ crab_fraction_strata_labels <- function(dates, params) {
   # and merged the same month of two seasons on a span).
   mo <- format(dates, "%Y-%m")
   wknd_days <- params$days_wkend %||% c("Saturday", "Sunday")
-  dt <- ifelse(weekdays(dates) %in% wknd_days, "wknd", "wkdy")
+  dt <- ifelse(bss_weekday(dates) %in% wknd_days, "wknd", "wkdy")
   hol <- params$crabbing_holiday_dates
   if (!is.null(hol)) dt[dates %in% as.Date(hol)] <- "wknd"   # holidays typed as weekend
   op_dates <- params$opener_f_dates %||% as.Date(character(0))

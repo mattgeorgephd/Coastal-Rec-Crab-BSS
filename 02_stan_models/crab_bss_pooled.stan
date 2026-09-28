@@ -463,6 +463,12 @@ transformed data {
   for (k in 1:n_f_strata)
     if (f_walk_prev[k] >= k)
       reject("f_walk_prev[", k, "] = ", f_walk_prev[k], ": a stratum's predecessor must precede it");
+  // 2026-09-28 (B46): on the dynamic-f path the OSP crab-only share observes f * (1 - c). With
+  // the combo walk OFF, c is 0 and the share would be fitted AS f, the wiring CLAUDE.md forbids
+  // (it is a lower bound: OSP counts combo trips under their other fishery). crab_fraction.R
+  // switches the combo walk on whenever the stream is on; this refuses any data list that does not.
+  if (osp_crab_lower == 1 && n_f_dyn == 1 && n_c_dyn == 0 && OSPF_n > 0)
+    reject("osp_crab_lower = 1 with a dynamic f requires combo_dynamic = 1: without the combo-share walk the OSP crab-only share would be fitted as f itself");
 }
 
 parameters {

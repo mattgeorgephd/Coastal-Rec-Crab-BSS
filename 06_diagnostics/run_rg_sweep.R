@@ -56,10 +56,8 @@ suppressPackageStartupMessages({
   library(rmarkdown)
 })
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-invisible(sapply(load.lib, require, character.only = TRUE))
+# 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 

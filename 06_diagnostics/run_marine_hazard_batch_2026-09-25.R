@@ -177,10 +177,8 @@ fmt <- function(x, d = 1) {
 
 if (!isTRUE(DRY_RUN)) {
   suppressPackageStartupMessages({ library(here); library(rmarkdown) })
-  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-  install.lib <- load.lib[!load.lib %in% installed.packages()]
-  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-  invisible(sapply(load.lib, require, character.only = TRUE))
+  # 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+  source(file.path(.root, "03_R_functions", "bss_packages.R")); bss_load_packages()
   rstan_options(auto_write = TRUE)
 } else {
   suppressWarnings(suppressPackageStartupMessages(
@@ -189,7 +187,7 @@ if (!isTRUE(DRY_RUN)) {
         silent = TRUE)))
 }
 invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE),
-                 function(f) try(source(f), silent = TRUE)))
+                 function(f) source(f)))   # B46: a file that fails to source stops the runner (it was hidden by try())
 source(.here("run_config.R"))
 BASE <- run_config
 
@@ -443,13 +441,24 @@ CODE_EQUIVALENT_MH <- list(
 # shore all-gear Stan data, so no equivalence is written above. Record only; RESUME reports
 # the code delta as REVIEW, as it did before this list existed.
 CODE_NOT_EQUIVALENT_MH <- list(
-  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:65b5adeb drivers:85d4192b fns:efdfb12f" = "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25).",
-  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:65b5adeb drivers:85d4192b fns:efdfb12f" = "M6 as the five rungs: B42 was the only fitting-layer change between M6's tree and the adoption; B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25)."
+  "stan:65b5adeb drivers:ae200663 fns:094c314f => stan:17a4e0f3 drivers:5ccdf085 fns:c06343e5" = "B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25). And B46 (2026-09-28), which also reaches fits: prep_days_crab() keys the PE period and week_index by ISO week and ISO year (%V, %G) where it used %W, which on 2024-25 joins the week of 30 December 2024 to 5 January 2025 (a 2-day and a 5-day period before), so a fit at weekly AR resolution (the shore all-gear fit, where a rung fits it weekly) has one fewer AR period (43, not 44) and the PE port moves 88,819 to 88,758; the gear Stan's R_G prior centre is the season's interview ratio rather than the literal 1.3 (gear track only); both Stan files reject osp_crab_lower = 1 with a dynamic f and no dynamic c (unreachable under these pins). The rest of B46 is post-fit, reporting or infrastructure: Predictive_Catch rebuilt from the fitted ZINB (Expected_Catch unchanged), bss_with_seed() restoring the caller's RNG, the gate's NA verdict, the output folder, the package loader.",
+  "stan:65b5adeb drivers:a65be4bc fns:6f65d84a => stan:17a4e0f3 drivers:5ccdf085 fns:c06343e5" = "M6 as the five rungs: B42 was the only fitting-layer change between M6's tree and the adoption; B44 (2026-09-28) is NOT inference-equivalent for these rungs, and is recorded here rather than declared equivalent. repair_interview_ids() in fetch_crab_data() gives each interview its own id: on 2024-25 one id (S6070_29, 2025-05-24, shore, Float 20) was shared by two different interviews, so the shore all-gear CPUE likelihood now carries both (catch 0 and 2) where distinct(interview_id) kept one carrying the pair's summed catch, and the shore all-gear PE catch falls 16 crab (29,737 to 29,721). Every rung's shore all-gear fit therefore differs, slightly, from a re-render at this tree: a RESUME still reuses the folders by digest and reports the code delta as REVIEW, which is the correct reading. The rest of B44 is post-fit or inert under these configurations: the PE monthly split (pe_monthly_split()), the PE effort SE's donor covariances, the gear driver's expected-catch totals (gear track only), and the removal of the estimate_red_rock switch (FALSE in every pin). And B45 (2026-09-28), which changes MORE: shore_dock_counts() fills a Float 20 count with no Float 17-21 count beside it by round(R_month x that Float 20 count) where it used 0 (shore_f17_fill = 'ratio'), which raises every shore fit's gear counts (2024-25: the mean daily shore gear count 40.9 to 44.6, +9.0%) and the shore PE with them; and the gear prep no longer drops interviews without a positive fishing time (none in 2024-25). And B46 (2026-09-28), which also reaches fits: prep_days_crab() keys the PE period and week_index by ISO week and ISO year (%V, %G) where it used %W, which on 2024-25 joins the week of 30 December 2024 to 5 January 2025 (a 2-day and a 5-day period before), so a fit at weekly AR resolution (the shore all-gear fit, where a rung fits it weekly) has one fewer AR period (43, not 44) and the PE port moves 88,819 to 88,758; the gear Stan's R_G prior centre is the season's interview ratio rather than the literal 1.3 (gear track only); both Stan files reject osp_crab_lower = 1 with a dynamic f and no dynamic c (unreachable under these pins). The rest of B46 is post-fit, reporting or infrastructure: Predictive_Catch rebuilt from the fitted ZINB (Expected_Catch unchanged), bss_with_seed() restoring the caller's RNG, the gate's NA verdict, the output folder, the package loader."
 )
+# 2026-09-28 (B46): the input workbooks and run_config.R's VALUES, which neither the stage digest
+# (pinned keys only) nor the code fingerprint covers; stamped and checked on RESUME like the code
+# line (reported, a REVIEW row, not enforced), as in run_improvements_2026-09-08.R.
+.inputs_fingerprint <- function() {
+  fs <- sort(list.files(.here("04_input_files"), pattern = "[.]xlsx$", full.names = TRUE, recursive = TRUE))
+  rc <- tryCatch({ e <- new.env(); sys.source(.here("run_config.R"), envir = e)
+                   paste(deparse(e$run_config[sort(names(e$run_config))]), collapse = "") },
+                 error = function(e) "run_config.R unreadable")
+  substr(digest_or_hash(paste(c(paste(basename(fs), unname(tools::md5sum(fs))), rc), collapse = "\n")), 1, 8)
+}
 .stage_stamp <- function(dir, sid) {
   writeLines(c(sprintf("stage: %s", sid),
                sprintf("digest: %s", stage_digest(sid)),
                sprintf("code: %s", .code_fingerprint()),
+               sprintf("inputs: %s", .inputs_fingerprint()),
                sprintf("rstan: %s / StanHeaders %s",
                        as.character(utils::packageVersion("rstan")),
                        as.character(utils::packageVersion("StanHeaders"))),
@@ -707,6 +716,13 @@ run_one <- function(sid) {
     if (identical(dg, stage_digest(sid))) {
       cd <- .stamp_field(existing, "code")
       cat("  RESUME: output present at", basename(existing), "with a MATCHING digest - skipping the fit.\n")
+      .inp <- .stamp_field(existing, "inputs")
+      if (!is.na(.inp) && !identical(.inp, .inputs_fingerprint())) {
+        cat("          *** THE INPUT WORKBOOKS OR run_config.R HAVE CHANGED SINCE THAT FIT; reused, cross-rung claims downgraded. ***\n")
+        V1row(sid, "the reused fit was produced from DIFFERENT inputs than this run",
+              sprintf("recorded %s; now %s", .inp, .inputs_fingerprint()), "the fingerprints match", "REVIEW",
+              "RESUME matched the CONFIG digest (pinned keys); an input workbook or an unpinned run_config.R key changed since.")
+      }
       if (!is.na(cd) && !identical(cd, .code_fingerprint())) {
         eq <- CODE_EQUIVALENT_MH[[paste(cd, .code_fingerprint(), sep = " => ")]]
         if (!is.null(eq)) {

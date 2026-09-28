@@ -84,8 +84,12 @@ bss_compute_gate <- function(b, label,
   rhat_C <- summ[catch_par,  "Rhat"];  rhat_E <- summ[effort_par, "Rhat"]
   neff_C <- summ[catch_par,  "n_eff"]; neff_E <- summ[effort_par, "n_eff"]
 
-  pass_rhat <- max(rhat_C, rhat_E, na.rm = TRUE) < rhat_threshold
-  pass_neff <- min(neff_C, neff_E, na.rm = TRUE) > neff_threshold
+  # 2026-09-28 (B46): an R-hat or n_eff that is NA / NaN FAILS the check. With na.rm = TRUE
+  # a degenerate sum (a constant quantity, NaN R-hat) was silently dropped and only the other
+  # was checked, and with both NA max() returned -Inf, which PASSED. A quantity the
+  # diagnostics cannot score is not a quantity shown to have converged.
+  pass_rhat <- all(is.finite(c(rhat_C, rhat_E))) && max(rhat_C, rhat_E) < rhat_threshold
+  pass_neff <- all(is.finite(c(neff_C, neff_E))) && min(neff_C, neff_E) > neff_threshold
 
   # Divergent-draw flag aligned to the flattened draw vector. get_sampler_params
   # returns a per-chain list; unlist() concatenates chain-major, and

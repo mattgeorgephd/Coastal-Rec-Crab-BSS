@@ -77,12 +77,18 @@ bss_superseded_runner <- function(runner, question, settled_by, what_would_happe
     "\n TO RUN IT ANYWAY, having read the above:\n",
     "   I_KNOW_THIS_IS_SUPERSEDED <- TRUE\n",
     "   source(\"", runner, "\")\n",
-    "\n THE CURRENT LADDER is 06_diagnostics/run_improvements_2026-09-08.R (pooled and the\n",
-    " gear cross-check) and 06_diagnostics/run_gear_ar_zi_2026-09-13.R (D3 and D6). Both\n",
-    " carry a WINDOW pin and a preflight that FAILS on any undeclared difference between\n",
-    " rungs, which is the thing this runner lacks.\n",
+    "\n THE LIVE LADDERS are 06_diagnostics/run_marine_hazard_batch_2026-09-25.R (the most\n",
+    " recent: the method of record's marine term), run_improvements_2026-09-08.R (pooled and\n",
+    " the gear cross-check, pinned to the 2026-09-12 method) and run_gear_ar_zi_2026-09-13.R\n",
+    " (D3 and D6). Each carries a WINDOW pin and a preflight that FAILS on any undeclared\n",
+    " difference between rungs, which is the thing this runner lacks. For the current\n",
+    " production pair, run run_estimation.R with model = \"both\".\n",
     strrep("=", 78), "\n")
   if (isTRUE(ovr)) {
+    # 2026-09-28 (B46): the override is CONSUMED. It stayed TRUE in the global environment, so
+    # one deliberate override silently disarmed every other superseded runner for the rest of
+    # the session. It now applies to the one run it was set for.
+    suppressWarnings(rm("I_KNOW_THIS_IS_SUPERSEDED", envir = globalenv()))
     cat(msg)
     cat(" I_KNOW_THIS_IS_SUPERSEDED is TRUE. Proceeding. Do not report a number from this\n",
         " run as a comparison against anything fitted after its own date.\n\n")

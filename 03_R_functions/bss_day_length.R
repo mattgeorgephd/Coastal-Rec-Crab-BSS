@@ -594,9 +594,8 @@ estimate_shore_turnover <- function(ie_intervals, shore_effort, params = list(),
   tau_geo  <- exp(mean(log(by_day$tau_day)))
   lsd      <- stats::sd(log(by_day$tau_day))
   tau_peak <- exp(mean(log(by_day$tau_peak_day)))
-  set.seed(seed)
-  bs <- replicate(n_boot, { i <- sample.int(nrow(by_day), replace = TRUE)
-                            sum(by_day$arrivals[i]) / sum(by_day$presence_at_counts[i]) })
+  bs <- bss_with_seed(seed, replicate(n_boot, { i <- sample.int(nrow(by_day), replace = TRUE)
+                            sum(by_day$arrivals[i]) / sum(by_day$presence_at_counts[i]) }))   # B46: caller's RNG restored
   log_se <- stats::sd(log(bs))
   by_dt <- by_day |>
     mutate(dt = ifelse(tolower(day_type) %in% c("weekend", "holiday"), "weekend", "weekday")) |>

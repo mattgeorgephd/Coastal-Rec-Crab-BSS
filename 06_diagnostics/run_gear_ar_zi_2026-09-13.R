@@ -179,10 +179,8 @@ fmt <- function(x, d = 1) {
 
 if (!isTRUE(DRY_RUN)) {
   suppressPackageStartupMessages({ library(here); library(rmarkdown) })
-  load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-  install.lib <- load.lib[!load.lib %in% installed.packages()]
-  for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-  invisible(sapply(load.lib, require, character.only = TRUE))
+  # 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+  source(file.path(.root, "03_R_functions", "bss_packages.R")); bss_load_packages()
   rstan_options(auto_write = TRUE)
 } else {
   suppressWarnings(suppressPackageStartupMessages(
@@ -191,7 +189,7 @@ if (!isTRUE(DRY_RUN)) {
         silent = TRUE)))
 }
 invisible(lapply(list.files(.here("03_R_functions"), full.names = TRUE),
-                 function(f) try(source(f), silent = TRUE)))
+                 function(f) source(f)))   # B46: a file that fails to source stops the runner (it was hidden by try())
 source(.here("run_config.R"))
 BASE <- run_config
 

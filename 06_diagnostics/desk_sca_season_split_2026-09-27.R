@@ -68,7 +68,7 @@ setwd(.root)
 suppressPackageStartupMessages({ library(readxl); library(dplyr); library(tibble); library(tidyr); library(lubridate) })
 if (!requireNamespace("MASS", quietly = TRUE)) stop("MASS is needed for the negative-binomial fits (install.packages('MASS')).")
 if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a)) b else a
-invisible(lapply(list.files("03_R_functions", full.names = TRUE), function(f) try(source(f), silent = TRUE)))
+invisible(lapply(list.files("03_R_functions", full.names = TRUE), function(f) source(f)))   # B46: a file that fails to source stops the runner (it was hidden by try())
 source("run_config.R")
 source("03_R_functions/batch_verdict_helpers.R")   # merge_csv_by
 

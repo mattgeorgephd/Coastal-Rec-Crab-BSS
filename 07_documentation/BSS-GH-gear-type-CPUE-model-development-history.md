@@ -4,6 +4,7 @@
 
 - **Companion to:** `BSS-GH-gear-type-CPUE-model-documentation.md`, which is **framework v6.0** (adopted 2026-09-12) and deliberately describes only what differs from the pooled Method v2.0 document. Framework v5.6 is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
 - **Scope:** the full version-by-version change log of the gear-resolved-CPUE pipeline and its Stan model `crab_bss_gear_resolved.stan`, plus the detailed working notes from the two largest episodes: the boat effort-scale correction (fix-markers F1 and F2) and the point-estimator population-and-estimator fix (P0). The current production state is framework **v5.6** (2026-07-12): both the shore and boat components run on the gear-deployment effort unit and `loo_effort_unit_comparison` is turned off for production (v5.5), and `run_config.R` is now the base parameter set in parity with the pooled track's v7.9 (v5.6).
+- **Correction (2026-09-28).** The scope line above was written at v5.6. The current state is **framework v6.0** (2026-09-12, on the Method v2.0 configuration), described in `BSS-GH-gear-type-CPUE-model-documentation.md`; the backlog table and the "Current production configuration" section at the end carry dated corrections rather than rewrites.
 - **Convention:** no em dashes.
 
 This file is the provenance record for the gear-resolved model. The published method document summarizes this history in one screen and refers here for the detail. Entries are newest-first. The version log traces the framework from the initial gear-resolved release (v5.0) through the empirical-proportion and data-alignment work (v5.1 to v5.4) to the shore effort-unit resolution (v5.5). The run-driven Stan fixes that do not carry a framework tag are recorded in their own section below the version log, and the outstanding backlog closes the log.
@@ -391,7 +392,9 @@ The Stan file `crab_bss_gear_resolved.stan` carries no vX.Y tag; it records its 
 
 ### Outstanding backlog (GR-7 to GR-17)
 
-The GR-series is maintained in `07_documentation/development_notes/20260710-OUTSTANDING_ISSUES.md`, which carries a per-item "Status after the 2026-07-10 run" block. An important caveat when reading the status column: the 2026-07-10 run's only code changes were P0, P1, and P2, so where a GR item's symptom cleared, the movement is usually a side-effect of P0 or P2 rather than a targeted GR fix. GR-8 is the clearest case: its funnel symptom cleared because P2 collapsed a separate `sigma_mu` level and pulled total divergences under the gate backstop, while the item's own proposed guard had not yet landed as of that run. (The `ie_min_obs_shore = 3` guard landed later, 2026-07-13, as batch item 5, resolving GR-8; the `sigma_IE` prior was deliberately left `exponential(5)`, so no prior retune was made. See the GR-8 row below.)
+**Correction (2026-09-28).** `20260710-OUTSTANDING_ISSUES.md` no longer exists (it was consolidated into `development_notes/PIPELINE_STATUS.md` and deleted; see that file's Section 8), and the statuses below are those of 2026-07-10 to 2026-07-13. Since then: **GR-7** Phase 1 was validated 2026-07-20 and Phase 2 sampled 2026-09-01, both behind toggles that ship off (`G = 1` stays the default); **GR-9** CLOSED 2026-09-02 with the shore I/E unit fix (the `sigma_IE` tension was the unit mismatch; pooled development history, 2026-09-02); **GR-12** RESOLVED, first by the OSP stream (2026-07-31) and now by the OSP/trailer calibration prior and the shared turnover `tau_bar` (3.03 prior centre, 2.98 to 3.12 fitted), so `tau_boat = 1.2` is a retired fallback; **GR-15** RESOLVED: the boat pot-closure fit reaches the sampler and reports BSS (1,295 in the 2026-09-11 reference run R5, biweekly). The table is kept as written.
+
+The GR-series was maintained in `07_documentation/development_notes/20260710-OUTSTANDING_ISSUES.md` (deleted; see the correction above), which carried a per-item "Status after the 2026-07-10 run" block. An important caveat when reading the status column: the 2026-07-10 run's only code changes were P0, P1, and P2, so where a GR item's symptom cleared, the movement is usually a side-effect of P0 or P2 rather than a targeted GR fix. GR-8 is the clearest case: its funnel symptom cleared because P2 collapsed a separate `sigma_mu` level and pulled total divergences under the gate backstop, while the item's own proposed guard had not yet landed as of that run. (The `ie_min_obs_shore = 3` guard landed later, 2026-07-13, as batch item 5, resolving GR-8; the `sigma_IE` prior was deliberately left `exponential(5)`, so no prior retune was made. See the GR-8 row below.)
 
 | ID | Item | Status |
 | --- | --- | --- |
@@ -475,7 +478,17 @@ The 20260710 run is the first in which all three fitted components report on the
 
 ## Current production configuration
 
-For a reader running the model today, the production state as of framework v5.6 (2026-07-12) is:
+> **Correction (2026-09-28): this section describes framework v5.6 (2026-07-12) and is out of
+> date; it is kept as the record of that state.** The current state is framework v6.0 on the
+> Method v2.0 configuration (`BSS-GH-gear-type-CPUE-model-documentation.md`). Two statements
+> below are now wrong: the boat turnover no longer rests on `tau_boat = 1.2` (the boat prior
+> is centred on the OSP/trailer calibration, 3.03 on 2024-25, and the shared `tau_bar` is fitted
+> to the OSP counts; GR-12), and `private_boat_ring_net` does fit and reports BSS (four of four
+> fits pass the gate in the 2026-09-11 reference run R5; GR-15). The zero-inflation block was
+> ported 2026-09-13 and ships off (`catch_zi_tracks = "pooled"`). For the authoritative numbers,
+> the box at the top of `development_notes/PIPELINE_STATUS.md`.
+
+For a reader running the model at framework v5.6 (2026-07-12), the production state was:
 
 -   **Effort units.** Shore and boat both on gear-deployments (`h = number_of_gear`, `L = tau`); `loo_effort_unit_comparison = FALSE`. Both units have a linearity `beta_h` covering 1, so the season expansion is harvest-unbiased.
 -   **Fitted components.** Shore ring-net, shore all-gear, and private boat all-gear are fit as BSS and, in the latest run, all pass the convergence gate; commercial and charter is a census tally. `private_boat_ring_net` never fits and falls back to PE (GR-15).

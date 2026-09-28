@@ -63,15 +63,34 @@
 # lever. This is a robustness study, not a correctness fix.
 ###############################################################################
 
+# --- SUPERSEDED (2026-09-28, B46). This runner refuses to FIT; it is kept to be READ. ------
+# Its own header already said "this sweep is superseded": the grid (0.9 / 1.2 / 1.5, SD 0.3)
+# predates the OSP/trailer turnover calibration (~3.0, SD 0.5) and the shared turnover, and it
+# printed a July 2026 "production" total as its reference. It was nonetheless LIVE and unguarded
+# with no DRY_RUN, so sourcing it started three gear-resolved fits. The in-driver projection
+# (diagnose_tau_sensitivity = TRUE, gear report section 6b) is the current tool.
+if (!exists("bss_superseded_runner")) {
+  .sr <- here::here("03_R_functions", "bss_superseded_runner.R")
+  if (!file.exists(.sr)) stop("The superseded-runner guard was not found at ", .sr, "; refusing to run.", call. = FALSE)
+  source(.sr)
+}
+bss_superseded_runner(
+    runner   = "06_diagnostics/run_tau_sweep.R",
+    question = "how does the boat total respond to the tau_boat prior centre",
+    settled_by = paste("the turnover is calibrated from the OSP/trailer overlap (tau_boat_prior_mu = \"calibration\", ~3.0)",
+                       "and shared across the boat fits (shared_tau, A2); the single-run projection in the gear report,",
+                       "section 6b (diagnose_tau_sensitivity), answers the sensitivity question without refits"),
+    what_would_happen = paste("Three gear-resolved fits at prior centres 0.9 / 1.2 / 1.5 with SD 0.3, none of them the",
+                              "production prior, with no DRY_RUN; it would compare them against a July 2026 total."),
+    levers_pinned = "0")
+
 suppressPackageStartupMessages({
   library(here)
   library(rmarkdown)
 })
 
-load.lib <- c("tidyverse","lubridate","suncalc","gt","patchwork","rstan","here","readxl")
-install.lib <- load.lib[!load.lib %in% installed.packages()]
-for (lib in install.lib) install.packages(lib, dependencies = TRUE)
-invisible(sapply(load.lib, require, character.only = TRUE))
+# 2026-09-28 (B46): the shared loader (03_R_functions/bss_packages.R): renv.lock versions, a stop on a missing package.
+source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)
 purrr::walk(list.files(here("03_R_functions"), full.names = TRUE), source)
 
@@ -131,7 +150,7 @@ for (tv in tau_grid) {
 
 banner("TAU_BOAT SWEEP COMPLETE")
 cat("Compare the boat all-gear catch and port total across the runs",
-    "(production boat ~43,314; port ~82,957):\n")
+    "(the July 2026 reference: boat ~43,314, port ~82,957; NOT the current method of record):\n")
 for (tag in names(results)) {
   r <- results[[tag]]
   cat(sprintf("  tau_boat_prior_mu = %.2f  ->  %s\n",

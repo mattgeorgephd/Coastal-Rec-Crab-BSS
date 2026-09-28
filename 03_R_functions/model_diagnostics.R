@@ -238,6 +238,11 @@ bss_divergence_localization <- function(fit, candidate_pars = NULL) {
 # nominal and uniform PITs indicate the observation model fits. All in R from
 # extracted quantities (no RNG added to Stan), capped at n_draws_use for speed.
 bss_ppc_calibration <- function(fit, stan_data, n_draws_use = 400, seed = 1) {
+  # B46 (2026-09-28): seeded as before, and the caller's RNG restored on exit.
+  .had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  .old <- if (.had) get(".Random.seed", envir = globalenv(), inherits = FALSE) else NULL
+  on.exit(if (.had) assign(".Random.seed", .old, envir = globalenv())
+          else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()), add = TRUE)
   set.seed(seed)
   # Model-agnostic trailer expansion: current pooled (v7.6+) and gear-resolved both
   # carry R_G_boat; pre-v7.6 pooled fits carry R_T. bss_extract_pars() requests only

@@ -218,8 +218,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   # v5.1: bss_max_interviews = NULL means use full dataset (Issue 8)
   if(!is.null(params$bss_max_interviews) && nrow(int_d)>params$bss_max_interviews) {
-    set.seed(42)
-    int_d <- int_d |> slice_sample(n=params$bss_max_interviews)
+    int_d <- bss_with_seed(42, int_d |> slice_sample(n=params$bss_max_interviews))   # B46: RNG restored
     intA <- intA |> filter(interview_id %in% int_d$interview_id)
   }
 
@@ -645,6 +644,11 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     value_normal_mu_mu_E=if(is_shore) log(25) else log(10),
     value_normal_sigma_mu_E=2,
     value_cauchyDF_sigma_mu_C=2, value_cauchyDF_sigma_mu_E=2,
+    # B46 (2026-09-28): the R_G prior, resolved exactly as prep_bss_crab_pooled() does (the
+    # season's interview gear-per-crabber ratio, or the R_G_prior_mu / _sigma sensitivity
+    # override). The gear Stan used to hard-code lognormal(log(1.3), 0.3), the 2024-25 value.
+    R_G_prior_mu    = params$R_G_prior_mu %||% summ$empirical_R_G %||% 1.3,
+    R_G_prior_sigma = params$R_G_prior_sigma %||% 0.3,
 
     # Phase 1b: OSP scale (kappa_OSP) prior center + log-SD (see prep_bss_crab_pooled).
     osp_scale_prior_mu = params$osp_scale_prior_mu %||% 3.0,

@@ -354,6 +354,10 @@ data {
   real value_cauchyDF_sigma_mu_C;
   real value_cauchyDF_sigma_mu_E;
 
+  // --- Data-driven priors (2026-09-28, B46: the pooled model's R_G prior) ---
+  real<lower=0> R_G_prior_mu;
+  real<lower=0> R_G_prior_sigma;
+
   // Phase 1b: kappa_OSP (OSP-to-trailer scale) lognormal prior, centered on the
   // OSP/trailer overlap ratio (~3) measured by diagnose_osp_trailer_overlap().
   real<lower=0> osp_scale_prior_mu;
@@ -488,6 +492,12 @@ transformed data {
   for (k in 1:n_f_strata)
     if (f_walk_prev[k] >= k)
       reject("f_walk_prev[", k, "] = ", f_walk_prev[k], ": a stratum's predecessor must precede it");
+  // 2026-09-28 (B46): on the dynamic-f path the OSP crab-only share observes f * (1 - c). With
+  // the combo walk OFF, c is 0 and the share would be fitted AS f, the wiring CLAUDE.md forbids
+  // (it is a lower bound: OSP counts combo trips under their other fishery). crab_fraction.R
+  // switches the combo walk on whenever the stream is on; this refuses any data list that does not.
+  if (osp_crab_lower == 1 && n_f_dyn == 1 && n_c_dyn == 0 && OSPF_n > 0)
+    reject("osp_crab_lower = 1 with a dynamic f requires combo_dynamic = 1: without the combo-share walk the OSP crab-only share would be fitted as f itself");
 }
 
 parameters {
@@ -801,7 +811,9 @@ model {
     }
   }
 
-  R_G ~ lognormal(log(1.3), 0.3);
+  // B46 (2026-09-28): centred on the season's own interview ratio (or the sensitivity
+  // override), as crab_bss_pooled.stan; it was the 2024-25 literal lognormal(log(1.3), 0.3).
+  R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);
 
   // F1 (B1.10): R_G_boat gets a PROPER prior UNCONDITIONALLY. It previously sat
   // inside `if (T_n > 0 || IntA_trailer > 0)`. In a shore fit both are zero, so

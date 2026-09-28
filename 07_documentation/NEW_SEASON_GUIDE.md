@@ -1,6 +1,7 @@
 # Running a new season (or any new window)
 
 **Audience:** the analyst pointing this pipeline at data it has never seen.
+**Scope of seasons (Matt, 2026-09-28):** this workflow is for 2024-25 and later seasons. The seasons before 2024-25 (2022-23, 2023-24) were exploratory, with insufficient sampling coverage and not the current protocol (2023-24 has one peak count per day), and they are **not to be run with this modelling approach**, alone or in a span (CHANGE_REGISTER D8). Their rows stay in the workbooks as a record.
 **Framing:** the 2024-25 season was the DEVELOPMENT TEST SEASON. Every cap, floor, prior center and sampler setting in the shipped config was derived on it. The architecture is built to run on any window you select: a full season, part of one, or a multi-season span. This guide is the workflow that takes you from a naive first run to a defensible estimate, using the diagnostics the pipeline writes to make each tuning decision a measured one instead of a guess.
 
 The one-sentence version: **configure the season, run naively with the AR ladder on, read what the ladder and the adequacy files tell you, pin each fit's resolution deliberately, then produce.**
@@ -9,7 +10,7 @@ The one-sentence version: **configure the season, run naively with the AR ladder
 
 ## 0. What a season needs before anything runs
 
-All inputs live in `04_input_files/` and carry a `season` column, so multiple seasons coexist in one workbook and a new season is rows added, not files replaced. Since 2026-09-10 six of the nine model and diagnostic workbooks are BUILT from the per-season creel workbooks (the tenth, the NWS marine hazard archive, has its own builder, needs the network, and since 2026-09-27 is read by every production run; last row of the table): **drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` (e.g. `2627_...`) and run `Rscript 04_input_files/build_all_inputs.R` from the repository root**; read each builder's report (rows by season, the flagged rows, the comparison with the previous workbook) before committing the workbook and the rebuilt inputs together.
+All inputs live in `04_input_files/`, and all but two carry a `season` column, so multiple seasons coexist in one workbook and a new season is rows added, not files replaced. The two exceptions are `WBL_boat_counts.xlsx` (OSP's own layout, below) and `nws_marine_hazards.xlsx` (a calendar of hazard events). Since 2026-09-10 six of the nine model and diagnostic workbooks are BUILT from the per-season creel workbooks (the tenth, the NWS marine hazard archive, has its own builder, needs the network, and since 2026-09-27 is read by every production run; last row of the table): **drop the season's creel workbook into `04_input_files/raw/` as `<YYYY><YY>_rec_crab_harvest_data.xlsx` (e.g. `2627_...`) and run `Rscript 04_input_files/build_all_inputs.R` from the repository root**; read each builder's report (rows by season, the flagged rows, the comparison with the previous workbook) before committing the workbook and the rebuilt inputs together.
 
 | Input | New-season action |
 |---|---|
@@ -18,11 +19,11 @@ All inputs live in `04_input_files/` and carry a `season` column, so multiple se
 | `sampler_shifts.xlsx` | **Built** by `build_sampler_shifts.R` from the `crab creel survey data` sheets; flagged rows (a check-out typed on a 12-hour clock, a missing check-out, a duplicated survey id) are listed and held out of the hours. |
 | `wes_commercial_tally.xlsx` | **Built** by `build_comm_charter_tally.R` from the `wes commercial tally` sheet and the survey sheet's vessel-tally columns (reconciled per day; read by header name because the column order has differed between seasons). Then set the season's `census_windows` entry: pots legal (Dec 1) to the day before the commercial opener. |
 | `charter_trips.xlsx` | **Built** by `build_charter_trips.R` from the `charter trips` sheet (interviewed / missed / canceled). Under `charter_frame = "roster"` it is the frame the charter component is EXPANDED over (the charter vessels are not fully sampled), so the roster's completeness sets the charter estimate: check that every operator's trips are on the sheet. A season without the sheet falls back to the tally frame, which counts no charter trip on a day without a tally, and the run says so. |
-| `crabbing_holidays.xlsx` | **Built** by `build_crabbing_holidays.R` by rule (the named holidays, including Thanksgiving Day, Veterans Day and Juneteenth since 2026-09-11, each with its federal observed day; Super Bowl dates are a table in the builder, extend it). **Every season in `season_filter` needs rows**: a missing season STOPS the run by design. The builder prints the sampler-flagged dates the rule does not cover, which is where the next candidate would come from. |
+| `crabbing_holidays.xlsx` | **Built** by `build_crabbing_holidays.R` by rule (the named holidays, including Thanksgiving Day, Veterans Day and Juneteenth since 2026-09-11, each with its federal observed day; Super Bowl dates are a table in the builder, extend it). The rule covers the seasons 2022-23 through 2026-27 (`map_dfr(2022:2026, season_rows)` in the builder): for a later season extend that year range and rebuild; **never hand-edit the workbook** (Matt updates the holiday input for new seasons as needed). **Every season in `season_filter` needs rows**: a missing season STOPS the run by design. The builder prints the sampler-flagged dates the rule does not cover, which is where the next candidate would come from. |
 | `ingress_egress.xlsx` | Hand-maintained from the I/E database export (put the export in `raw/`; keep the `time` column). **Zero I/E rows is survivable**: `L_effective` falls back down the civil-twilight ladder, and the run says so. |
-| `WBL_boat_counts.xlsx` | Add OSP daily boat totals if available. **Absent dates are non-sampled, not zero**; with no OSP rows in the window the stream is simply absent and the boat runs trailer-only, and the shared boat turnover is refused for want of overlap days (2025-26 as of 2026-09-10). |
+| `WBL_boat_counts.xlsx` | Hand-maintained from OSP's deliveries, in OSP's own layout, NOT the `data`/`season` layout of the other workbooks: one sheet, `Sheet1` (`osp_boat_counts_sheet`), with integer columns `Year`, `Month`, `Day` and `WestportPrivateEffort` (the day's private-boat total), plus a future `WestportCrabOnlyEffort` (the crabbing-only count, awaited; `osp_crab_only_col`). To add a season, append one row per OSP day in those columns; no season column is needed, since the reader builds the date and filters to the window. **Absent dates are non-sampled, not zero**; an observed 0 is data. With no OSP rows in the window the stream is simply absent and the boat runs trailer-only, and the shared boat turnover is refused for want of overlap days. **2025-26 as of 2026-09-28: PARTIAL**, 23 OSP days, 17 Sep to 18 Oct 2025 (14 paired with Westport trailer counts); the rest is awaited from OSP. 23 informed days clear `shared_tau_min_obs = 15`, so the shared turnover and its calibration would FIRE on that autumn-only overlap until the full record arrives (CHANGE_REGISTER D18). |
 | `fishery_opener_dates.xlsx` | Add the season's opener rows if you use the opener diagnostics (production covariate mode is off). |
-| `nws_marine_hazards.xlsx` | **Required since 2026-09-27**: the method of record carries the NWS Small-Craft-Advisory flag on the boat all-gear effort process (`marine_hazard_mode = "manual"`, CHANGE_REGISTER A30 ADOPTED), so every production run READS this archive. It must COVER the window, or the run stops naming this step: `Rscript 04_input_files/build_nws_marine_hazards.R --start 2023-01-01 --end <the day after the window>` re-pulls both NWS zones from the IEM VTEC service (network; not part of `build_all_inputs.R`). The bar-restriction tick needs nothing extra: it is read from `sampler_shifts.xlsx`, which the standard rebuild produces. |
+| `nws_marine_hazards.xlsx` | **Required since 2026-09-27**: the method of record carries the NWS Small-Craft-Advisory flag on the boat all-gear effort process (`marine_hazard_mode = "manual"`, CHANGE_REGISTER A30 ADOPTED), so every production run READS this archive. It must COVER the window, or the run stops naming this step: `Rscript 04_input_files/build_nws_marine_hazards.R --end <the day after the window>` re-pulls both NWS zones from the IEM VTEC service (network; not part of `build_all_inputs.R`). Leave `--start` at its default, 2008-01-01: the committed archive starts there, and a later start (the builder's help text shows `--start 2023-01-01` as an example) would drop the earlier years that the four-season desk screen (`desk_sca_season_split_2026-09-27.R`, from 2022-23) reads. The bar-restriction tick needs nothing extra: it is read from `sampler_shifts.xlsx`, which the standard rebuild produces. |
 
 ## 1. The per-season config checklist
 
@@ -35,28 +36,29 @@ Everything is in `run_config.R`; the keys below must move TOGETHER. A checklist 
 5. **The AR caps:** `ar_max_resolution`. These are 2024-25 answers and the subject of section 3. Treat them as starting points.
 6. **Every key tagged `SEASON-DERIVED`** in `run_config.R`: the `kappa_OSP` prior center (3.0, from the 2024-25 overlap days), the ZI prior shape (Beta(1,9), from the 2024-25 zero bin), `shared_tau_min_obs` (15; check the printed OSP-informed-day count against it), `tau_boat_prior_mu_fallback` (2.7) and `tau_shore_prior_mu_fallback` (1.7). Since 2026-09-08/09 the two turnover prior centres resolve per run (`tau_boat_prior_mu = "calibration"` from the window's OSP/trailer overlap, `tau_shore_prior_mu = "derived"` from the I/E time column and the window's count hours -- **note, corrected 2026-09-11: the count HOURS are the window's but the diel presence PROFILE pools every I/E day in the workbook, so the derived centre is a multi-season quantity and is the same number whichever season you run. On 2024-25 only 6 of its 40 days are in the season, and the window's own 6 give 2.225 against the pooled 2.477, a gap of 0.83 SE that the existing I/E data cannot resolve either way. `tau_shore_derive_window_only = TRUE` restricts it; `shore_turnover_summary.csv` reports both either way. See CHANGE_REGISTER D24**), the crabbing fraction f and the combo share c are read from the season's contacts and trip types, and the census is the exact sum over the tally days; the fallbacks apply only when a season lacks the data behind them, and the run says so.
 7. **The PE's unsampled-cell levers:** `pe_empty_effort_stratum`, `pe_empty_stratum`, `pe_variance`. Not season-derived, but read the per-component numbers in `pe_empty_effort_strata.csv` for the new season before citing anything: with weekly strata and ~50% day coverage, roughly half of a component's calendar days rest on one sampled day or none, and a thinner season makes it worse. These levers change the PE point and its SE, and a component whose gate FAILS reports its PE point in the port total as a constant, so on a thin season they can reach the headline.
-8. **The NWS archive covers the window** (section 0, last row): `Rscript 04_input_files/build_nws_marine_hazards.R --end <the day after est_date_end>` before the first run of a season, and commit the workbook. The flag definition itself (`marine_hazard_codes`, `_zones`, `_window`, `_tz`, section 2.10 of `run_config.R`) is part of the method and does not change per season; `marine_hazard_winter_months` (section 4.4b) matters only to the season-split experiment.
-9. **`run_tag`:** name the run so you can find the folder.
+8. **The NWS archive covers the window** (section 0, last row): `Rscript 04_input_files/build_nws_marine_hazards.R --end <the day after est_date_end>` (the default `--start`, 2008-01-01, keeps the whole archive) before the first run of a season, and commit the workbook. The flag definition itself (`marine_hazard_codes`, `_zones`, `_window`, `_tz`, section 2.10 of `run_config.R`) is part of the method and does not change per season; `marine_hazard_winter_months` (section 4.4b) matters only to the season-split experiment.
+9. **`run_tag`:** name the run so you can find the folder. Letters, digits, `-` and `_` only. A season token in the tag must match `season_filter` (a `2025-26` tag on a `2024-25` run stops; a span label such as `2024-26` is accepted for a two-season run), and re-using a tag on the same day appends `-HHMMSS` rather than writing into the earlier run's folder (B46).
 
-Worked values for **2025-26** (data through 2026-09-08; the season ends 2026-09-15), also written out as a paste-ready block in section 7.1 below (they used to sit commented out in `run_config.R`; since 2026-09-12 that file carries only the canonical 2024-25 window, CHANGE_REGISTER D28): window 2025-09-16 to 2026-09-15, `season_filter = "2025-26"`, closure 2025-09-16 to 2025-11-30 with pots legal 2025-12-01, census window 2025-12-01 to 2026-01-03 (Grays Harbor's commercial fishery opened Jan 4, 2026), `commercial_opener = "2026-01-04"`. As of 2026-09-10 the season has no OSP rows and no WBL boat I/E days, so the boat runs on the trailer counts with per-day turnover draws (a short smoke fit of the boat all-gear component sampled in 4 minutes with 37 of 2,000 divergences, the known funnel of the per-day-tau geometry; expect to pin the boat on the OSP file when it arrives).
+Worked values for **2025-26** (data through 2026-09-08; the season ends 2026-09-15), also written out as a paste-ready block in section 7.1 below (they used to sit commented out in `run_config.R`; since 2026-09-12 that file carries only the canonical 2024-25 window, CHANGE_REGISTER D28): window 2025-09-16 to 2026-09-15, `season_filter = "2025-26"`, closure 2025-09-16 to 2025-11-30 with pots legal 2025-12-01, census window 2025-12-01 to 2026-01-03 (Grays Harbor's commercial fishery opened Jan 4, 2026), `commercial_opener = "2026-01-04"`. As of 2026-09-28 the season's OSP record is PARTIAL: 23 OSP days, 17 Sep to 18 Oct 2025 (14 paired with trailer counts), and one WBL boat I/E day (2025-12-19); the rest is awaited from OSP. (Until 2026-09-28 this paragraph said the season had no OSP rows and no WBL boat I/E days, which was wrong.) So the shared boat turnover and its calibration would fire on autumn-only overlap; the full record is what a citable 2025-26 boat fit needs (section 7.1).
 
 Also know that the drivers' own `params_model` blocks carry per-fit sampler settings (iterations, treedepth, adapt_delta keyed by fit name) tuned on 2024-25 geometry. They are conservative, so they rarely need touching, but a new season's pathological fit is tuned there, not in `run_config` (`bss_sampler_override` is the sanctioned route from the config side).
 
 ## 2. The naive first run
 
-Run the harness first; it is seconds and pins the shipped invariants:
+Run the harness first, from a shell at the repository root; it takes about two minutes, pins the shipped invariants and prints its assertion count and every FAIL:
 
-```r
+```sh
 Rscript 06_diagnostics/test_improvements_2026-08-25.R
 ```
 
-Then configure the ladder for discovery and run the pooled driver once:
+Then configure the ladder for discovery and run the pooled driver once. These are ELEMENTS of the `run_config <- list(...)` in `run_config.R`, not top-level assignments: edit the existing entries in place (a top-level `ar_escalate <- TRUE` would never reach the run). Only the first differs from the shipped value:
 
 ```r
-ar_escalate             <- TRUE        # every fit climbs the ladder
-ar_escalate_stop        <- "first_pass"
-ar_rung_adequacy        <- TRUE        # per-rung p_loo / Pareto k / coverage (the decisive columns)
-ar_escalate_respect_cap <- FALSE       # ignore the 2024-25 caps; that is the point
+# inside run_config <- list( ... ) in run_config.R
+  ar_escalate             = TRUE,          # every fit climbs the ladder (ships FALSE)
+  ar_escalate_stop        = "first_pass",  # (the shipped value)
+  ar_rung_adequacy        = TRUE,          # per-rung p_loo / Pareto k / coverage, the decisive columns (shipped)
+  ar_escalate_respect_cap = FALSE,         # ignore the 2024-25 caps; that is the point (shipped)
 ```
 
 **Cost, stated plainly:** every rung is a full MCMC fit, and coarsening barely reduces per-fit cost (the 2026-09-04 ladder's rungs cost 96/91/83 minutes each). Budget one full fit per rung per component. Scope the ladder (`ar_escalate = list(shore = "all_gear")`, or a character vector of populations) when you already trust some components.
@@ -82,7 +84,7 @@ Two levers, used in sequence:
 
 ## 5. The production run and the cross-check
 
-With the ladder off and the caps set, `source("run_estimation.R")` is the production run. Then run the gear-resolved track once (about half an hour) and read the two tracks together, with the lesson the 2026-09-07 cross-check taught: **compare the tracks at the same resolution before calling a gap a disagreement.** The two tracks agreed on the shore component to 0.08% at a common resolution while sitting 3.4% apart as configured, because the resolution difference dominates. Also note the gear track's shore catch is plain NB2 (no zero-inflation block), a small (~0.3%) structural asymmetry.
+With the ladder off and the caps set, `source("run_estimation.R")` is the production run. Then run the gear-resolved track once (`Rscript run_estimation.R --model gear_resolved`; about 35 minutes at its shipped monthly periods, measured on the committed renders), or do both in one call with `Rscript run_estimation.R --model both`, which also writes `cross_check_<timestamp>.csv` against the 2% criterion, and read the two tracks together, with the lesson the 2026-09-07 cross-check taught: **compare the tracks at the same resolution before calling a gap a disagreement.** The two tracks agreed on the shore component to 0.08% at a common resolution while sitting 3.4% apart as configured, because the resolution difference dominates. Also note the gear track's shore catch is plain NB2 as shipped, a small (~0.3%) structural asymmetry: its Stan model has carried the zero-inflation block since 2026-09-13 (D6), but `catch_zi_tracks` ships `"pooled"`, so the block is off on the gear track. Adding `"gear_resolved"` to `catch_zi_tracks` turns it on there (D6 says adopt, pending one render).
 
 ## 6. Part-season windows
 
@@ -95,9 +97,9 @@ Supported. What changes:
 
 ## 7. Multi-season spans
 
-Supported as of 2026-09-10 (CHANGE_REGISTER A14). A span takes four settings that must agree:
+Supported as of 2026-09-10 (CHANGE_REGISTER A14), **for seasons from 2024-25 onward**: the pre-2024-25 seasons are out of scope (top of this guide; D8), so a span must not include 2022-23 or 2023-24. A span takes four settings that must agree:
 
-1. `est_date_start` / `est_date_end` spanning the whole range, and `season_filter` as a vector, e.g. `c("2023-24", "2024-25")`.
+1. `est_date_start` / `est_date_end` spanning the whole range, and `season_filter` as a vector, e.g. `c("2024-25", "2025-26")`.
 2. `pot_closures`: a list with one `list(season =, start =, end =)` entry per closure in the span. This outranks the scalar `pot_closure_start/end` pair and yields one pot-closure sub-season per season (`ring_net_only_<season>`, biweekly, pots excluded) with the following all-gear block as `all_gear_<season>`; a window starting before the first closure gets `all_gear_pre_<season1>`. Overlapping closures, an unlabeled entry, or end-before-start stop loudly. With zero or one in-window closure the legacy scalar path runs byte-for-byte, so single-season names, fit labels, and filenames never change.
 3. `census_windows`: a NAMED list, season to `c(start, end)`, for the commercial/charter census; the census is expanded per window and summed, and each season's own component is kept for the season table. An unnamed list stops.
 4. The data. Every season in the span needs rows in EVERY workbook of section 0: effort counts, interviews, ingress/egress, holidays, opener dates, and the tally. The validator prints per-season capture and warns hard on the asymmetric case (interviews present, zero effort counts: that season's effort would be pure imputation, not estimation); the holiday reader stops on a missing season.
@@ -144,58 +146,52 @@ Jan 3:
   run_tag           = "season-2025-26",
 ```
 
-Known before you run it: no OSP rows and no WBL boat I/E days exist for 2025-26 yet
-(CHANGE_REGISTER D18, `WBL_boat_counts.xlsx` stops 2025-10-18), so the boat runs on the trailer
-counts with per-day turnover draws and the shared boat turnover is REFUSED for want of overlap
-days. A smoke fit of the boat all-gear component sampled in 4 minutes with 37 of 2,000
-divergences, which is the known funnel of the per-day-tau geometry. The tally has 23 days and the
-charter roster 11 Westport trips. Expect to pin the boat on the OSP file when it arrives.
+Known before you run it (corrected 2026-09-28; this paragraph said no OSP rows existed):
+the 2025-26 OSP record is PARTIAL. `WBL_boat_counts.xlsx` holds 23 OSP days, 17 Sep to 18 Oct
+2025, 14 of them paired with Westport trailer counts, and one WBL boat I/E day (2025-12-19); the
+rest is awaited from OSP (CHANGE_REGISTER D18). 23 informed days clear the `shared_tau_min_obs`
+floor of 15, so the shared boat turnover and its calibration prior would FIRE on autumn-only
+overlap, and the season's boat turnover would rest on five autumn weeks. Read the console's
+OSP-informed-day count and `osp_trailer_overlap_calibration.csv` before citing a boat figure. A
+smoke fit of the boat all-gear component on 2026-09-10 sampled in 4 minutes with 37 of 2,000
+divergences. The tally has 23 days and the charter roster 11 Westport trips.
 
-**The 2023-25 two-season span** (STAGED AND BLOCKED; this is what `run_config.R` shipped between
-2026-09-10 and 2026-09-12, CHANGE_REGISTER D28):
+**A two-season span, 2024-26: the mechanical example** (not yet a run to make: wait until the
+2025-26 data, its OSP record included, are complete). The multi-season keys, per season in
+`pot_closures` and `census_windows`, with the scalar keys on the last season:
 
 ```r
-  est_date_start    = "2023-09-16",   est_date_end      = "2025-09-15",
-  season_filter     = c("2023-24", "2024-25"),
+  est_date_start    = "2024-09-16",   est_date_end      = "2026-09-15",
+  season_filter     = c("2024-25", "2025-26"),
   pot_closures      = list(
-    list(season = "2023-24", start = "2023-09-16", end = "2023-11-30"),
-    list(season = "2024-25", start = "2024-09-16", end = "2024-11-30")
+    list(season = "2024-25", start = "2024-09-16", end = "2024-11-30"),
+    list(season = "2025-26", start = "2025-09-16", end = "2025-11-30")
   ),
-  pot_closure_start = "2024-09-16",   pot_closure_end   = "2024-11-30",
-  pot_open_date     = "2024-12-01",
+  pot_closure_start = "2025-09-16",   pot_closure_end   = "2025-11-30",
+  pot_open_date     = "2025-12-01",
   census_windows    = list(
-    "2023-24" = c("2023-12-01", "2024-01-31"),
-    "2024-25" = c("2024-12-01", "2025-02-08")
+    "2024-25" = c("2024-12-01", "2025-02-08"),
+    "2025-26" = c("2025-12-01", "2026-01-03")
   ),
-  census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
-  commercial_opener = "2025-02-11",
-  run_tag           = "two-season-2023-25",
+  census_start_date = "2025-12-01",   census_end_date   = "2026-01-03",
+  commercial_opener = "2026-01-04",
+  run_tag           = "two-season-2024-26",
 ```
 
-**Why it is blocked, and what it would still buy.** The 2023-24 census window ends Jan 31, 2024
-because the coastal commercial fishery opened Feb 1, 2024 (WDFW bulletin, "Washington's coastal
-Dungeness crab commercial season opens Feb. 1"), but **no vessel tally and no charter roster were
-ever kept for that season**, so `estimate_comm_charter()` finds 33 Westport commercial-vessel
-interviews with no vessel count to expand to, warns that the frame is missing, and returns 0. A
-two-season port total is therefore short by the whole 2023-24 commercial/charter catch. That is a
-`warning()` inside a multi-hour knit, so it is easy to miss; if you run the span, read the census
-section of the report before quoting a total.
-
-The data that IS there, after the 2026-09-10 rebuild: `effort_combined.xlsx` holds 2022-23
-through 2025-26 (2023-24: 4,116 counts on 360 days, with 20 Feb-2024 rows flagged and held out,
-see `effort_qc_drop`); `crabbing_holidays.xlsx` holds 2022-23 through 2026-27;
-`interview_combined.xlsx` carries the 2023-24 gear count (it was there all along under a different
-header spelling, D15) with the 2022-24 gear labels harmonised to the 2024-25 vocabulary. Two
-caveats on the 2023-24 season itself: `WBL_boat_counts.xlsx` starts in March 2024, so most of that
-season's boat runs trailer-only; and the Grays Harbor 2023-24 shifts were shorter (median 4.1 h
-against 6.0 h in 2024-25), so the contact-based crabbing fraction covers less of the day.
+**The 2023-25 span is OUT OF SCOPE (Matt, 2026-09-28; CHANGE_REGISTER D8, closed).** This guide
+staged it from 2026-09-10 (and `run_config.R` shipped it until 2026-09-12, D28; a commented copy
+is still in that file). It is not to be run: 2023-24 is a pre-protocol exploratory season (one
+peak count per day, insufficient coverage), and it was also blocked on data, since no vessel tally
+or charter roster was kept for 2023-24, so its census component would have been 0. The 2022-23
+and 2023-24 rows remain in the workbooks as a record, and the four-season desk screen for D32
+reads their trailer counts descriptively; neither is a model fit.
 
 ## 8. Failure modes, and what each one means
 
 | Symptom | Meaning | Fix |
 |---|---|---|
 | Run stops at "estimation window contains NO effort counts and NO interviews" | `season_filter` does not match the season rows in the window | Update `season_filter` with the window |
-| Run stops at "No crabbing holidays for season(s)" | The holiday calendar has no rows for a requested season | Add rows to `crabbing_holidays.xlsx` |
+| Run stops at "No crabbing holidays for season(s)" | The holiday calendar has no rows for a requested season | Extend the season/year range in `04_input_files/build_crabbing_holidays.R` and rebuild (`Rscript 04_input_files/build_all_inputs.R`). Never hand-edit `crabbing_holidays.xlsx`: it is built, and a hand edit is discarded by the next rebuild |
 | "OSP boat-count days in window: 0" | No OSP coverage; stream absent, boat runs trailer-only, `f` lower bound inert | Expected when OSP did not operate; nothing to fix |
 | "I/E observations: 0" | `L_effective` regression has no data | Civil-twilight fallback engages; check the day-length plot |
 | A fit reports "PE fallback" with post-filter interviews below the floor | Too thin to fit | A measured outcome; the PE carries the component |

@@ -242,7 +242,9 @@ fetch_crab_data <- function(params) {
 
   # 2026-09-09: say what the season selection captured, and stop loudly when it captured
   # nothing. See 03_R_functions/validate_season_window.R for why this exists.
-  validate_season_window(effort_raw, gh_interview, params)
+  # B46 (2026-09-28): the Grays Harbor effort frame, not every port's: a season with no
+  # Grays Harbor counts must trip the "ZERO effort counts" guard even if another port has some.
+  validate_season_window(gh_effort, gh_interview, params)
 
   return(list(
     shore_effort = shore_effort,

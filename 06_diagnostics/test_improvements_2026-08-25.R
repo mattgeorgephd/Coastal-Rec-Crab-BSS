@@ -24,7 +24,8 @@ if (!dir.exists(file.path(.root, "03_R_functions")))
 here <- function(...) file.path(.root, ...)
 setwd(.root)
 
-for (f in c("bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
+for (f in c("bss_rng.R", "classify_day_type.R",   # 2026-09-28 (B46): bss_with_seed() and bss_weekday(), used by files below
+            "bss_effort_spec.R","bss_ar_resolution.R","crab_fraction.R",
             "bss_opener_covariates.R","diagnose_incomplete_trips.R",
             "bss_stan_fit.R","save_run_diagnostics.R",
             "model_diagnostics.R","bss_model_adequacy.R",
@@ -451,8 +452,11 @@ local({
       identical(unname(a_shore[["bss"]]), "exclude") && identical(unname(a_boat[["bss"]]), "exclude"))
   chk("production arm: the SHORE PE matches the BSS",
       identical(unname(a_shore[["pe"]]), "exclude"))
-  chk("production arm: the BOAT PE is gear_only, not exclude",
-      identical(unname(a_boat[["pe"]]), "gear_only"))
+  # 2026-09-28 (B46): under the shipped pe_gear_ratio_arm = "match_bss" the boat PE takes its
+  # gear ratio from the filtered frame, so it runs "exclude"; "gear_only" is the old asymmetry.
+  chk("production arm: the BOAT PE follows pe_gear_ratio_arm (exclude under match_bss, gear_only under gear_only)",
+      identical(unname(a_boat[["pe"]]), "exclude") &&
+      identical(unname(incomplete_trip_production_arm(FALSE, TRUE, "gear_only")[["pe"]]), "gear_only"))
   chk("production arm: with the filter off, every estimator is 'keep'",
       identical(unname(a_off[["bss"]]), "keep") && identical(unname(a_off[["pe"]]), "keep") &&
       identical(unname(incomplete_trip_production_arm(TRUE, FALSE)[["pe"]]), "keep"))
@@ -1807,7 +1811,7 @@ local({
       { e <- try(suppressWarnings(validate_season_window(eff, int, badp, quiet = TRUE)), silent = TRUE)
         inherits(e, "try-error") && grepl("NEW_SEASON_GUIDE", attr(e, "condition")$message) })
   chk("validator: runs inside fetch_crab_data so every driver and batch gets it",
-      any(grepl("validate_season_window(effort_raw, gh_interview, params)",
+      any(grepl("validate_season_window(gh_effort, gh_interview, params)",   # B46: the Grays Harbor frame
                 readLines("03_R_functions/fetch_crab_data.R", warn = FALSE), fixed = TRUE)))
   # the guide exists and is wired in
   chk("NEW_SEASON_GUIDE.md exists", file.exists("07_documentation/NEW_SEASON_GUIDE.md"))
@@ -2825,13 +2829,15 @@ local({
   # are asserted where they now live, NEW_SEASON_GUIDE section 7.1, not in the config.
   chk("shipped: charter_frame = roster, effort_qc_drop holds the interview-total flag",
       identical(rc$charter_frame, "roster") && identical(rc$effort_qc_drop, "gear_count_from_interviews"))
-  chk("shipped: the alternative windows are paste-ready in the guide (2025-26, and the blocked 2023-25 span ending Jan 31 on the 2024 opener)",
+  # 2026-09-28 (Matt): seasons before 2024-25 are out of scope, so the guide's span example is
+  # 2024-26 and the 2023-25 paste block is gone; assert THAT, not the retired block.
+  chk("shipped: the alternative windows are paste-ready in the guide (2025-26, and a 2024-26 span; no pre-2024-25 season)",
       { g <- paste(readLines("07_documentation/NEW_SEASON_GUIDE.md", warn = FALSE), collapse = "\n")
         grepl("Paste-ready window blocks", g, fixed = TRUE) &&
         grepl('season_filter     = "2025-26"', g, fixed = TRUE) &&
         grepl('run_tag           = "season-2025-26"', g, fixed = TRUE) &&
-        grepl('"2023-24" = c("2023-12-01", "2024-01-31")', g, fixed = TRUE) &&
-        grepl('c("2023-24", "2024-25")', g, fixed = TRUE) })
+        grepl('run_tag           = "two-season-2024-26"', g, fixed = TRUE) &&
+        !grepl('season_filter     = c("2023-24", "2024-25")', g, fixed = TRUE) })
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
     d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
     chk(sprintf("%s: the census row names the charter frame", basename(drv)), any(grepl("charter_frame", d, fixed = TRUE)))
@@ -4625,9 +4631,10 @@ local({
   SUP <- c("run_patch_validation_2026-08-25", "run_improvement_plan_2026-08-27",
            "run_stage5_2026-08-30", "run_validation_2026-09-01",
            "run_shore_ar_zi_2026-09-03", "run_ladder_zinb_2026-09-04",
-           "run_adoption_2026-09-07", "run_osp_validation")
+           "run_adoption_2026-09-07", "run_osp_validation",
+           "run_tau_sweep")   # 2026-09-28 (B46): superseded by its own header; now guarded
   LIVE <- c("run_improvements_2026-09-08", "run_gear_ar_zi_2026-09-13",
-            "run_rg_sweep", "run_tau_sweep",
+            "run_rg_sweep",
             "run_marine_hazard_batch_2026-09-25")   # 2026-09-25: A30 / B35
   chk("diagnostics: the superseded-runner helper exists and offers an override",
       file.exists("03_R_functions/bss_superseded_runner.R") &&
@@ -5280,9 +5287,9 @@ local({
       is.null(.bss_seeded_perm(list(), 5)) && identical(bss_seed_permutation(list(x = 1), 5), list(x = 1)))
   for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
     d <- readLines(drv, warn = FALSE)
-    ii <- grep("set.seed(as.integer(params$bss_seed %||% 1L))", d, fixed = TRUE)
-    jj <- grep(".cc_draws <- pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se)", d, fixed = TRUE)
-    chk(sprintf("B38: %s seeds the census draw immediately before it", basename(drv)), length(ii) >= 1 && length(jj) == 1 && any(jj - ii == 1))
+    # B46 (2026-09-28): the seed and the draw are one call, bss_with_seed(), which also restores the RNG
+    jj <- grep(".cc_draws <- bss_with_seed(params$bss_seed %||% 1L, pmax(rnorm(n_draws_max, .cc$Dungeness_Kept, .cc$carried_se)", d, fixed = TRUE)
+    chk(sprintf("B38: %s seeds the census draw (bss_with_seed, caller's RNG restored)", basename(drv)), length(jj) == 1)
     chk(sprintf("B39: %s calls write_block_cv_diagnostics() after write_loo_diagnostics()", basename(drv)),
         { a <- grep("write_loo_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)", d, fixed = TRUE)
           b <- grep("write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)", d, fixed = TRUE)
@@ -6129,10 +6136,10 @@ local({
   gc <- paste(g[!grepl("^\\s*#", g)], collapse = "\n")
   chk("B44 gear: the fit entry carries the expected-catch draws (C_expected_sum)",
       grepl('C_exp_draws <- rstan::extract(fit, "C_expected_sum")$C_expected_sum', gc, fixed = TRUE) &&
-      grepl("C_draws = C_draws, C_exp_draws = C_exp_draws, E_draws = E_draws", gc, fixed = TRUE))
+      grepl("C_draws = C_draws, C_exp_draws = C_exp_draws, C_pred_draws = C_pred_draws, E_draws = E_draws", gc, fixed = TRUE))
   chk("B44 gear: the port total sums C_exp_draws (expected) and carries C_draws as Predictive_Catch",
       grepl("bss_C_total <- bss_C_total + b$C_exp_draws[idx]", gc, fixed = TRUE) &&
-      grepl("bss_C_pred_total <- bss_C_pred_total + b$C_draws[idx]", gc, fixed = TRUE) &&
+      grepl("bss_C_pred_total <- bss_C_pred_total + (b$C_pred_draws %||% b$C_draws)[idx]", gc, fixed = TRUE) &&   # B46: the ZINB predictive
       !grepl("bss_C_total <- bss_C_total + b$C_draws[idx]", gc, fixed = TRUE))
   chk("B44 gear: port_total rows are the pooled track's (Effort / Expected_Catch / Predictive_Catch)",
       grepl('Estimate = c("Effort", "Expected_Catch", "Predictive_Catch")', gc, fixed = TRUE) &&
@@ -6312,6 +6319,182 @@ local({
   chk("B45 interviews: the gear prep filters on the effort unit's own column, as the pooled prep, not on fishing time",
       !any(grepl("filter(!is.na(fishing_time_total), fishing_time_total > 0)", gp, fixed = TRUE)) &&
       any(grepl("int_d <- int_d[is.finite(v) & v > 0, , drop = FALSE]", gp, fixed = TRUE)))
+})
+
+# ---------------------------------------------------------------------------
+# 83. B46 (2026-09-28): THE SECOND REVIEW BATCH. The gear R_G prior, the gate's NA verdict,
+#     the RNG restored everywhere, the predictive catch from the observation model, year-keyed
+#     weeks, the span guard, the output folder, the package loader, the OSP classified count,
+#     the Stan-side OSP guard, locale-free weekdays, the orchestrator, the runners' guards.
+# ---------------------------------------------------------------------------
+local({
+  rl <- function(f) { x <- readLines(f, warn = FALSE); x[!grepl("^\\s*#", x)] }
+  flat <- function(x) paste(x, collapse = "\n")
+  gstan <- flat(rl("02_stan_models/crab_bss_gear_resolved.stan")); pstan <- flat(rl("02_stan_models/crab_bss_pooled.stan"))
+  # 1.11: the gear model's R_G prior is the pooled model's
+  chk("B46 R_G: the gear Stan declares R_G_prior_mu / _sigma and uses them (the 2024-25 literal is gone)",
+      grepl("R_G ~ lognormal(log(R_G_prior_mu), R_G_prior_sigma);", gstan, fixed = TRUE) &&
+      !grepl("R_G ~ lognormal(log(1.3), 0.3);", gstan, fixed = TRUE) && grepl("real<lower=0> R_G_prior_mu;", gstan, fixed = TRUE))
+  chk("B46 R_G: the gear prep resolves it exactly as the pooled prep (override, else the season's interview ratio)",
+      grepl("R_G_prior_mu    = params$R_G_prior_mu %||% summ$empirical_R_G %||% 1.3,", flat(rl("03_R_functions/prep_bss_crab_gear.R")), fixed = TRUE))
+  # 1.12: gate, adequacy, ladder
+  g <- flat(rl("03_R_functions/bss_convergence_gate.R"))
+  chk("B46 gate: an NA R-hat or n_eff FAILS (no na.rm that lets -Inf pass)",
+      grepl("pass_rhat <- all(is.finite(c(rhat_C, rhat_E))) && max(rhat_C, rhat_E) < rhat_threshold", g, fixed = TRUE) &&
+      !grepl("na.rm = TRUE) < rhat_threshold", g, fixed = TRUE))
+  chk("B46 adequacy: the coverage message prints the coverage, keeping its sign",
+      grepl("cov50_worst_value = cov_worst_value,", flat(rl("03_R_functions/bss_model_adequacy.R")), fixed = TRUE))
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+    chk(sprintf("B46 ladder: %s treats a gate that errors as NOT passed", basename(drv)),
+        grepl(".passed      <- !is.null(gate_try) && isTRUE(gate_try$pass_convergence)", flat(rl(drv)), fixed = TRUE))
+  gd <- flat(rl("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+  chk("B46 gear tau: every boat all-gear sub-season from the list, and the boat I/E count from the fit's Stan data",
+      grepl('n_ie_boat   <- as.integer(b_boat$bss_data$IE_n %||% 0L)', gd, fixed = TRUE) &&
+      !grepl('boat_key <- "private_boat_all_gear_Dungeness_Kept"', gd, fixed = TRUE))
+  # 4.6: bss_with_seed
+  set.seed(7); a <- runif(1)
+  set.seed(7); v1 <- bss_with_seed(99, runif(3)); b <- runif(1)
+  set.seed(99); v2 <- runif(3)
+  chk("B46 RNG: bss_with_seed() draws what set.seed() would, then restores the caller's stream exactly",
+      identical(v1, v2) && identical(a, b))
+  chk("B46 RNG: no shared function or driver leaves set.seed() behind (every one sits inside a restore)",
+      { hits <- unlist(lapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", pattern = "Rmd$", full.names = TRUE)),
+                              function(f) { x <- grep("set\\.seed\\(", sub("#.*$", "", rl(f)), value = TRUE)
+                                           if (length(x)) paste(basename(f), x) else character(0) }))
+        allowed <- c("bss_rng.R", "bss_stan_fit.R", "diagnose_effort_overdispersion.R", "model_diagnostics.R",
+                     "BSS-GH-pooled-CPUE-model.Rmd", "BSS-GH-gear-type-CPUE-model.Rmd")   # each of these restores the caller's RNG
+        all(sub(" .*$", "", hits) %in% allowed) })
+  # 2.6: the predictive catch
+  source("03_R_functions/bss_rng.R"); source("03_R_functions/bss_predictive_catch.R")
+  D <- 30; S <- 4000; mu <- matrix(40, S, D); E <- matrix(100, S, D); r <- rep(0.8, S); hb <- 4
+  y0 <- bss_predictive_draws(mu, E, r, rep(0, S), hb, seed = 3)
+  # sum over n = E/hbar = 25 parties per day of NB2(m, r): day var = mu (1 + m / r), m = mu / n = 1.6
+  v_day <- 40 * (1 + 1.6 / 0.8)
+  chk("B46 predictive: theta = 0, the season total has the variance of a sum of NB2 parties (not a Poisson's)",
+      abs(stats::var(y0) / (D * v_day) - 1) < 0.1 && stats::var(y0) > 2.5 * D * 40, sprintf("(var %.0f vs %.0f; Poisson %.0f)", stats::var(y0), D * v_day, D * 40))
+  y1 <- bss_predictive_draws(mu, E, r, rep(0.3, S), hb, seed = 3)
+  v_day1 <- 40 * (1 + (40 / (25 * 0.7)) / 0.8 + 0.3 * (40 / (25 * 0.7)))
+  chk("B46 predictive: with zero-inflation the variance carries the extra theta * m term; the mean stays mu",
+      abs(mean(y1) / (D * 40) - 1) < 0.01 && abs(stats::var(y1) / (D * v_day1) - 1) < 0.1)
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+    chk(sprintf("B46 predictive: %s builds Predictive_Catch from bss_predictive_catch()", basename(drv)),
+        grepl("C_pred_draws <- tryCatch(bss_predictive_catch(fit, bss_data, bss_predictive_seed(params$bss_seed, label)),", flat(rl(drv)), fixed = TRUE) &&
+        grepl("bss_C_pred_total <- bss_C_pred_total + (b$C_pred_draws %||% b$C_draws)[idx]", flat(rl(drv)), fixed = TRUE))
+  # 3.1: year-keyed ISO weeks and the span guard
+  source("03_R_functions/prep_days_crab.R")
+  # the calendar only; day length (suncalc) is not what these assertions are about
+  bss_assign_day_length <- function(days, L_eff_model, params) days
+  environment(prep_days_crab) <- environment()
+  dd <- prep_days_crab("2024-12-28", "2025-01-08", list(days_wkend = c("Saturday", "Sunday"), crabbing_holiday_dates = as.Date(character()),
+                                                        period_pe = "week", sections = 1))
+  chk("B46 weeks: the New Year week (Mon 30 Dec to Sun 5 Jan) is ONE period and ONE AR week",
+      length(unique(dd$period[dd$event_date >= as.Date("2024-12-30") & dd$event_date <= as.Date("2025-01-05")])) == 1 &&
+      length(unique(dd$week_index[dd$event_date >= as.Date("2024-12-30") & dd$event_date <= as.Date("2025-01-05")])) == 1)
+  dd2 <- prep_days_crab("2024-09-01", "2025-09-15", list(days_wkend = c("Saturday", "Sunday"), crabbing_holiday_dates = as.Date(character()),
+                                                         period_pe = "week", sections = 1))
+  chk("B46 weeks: the same week number in two years is two periods (a window opening before mid-September)",
+      dd2$period[dd2$event_date == as.Date("2024-09-09")] != dd2$period[dd2$event_date == as.Date("2025-09-08")])
+  source("03_R_functions/validate_season_window.R")
+  eff <- data.frame(date = as.Date("2024-10-01") + 0:5, season = "2024-25"); int <- data.frame(event_date = as.Date("2024-10-01"), season = "2024-25")
+  base_p <- list(est_date_start = "2024-09-16", est_date_end = "2025-09-15", season_filter = "2024-25")
+  chk("B46 span: two seasons in season_filter with pot_closures NULL STOP",
+      inherits(try(suppressWarnings(validate_season_window(eff, int, modifyList(base_p, list(season_filter = c("2024-25", "2025-26"))), quiet = TRUE)), silent = TRUE), "try-error"))
+  chk("B46 span: a window longer than a season with pot_closures NULL STOPS; the single shipped season passes",
+      inherits(try(suppressWarnings(validate_season_window(eff, int, modifyList(base_p, list(est_date_end = "2026-09-15")), quiet = TRUE)), silent = TRUE), "try-error") &&
+      isTRUE(suppressWarnings(validate_season_window(eff, int, base_p, quiet = TRUE))))
+  # 3.2: the output folder
+  source("03_R_functions/bss_output_dir.R")
+  td <- tempfile("out"); dir.create(td)
+  rc <- list(run_tag = "canonical-2024-25", season_filter = "2025-26")
+  chk("B46 folder: a tag naming a season the run does not model STOPS",
+      inherits(try(bss_output_dir("pooled-CPUE-", rc, base = td), silent = TRUE), "try-error"))
+  d1 <- bss_output_dir("pooled-CPUE-", list(run_tag = "season-2025-26", season_filter = "2025-26"), base = td)
+  writeLines("x", file.path(d1, "f.csv"))
+  d2 <- bss_output_dir("pooled-CPUE-", list(run_tag = "season-2025-26", season_filter = "2025-26"), base = td)
+  chk("B46 folder: a second render under one tag never writes into the filled folder",
+      !identical(d1, d2) && startsWith(basename(d2), basename(d1)) && dir.exists(d2))
+  chk("B46 folder: a span tag (first start year to last end year) is accepted for a multi-season run",
+      dir.exists(bss_output_dir("p-", list(run_tag = "two-season-2024-26", season_filter = c("2024-25", "2025-26")), base = td)))
+  chk("B46 folder: the tag is made path-safe",
+      basename(suppressMessages(bss_output_dir("p-", list(run_tag = "gear_resolved_G = FALSE", season_filter = "2024-25"), base = td))) == "p-gear_resolved_G-FALSE")
+  unlink(td, recursive = TRUE)
+  # 4.2 / 4.3 / 4.4: loader, gear driver, orchestrator
+  for (f in c("run_estimation.R", "01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+    chk(sprintf("B46 packages: %s loads through bss_load_packages() (no bare install.packages / require)", basename(f)),
+        grepl("bss_load_packages()", flat(rl(f)), fixed = TRUE) && !grepl("sapply(load.lib, require", flat(rl(f)), fixed = TRUE))
+  chk("B46 packages: renv.lock is the full closure (the headers rstan compiles against, writexl) and carries no unused package",
+      { lk <- jsonlite::fromJSON("renv.lock")$Packages
+        all(c("BH", "RcppEigen", "StanHeaders", "rstan", "writexl", "renv", "suncalc") %in% names(lk)) && !any(c("gt", "patchwork", "mgcv") %in% names(lk)) })
+  chk("B46 gear driver: CPUE diagnostics wrapped, season totals written, session_info.txt written",
+      grepl("tryCatch(write_cpue_diagnostics(b, label, output_dir),", gd, fixed = TRUE) &&
+      grepl('utils::write.csv(season_totals, file.path(output_dir, "season_totals.csv"), row.names = FALSE)', gd, fixed = TRUE) &&
+      grepl('writeLines(capture.output(sessionInfo()), file.path(output_dir, "session_info.txt"))', gd, fixed = TRUE))
+  re <- flat(rl("run_estimation.R"))
+  chk("B46 orchestrator: 'both' renders the two models and writes the cross-check; unknown flags stop; a failure is recorded before the exit",
+      grepl('models <- if (identical(model, "both")) c("pooled", "gear_resolved") else model', re, fixed = TRUE) &&
+      grepl("Unknown argument", re, fixed = TRUE) && grepl("cross_check_%s.csv", re, fixed = TRUE) &&
+      regexpr("write_manifest(stages, .base)", re, fixed = TRUE) < regexpr('stop(sprintf("Model stage(s) failed', re, fixed = TRUE))
+  chk("B46 appendix: the manual divergence chunk is opt-in",
+      any(grepl("{r divergence-diagnostics, results='hide', eval=isTRUE(params$divergence_appendix)}", readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), fixed = TRUE)))
+  # 3.5: the report names the modelled seasons
+  chk("B46 report: neither report hard-codes a season in its title or banner",
+      !any(grepl("2024-25 Season Results Report", readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), fixed = TRUE)) &&
+      !grepl("SEASON SUMMARY: 2024-25", gd, fixed = TRUE) && !grepl('as.Date("2024-01-01"), as.Date("2024-12-31")', flat(rl("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")), fixed = TRUE))
+  # 3.7: OSP
+  if (requireNamespace("writexl", quietly = TRUE) && requireNamespace("readxl", quietly = TRUE)) {
+    source("03_R_functions/read_input_workbook.R"); source("03_R_functions/fetch_osp_boat_counts.R")
+    # a scratch workbook in 04_input_files/ (the reader resolves its file there), removed at once
+    tf <- sprintf("zz_harness_osp_%d.xlsx", Sys.getpid()); tp <- file.path("04_input_files", tf)
+    ow <- data.frame(Year = 2024, Month = 10, Day = 1:4, WestportPrivateEffort = c(40, 60, 20, 10),
+                     WestportCrabOnlyEffort = c(0.25, 0.5, 0.1, 0.4), WestportCrabClassified = c(20, 30, 20, 10))
+    writexl::write_xlsx(list(Sheet1 = ow), tp)
+    op <- list(osp_boat_counts_file = tf, est_date_start = "2024-09-16", est_date_end = "2025-09-15")
+    q <- function(pp) { r <- NULL; utils::capture.output(r <- tryCatch(fetch_osp_boat_counts(pp), error = function(e) e)); r }
+    r_count <- q(op); r_frac <- q(modifyList(op, list(osp_crab_only_unit = "fraction")))
+    unlink(tp)
+    chk("B46 OSP (functional): a share delivered in the crab-only column STOPS under the default unit 'count'",
+        inherits(r_count, "error") && grepl("looks like a SHARE", conditionMessage(r_count)))
+    cr <- if (!inherits(r_frac, "error")) attr(r_frac, "osp_crab_rows") else NULL
+    chk("B46 OSP (functional): under 'fraction' the share becomes a count OF THE CLASSIFIED boats, which is the binomial n",
+        !is.null(cr) && identical(as.numeric(cr$osp_total), c(20, 30, 20, 10)) &&
+        identical(as.numeric(cr$osp_crab_only), c(5, 15, 2, 4)))
+  }
+  of <- flat(rl("03_R_functions/fetch_osp_boat_counts.R"))
+  chk("B46 OSP: a fraction-valued crab-only column read as a count STOPS; osp_crab_only_unit = 'fraction' converts it",
+      grepl("it looks like a SHARE of the boats, not a count", of, fixed = TRUE) &&
+      grepl('osp_crab_only = if (identical(crab_unit, "fraction")) round(osp_crab_only * osp_n) else osp_crab_only', of, fixed = TRUE))
+  chk("B46 OSP: the classified-boat count, when delivered, is the binomial n of the crab-only share",
+      grepl("osp_n = dplyr::if_else(is.finite(osp_checked) & osp_checked > 0, osp_checked, osp_boat_total)", of, fixed = TRUE) &&
+      grepl("osp_total     = osp_n,", of, fixed = TRUE))
+  for (st in list(pstan, gstan))
+    chk("B46 Stan: the OSP crab-only share can never be fitted as f (reject without the combo walk)",
+        grepl("if (osp_crab_lower == 1 && n_f_dyn == 1 && n_c_dyn == 0 && OSPF_n > 0)", st, fixed = TRUE))
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("B46 config: the OSP file keys and the sampling-frequency keys are on the control surface; ie_min_obs_boat only there",
+      all(c("osp_boat_counts_file", "osp_boat_counts_sheet", "osp_dupe_resolve", "osp_match_trailer_area", "osp_crab_checked_col", "osp_crab_only_unit") %in% names(rc)) &&
+      !grepl("ie_min_obs_boat  = 2,", gd, fixed = TRUE) && is.null(rc$fishery_name))
+  chk("B46 weekdays: bss_weekday() gives English names from the ISO number, whatever the locale",
+      identical(bss_weekday(as.Date(c("2025-01-04", "2025-01-06", "2025-01-05"))), c("Saturday", "Monday", "Sunday")) &&
+      !any(grepl("(^|[^_.a-z])weekdays\\(", unlist(lapply(c("prep_days_crab.R", "crab_fraction.R", "estimate_comm_charter.R", "classify_day_type.R"),
+                                                                  function(f) rl(file.path("03_R_functions", f)))))))
+  chk("B46 PE: the scale check warns and flags; it no longer stops the run",
+      !grepl('stop(sprintf(paste0("run_pe_pooled(): PE implied CPUE', flat(rl("03_R_functions/run_pe_pooled.R")), fixed = TRUE) &&
+      !grepl('stop(sprintf(paste0("run_pe(): PE implied CPUE', flat(rl("03_R_functions/run_pe_gear.R")), fixed = TRUE))
+  # 4.5: runners
+  sr <- flat(rl("03_R_functions/bss_superseded_runner.R"))
+  chk("B46 guard: the override is consumed (one override no longer disarms every runner)",
+      grepl('suppressWarnings(rm("I_KNOW_THIS_IS_SUPERSEDED", envir = globalenv()))', sr, fixed = TRUE))
+  chk("B46 guard: every guarded runner finds the guard with here::here() and FAILS CLOSED",
+      all(vapply(list.files("06_diagnostics", pattern = "^run_.*[.]R$", full.names = TRUE), function(f) {
+        x <- flat(rl(f)); !grepl("bss_superseded_runner(", x, fixed = TRUE) ||
+          (grepl('.sr <- here::here("03_R_functions", "bss_superseded_runner.R")', x, fixed = TRUE) &&
+           grepl("refusing to run", x, fixed = TRUE) && !grepl('if (exists("bss_superseded_runner"))', x, fixed = TRUE)) }, logical(1))))
+  chk("B46 runners: both live ladders stamp and check an inputs fingerprint; none hides a failed source()",
+      grepl("inputs: %s", flat(rl("06_diagnostics/run_improvements_2026-09-08.R")), fixed = TRUE) &&
+      grepl("inputs: %s", flat(rl("06_diagnostics/run_marine_hazard_batch_2026-09-25.R")), fixed = TRUE) &&
+      !any(vapply(setdiff(list.files("06_diagnostics", pattern = "[.]R$", full.names = TRUE),
+                          "06_diagnostics/test_improvements_2026-08-25.R"),   # this file names the pattern it bans
+                  function(f) grepl("try(source(f), silent = TRUE)", flat(rl(f)), fixed = TRUE), logical(1))))
 })
 
 # ---------------------------------------------------------------------------

@@ -62,12 +62,19 @@ default gear-resolved run is a structurally simpler cross-check rather than a pe
 **Do not raise `G > 1` without adding per-gear effort shares**: only gear 1 is observed in the
 effort stream, so a naive `G > 1` would apportion the whole effort series to every gear.
 
-**Its shore all-gear AR cap is still monthly, and its Stan has no zero-inflation block.** So
-the two tracks currently differ in a resolution AND in a likelihood, which is why the port
+**Its shore all-gear AR period is still monthly (`gear_period_bss`), and its zero-inflation
+block ships off.** The block was ported from the pooled model on 2026-09-13 (D6) and is
+switched by `catch_zi_tracks`, which ships `"pooled"`, so as shipped this track fits plain NB2.
+So the two tracks currently differ in a resolution AND in a likelihood, which is why the port
 gap is -1.17% rather than smaller. At a COMMON resolution the two agree on shore all-gear to
 **0.08%** (20,771 against 20,754), which is the number that shows the gap is a resolution
-difference and not a disagreement. Closing it needs a gear-track AR ladder, about 3 hours of
-fitting. Tracked as CHANGE_REGISTER D3 and D6.
+difference and not a disagreement. The gear-track ladder that was to close it ran on
+2026-09-13/14 (`run_gear_ar_zi_2026-09-13.R`, campaign Section 1w): D6 says ADOPT the ZINB
+(+11.3 nats at 2.29 paired SE, as on the pooled track), and D3 was re-scoped, because the
+flat `gear_period_bss` moves the shore and boat all-gear fits together; at shore weekly, boat
+monthly (the per-population form, `bss_gear_period()`) the tracks agree to +0.28% at the port.
+Each is one ~35 minute render from closed. Tracked as CHANGE_REGISTER D3 and D6 (and D29, the
+boat all-gear period that ladder exposed).
 
 ## 3. The reference run
 
@@ -133,10 +140,21 @@ holiday term. As in the pooled model, note that the day-type indicators NEST: th
 indicator is 1 on weekends and on holidays, so `B2` is an increment on top of the weekend
 effect rather than a separate level.
 
-**No zero-inflation block.** `crab_bss_gear_resolved.stan` has no `theta_C`, so
-`estimate_catch_zi` is inert on this track and the shore catch likelihood is plain NB2. This
-is the likelihood half of the -1.17% gap, worth about -0.3%. Restoring symmetry is a Stan
-edit plus a recompile (D6).
+**The zero-inflation block is present and ships off.** Since 2026-09-13 (the D6 port)
+`crab_bss_gear_resolved.stan` carries the pooled model's `zi_catch` / `theta_C` block line for
+line. `catch_zi_tracks` decides which tracks fit it and ships `"pooled"`, so the gear prep
+emits `zi_catch = 0` and the shore catch likelihood here is plain NB2 as shipped; the OFF path
+is bit-identical to the pre-port model (11,021 parameter rows). This is the likelihood half of
+the -1.17% gap, worth about -0.3%. Adding `"gear_resolved"` to `catch_zi_tracks` is the D6
+adoption, which the evidence supports pending one render at the matched configuration.
+
+**The shore gear-count expansion prior `R_G` is the pooled one (B46, 2026-09-28).** Until
+B46 the gear Stan hard-coded `R_G ~ lognormal(log(1.3), 0.3)`, the 2024-25 interview ratio,
+while the pooled Stan takes the centre from the season being fitted. The gear prep now passes
+`R_G_prior_mu` and `R_G_prior_sigma` resolved exactly as the pooled prep does (the
+`run_config.R` override, else the season's empirical interview ratio, about 1.28 on 2024-25,
+else 1.3), so a season other than 2024-25 no longer inherits 2024-25's prior. The T1.3 sweep
+(pooled document, PIPELINE_STATUS) found every component invariant to this prior.
 
 ## 5. Toggles this model reads that the pooled model ignores
 
@@ -147,31 +165,38 @@ All in `run_config.R` section 5.
 | `gear_resolved_G` | `FALSE` | `TRUE` gives the SHORE fits a genuine per-gear CPUE process (all-gear `G = 5`, pot closure `G = 4`); the boat stays `G = 1`. `FALSE` apportions the gear split from interview shares, as the pooled model does |
 | `gear_share_dirichlet` | `FALSE` | propagates gear-share uncertainty into the per-gear intervals. Forced off at `G = 1` |
 | `alpha0_gear` | see config | the Dirichlet concentration for the gear shares |
-| `ar_adaptive` | `FALSE` | `FALSE` preserves the fixed per-sub-season `period_bss` exactly (biweekly pot closure, monthly all gear). `TRUE` hands the AR choice to the data-driven selector, which is inference-changing: validate first |
+| `gear_period_bss` | `list(all_gear = "month", pot_closure = "biweekly")` | the gear track's AR period: per sub-season (the flat form, shipped), or per population then per sub-season (`list(shore = list(...), private_boat = list(...))`, resolved by `bss_gear_period()`, B32). This, not `ar_max_resolution$gear_resolved`, sets the gear fits' periods |
+| `catch_zi_tracks` | `"pooled"` | (section 2, read by both tracks) which tracks fit the zero-inflated catch likelihood; add `"gear_resolved"` to fit it here (D6) |
+| `ar_adaptive` | `FALSE` | `FALSE` preserves the fixed per-sub-season period from `gear_period_bss` exactly (biweekly pot closure, monthly all gear; `period_bss` is the sub-season field it fills). `TRUE` hands the AR choice to the data-driven selector, which is inference-changing: validate first |
 | `loo_effort_unit_comparison` | `FALSE` | `TRUE` restricts interviews to the common valid-denominator subset so a cross-unit `elpd_loo` comparison is legitimate. The comparison is done; `FALSE` for production |
 | `use_boat_ie` | `TRUE` | use the WBL boat I/E ingress counts to identify the turnover once enough days exist. `IE_n = 0` is safe, and today there are 2 WBL days, so the stream is effectively absent |
 
 **One caution on `ar_adaptive`.** The gear track's shipped resolutions come from the fixed
-`period_bss` path, not from the pooled track's `ar_max_resolution` ladder. Do not copy the
-pooled caps across: the gear shore fits carry a thinner per-gear likelihood and may genuinely
-need a coarser AR. That question needs its own ladder, which the machinery now supports with
-per-rung adequacy.
+`gear_period_bss` path, not from the pooled track's `ar_max_resolution` ladder. Do not copy the
+pooled caps across on the strength of symmetry alone. (The reason once given, that the gear
+shore fits carry a thinner per-gear likelihood at `G = 5`, holds only with
+`gear_resolved_G = TRUE`; as shipped the shore fits are `G = 1`. The question got its own
+ladder on 2026-09-13/14, Section 1w, and D3 carries what it found.)
 
 ## 6. Running it
 
 Identical to the pooled model, with one flag:
 
 ```sh
-Rscript run_estimation.R --model gear_resolved
+Rscript run_estimation.R --model gear_resolved   # this model alone
+Rscript run_estimation.R --model both            # the pooled headline, then this cross-check
 ```
 
-or set `model <- "gear_resolved"` in the RUN SELECTION block at the top of `run_config.R`.
-There is nothing else to run alongside it: the weather-tide module, which was pooled-only
-anyway, was removed on 2026-09-13 (A29), so the orchestrator is single-path.
+or set `model <- "gear_resolved"` (or `"both"`) in the RUN SELECTION block at the top of
+`run_config.R`. An unknown flag stops the orchestrator rather than being ignored (B46). The
+weather-tide module, which was pooled-only anyway, was removed on 2026-09-13 (A29).
 
 **Run it AFTER a pooled run, on the same configuration, and compare the port totals** (the
 `Expected_Catch` rows of the two `port_total_*.csv`; both tracks write the same rows since B44).
-That is what it is for. The pre-set criterion is agreement within 2%. If the gap exceeds it, the
+That is what it is for, and `--model both` does it in one call: each model renders in a fresh
+environment and the orchestrator writes `cross_check_<timestamp>.csv` at the run-date level
+(the two `Expected_Catch` medians, their relative difference, and PASS or REVIEW against
+`cross_check_tolerance`, shipped 0.02). The pre-set criterion is agreement within 2%. If the gap exceeds it, the
 first thing to check is whether the two tracks are at the same AR resolution, because that
 has explained every gap so far.
 
@@ -191,7 +216,8 @@ Newest first. The full log is `BSS-GH-gear-type-CPUE-model-development-history.m
   data-derived turnovers, the commercial census plus charter expansion, and the PE's
   month-local unsampled-cell fill, all of which are shared code and arrived with it. Ran as
   ladder rung R5 and reconciled to the pooled track at -1.17%. Still differs in the shore AR
-  cap and the absent zero-inflation block.
+  period and in the zero-inflation block, which was absent then and was ported 2026-09-13 but
+  ships off (`catch_zi_tracks = "pooled"`).
 - **2026-09-02.** The boat all-gear sampler settings moved from an experiment override into
   the driver. Divergences 554 to 2, `tau_bar` `n_eff` 49 to 19,292, gear port 51,385 to
   70,953. This restored a cross-check that had never worked.
