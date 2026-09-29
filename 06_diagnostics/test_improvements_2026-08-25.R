@@ -7009,14 +7009,25 @@ local({
       grepl('STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")', rt, fixed = TRUE))
   chk("B58: stage A renders through run_estimation.R --model both (the production orchestrator, manifest and cross-check), not a copy of it",
       grepl('A    = list(model = "both", fit = TRUE, tag = BASE$run_tag, orchestrator = TRUE', rt, fixed = TRUE) &&
-      grepl('system2(RSCRIPT, c(shQuote(ORCH), "--model", st$model)', rt, fixed = TRUE))
+      grepl('status <- .sys(c(shQuote(ORCH), "--model", mdl), log, hours)', rt, fixed = TRUE))
+  chk("B58 review: every stage runs under a wall-clock limit (system2 timeout), recorded as TIMED OUT",
+      grepl("system2(RSCRIPT, args, stdout = log, stderr = log, timeout = round(3600 * hours))", rt, fixed = TRUE) &&
+      grepl('identical(status, 124L)) "TIMED OUT"', rt, fixed = TRUE))
+  chk("B58 review: a resumed stage A renders only the missing model and the runner writes the cross-check",
+      grepl("PARTIAL RESUME", rt, fixed = TRUE) && grepl(".write_cross_check(dirs[[\"pooled\"]], dirs[[\"gear_resolved\"]])", rt, fixed = TRUE))
+  chk("B58 review: a desk FAIL blocks only the stages it concerns (DEPENDS); an S0 FAIL blocks every stage",
+      grepl("BLOCKED <- if (\"S0\" %in% .desk_fail) setdiff(STAGES, \"S0\") else", rt, fixed = TRUE) &&
+      grepl("for (sid in setdiff(STAGES, c(\"S0\", BLOCKED)))", rt, fixed = TRUE))
+  chk("B58 review: the manifest parser reads every model line after Stages: (a multi-line error must not hide the second)",
+      grepl('if (!grepl("^  (pooled|gear_resolved)\\\\s", x)) next', rt, fixed = TRUE))
   chk("B58: every decision rule is written in the header before the run (A, R2, D3, D6, D29)",
       all(vapply(c("# A (can this render become the authoritative run?)", "# R2 (does A31 still need init_r = 0.5?)",
                    "# D3 (the gear track's AR period, per population)", "# D6 (the gear-track zero-inflated shore catch)",
                    "# D29 (the boat all-gear AR period)", "D29-4 THE DECISION, pooled track only"),
                  function(x) grepl(x, rt, fixed = TRUE), logical(1))))
-  chk("B58: D3 and D29G use the POOLED caps as the gear per-population periods, by construction",
-      grepl("MATCHED <- BASE$ar_max_resolution$pooled", rt, fixed = TRUE) &&
+  chk("B58: D3 and D29G put the shore at the POOLED caps and leave the boat at its shipped gear periods, by construction",
+      grepl("MATCHED <- list(shore = BASE$ar_max_resolution$pooled$shore,", rt, fixed = TRUE) &&
+      grepl("private_boat = list(all_gear = BASE$gear_period_bss$all_gear", rt, fixed = TRUE) &&
       grepl("delta = list(gear_period_bss = MATCHED)),", rt, fixed = TRUE))
   chk("B58: the D29 ladders are scoped to the boat all-gear fit, fit every rung, and ignore the cap under test",
       grepl('ar_escalate = list(private_boat = "all_gear"), ar_escalate_stop = "all_rungs"', rt, fixed = TRUE) &&
@@ -7042,6 +7053,70 @@ local({
   chk("B58: bss_rung_adequacy() carries cov50_trailer, NA when there is no fit",
       exists("bss_rung_adequacy") && "cov50_trailer" %in% names(bss_rung_adequacy(NULL, NULL)) &&
       is.na(bss_rung_adequacy(NULL, NULL)$cov50_trailer))
+  # The decision code itself, run on synthetic folders: the runner's function definitions (and
+  # only those, plus its constants) are evaluated into a sandbox, so nothing is fitted, sourced
+  # from run_config.R or written to 05_output.
+  ex <- parse(rf, keep.source = FALSE)
+  sb <- new.env(parent = globalenv())
+  for (f in c("bss_ar_resolution.R", "bss_block_cv.R", "loo_elpd_paired.R")) sys.source(file.path("03_R_functions", f), envir = sb)
+  keep <- c("FITS", "FIT_SHORE_AG", "FIT_SHORE_PC", "FIT_BOAT_AG", "V", "REC", "D29", "D29_TABLE", "COMP", "COMP_NOTE", "%||%")
+  for (e in ex) if (is.call(e) && identical(e[[1]], as.name("<-")) && is.name(e[[2]]) &&
+                    (as.character(e[[2]]) %in% keep || (is.call(e[[3]]) && identical(e[[3]][[1]], as.name("function")))))
+    eval(e, sb)
+  sb$BASE <- list(cross_check_tolerance = 0.02)
+  mk <- function(rungs) {                     # rungs: list of list(res, gate, plf, bad, elpd) for the boat all-gear fit
+    d <- tempfile("d29_"); dir.create(d)
+    utils::write.csv(data.frame(fit = sb$FIT_BOAT_AG, attempt = seq_along(rungs), ar_resolution = vapply(rungs, `[[`, "", "res"), P_n = 10,
+      escalation_enabled = TRUE, divergences = 0, divergence_fraction = 0, pass_convergence = vapply(rungs, function(r) r$gate, logical(1)),
+      catch_median = 40000 + seq_along(rungs), catch_lo95 = 1, catch_hi95 = 2, p_loo = 1, p_loo_frac = vapply(rungs, function(r) r$plf, numeric(1)),
+      n_pareto_bad = vapply(rungs, function(r) r$bad, numeric(1)), cov50_gear = NA, cov50_catch = NA, cov50_trailer = NA, pit_mean_catch = NA,
+      selected = FALSE), file.path(d, "ar_escalation_log.csv"), row.names = FALSE)
+    utils::write.csv(data.frame(stream = c("trailer", "osp", "catch"), n_obs = c(195, 130, 175)),
+                     file.path(d, sprintf("loo_summary_%s.csv", sb$FIT_BOAT_AG)), row.names = FALSE)
+    for (r in rungs) if (!is.null(r$elpd))
+      utils::write.csv(data.frame(data_type = "joint", block = sprintf("2025-W%02d", seq_along(r$elpd)), n_obs = 6, n_leaveout = 6, lpd_block = r$elpd,
+                                  elpd_block = r$elpd, p_eff = 0.1, pareto_k = 0.3, reliable = TRUE, leaveout_streams = "trailer+osp"),
+                       file.path(d, sprintf("ladder_block_joint_%s_%s.csv", sb$FIT_BOAT_AG, r$res)), row.names = FALSE)
+    d
+  }
+  decide <- function(rungs) {
+    sb$V <- list(); sb$REC <- list(); sb$D29 <- list(); sb$D29_TABLE <- NULL
+    sb$d29_rows("pooled", mk(rungs), "D29P"); sb$verdict_D29(list(A = c(pooled = NA_character_)))
+    sb$REC[[length(sb$REC)]]$recommendation
+  }
+  set.seed(58); base <- -10 + stats::rnorm(30, 0, 0.2)
+  up <- base + 0.5 + stats::rnorm(30, 0, 0.1); same <- base + stats::rnorm(30, 0, 0.05); down <- base - 0.5 + stats::rnorm(30, 0, 0.1)
+  R <- function(res, gate = TRUE, plf = 0.05, bad = 0, elpd = base) list(res = res, gate = gate, plf = plf, bad = bad, elpd = elpd)
+  chk("B58 D29 rule: weekly eligible, adequate and BETTER than monthly -> MOVE the cap to weekly (D29-4a)",
+      grepl("^MOVE the pooled boat all-gear cap to weekly", decide(list(R("weekly", elpd = up), R("biweekly", elpd = same), R("monthly")))))
+  chk("B58 D29 rule: weekly fails the gate, biweekly BETTER -> MOVE to biweekly (a failed rung is decided, not undecided)",
+      grepl("^MOVE the pooled boat all-gear cap to biweekly", decide(list(R("weekly", gate = FALSE, elpd = up), R("biweekly", elpd = up), R("monthly")))))
+  chk("B58 D29 rule: no finer rung BETTER (NO EVIDENCE / WORSE) and monthly adequate -> KEEP monthly (D29-4b)",
+      grepl("^KEEP monthly", decide(list(R("weekly", elpd = down), R("biweekly", elpd = same), R("monthly")))))
+  chk("B58 D29 rule: an adequacy that was not computed is UNKNOWN and the rule says REVIEW, never KEEP (D29-4c)",
+      grepl("^REVIEW", decide(list(R("weekly", plf = NA, elpd = down), R("biweekly", elpd = same), R("monthly")))))
+  chk("B58 D29 rule: biweekly BETTER but weekly's block CV missing -> REVIEW (a finer rung undecided), not MOVE",
+      grepl("^REVIEW", decide(list(R("weekly", elpd = NULL), R("biweekly", elpd = up), R("monthly")))))
+  chk("B58 D29 rule: an incomplete ladder (monthly only) -> REVIEW (D29-0)",
+      grepl("^REVIEW: the pooled ladder is incomplete", decide(list(R("monthly")))))
+  chk("B58 D29 rule: inadequate by bad Pareto k (> 5% of all 500 LOO observations) is OUT, so a BETTER weekly with 30 bad k does not move the cap",
+      grepl("^KEEP monthly", decide(list(R("weekly", bad = 30, elpd = up), R("biweekly", elpd = same), R("monthly")))))
+  # the three-valued helpers and the manifest parser
+  chk("B58 review: a clause that could not be read is REVIEW, never PASS or FAIL",
+      identical(sb$.tri(NA), "REVIEW") && identical(sb$.tri(TRUE), "PASS") && identical(sb$.tri(FALSE), "FAIL") &&
+      identical(sb$.worst(c("PASS", "REVIEW")), "REVIEW") && identical(sb$.worst(c("REVIEW", "FAIL")), "FAIL") &&
+      is.na(sb$.gate_all(NULL)) && identical(sb$.gate_all(data.frame(pass_convergence = c(TRUE, TRUE, TRUE))), FALSE))
+  mf <- tempfile(fileext = ".txt")
+  od <- tempfile("od_"); dir.create(file.path(od, "05_output", "20260930", "gear-type-CPUE-model-2024-25"), recursive = TRUE)
+  writeLines(c("Run manifest", "git tree    : clean (the render ran on the committed tree)", "", "Stages:",
+               "  pooled         FAILED after 3.1 min: line one of the error", "second line of the error   (partial folder: C:/x/05_output/20260930/pooled-CPUE-2024-25)",
+               "  gear_resolved    35.9 min   C:\\\\x\\\\05_output\\\\20260930\\\\gear-type-CPUE-model-2024-25", "",
+               "run_config (run-level overrides applied to the model; all 3 keys):", "  pooled  not a stage line"), mf)
+  sb$.here <- function(...) file.path(od, ...)
+  mp <- sb$.parse_manifest(mf)
+  chk("B58 review: the manifest parser reads the gear line after a FAILED pooled line whose error ran over two lines",
+      isTRUE(mp$pooled$failed) && identical(mp$gear_resolved$failed, FALSE) &&
+      identical(basename(mp$gear_resolved$outdir %||% ""), "gear-type-CPUE-model-2024-25") && isTRUE(abs(mp$gear_resolved$minutes - 35.9) < 1e-9))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
