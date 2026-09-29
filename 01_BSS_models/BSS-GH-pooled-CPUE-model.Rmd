@@ -58,10 +58,16 @@ knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE,
 .report_conditions <- new.env(parent = emptyenv())
 .report_conditions$log <- data.frame(chunk = character(0), type = character(0), message = character(0),
                                      stringsAsFactors = FALSE)
+.problem_pattern <- "warn|fallback|fall back|skip|fail|could not|cannot|unavailable|unusable|not available|dropped|ignored|error|clipped|outside the window|stuck|refus"
 .record_condition <- function(type) function(x, options) {
   # knitr can hand the hook SEVERAL conditions at once (a character vector): record each.
-  msg <- trimws(gsub("^(## )?(Warning|Message)( in [^:]*)?:\\s*", "", gsub("\n+", " ", as.character(x))))
-  msg <- msg[nzchar(msg)]
+  x <- gsub("(^|\n)## ?", "\\1", as.character(x))       # knitr's comment prefix, on every line
+  msg <- trimws(gsub("^(Warning|Message)( in [^:]*)?:\\s*", "", gsub("\\s*\n+\\s*", " ", x)))
+  msg <- msg[nzchar(msg) & !grepl("^[=-]*$", msg)]
+  # message() is also how many chunks print progress banners; a note is kept only when it
+  # reports a problem (a warning, fallback, skip or failure), so the section is not a console dump.
+  if (identical(type, "message"))
+    msg <- msg[grepl(.problem_pattern, msg, ignore.case = TRUE)]
   if (length(msg))
     .report_conditions$log <- rbind(.report_conditions$log,
       data.frame(chunk = options$label %||% "?", type = type, message = msg, stringsAsFactors = FALSE))
