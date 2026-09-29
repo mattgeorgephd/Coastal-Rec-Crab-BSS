@@ -6805,6 +6805,21 @@ local({
     chk("A31 evidence: the table carries the rejected level's shore all-gear refit at the shipped init_r (the evidence against \"effort\")",
         any(x$level == "effort" & x$fit == "shore_all_gear" & x$init_r == 0.5 & x$divergence_fraction > 0.03))
   }
+  # B57 (2026-09-29): Matt's render of the B51 code (init_r = 0.5, pre-A31) is committed field
+  # evidence for A31, and must never be taken for the authoritative run.
+  b57 <- "05_output/20260928/pooled-CPUE-2024-25-222347/convergence_report.csv"
+  if (!file.exists(b57)) chk("B57: the B51 render's convergence report is committed", FALSE) else {
+    cr <- utils::read.csv(b57, stringsAsFactors = FALSE)
+    chk("B57: in the B51 render the shore pot-closure fit failed its gate and reported its PE; the shore all-gear fit passed",
+        startsWith(cr$method_selected[cr$fit == "shore_ring_net_only_Dungeness_Kept"], "PE") &&
+        identical(cr$method_selected[cr$fit == "shore_all_gear_Dungeness_Kept"], "BSS"))
+    gr <- utils::read.csv("05_output/20260929/gear-type-CPUE-model-2024-25/convergence_report.csv", stringsAsFactors = FALSE)
+    chk("B57: the gear track (both levels collapsed since v6.0) passed every fit on the same render", all(gr$pass_convergence))
+    st <- rd("07_documentation/development_notes/PIPELINE_STATUS.md")
+    chk("B57: the status box keeps 2026-09-28's run as authoritative and names the B51 render as NOT its successor",
+        grepl("**`05_output/20260928/pooled-CPUE-2024-25`, port total 99,873", st, fixed = TRUE) &&
+        grepl("A later render exists and is NOT this run's", st, fixed = TRUE))
+  }
 })
 
 # ---------------------------------------------------------------------------

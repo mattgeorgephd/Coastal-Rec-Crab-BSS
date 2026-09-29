@@ -503,7 +503,10 @@ well-mixed fit at 0.5 is the same fit in distribution as at 2, but not the same 
 render of the shipped configuration does not reproduce the authoritative run of 2026-09-28 to
 the crab**, which was rendered at 2. Expect agreement within Monte Carlo error. The same day the
 funnel itself was removed (A31, Section 14.2), so the radius is now a precaution rather than the
-thing that keeps the shore all-gear fit inside the gate; it stays at 0.5.
+thing that keeps the shore all-gear fit inside the gate; it stays at 0.5. The radius alone was not
+enough: Matt's render at 0.5 on the pre-A31 model (CHANGE_REGISTER B57) brought the shore all-gear
+fit to 2.47% but left a shore pot-closure chain stuck in the level funnels, and that component
+failed its gate.
 
 Two caveats that matter when comparing runs.
 
@@ -1509,7 +1512,10 @@ funnel and failed the gate. The collapse removes the funnels rather than steerin
 0.2% divergent at both seeds and both radii, including the two that had failed, the estimate
 moves by at most 0.1 posterior SD on any fit, and the fits run several times faster
 (CHANGE_REGISTER A31 has the table). Collapsing the effort level alone was not enough: it left
-the CPUE funnel, and 4.7% divergences at the shipped radius. What remains: the collapse was
+the CPUE funnel, and 4.7% divergences at the shipped radius. Neither was the initial-value radius
+alone: a full render at `init_r = 0.5` on the pre-A31 model (B57) failed the shore pot-closure fit's
+gate with a chain stuck in both level funnels, while the gear-resolved track, collapsed at both
+levels, ran clean on the same machine. What remains: the collapse was
 validated on refits of one season's data and on two to four seeds per fit, not yet on a full
 render; the short shore pot-closure fit's CPUE level mixed slowly at one of four seeds without
 moving its total (the gate reads the totals, so this shows in `mu_mu_C`'s R-hat, not in a gate
