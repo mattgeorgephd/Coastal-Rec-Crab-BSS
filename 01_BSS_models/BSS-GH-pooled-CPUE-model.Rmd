@@ -78,6 +78,7 @@ knitr::knit_hooks$set(warning = .record_condition("warning"), message = .record_
 
 # A small helper to render a data frame as a clean, captioned report table. digits applies to
 # every numeric column; round counts to 0 before calling it (or pass digits = 0).
+options(knitr.kable.NA = "-")   # an empty cell reads "-", not "NA"
 report_table <- function(df, caption = NULL, digits = 2) {
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(invisible(NULL))
   knitr::kable(df, caption = caption, digits = digits, format.args = list(big.mark = ","))
@@ -86,10 +87,12 @@ report_table <- function(df, caption = NULL, digits = 2) {
 # digits cannot round it to 0 (the opener and marine screens printed p = 0 before 2026-09-29).
 fmt_p <- function(p) ifelse(is.na(p), "-", format.pval(p, digits = 2, eps = 1e-4))
 # A median with its 95% interval as one readable cell.
-fmt_ci <- function(m, lo, hi, digits = 0)
-  ifelse(is.na(m), "-", sprintf("%s [%s, %s]", formatC(m, format = "f", digits = digits, big.mark = ","),
-                                formatC(lo, format = "f", digits = digits, big.mark = ","),
-                                formatC(hi, format = "f", digits = digits, big.mark = ",")))
+# A point with no interval (the commercial census, an exact count) reads "<m> (no interval)".
+fmt_ci <- function(m, lo, hi, digits = 0) {
+  .f <- function(v) formatC(v, format = "f", digits = digits, big.mark = ",")
+  ifelse(is.na(m), "-", ifelse(is.na(lo) | is.na(hi), sprintf("%s (no interval)", .f(m)),
+                               sprintf("%s [%s, %s]", .f(m), .f(lo), .f(hi))))
+}
 
 # Short, HTML-friendly fit labels for display tables (e.g. "boat all-gear"). The pot-closure
 # sub-season's internal key is ring_net_only, kept for filename continuity.
@@ -834,7 +837,9 @@ ie_rep <- tryCatch(diagnose_ie_representativeness(dwg, ie_data, params),
 if (!is.null(ie_rep)) {
   write.csv(ie_rep$table, file.path(output_dir, "ie_representativeness.csv"), row.names = FALSE)
   cat(sprintf("**Shore I/E days: %d.** %s\n\n", ie_rep$n_ie, ie_rep$verdict))
-  print(report_table(ie_rep$table |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(., 2))),
+  print(report_table(ie_rep$table |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(., 2))) |>
+                       dplyr::rename(dplyr::any_of(c(`Days` = "group", `Sampled days` = "n", `Mean gear count` = "mean_gear",
+                                                     `Median gear count` = "median_gear"))),
     paste("Shore daily gear counts on I/E observation days against every other sampled day. A mean",
           "percentile rank near 0.5 with a non-significant rank test means the I/E days, and so the",
           "turnover derived from them, are representative of the season's effort.")))
@@ -1673,7 +1678,7 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = event_date)) +
         geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "steelblue") +
         geom_line(aes(y = median), color = "steelblue") +
-        labs(title = sprintf("BSS Daily Effort: %s", label),
+        labs(title = sprintf("Daily effort: %s", short_fit(label)),
              subtitle = sprintf("Median with 95%% credible interval (%s AR(1))",
                                 attr(bss_data, "ar_resolution") %||% "adaptive"),
              # improvement 1: the axis said "Crabber-hours" long after the v7.6/v7.7 move
@@ -1689,7 +1694,7 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = event_date)) +
         geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "darkgreen") +
         geom_line(aes(y = median), color = "darkgreen") +
-        labs(title = sprintf("BSS Daily Expected Catch: %s", label),
+        labs(title = sprintf("Daily expected catch: %s", short_fit(label)),
              subtitle = "E[C|data] with 95% CI (no Poisson sampling noise)",
              x = "Date", y = "Expected Dungeness caught") +
         theme_bw()
@@ -1706,8 +1711,11 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = value, fill = param)) +
         geom_density(alpha = 0.4) +
         facet_wrap(~param, scales = "free") +
-        labs(title = sprintf("BSS Posteriors: %s", label), x = "Value", y = "Density") +
-        theme_bw() + theme(legend.position = "none")
+        scale_x_continuous(labels = scales::label_comma()) +
+        labs(title = sprintf("Season-total posteriors: %s", short_fit(label)),
+             subtitle = "Effort in gear deployments; catch in Dungeness crab. Density is relative within each panel.",
+             x = "Season total", y = NULL) +
+        theme_bw() + theme(legend.position = "none", axis.text.y = element_blank(), axis.ticks.y = element_blank())
       ggsave(file.path(output_dir, paste0("plot_bss_posteriors_", label, ".png")),
              p_bss_post, width = 14, height = 5)
 
@@ -2940,9 +2948,19 @@ Where the divergent transitions (if any) concentrate. **Healthy:** small `|SMD|`
 # Large |SMD| (standardized median difference between divergent and bulk draws) points
 # at the parameter/geometry the divergences concentrate in (e.g. a hierarchical funnel).
 dl <- read_fit_outputs("divergence_localization")
+# A parameter that enters no likelihood in a fit (decoupled: sigma_mu_E once A31 collapses a
+# single-section level, R_G_boat in a shore fit) samples its prior, so where its divergent
+# draws sit says nothing about the fit's geometry; it is listed in 11.6 and left out here.
+.decoupled <- tryCatch({
+  .sp <- read_fit_outputs("structural_params")
+  if (!is.null(.sp) && "decoupled" %in% names(.sp))
+    dplyr::transmute(dplyr::filter(.sp, as.logical(decoupled) %in% TRUE), fit_lbl, param = sub("\\[.*$", "", parameter))
+  else NULL }, error = function(e) NULL)
 dl_disp <- if (!is.null(dl) && "smd" %in% names(dl)) tryCatch(
   dl |>
     dplyr::filter(!is.na(smd)) |>
+    (\(d) if (is.null(.decoupled)) d else dplyr::anti_join(dplyr::mutate(d, .p = sub("\\[.*$", "", param)),
+                                                          dplyr::rename(.decoupled, .p = param), by = c("fit_lbl", ".p")))() |>
     dplyr::group_by(fit_lbl) |>
     dplyr::slice_max(abs(smd), n = 3, with_ties = FALSE) |>
     dplyr::ungroup() |>
@@ -2953,7 +2971,8 @@ dl_disp <- if (!is.null(dl) && "smd" %in% names(dl)) tryCatch(
 report_table(dl_disp,
   paste("Top divergence-localization drivers per fit (largest |SMD|). A large |SMD| is",
         "where divergent draws depart most from the bulk; it names the geometry to watch.",
-        "Small values across the board mean divergences are diffuse, not biasing a total."))
+        "Small values across the board mean divergences are diffuse, not biasing a total.",
+        "Prior-only parameters (Section 11.6) are left out."))
 ```
 
 
@@ -3260,14 +3279,15 @@ if (!is.null(day_cov_df) && nrow(day_cov_df) > 0) {
 
 ```{r day-covariates-show, echo=FALSE}
 if (!is.null(day_cov_df) && nrow(day_cov_df) > 0)
-  report_table(dplyr::mutate(day_cov_df[, c("fit", "covariate", "source", "days_flagged", "column_sum", "fit_days", "coef_median", "coef_lo95", "coef_hi95", "rate_ratio")],
-                             fit = short_fit(fit)),
+  report_table(dplyr::transmute(day_cov_df, Fit = short_fit(fit), Covariate = covariate, Source = source,
+                                `Days flagged` = days_flagged, `Column sum` = column_sum, `Fit days` = fit_days,
+                                `Coefficient` = fmt_ci(coef_median, coef_lo95, coef_hi95, digits = 2), `Rate ratio` = rate_ratio),
                'Effort day covariates as fitted: per fit, the columns of the K_open block, the days each flags (column_sum is the column total, which differs for an imputed fractional column), and the posterior of its coefficient (rate ratio = exp(coefficient), the multiplier on latent effort on a flagged day).')
 ```
 
 ## 13. PE vs BSS comparison
 
-The design-based PE and the Bayesian estimate for each component, on the same effort unit, so a gap is a genuine disagreement between the methods and not a unit artifact. Close agreement is reassuring; a large gap usually marks a data-thin component, where the PE's thin-cell fills (Section 4) and the BSS's AR process fill the unsampled days differently. `Reported` says which one the totals use.
+The design-based PE and the Bayesian estimate for each component, on the same effort unit, so a gap is a genuine disagreement between the methods and not a unit artifact. Close agreement is reassuring; a large gap usually marks a data-thin component, where the PE's thin-cell fills (Section 4) and the BSS's AR process fill the unsampled days differently. `Totals use` says which one the port total carries.
 
 ```{r pe-vs-bss, results='hide'}
 # ---- 7.17 PE VS BSS COMPARISON ----
@@ -3347,10 +3367,12 @@ write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.
 ```{r pe-vs-bss-show, echo=FALSE, results='asis'}
 .cmp <- comparison_df
 .cmp$method_short <- ifelse(grepl("census", .cmp$component), "Census + charter expansion", .cmp$method_selected)
-print(report_table(dplyr::transmute(.cmp, Component = component, `PE effort` = PE_effort, `BSS effort` = BSS_effort,
-                                    `Effort BSS vs PE (%)` = effort_diff_pct, `PE catch` = PE_catch, `BSS catch` = BSS_catch,
-                                    `Catch BSS vs PE (%)` = catch_diff_pct, Method = method_short, Reported = bss_reported),
-                   digits = 1, caption = "Point Estimator against the Bayesian estimate by component (BSS medians). Effort is in gear deployments; the census row in vessel-trips."))
+.cmp$Component <- sub("^comm_charter \\(census\\)$", "Commercial/charter", sub("^private_boat ", "Private boat ", sub("^shore ", "Shore ", .cmp$component)))
+print(report_table(dplyr::transmute(.cmp, Component, `PE effort` = round(PE_effort), `BSS effort` = round(BSS_effort),
+                                    `Effort BSS vs PE (%)` = round(effort_diff_pct, 1), `PE catch` = round(PE_catch), `BSS catch` = round(BSS_catch),
+                                    `Catch BSS vs PE (%)` = round(catch_diff_pct, 1), `Totals use` = method_short),
+                   digits = 1, caption = paste("Point Estimator against the Bayesian estimate by component (BSS medians). Effort is in gear deployments;",
+                                               "the census row in vessel-trips. 'Totals use' is the estimate the port total carries.")))
 .cens <- .cmp$method_selected[grepl("census", .cmp$component)]
 if (length(.cens)) cat("\n**Commercial/charter component:** ", .cens, "\n", sep = "")
 ```
@@ -3389,7 +3411,7 @@ season_summary <- tibble(
                     params$marine_hazard_mode %||% "off"),
             params$est_date_start, params$est_date_end,
             as.character(season_days), as.character(total_effort_days),
-            as.character(total_interview_n), as.character(fitted_interview_n), as.character(n_bss_fits), as.character(n_pass),
+            format(total_interview_n, big.mark = ","), format(fitted_interview_n, big.mark = ","), as.character(n_bss_fits), as.character(n_pass),
             if (!bss_needs_day_length(params)) "not used (gear-deployment unit; the expansion is the turnover)"
             else if (!is.null(L_eff_model)) L_eff_model$method else "civil_twilight",
             paste(unique(na.omit(unlist(ar_resolutions))), collapse = ", "))
@@ -3400,7 +3422,7 @@ write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names
 ```
 
 ```{r season-summary-show, echo=FALSE}
-report_table(season_summary, caption = 'Run summary. "Total interviews" counts every interview in the window, commercial/charter included; the fits use the filtered subset.')
+report_table(dplyr::rename(season_summary, Item = metric, Value = value), caption = 'Run summary. "Total interviews" counts every interview in the window, commercial/charter included; the fits use the filtered subset.')
 ```
 
 ## 15. Run parameters, timing and software

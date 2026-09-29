@@ -161,10 +161,10 @@ diagnose_osp_trailer_overlap <- function(osp, params, output_dir = NULL) {
             x = "OSP daily boat total (all private boats)", y = .ylab,
             title = sprintf("OSP vs trailer on %d paired days: r = %.3f, implied turnover %.2f",
                             prim$n, prim$corr, prim$implied_turnover),
-            subtitle = sprintf("Line: trailer = %.3f x OSP through the origin (%s, the calibration metric)",
+            subtitle = sprintf("Line: trailer = %.3f x OSP through the origin\nCalibration metric: %s",
                                prim$origin_slope, .metric)) +
           ggplot2::theme_minimal(base_size = 11)
-        ggplot2::ggsave(file.path(output_dir, "osp_trailer_overlap.png"), p, width = 7, height = 5, dpi = 140)
+        ggplot2::ggsave(file.path(output_dir, "osp_trailer_overlap.png"), p, width = 8, height = 5.5, dpi = 140)
       }, error = function(err) cat("  (overlap plot not written:", conditionMessage(err), ")\n"))
     }
   }

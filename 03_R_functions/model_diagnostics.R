@@ -468,7 +468,7 @@ write_bss_diagnostics <- function(fit, stan_data, label, output_dir, fit_method 
           ggplot2::geom_hline(yintercept = 0, colour = NA) +
           ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
           ggplot2::facet_wrap(~data_type, scales = "free_y") +
-          ggplot2::labs(title = sprintf("PPC PIT: %s", label),
+          ggplot2::labs(title = sprintf("PIT histogram: %s", gsub("_", " ", sub("_Dungeness_Kept$", "", label))),
                         subtitle = "Uniform => calibrated; U-shape => underdispersed; hump => overdispersed",
                         x = "PIT", y = "count") +
           ggplot2::theme_bw()
