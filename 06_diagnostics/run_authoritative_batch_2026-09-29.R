@@ -807,8 +807,20 @@ record_components <- function(sid, dir, part) {
   paste(sprintf("%s %s", sub("_Dungeness_Kept", "", g$fit), g$method_selected), collapse = ", ")
 .stuck_ok <- function(st) { s <- vapply(st, function(x) if (is.na(x$stuck)) NA else !x$stuck, logical(1))
   if (any(s %in% FALSE)) FALSE else if (any(is.na(s))) NA else TRUE }
+# The manifest that recorded this folder: the one its stamp names, else the newest manifest in
+# its dated folder whose stage lines name it (a stamp written before the field existed).
+.manifest_for <- function(dir) {
+  m <- .stamp_field(dir, "manifest")
+  if (!is.na(m) && !identical(m, "none") && file.exists(m)) return(m)
+  ms <- Sys.glob(file.path(dirname(dir), "run_manifest_*.txt"))
+  for (f in ms[order(file.mtime(ms), decreasing = TRUE)]) {
+    mp <- tryCatch(.parse_manifest(f), error = function(e) NULL)
+    if (any(vapply(mp, function(s) identical(basename(s$outdir %||% ""), basename(dir)) && !isTRUE(s$failed), logical(1)))) return(f)
+  }
+  NA_character_
+}
 .manifest_tree <- function(dir) {
-  m <- .stamp_field(dir, "manifest"); if (is.na(m) || identical(m, "none") || !file.exists(m)) return(NA_character_)
+  m <- .manifest_for(dir); if (is.na(m)) return(NA_character_)
   l <- grep("^git tree", readLines(m, warn = FALSE), value = TRUE)
   if (!length(l)) NA_character_ else trimws(sub("^git tree\\s*:", "", l[1]))
 }
