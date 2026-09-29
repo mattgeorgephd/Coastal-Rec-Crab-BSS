@@ -6714,7 +6714,7 @@ local({
   chk("B51 docs: the box says the authoritative run was rendered at 2, the method document states the radius and the funnel limitation",
       grepl("init_r = 0.5", ps, fixed = TRUE) && grepl("**The initial-value radius is part of the configuration", md, fixed = TRUE) &&
       # 2026-09-29: limitation 15 now records the A31 collapse that closed D33
-      grepl("**15. The single-section effort level was unidentified, and the funnel it made is removed", md, fixed = TRUE))
+      grepl("**15. The single-section levels were unidentified, and the funnels they made are removed", md, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------
@@ -6758,9 +6758,9 @@ local({
 })
 
 # ---------------------------------------------------------------------------
-# 88. A31 / T2.5 (2026-09-29): THE SINGLE-SECTION LEVEL HIERARCHY IS COLLAPSED ON THE POOLED
-#     TRACK, per level (run_config mu_hier_collapse_single: "effort" ships, "both" is the gear
-#     track's P2 structure, "none" the pre-A31 model). With S == 1 the pair
+# 88. A31 / T2.5 (2026-09-29): THE SINGLE-SECTION LEVEL HIERARCHIES ARE COLLAPSED ON THE POOLED
+#     TRACK, per level (run_config mu_hier_collapse_single: "both" ships, the gear track's P2
+#     structure; "effort" the effort level only; "none" the pre-A31 model). With S == 1 the pair
 #     (mu_mu, sigma_mu * eps_mu) is unidentified and sigma_mu_E's funnel was D33.
 # ---------------------------------------------------------------------------
 local({
@@ -6787,19 +6787,23 @@ local({
           all(is.na(m)) && all(!is.na(f[1:2])) && all(is.na(c(e[3], b[3], f[3]))) })
   rc <- rd("run_config.R"); pr <- rd("03_R_functions/prep_bss_crab_pooled.R")
   chk("A31 config: mu_hier_collapse_single is a named level, validated by the prep (a typo stops); collapse_mu_hier ships FALSE",
-      grepl('mu_hier_collapse_single    = "effort",', rc, fixed = TRUE) && grepl("collapse_mu_hier           = FALSE,", rc, fixed = TRUE) &&
+      grepl('mu_hier_collapse_single    = "both",', rc, fixed = TRUE) && grepl("collapse_mu_hier           = FALSE,", rc, fixed = TRUE) &&
       grepl("mu_hier_collapse_single = bss_mu_hier_collapse_code(params$mu_hier_collapse_single),", pr, fixed = TRUE) &&
       grepl('code <- c(none = 0L, effort = 1L, both = 2L)[x]', pr, fixed = TRUE))
   v <- "05_output/t25_collapse_2026-09-29_validation.csv"
   if (!file.exists(v)) skp("A31 evidence: the container validation table", "file absent") else {
     x <- utils::read.csv(v, stringsAsFactors = FALSE)
-    sh <- x[x$level == "effort", ]
+    sh <- x[x$level == "both", ]
     # The stuck case on the old model: 23.3% divergent, a chain in the funnel, gate FAILED. At the
-    # shipped level it must pass and sit under the 5% backstop; it is NOT required to be near zero
-    # ("effort" leaves the CPUE-level hierarchy, and its divergences, in place; "both" removes them).
-    chk("A31 evidence: all four fits refit at the shipped level, every one passes the gate, and shore all-gear at the seed and init_r = 2 that got stuck before is under the 5% backstop",
+    # shipped level ("both") every refit must pass, and every shore all-gear refit, at either init
+    # radius and seed, must be under 1% divergent: that is what "both" bought over "effort" (4.7%
+    # at the shipped init_r = 0.5), and the reason it ships.
+    chk("A31 evidence: all four fits refit at the shipped level, every one passes the gate, and every shore all-gear refit (including the seed and init_r = 2 that got stuck before) is under 1% divergent",
         all(c("shore_all_gear", "shore_ring_net_only", "private_boat_all_gear", "private_boat_ring_net_only") %in% sh$fit) &&
-        all(sh$pass_convergence) && any(sh$fit == "shore_all_gear" & sh$init_r == 2 & sh$divergence_fraction < 0.05))
+        all(sh$pass_convergence) && any(sh$fit == "shore_all_gear" & sh$init_r == 2) &&
+        all(sh$divergence_fraction[sh$fit == "shore_all_gear"] < 0.01))
+    chk("A31 evidence: the table carries the rejected level's shore all-gear refit at the shipped init_r (the evidence against \"effort\")",
+        any(x$level == "effort" & x$fit == "shore_all_gear" & x$init_r == 0.5 & x$divergence_fraction > 0.03))
   }
 })
 

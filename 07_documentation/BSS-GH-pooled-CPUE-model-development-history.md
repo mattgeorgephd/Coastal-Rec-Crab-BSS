@@ -18,11 +18,13 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 Matt's list after B51, while the first render at `init_r = 0.5` ran on his machine. Each item has
 a CHANGE_REGISTER row; in one line each:
-- **A31 (T2.5, D33): the single-section level hierarchy is collapsed** on the pooled track, per
-  level (`mu_hier_collapse_single`), the structure the gear track has used since v6.0. Validated
-  by container refits of every fit from saved Stan data, including the two seed and `init_r`
-  combinations that had failed the gate; the register row carries the table and the reason for
-  the shipped level. **It changes every fit's draws**, so the render at `init_r = 0.5` that
+- **A31 (T2.5, D33): the single-section level hierarchies are collapsed** on the pooled track,
+  effort and CPUE (`mu_hier_collapse_single = "both"`), the structure the gear track has used
+  since v6.0. Validated by container refits of every fit from saved Stan data, including the two
+  seed and `init_r` combinations that had failed the gate: the shore all-gear fit is under 0.2%
+  divergent at every seed and radius. A first draft collapsed the effort level only; its shore
+  all-gear refit at the shipped `init_r = 0.5` was 4.7% divergent, so both ship. The register
+  row carries the table. **It changes every fit's draws**, so the render at `init_r = 0.5` that
   predates it is not at this code.
 - **B52 (D34):** the commercial/charter census is clipped to the estimation window.
 - **B53 (D36):** the turnover fallbacks are 3.03 (boat) and 2.477 (shore), the 2024-25 values of

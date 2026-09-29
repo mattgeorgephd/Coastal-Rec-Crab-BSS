@@ -1769,13 +1769,15 @@ run_config <- list(
                                        #   e.g. list(private_boat = TRUE).
   # A31 / T2.5 (2026-09-29; D33): with ONE section the level hierarchy
   # mu = mu_mu + sigma_mu * eps_mu is unidentified (only the sum enters the likelihood), and
-  # its sigma_mu_E funnel is what the shore all-gear divergences sat on. "effort" collapses
-  # the EFFORT level to mu_E = mu_mu_E on every S == 1 fit and keeps the CPUE hierarchy;
-  # "both" also collapses the CPUE level (the gear-resolved model's structure since v6.0);
-  # "none" restores the pre-A31 pooled model exactly (to price the change or reproduce an
-  # earlier run). The container validation, and why the shipped value is the one it is, is
-  # CHANGE_REGISTER A31. Stan data, so changing it recompiles nothing.
-  mu_hier_collapse_single    = "effort",   # (pooled) "effort" | "both" | "none"
+  # its funnels are what the shore all-gear divergences sat on. "both" collapses the effort
+  # AND the CPUE level (mu = mu_mu) on every S == 1 fit, the gear-resolved model's structure
+  # since v6.0; "effort" collapses the effort level only; "none" restores the pre-A31 pooled
+  # model exactly (to price the change or reproduce an earlier run). "both" ships because
+  # "effort" alone left the CPUE funnel: the shore all-gear fit at the shipped init_r = 0.5
+  # was 4.7% divergent under "effort" and 0.07% under "both" (CHANGE_REGISTER A31 has the
+  # table, and the one cost: a short pot-closure fit's CPUE level can mix slowly at a rare seed
+  # without moving its total). Stan data, so changing it recompiles nothing.
+  mu_hier_collapse_single    = "both",     # (pooled) "both" | "effort" | "none"
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
 
   # ============================================================================

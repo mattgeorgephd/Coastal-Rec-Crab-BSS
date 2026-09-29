@@ -255,7 +255,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # A31: the Stan code for run_config$mu_hier_collapse_single (validated here, so a typo stops
   # the prep rather than silently fitting the wrong model).
   bss_mu_hier_collapse_code <- function(x) {
-    x <- tolower(as.character(x %||% "effort"))
+    x <- tolower(as.character(x %||% "both"))
     code <- c(none = 0L, effort = 1L, both = 2L)[x]
     if (length(x) != 1L || is.na(code))
       stop("run_config$mu_hier_collapse_single must be \"none\", \"effort\" or \"both\" (got ", deparse(x), ").", call. = FALSE)

@@ -37,12 +37,13 @@ only the sum enters the likelihood, so `sigma_mu` is unidentified and the produc
 the pooled shore all-gear fit's divergences sat on the effort one (D33). The gear-resolved
 model has collapsed both levels at `S == 1` since v6.0 (its P2 block). **The pooled model
 collapses them per level since 2026-09-29**, from the data int `mu_hier_collapse_single`
-(0 none, the pre-A31 model exactly; 1 the effort level, shipped; 2 both), set by
+(0 none, the pre-A31 model exactly; 1 the effort level only; 2 both, shipped), set by
 `run_config$mu_hier_collapse_single`, so no recompile. A collapsed level's `eps_mu` is zero-size
 and its `sigma_mu` keeps a proper prior that enters nothing; it reports its prior and
 `bss_decoupled_reasons()` flags it. `collapse_mu_hier = 1` still forces both collapses on a
-multi-section fit. The container validation, and why `"effort"` rather than `"both"` ships, are
-in CHANGE_REGISTER A31.
+multi-section fit. The container validation, and why `"both"` ships (collapsing the effort level
+alone left the CPUE funnel, and 4.7% divergences on the shore all-gear fit at the shipped
+`init_r`), are in CHANGE_REGISTER A31.
 
 ## Selecting a model
 

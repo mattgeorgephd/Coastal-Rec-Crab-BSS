@@ -179,8 +179,8 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # KEY FEATURES: adaptive AR(1) temporal resolution; B1_C weekend CPUE effect;
 # Method v2.0: derived shore turnover tau_shore and calibration boat turnover with a shared
 # tau_bar; dynamic per-stratum crabbing fraction f with a combo share c; zero-inflated NB2
-# shore catch; commercial census + charter expansion; the single-section effort-level
-# hierarchy collapsed (A31, T2.5). L_effective / day length only under a time unit (B55);
+# shore catch; commercial census + charter expansion; the single-section level
+# hierarchies collapsed (A31, T2.5). L_effective / day length only under a time unit (B55);
 # data-driven R_G prior;
 # gear-deployment effort scale (R_G_boat / tau_boat, tau_shore); scale-aware
 # convergence gate; the expected catch from the generated quantities and, since B46, the
@@ -438,7 +438,7 @@ config_disp <- data.frame(check.names = FALSE, stringsAsFactors = FALSE,
                     params$bss_iter_boat_allgear, params$bss_warmup_boat_allgear, params$bss_iter_default, params$bss_warmup_default),
             sprintf("R-hat < 1.01, n_eff > 400, divergent fraction < %s, impact < %s SD",
                     params$max_divergence_fraction, params$max_divergence_total_impact_sd),
-            .fmt(params$ar_max_resolution), as.character(params$mu_hier_collapse_single %||% "effort"),
+            .fmt(params$ar_max_resolution), as.character(params$mu_hier_collapse_single %||% "both"),
             sprintf("%s (resolved in Section 3.1)", .fmt(params$tau_shore_prior_mu)),
             sprintf("%s, log-SD %s (resolved in Section 3.1)", .fmt(params$tau_boat_prior_mu), .fmt(params$tau_boat_prior_sigma)),
             .fmt(params$shared_tau),
@@ -1447,7 +1447,7 @@ for(cg in bss_catch_groups) {
           P_n = bss_data_try$P_n, days = bss_data_try$D, interviews = bss_data_try$IntC,
           effort_obs = bss_data_try$n_effort_obs %||% NA_integer_, ie_obs = bss_data_try$IE_n %||% 0L,
           iter = fit_iter, warmup = fit_warmup, max_treedepth = fit_treedep, adapt_delta = fit_delta,
-          init_r = as.numeric(params$bss_init_r %||% 2), level_collapse = as.character(params$mu_hier_collapse_single %||% "effort"))
+          init_r = as.numeric(params$bss_init_r %||% 2), level_collapse = as.character(params$mu_hier_collapse_single %||% "both"))
         timer_start(paste0("BSS_", label, "_att", attempt))
         # 2026-08-26: guarded wrapper, 03_R_functions/bss_stan_fit.R. On the happy path
         # this is rstan::stan() with the same arguments, same seed, same RNG stream, so
