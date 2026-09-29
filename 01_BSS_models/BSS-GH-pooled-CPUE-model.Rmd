@@ -1715,7 +1715,8 @@ for(cg in bss_catch_groups) {
         labs(title = sprintf("Season-total posteriors: %s", short_fit(label)),
              subtitle = "Effort in gear deployments; catch in Dungeness crab. Density is relative within each panel.",
              x = "Season total", y = NULL) +
-        theme_bw() + theme(legend.position = "none", axis.text.y = element_blank(), axis.ticks.y = element_blank())
+        theme_bw() + theme(legend.position = "none", axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                           plot.margin = margin(5.5, 18, 5.5, 5.5))   # room for the last x label
       ggsave(file.path(output_dir, paste0("plot_bss_posteriors_", label, ".png")),
              p_bss_post, width = 14, height = 5)
 
