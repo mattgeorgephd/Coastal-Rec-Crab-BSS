@@ -182,7 +182,7 @@
 # ============================ RUN SELECTION ================================ #
 #            ^^^^ edit these two lines for a routine run ^^^^
 
-model       <- "pooled"        # "pooled", "gear_resolved" or "both"
+model       <- "both"        # "pooled", "gear_resolved" or "both"
                                # "pooled" is the HEADLINE estimator and the one the
                                # authoritative run used. "gear_resolved" is the
                                # cross-check. "both" (2026-09-28) renders the two in turn
@@ -229,7 +229,7 @@ run_config <- list(
   # 2026-09-28 (B46, bss_output_dir.R): a tag naming a season (yyyy-yy) that season_filter
   # does not hold STOPS the run, so change it with the window; a second same-day render under
   # one tag gets "-HHMMSS" appended instead of mixing its files into the first run's folder.
-  run_tag           = "canonical-2024-25",
+  run_tag           = "2024-25",
   # the "both" cross-check criterion: the gear-resolved Expected_Catch port total within this
   # fraction of the pooled one (run_estimation.R section 7; the 2% agreed 2026-08-26)
   cross_check_tolerance = 0.02,
