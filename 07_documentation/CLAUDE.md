@@ -50,9 +50,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > calibration**, the **shore turnover derived from the I/E `time` column**, and the census
 > split into a **commercial CENSUS plus a charter EXPANSION**; and, since 2026-09-27, the **NWS
 > Small-Craft-Advisory day flag on the private-boat all-gear effort process** (A30, one
-> season-constant term, `marine_hazard_mode = "manual"`; boat all-gear 47,319 against 45,604; rendered
-> as the authoritative run on 2026-09-28, `05_output/20260927/pooled-CPUE-canonical-2024-25`, port
-> **96,118**, +1.85% on R4, every fit byte-identical to the fit the adoption named).
+> season-constant term, `marine_hazard_mode = "manual"`; boat all-gear 47,319 against 45,604; first
+> rendered 2026-09-27 at port 96,118). **The authoritative run** is the method of record re-rendered at
+> the current code (B44 to B49; the Float 17-21 fill, B45, is what moved it):
+> `05_output/20260928/pooled-CPUE-2024-25`, port **99,873 [82,414, 124,438]**, with the gear-resolved
+> cross-check `05_output/20260928/gear-type-CPUE-model-2024-25` at 98,588 (-1.29%, PASS), rendered by
+> Matt with `model = "both"` (B50). Its boat fits are byte-identical to the 2026-09-27 render's; its
+> shore all-gear fit sits at 4.07% divergences, close to the 5% backstop (D33).
 > If a number in this file disagrees with the box, the box wins.
 
 

@@ -115,8 +115,10 @@ windows live here. Each block replaces the nine per-season keys in section 1.2 o
 set; change one, change them all.
 
 **The canonical run (shipped; no edit needed).** The window of the authoritative run,
-`05_output/20260927/pooled-CPUE-canonical-2024-25`, port total 96,118 [79,418, 120,558], which
-was rendered from `run_config.R` exactly as shipped (and of R4, 94,376, the run before it):
+`05_output/20260928/pooled-CPUE-2024-25`, port total 99,873 [82,414, 124,438], with its gear
+cross-check `05_output/20260928/gear-type-CPUE-model-2024-25` (98,588, -1.29%), which were rendered
+from `run_config.R` exactly as shipped, `model <- "both"` (and of the runs before it, 96,118 on
+2026-09-27 and R4, 94,376):
 
 ```r
   est_date_start    = "2024-09-16",   est_date_end      = "2025-09-15",
@@ -127,7 +129,7 @@ was rendered from `run_config.R` exactly as shipped (and of R4, 94,376, the run 
   census_windows    = NULL,
   census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
   commercial_opener = "2025-02-11",
-  run_tag           = "canonical-2024-25",
+  run_tag           = "2024-25",
 ```
 
 **Single season 2025-26** (data through 2026-09-08; the season ends 2026-09-15). Grays Harbor's

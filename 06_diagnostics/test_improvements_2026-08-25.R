@@ -3717,8 +3717,10 @@ local({
   src <- readLines("run_config.R", warn = FALSE)
 
   # ---- (a) the canonical window -------------------------------------------
-  chk("canonical: the shipped model is the pooled headline estimator",
-      identical(e$model, "pooled"))
+  # 2026-09-29 (B50): Matt ships model = "both", which renders the pooled headline first and then
+  # its gear-resolved cross-check; either keeps the pooled model as the headline estimator.
+  chk("canonical: the shipped model renders the pooled headline estimator (pooled, or both with its cross-check)",
+      isTRUE(e$model %in% c("pooled", "both")))
   # 2026-09-13: run_weather went with the weather module. run_config.R must define exactly
   # `model` and `run_config` and nothing else, so a stray top-level object cannot creep back.
   chk("canonical: run_config.R defines only `model` and `run_config` (run_weather is gone)",
@@ -3767,8 +3769,8 @@ local({
         grepl("commercial 6,405 plus charter 2,133 = 8,538", f, fixed = TRUE) &&
         grepl("none of them a missing frame", f, fixed = TRUE) })
   chk("canonical: the header names the authoritative run and points at the one box",
-      any(grepl("pooled-CPUE-canonical-2024-25", src, fixed = TRUE)) &&
-      any(grepl("96,118", src, fixed = TRUE)) &&
+      any(grepl("05_output/20260928/pooled-CPUE-2024-25", src, fixed = TRUE)) &&
+      any(grepl("99,873", src, fixed = TRUE)) &&
       any(grepl("PIPELINE_STATUS.md", src, fixed = TRUE)))
 
   # ---- (b) the file is ordered ---------------------------------------------
@@ -6100,19 +6102,19 @@ local({
   ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
   flat <- function(x) gsub("[ \n>]+", " ", x)
-  chk("80 docs: the box names the render, its total and interval, the byte-identity, and the two files that read differently",
-      grepl("**`05_output/20260927/pooled-CPUE-canonical-2024-25`, port total 96,118 [79,418, 120,558]**", ps, fixed = TRUE) &&
-      grepl("It is exactly what the adoption said it would be.", flat(ps), fixed = TRUE) &&
-      grepl("`season_totals.csv` reads 96,110 [79,428, 120,560]", flat(ps), fixed = TRUE) && grepl("Section 1z.5", ps, fixed = TRUE))
+  # 2026-09-29 (B50): the 2026-09-27 render was superseded by the re-render at B44 to B49 (section 85);
+  # the documents must now record it as what the authoritative run REPLACED, with its own total.
+  chk("80 docs: the box records the 2026-09-27 render as what the authoritative run replaced, with its total and interval",
+      grepl("**What this replaced.** `05_output/20260927/pooled-CPUE-canonical-2024-25`, 96,118 [79,418, 120,558]", flat(ps), fixed = TRUE) &&
+      grepl("Section 1z.5", ps, fixed = TRUE))
   chk("80 docs: the register moves its authoritative run, marks A30 RENDERED, carries B43 and six 2026-09-28 defect rows",
-      grepl("**Authoritative run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`, port total **96,118 [79,418, 120,558]**", cr, fixed = TRUE) &&
+      grepl("the run it superseded, `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558]", cr, fixed = TRUE) &&
       grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the authoritative run**", cr, fixed = TRUE) && grepl("| B43 |", cr, fixed = TRUE) &&
       # at least B43's six: B44's five defect rows landed the same day (>= rather than ==, 2026-09-28)
       length(gregexpr("| 2026-09-28 |", cr, fixed = TRUE)[[1]]) >= 6 && grepl("**Confirmed in the field 2026-09-28**", cr, fixed = TRUE))
   chk("80 docs: the campaign has 1z.5 and the 1z anchor names the render's commit and folder; the method document's reference run moved",
       grepl("### 1z.5 The confirming render (2026-09-28)", vc, fixed = TRUE) && grepl("`1d3409d` (the confirming render)", vc, fixed = TRUE) &&
-      grepl("**Reference run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`", md, fixed = TRUE) &&
-      grepl("| **port total** | **96,118 [79,418, 120,558]** | **85,076** | **-11.5%** | |", md, fixed = TRUE) &&
+      grepl("It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558]", md, fixed = TRUE) &&
       !grepl("worst divergence fraction 2.17% against the\n5% backstop", md, fixed = TRUE))
   # every table row in the governed documents has its header's cell count (GitHub drops excess cells)
   ncell <- function(line) { x <- sub("^\\s*>?\\s*", "", line); x <- sub("^\\|", "", x); x <- sub("\\s+$", "", x)
@@ -6574,6 +6576,66 @@ local({
         any(grepl('file.path(output_dir, "osp_crab_only_daily.csv")', readLines(drv, warn = FALSE), fixed = TRUE)))
   chk("B48 docs: the input README lists the schedule workbook and where it came from",
       grepl("osp_sampling_rates.xlsx", paste(readLines("04_input_files/README.md", warn = FALSE), collapse = " "), fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 85. B50 (2026-09-28, documented 2026-09-29): THE METHOD OF RECORD RE-RENDERED AT B44 TO B49,
+#     WITH ITS CROSS-CHECK. Matt rendered run_estimation.R with model = "both" on run_config.R as
+#     shipped (code 4828b76, committed ff750c4). Read back from the folders' own files: the
+#     totals the documents quote, the cross-check verdict, the claim that the boat fits did not
+#     move (byte-identical to the 2026-09-27 render), the season totals equal to the port total
+#     (B43 in production), every fit through the gate, and the documents moved to it.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  flat <- function(x) gsub("[ \n>]+", " ", x)
+  N <- "05_output/20260928/pooled-CPUE-2024-25"; G <- "05_output/20260928/gear-type-CPUE-model-2024-25"
+  O <- "05_output/20260927/pooled-CPUE-canonical-2024-25"
+  row <- function(dir, lab) { d <- utils::read.csv(file.path(dir, "port_total_Dungeness_Kept.csv"), stringsAsFactors = FALSE)
+                              d[d[[2]] == lab, , drop = FALSE] }
+  if (dir.exists(N) && dir.exists(G)) {
+    e <- row(N, "Expected_Catch"); g <- row(G, "Expected_Catch")
+    chk("85 render: pooled 99,873 [82,414, 124,438], gear 98,588 [81,046, 123,563], PE 88,758, from the folders' own CSVs",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95, e$PE)), c(99873, 82414, 124438, 88758)) &&
+        identical(as.numeric(c(g$BSS_median, g$BSS_lo95, g$BSS_hi95)), c(98588, 81046, 123563)))
+    cc <- utils::read.csv("05_output/20260928/cross_check_20260928_165651.csv", stringsAsFactors = FALSE)
+    chk("85 render: the cross-check file reads -1.29% against a 2% tolerance, PASS",
+        identical(cc$verdict, "PASS") && isTRUE(abs(cc$gear_minus_pooled_pct - (-1.29)) < 1e-9) && cc$tolerance_pct == 2)
+    cv <- utils::read.csv(file.path(N, "convergence_report.csv"), stringsAsFactors = FALSE)
+    cg <- utils::read.csv(file.path(G, "convergence_report.csv"), stringsAsFactors = FALSE)
+    chk("85 render: every fit on both tracks passes the gate and reports BSS",
+        all(cv$pass_convergence) && all(cv$method_selected == "BSS") && all(cg$pass_convergence) && all(cg$method_selected == "BSS"))
+    sag <- cv[cv$fit == "shore_all_gear_Dungeness_Kept", ]
+    chk("85 render (D33): the shore all-gear fit's divergence fraction is the 4.07% the documents quote, under the 5% backstop",
+        isTRUE(abs(sag$divergence_fraction - 0.0407) < 1e-9) && sag$divergence_fraction < 0.05)
+    st <- utils::read.csv(file.path(N, "season_totals.csv"), stringsAsFactors = FALSE)
+    chk("85 render (B43 in production): season_totals.csv equals the port total on a single season",
+        identical(as.numeric(c(st$BSS_median, st$BSS_lo95, st$BSS_hi95)), as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95))))
+    if (dir.exists(O)) {
+      same <- function(f) identical(unname(tools::md5sum(file.path(N, f))), unname(tools::md5sum(file.path(O, f))))
+      bf <- c("bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv", "bss_full_summary_private_boat_ring_net_only_Dungeness_Kept.csv",
+              "bss_draws_summed_private_boat_all_gear_Dungeness_Kept.csv", "bss_draws_summed_private_boat_ring_net_only_Dungeness_Kept.csv")
+      chk("85 render: both boat fits are byte-identical to the 2026-09-27 render (B44 to B49 inert on the boat; B38 across renders)",
+          all(vapply(bf, same, logical(1))) && !same("bss_full_summary_shore_all_gear_Dungeness_Kept.csv"))
+    }
+    mf <- readLines("05_output/20260928/run_manifest_20260928_165651.txt", warn = FALSE)
+    chk("85 render: the manifest records code 4828b76, the one config file that differed, and R 4.2.2 / rstan 2.32.7",
+        any(grepl("^git sha\\s*: 4828b76", mf)) && any(grepl("run_config.R", mf, fixed = TRUE)) &&
+        any(grepl("R version 4.2.2", mf, fixed = TRUE)) && any(grepl("rstan_2.32.7", mf, fixed = TRUE)))
+  }
+  ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
+  vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  gd <- rd("07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md")
+  chk("85 docs: the box names the new run with its total and interval, the cross-check and D33",
+      grepl("**`05_output/20260928/pooled-CPUE-2024-25`, port total 99,873 [82,414, 124,438]**", ps, fixed = TRUE) &&
+      grepl("-1.29% against the pooled total", flat(ps), fixed = TRUE) && grepl("D33", ps, fixed = TRUE))
+  chk("85 docs: the register's authoritative run, B50 and D33",
+      grepl("**Authoritative run:** `05_output/20260928/pooled-CPUE-2024-25`, port total **99,873 [82,414, 124,438]**", cr, fixed = TRUE) &&
+      grepl("| B50 |", cr, fixed = TRUE) && grepl("| D33 |", cr, fixed = TRUE))
+  chk("85 docs: the campaign has 1z.6 and the 1z anchor names ff750c4; the method document's Section 1 table carries the new run; the gear document its reference run",
+      grepl("### 1z.6 The method of record re-rendered at B44 to B49", vc, fixed = TRUE) && grepl("`ff750c4` (the re-render at B44 to B49, 1z.6)", vc, fixed = TRUE) &&
+      grepl("| **port total** | **99,873 [82,414, 124,438]** | **88,758** | **-11.1%** | |", md, fixed = TRUE) &&
+      grepl("| **port total** | **98,588 [81,046, 123,563]** | **88,758** | **-10.0%** | | |", gd, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------

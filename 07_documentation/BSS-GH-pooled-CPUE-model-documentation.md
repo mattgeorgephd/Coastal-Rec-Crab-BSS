@@ -8,7 +8,7 @@
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
 **Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-27** (the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process, CHANGE_REGISTER A30). Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
-**Reference run:** `05_output/20260927/pooled-CPUE-canonical-2024-25`, the method of record rendered by `run_estimation.R` on `run_config.R` as shipped (started 2026-09-27, committed 2026-09-28 as `1d3409d`), port total 96,118 [79,418, 120,558]. It superseded R4 (`05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf`, 94,376), which predates the boat effort covariate; the two share three of their four fits byte for byte, so a figure below about the shore or the pot-closure boat is both runs' figure, and a figure that differs says which run it comes from. The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
+**Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
 
 > ### THE NUMBERS IN THIS DOCUMENT, AND WHERE THE CURRENT ONES LIVE
@@ -50,28 +50,32 @@ a dimensionless count of trips per gear slot per day, not a day length.
 
 One number with an interval, for a chosen window, broken into its parts.
 
-For the 2024-25 season the reference run gives a **port total of 96,118 crab, 95% credible
-interval [79,418, 120,558]**, assembled from five components:
+For the 2024-25 season the reference run gives a **port total of 99,873 crab, 95% credible
+interval [82,414, 124,438]**, assembled from five components:
 
 | component | Bayesian estimate | design-based (PE) | PE relative to BSS | share of port |
 |---|---:|---:|---:|---:|
-| shore, pot closure | 8,963 | 8,591 | -4.2% | 9.3% |
-| shore, all gear | 29,210 | 29,737 | +1.8% | 30.4% |
+| shore, pot closure | 9,467 | 9,126 | -3.6% | 9.5% |
+| shore, all gear | 32,344 | 32,960 | +1.9% | 32.4% |
 | private boat, pot closure | 1,372 | 1,192 | -13.1% | 1.4% |
-| private boat, all gear | 47,319 | 37,018 | -21.8% | 49.2% |
-| commercial + charter vessels | 8,538 | (the same; not modelled) | n/a | 8.9% |
-| **port total** | **96,118 [79,418, 120,558]** | **85,076** | **-11.5%** | |
+| private boat, all gear | 47,319 | 36,941 | -21.9% | 47.4% |
+| commercial + charter vessels | 8,538 | (the same; not modelled) | n/a | 8.5% |
+| **port total** | **99,873 [82,414, 124,438]** | **88,758** | **-11.1%** | |
 
 Three things about that table to get right straight away.
 
 **It carries the boat effort covariate adopted 2026-09-27** (A30, Section 21a): the NWS
 Small-Craft-Advisory day flag on the private-boat all-gear effort process moved that component
-from 45,604 to **47,319** and the port from 94,376 (R4, the run before it) to 96,118, **+1.85%**;
-the other three fitted components are R4's, fit for fit. The box in
+from 45,604 to **47,319** and the port from 94,376 (R4) to 96,118, **+1.85%**. **And it carries
+the Float 17-21 fill (B45, 2026-09-28)**: a Float 20 count with no Float 17-21 count beside it
+is now filled by the month's ratio instead of read as zero, which raised the shore gear count
+9.0% and moved the shore from 38,173 to 41,811 (+9.5%) and the port from 96,118 to 99,873
+(+3.9%); the boat fits did not move (byte-identical). The gear-resolved cross-check on the same
+configuration reads 98,588, -1.29%, inside the 2% criterion. The box in
 `development_notes/PIPELINE_STATUS.md` says which run is authoritative and carries the current
 total; quote from there.
 
-**The component medians sum to 95,402, not to 96,118.** That is correct and not a rounding
+**The component medians sum to 99,040, not to 99,873.** That is correct and not a rounding
 error: the port total is the median of the summed posterior draws, which is not the sum of
 the component medians. Every interval in this document is a posterior quantile, so intervals
 do not add either.
@@ -197,6 +201,9 @@ tightening from 67% of the median to 43%**, and the PE-vs-BSS port gap closing f
 One change has moved the method since, the boat advisory-day term (2026-09-27, Section 21a):
 **96,118 [79,418, 120,558]**, +1,742 (+1.85%), all of it on the boat all-gear component, the
 interval still 43% of the median and the PE gap 11.5% (the term moved the BSS, not the PE).
+Then a data correction, not a method change (2026-09-28, B45): an unsampled Float 17-21 count
+filled by the month's ratio instead of read as zero, **99,873 [82,414, 124,438]**, +3,755
+(+3.9%), all of it the shore, the interval 42% of the median and the PE gap 11.1%.
 
 That is a large move and it was not accepted on faith. It was produced by an **improvement
 ladder**: a sequence of runs in which each change is switched on alone, against the same

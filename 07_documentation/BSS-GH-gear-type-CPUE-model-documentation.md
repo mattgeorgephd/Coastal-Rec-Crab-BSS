@@ -36,14 +36,16 @@ catch rates. With `gear_resolved_G = TRUE` the shore fits carry a genuine per-ge
 process, so a per-gear catch estimate carries posterior uncertainty from the model.
 
 **An independent check on the port total.** The two models share the effort side and differ
-in the catch side, which makes their agreement informative. On R4's configuration (the
-2026-09-12 method, before the boat advisory-day term) the gear track reads **93,274 [76,537,
-117,227]** against the pooled **94,376 [77,566, 118,602]**: **-1.17%**, inside the pre-set 2%
-criterion. Under the method of record the pooled track reads 96,118 [79,418, 120,558]; the
-like-for-like check is `Rscript run_estimation.R --model gear_resolved` on the shipped
-configuration, judged on the same 2%. At R4's configuration the shared turnover agreed to 0.02%
-across the two parameterizations and the monthly crabbing fraction to 0.002 (the pooled boat
-turnover has since moved with the term, 2.977 to 3.118 in the mean, so both need re-reading).
+in the catch side, which makes their agreement informative. **Under the method of record** (the
+re-render at B44 to B49, 2026-09-28, `run_estimation.R` with `model = "both"`) the gear track
+reads **98,588 [81,046, 123,563]** against the pooled **99,873 [82,414, 124,438]**: **-1.29%**,
+inside the pre-set 2% criterion (`05_output/20260928/cross_check_20260928_165651.csv`, PASS).
+It is the first like-for-like check under the method of record: both tracks now sum the
+expected catch (B44), and both carry the boat advisory term and the Float 17-21 fill. The
+pooled boat all-gear turnover `tau_bar` is 3.118 in the mean. On R4's configuration (the
+2026-09-12 method, before the boat term) the gear track had read 93,274 against the pooled
+94,376, -1.17%, with the shared turnover agreeing to 0.02% and the monthly crabbing fraction to
+0.002; that figure summed the predictive catch (see Section 3).
 
 That agreement is the single most useful external validation the project has, because the two
 implementations were written separately and reconcile through no shared catch code.
@@ -78,17 +80,24 @@ boat all-gear period that ladder exposed).
 
 ## 3. The reference run
 
-`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, on the same
-configuration as the pooled reference run.
+`05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same call as the pooled
+reference run and on the same configuration (Matt, 2026-09-28, `ff750c4`; R 4.2.2, rstan 2.32.7).
 
 | component | BSS median | PE | PE relative to BSS | AR resolution | divergences |
 |---|---:|---:|---:|---|---:|
-| shore, pot closure | 9,036 | 8,591 | -4.9% | biweekly | 19 |
-| shore, all gear | 28,334 | 29,737 | +4.9% | monthly | 8 |
-| private boat, pot closure | 1,295 | 1,192 | -8.0% | biweekly | 24 |
-| private boat, all gear | 45,374 | 37,018 | -18.4% | monthly | **0** |
+| shore, pot closure | 9,605 | 9,126 | -5.0% | biweekly | 15 |
+| shore, all gear | 31,425 | 32,960 | +4.9% | monthly | 14 |
+| private boat, pot closure | 1,287 | 1,192 | -7.4% | biweekly | 10 |
+| private boat, all gear | 46,832 | 36,941 | -21.1% | monthly | **0** |
 | commercial + charter | 8,538 | (the same) | n/a | not modelled | - |
-| **port total** | **93,274 [76,537, 117,227]** | **85,076** | **-8.8%** | | |
+| **port total** | **98,588 [81,046, 123,563]** | **88,758** | **-10.0%** | | |
+
+Every fit passes the gate (at most 0.19% divergences; R-hat within 1.0000 on the summed catch
+and effort). Against the pooled track, component by component: shore pot closure +1.5%, shore
+all-gear -2.8% (monthly AR here against the pooled weekly, the D3 difference), boat pot closure
+-6.2% (biweekly against monthly), boat all-gear -1.0%. The previous reference run,
+`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf` (93,274 [76,537, 117,227],
+R4's configuration), predates B44, B45 and the boat term.
 
 **Read the port total with B44 (2026-09-28).** Until B44 this track's port total, and every
 component median above, summed the PREDICTIVE catch (`C_sum`: a Poisson draw per day on top
@@ -96,7 +105,7 @@ of the expected catch) under the row label `Catch`; the pooled headline is the E
 (`C_expected_sum`, `Expected_Catch`). The medians differ by little, the intervals by more. From
 B44 this driver writes the pooled track's three rows (`Effort`, `Expected_Catch`,
 `Predictive_Catch`) from the same quantities, so a cross-check rendered at or after B44 compares
-like with like; the run above predates it.
+like with like; the run above is rendered after it.
 
 All four fits passed the gate. Sampler health is clean: every R-hat within 1.0011, `n_eff`
 from 8,008 to 11,715 against the 400 floor, treedepth saturation 0%, and the worst divergence

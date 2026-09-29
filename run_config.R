@@ -42,18 +42,22 @@
 #
 # ---------------------------------------------------------------------------
 # THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative
-# run: the single 2024-25 season, pooled model, Method v2.0 and the boat all-gear
-# advisory-day term (section 2.10, A30) throughout.
+# run: the single 2024-25 season, both models (the pooled headline and its gear-resolved
+# cross-check), Method v2.0 and the boat all-gear advisory-day term (section 2.10, A30).
 #
-#   05_output/20260927/pooled-CPUE-canonical-2024-25
-#   port total 96,118  [79,418, 120,558]      4 of 4 components fitted, all BSS
+#   05_output/20260928/pooled-CPUE-2024-25
+#   port total 99,873  [82,414, 124,438]      4 of 4 components fitted, all BSS
+#   05_output/20260928/gear-type-CPUE-model-2024-25: 98,588, -1.29%, the cross-check PASSES
 #
-# That folder was rendered from THIS file by source("run_estimation.R") (2026-09-27,
-# committed 2026-09-28), so it is not a ladder rung with a window pin: sourcing the
-# orchestrator on this file as shipped reproduces its configuration, and on the same machine
-# and toolchain its numbers to the crab (B38). It superseded
-# ladder rung R4 (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits
-# are this file's with marine_hazard_mode = "off" (rung M1 of the marine ladder re-rendered
+# Those folders were rendered from THIS file by run_estimation.R with model = "both"
+# (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not ladder rungs
+# with a window pin: sourcing the orchestrator on this file as shipped reproduces their
+# configuration, and on the same machine and toolchain their numbers to the crab (B38; the
+# boat fits are byte-identical to the 2026-09-27 render's). They superseded
+# 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
+# Float 17-21 fill, B45), which had superseded ladder rung R4
+# (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits were the
+# 2026-09-27 render's with marine_hazard_mode = "off" (rung M1 of the marine ladder re-rendered
 # them bit for bit; CHANGE_REGISTER D28 closed 2026-09-12 the window gap that once separated
 # the shipped file from the ladder). The authoritative
 # total and its caveats live in ONE place, the box at the top of
@@ -242,8 +246,8 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118 [79,418, 120,558] (and of R4,
-  # 05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376, the run before it).
+  # 05_output/20260928/pooled-CPUE-2024-25, 99,873 [82,414, 124,438] (and of the runs before
+  # it: 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118, and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on
