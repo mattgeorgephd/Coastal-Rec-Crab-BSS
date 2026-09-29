@@ -466,7 +466,7 @@ repair_interview_ids <- function(df, quiet = FALSE) {
 }
 
 apply_fishing_time_filters <- function(df, params, req_boat_gear_time = TRUE, quiet = FALSE) {
-  .shore_unit <- params$shore_effort_unit %||% "crabber-hours"
+  .shore_unit <- params$shore_effort_unit %||% "gear-deployments"   # D37: the shipped unit
   .time_units <- c("crabber-hours", "gear-hours")
   .min_time   <- as.numeric(params$min_fishing_time %||% 0.5)
   .zero_guard <- isTRUE(params$drop_unfished_zero_catch %||% TRUE)

@@ -441,7 +441,8 @@ run_config <- list(
   charter_roster_port = "Westport",
   ie_shore_location = "WDF20",       # location_name kept as the SHORE I/E series
   ie_boat_location  = "WBL",         # location_name kept as the BOAT I/E series
-  ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E for the L_effective
+  ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E rows (the shore turnover derivation, D24, and the
+                                     #   time-unit L_effective regression); TRUE keeps season_filter only.
 
   # --- 1.5 Sampler (MCMC). Not methodological: these move the draws, not the posterior. ---
   bss_chains        = 4,
@@ -542,7 +543,11 @@ run_config <- list(
   tau_shore_prior_mu     = "derived", # shore deployment turnover from the I/E time column (2.48 on 2024-25)
   tau_shore_prior_sigma  = "derived", # bootstrap log-SE of the level, floored below
   tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
-  tau_shore_prior_mu_fallback = 1.7,  # used by "derived" when the I/E time column is absent
+  # SEASON-DERIVED fallback (D36, 2026-09-29): used by "derived" when the I/E time column is
+  # absent or has fewer than tau_shore_derive_min_days days. The 2024-25 derivation (40 I/E
+  # days), not the retired 1.7 (arrivals over PEAK presence, the wrong quantity). A fallback
+  # is recorded in the report's warnings section and run_warnings.csv, and its log-SD is 0.3.
+  tau_shore_prior_mu_fallback = 2.477,
   tau_shore_derive_min_days   = 10,   # minimum I/E days behind a derived centre
   # WHICH I/E DAYS THE DERIVED CENTRE USES (surfaced 2026-09-11 by the first full ladder
   # run; CHANGE_REGISTER D24). FALSE (shipped) pools EVERY I/E interval day in the
@@ -585,9 +590,12 @@ run_config <- list(
   tau_boat_prior_mu      = "calibration",
   tau_boat_prior_sigma   = 0.5,
   tau_boat_calibration_metric = "trailer_mean_per_visit",  # | "trailer_max_per_day" | "trailer_sum_per_day"
-  # SEASON-DERIVED fallback for a window with no OSP/trailer overlap (fewer than
-  # tau_boat_calibration_min_pairs paired days): the 2024-25 max-per-day calibration.
-  tau_boat_prior_mu_fallback  = 2.7,
+  # SEASON-DERIVED fallback (D36, 2026-09-29) for a window with no usable OSP/trailer overlap
+  # (OSP absent, the overlap diagnostic failed, or fewer than tau_boat_calibration_min_pairs
+  # paired days): the 2024-25 calibration on the SHIPPED metric, trailer_mean_per_visit
+  # (3.03, 61 paired days). It was 2.7, the max-per-day metric's value, so a fallback also
+  # changed metric silently. Recorded in the report's warnings section and run_warnings.csv.
+  tau_boat_prior_mu_fallback  = 3.03,
   tau_boat_calibration_min_pairs = 3,
   # FALSE (default) keeps the historical parameterization: L is D INDEPENDENT per-day draws,
   # each anchored on tau_*_prior_mu, with nothing pooling information across days. The
@@ -1240,7 +1248,11 @@ run_config <- list(
   # Line 30.7 on 3); "pooled" uses one charter mean for every trip (2,186, SE 118).
   charter_expansion = "vessel",
 
-  # --- 2.9 The I/E day-length regression (feeds the shore turnover derivation) ---
+  # --- 2.9 The I/E day-length regression (a TIME-UNIT lever only) ---
+  # It does NOT feed the shore turnover derivation (that reads the I/E time column directly,
+  # section 2.x above). Since 2026-09-29 (B55) it runs only when shore_effort_unit is a time
+  # unit or day_length_diagnostics = TRUE: under gear-deployments no estimate reads it.
+  day_length_diagnostics = FALSE,   # TRUE computes L_effective and civil twilight anyway (needs suncalc)
                                      #   regression (historical, current behavior). TRUE
                                      #   restricts to season_filter via the workbook's
                                      #   season column (now the fishery season label).
@@ -1749,10 +1761,23 @@ run_config <- list(
   estimate_cpue_density = FALSE,
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --
-  collapse_mu_hier           = FALSE, # (pooled) collapse the single-cell mu-hierarchy
-                                       #   (B1.7/POOL-4 experiment lever). FALSE = current
-                                       #   hierarchy, posterior unchanged. Accepts a per-
-                                       #   population named list, e.g. list(private_boat = TRUE).
+  collapse_mu_hier           = FALSE, # (pooled) force the level-hierarchy collapse on a fit
+                                       #   with MORE than one section (POOL-4 lever). Since T2.5
+                                       #   (2026-09-29) the pooled Stan collapses it by itself when
+                                       #   S == 1, which is every production fit, so this changes
+                                       #   nothing as shipped. Accepts a per-population named list,
+                                       #   e.g. list(private_boat = TRUE).
+  # A31 / T2.5 (2026-09-29; D33): with ONE section the level hierarchy
+  # mu = mu_mu + sigma_mu * eps_mu is unidentified (only the sum enters the likelihood), and
+  # its funnels are what the shore all-gear divergences sat on. "both" collapses the effort
+  # AND the CPUE level (mu = mu_mu) on every S == 1 fit, the gear-resolved model's structure
+  # since v6.0; "effort" collapses the effort level only; "none" restores the pre-A31 pooled
+  # model exactly (to price the change or reproduce an earlier run). "both" ships because
+  # "effort" alone left the CPUE funnel: the shore all-gear fit at the shipped init_r = 0.5
+  # was 4.7% divergent under "effort" and 0.07% under "both" (CHANGE_REGISTER A31 has the
+  # table, and the one cost: a short pot-closure fit's CPUE level can mix slowly at a rare seed
+  # without moving its total). Stan data, so changing it recompiles nothing.
+  mu_hier_collapse_single    = "both",     # (pooled) "both" | "effort" | "none"
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
 
   # ============================================================================

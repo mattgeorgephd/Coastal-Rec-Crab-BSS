@@ -47,15 +47,55 @@ if not, see <https://www.gnu.org/licenses/>.
 -->
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
-                      fig.align = "center", fig.width = 10, fig.height = 6)
-# A small helper to render a data frame as a clean, captioned report table.
+# 2026-09-29 (report overhaul): warnings and messages are CAPTURED, not discarded. Until this
+# date the global options were message = FALSE, warning = FALSE, which threw away every R
+# warning a run raised (the PE consistency flag, a shared_tau that was ignored, the season-
+# window checks, the census frame). The hooks below keep them out of the body of the page and
+# record each one, with the chunk it came from, for the "Run warnings and notes" section at the
+# end of the report and for run_warnings.csv.
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE,
+                      fig.align = "center", fig.width = 10, fig.height = 6, out.width = "100%")
+.report_conditions <- new.env(parent = emptyenv())
+.report_conditions$log <- data.frame(chunk = character(0), type = character(0), message = character(0),
+                                     stringsAsFactors = FALSE)
+.problem_pattern <- "warn|fallback|fall back|skip|fail|could not|cannot|unavailable|unusable|not available|dropped|ignored|error|clipped|outside the window|stuck|refus"
+.record_condition <- function(type) function(x, options) {
+  # knitr can hand the hook SEVERAL conditions at once (a character vector): record each.
+  x <- gsub("(^|\n)## ?", "\\1", as.character(x))       # knitr's comment prefix, on every line
+  msg <- trimws(gsub("^(Warning|Message)( in [^:]*)?:\\s*", "", gsub("\\s*\n+\\s*", " ", x)))
+  msg <- msg[nzchar(msg) & !grepl("^[=-]*$", msg)]
+  # message() is also how many chunks print progress banners; a note is kept only when it
+  # reports a problem (a warning, fallback, skip or failure), so the section is not a console dump.
+  if (identical(type, "message"))
+    msg <- msg[grepl(.problem_pattern, msg, ignore.case = TRUE)]
+  if (length(msg))
+    .report_conditions$log <- rbind(.report_conditions$log,
+      data.frame(chunk = options$label %||% "?", type = type, message = msg, stringsAsFactors = FALSE))
+  ""
+}
+`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+knitr::knit_hooks$set(warning = .record_condition("warning"), message = .record_condition("message"))
+
+# A small helper to render a data frame as a clean, captioned report table. digits applies to
+# every numeric column; round counts to 0 before calling it (or pass digits = 0).
+options(knitr.kable.NA = "-")   # an empty cell reads "-", not "NA"
 report_table <- function(df, caption = NULL, digits = 2) {
   if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(invisible(NULL))
   knitr::kable(df, caption = caption, digits = digits, format.args = list(big.mark = ","))
 }
+# A p-value for a table: two significant figures, "< 1e-04" below that, as TEXT so kable's
+# digits cannot round it to 0 (the opener and marine screens printed p = 0 before 2026-09-29).
+fmt_p <- function(p) ifelse(is.na(p), "-", format.pval(p, digits = 2, eps = 1e-4))
+# A median with its 95% interval as one readable cell.
+# A point with no interval (the commercial census, an exact count) reads "<m> (no interval)".
+fmt_ci <- function(m, lo, hi, digits = 0) {
+  .f <- function(v) formatC(v, format = "f", digits = digits, big.mark = ",")
+  ifelse(is.na(m), "-", ifelse(is.na(lo) | is.na(hi), sprintf("%s (no interval)", .f(m)),
+                               sprintf("%s [%s, %s]", .f(m), .f(lo), .f(hi))))
+}
 
-# Short, HTML-friendly fit labels for display tables (e.g. "boat all-gear").
+# Short, HTML-friendly fit labels for display tables (e.g. "boat all-gear"). The pot-closure
+# sub-season's internal key is ring_net_only, kept for filename continuity.
 short_fit <- function(x) gsub("_Dungeness_Kept$", "",
                          gsub("private_boat", "boat",
                            gsub("_ring_net_only", " pot-closure",
@@ -103,7 +143,7 @@ read_fit_outputs <- function(prefix, dir = NULL) {
 }
 ```
 
-> **How to read this report.** This is the results report for one seasonal harvest estimate from the pooled CPUE model. Code is hidden by default; use the **Code** buttons (or *Code > Show All Code* at the top right) to reveal any step. Each section states what it does, shows the notable tables and figures, and, for the diagnostic sections, notes what a healthy run should look like. The headline number is the port total in the Results section; always read it together with the convergence and PE-vs-BSS sections, which say how much to trust it.
+> **How to read this report.** This is the results report for one harvest estimate from the pooled CPUE model, the method of record. **The headline is [Section 7](#headline-result-port-total)**: the port total and its components, each with a 95% credible interval. Read it with [Section 6](#convergence-gate-and-model-selection) (did every fit converge, and which method each component reports), [Section 13](#pe-vs-bss-comparison) (how far the design-based and Bayesian estimates agree) and [Section 16](#run-warnings-and-notes) (every warning, fallback and skipped step this run recorded). Sections 1 to 5 show the configuration, the inputs and the resolved expansion factors; Sections 8 to 12 break the total down and show the diagnostics behind it. Code is hidden; the **Code** buttons reveal any step. Every number in this report is computed by this run; none is typed into the text.
 
 
 ## 1. Setup and configuration
@@ -123,8 +163,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 #   1. Shore crabbers (dock + jetty + beach)   BSS + PE
 #   2. Private boat crabbers                    BSS + PE
 #   3. Commercial/charter boats                 commercial census + charter expansion
-# Two gear-regime sub-seasons: pot closure (Sep 16 - Nov 30, non-pot gear only) and
-# all-gear (Dec 1 - Sep 15, pots allowed). "Pot closure" was formerly labeled
+# Two gear-regime sub-seasons per season (build_subseasons(); the dates are run_config's
+# pot_closure_start / pot_closure_end): a pot closure (non-pot gear only) and all-gear (pots
+# allowed); a multi-season span has one pair per season. "Pot closure" was formerly labeled
 # "ring-net only"; non-pot gear other than ring nets is also legal, so the name was
 # a misnomer. The internal key stays "ring_net_only" for output-filename continuity.
 #
@@ -138,8 +179,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # KEY FEATURES: adaptive AR(1) temporal resolution; B1_C weekend CPUE effect;
 # Method v2.0: derived shore turnover tau_shore and calibration boat turnover with a shared
 # tau_bar; dynamic per-stratum crabbing fraction f with a combo share c; zero-inflated NB2
-# shore catch; commercial census + charter expansion. L_effective from I/E is computed but is
-# a DIAGNOSTIC under the deployment unit; data-driven R_G prior;
+# shore catch; commercial census + charter expansion; the single-section level
+# hierarchies collapsed (A31, T2.5). L_effective / day length only under a time unit (B55);
+# data-driven R_G prior;
 # gear-deployment effort scale (R_G_boat / tau_boat, tau_shore); scale-aware
 # convergence gate; the expected catch from the generated quantities and, since B46, the
 # predictive catch drawn after the fit from the fitted zero-inflated NB
@@ -259,12 +301,9 @@ params <- list(
   # (Betancourt 2017), so the backstop belongs near 5%.
   max_divergence_fraction        = 0.05,
 
-  # --- DEPRECATED gate parameters (retained for reference; no longer gating) ---
-  # Superseded by the scale-aware gate above. The level-normalized distortion is
-  # still COMPUTED and reported in convergence_report.csv (distortion_C /
-  # distortion_E) for continuity, but neither value participates in pass/fail.
-  max_divergences = 5,
-  max_divergence_distortion = 0.02,
+  # D37 (2026-09-29): the deprecated max_divergences / max_divergence_distortion keys were
+  # removed; nothing read them. The level-normalized distortion is still COMPUTED and
+  # reported in convergence_report.csv (distortion_C / distortion_E), without a threshold.
 
   # --- Adaptive AR temporal-resolution thresholds -----------------------------
   # The model selects the finest AR resolution the data can support:
@@ -273,7 +312,7 @@ params <- list(
   #   monthly: fallback for sparse data
   ar_daily_min_coverage  = 0.25,
   ar_daily_min_obs       = 20,
-  ar_weekly_min_per_week = 1.5,
+  ar_weekly_min_per_week = 1.5
 
   # v6.5 (B1): per-population cap on AR resolution. The map now lives in run_config.R
   # (ar_max_resolution$pooled) so both models' caps sit in one place; this model's cap
@@ -284,9 +323,7 @@ params <- list(
   # of the method document). A population absent from the map defaults to "daily" (no cap).
   # Read ar_max_resolution$pooled in run_config.R for the shipped values; the cap only ever
   # COARSENS, so a cap finer than the data-driven pick is ignored.
-
-  # --- I/E diagnostics ---
-  ie_use_all_dates_for_diagnostics = TRUE
+  # (D37, 2026-09-29: ie_use_all_dates_for_diagnostics was removed; nothing read it.)
 )
 
 # --- Run-level config from run_config.R (single source of truth) --------------
@@ -368,122 +405,58 @@ pe_port_total <- function(field)  # na.rm matches the baseline sum([1:5], na.rm=
       pe_field("comm_charter", field), na.rm = TRUE)
 
 
-# ===========================================================================
-# 0.2 STANDALONE DAY-TYPE CLASSIFIER
-#
-# Assigns day_type to ANY date, independent of the estimation calendar.
-# Use this for diagnostic plots that may show data outside the estimation
-# period (e.g., effort data collected year-round but est_date_end is Jan 31).
-# ===========================================================================
+# Every step below calls a function in 03_R_functions/ (sourced above): fetch_crab_data(),
+# fetch_ie_data() and estimate_shore_turnover() (bss_day_length.R), prep_days_crab(),
+# prep_population_summary(), run_pe_pooled(), prep_bss_crab_pooled(), estimate_comm_charter()
+# and the diagnostics writers. README-R-functions.md lists every file. (Stub comments that
+# described each function as "extracted verbatim" from this file, some of them describing a
+# day-length L that is no longer the expansion factor, were removed 2026-09-29.)
 
-# classify_day_type() now lives in 03_R_functions/classify_day_type.R
-# (auto-sourced). Signature is now (dates, params); it reads weekends/holidays
-# from params. Behavior unchanged.
+```
 
-
-# ===========================================================================
-# 1. DATA INGESTION
-# ===========================================================================
-
-# fetch_crab_data() now lives in 03_R_functions/fetch_crab_data.R
-# (auto-sourced). Extracted verbatim; behavior unchanged.
-
-
-# ===========================================================================
-# 1.5 INGRESS/EGRESS DATA
-# ===========================================================================
-
-# fetch_ie_data() now lives in 03_R_functions/bss_day_length.R, shared with the
-# gear-resolved driver so the two cannot drift. It is auto-sourced by the
-# purrr::walk over 03_R_functions/ near the top of this file. Function body
-# moved verbatim; behavior unchanged.
-
-
-# ===========================================================================
-# 1.6 L_EFFECTIVE MODEL - Regression with uncertainty propagation
-#
-# Fits a
-# regression of log(L_effective) on day-of-year (quadratic) and day type.
-# This captures the seasonal gradient WITHIN sub-seasons and provides
-# per-day prediction uncertainty for propagation into the Stan model.
-#
-# Returns: list with
-#   $predict_fn: function(event_date, day_type) -> tibble(L_mu, L_sigma)
-#   $model: the fitted lm object
-#   $detail: per-I/E-day data
-#   $summary: model coefficients and fit statistics
-# ===========================================================================
-
-# estimate_L_effective() now lives in 03_R_functions/bss_day_length.R, shared
-# with the gear-resolved driver so the two cannot drift. It is auto-sourced by
-# the purrr::walk over 03_R_functions/ near the top of this file. Function body
-# moved verbatim; behavior unchanged.
-
-
-# ===========================================================================
-# 2. PREP DAYS - Build calendar with L_mu and L_sigma per day
-#
-# Stores both L_mu (predicted median) and L_prior_sigma
-# lookup value, store both L_mu (predicted median) and L_prior_sigma
-# (prediction uncertainty on log scale) for each day. These feed into
-# the Stan model where L becomes a parameter.
-# ===========================================================================
-
-# prep_days_crab() now lives in 03_R_functions/prep_days_crab.R (shared,
-# auto-sourced). Signature is now (date_begin, date_end, params, L_eff_model);
-# it derives weekends/holidays/period_pe/sections from params. Behavior unchanged.
-
-
-# ===========================================================================
-# 3. SUMMARIZE DATA - Filter to population x sub-season
-# ===========================================================================
-
-# prep_population_summary() now lives in
-# 03_R_functions/prep_population_summary.R (shared, auto-sourced). catch_groups is
-# derived from params inside. Behavior unchanged.
-
-
-# ===========================================================================
-# 4. PE METHOD - (unchanged from v1)
-# ===========================================================================
-
-# run_pe_pooled() now lives in 03_R_functions/run_pe_pooled.R (auto-sourced).
-# catch_groups is derived from params; the shore branch now flows through
-# bss_effort_spec() so shore PE matches the shore BSS unit (2026-07-11 fix).
-
-
-# ===========================================================================
-# 5. BSS PREP - Build Stan data list for crab_bss_pooled.stan
-#
-# ADAPTIVE AR RESOLUTION: Selects daily, weekly, or monthly AR based on
-# effort data density. Dense data → daily AR for smooth interpolation.
-# Sparse data → coarser resolution to avoid poorly-identified AR dynamics.
-#
-# Also includes: data-driven R_G prior, L_effective as parameter (shore),
-# informative R_G_boat prior, tightened Cauchy scales, no interview cap.
-# ===========================================================================
-
-# prep_bss_crab_pooled() now lives in 03_R_functions/prep_bss_crab_pooled.R
-# (auto-sourced). Extracted verbatim (renamed); behavior unchanged.
-
-
-# ===========================================================================
-# 6. COMMERCIAL/CHARTER CENSUS (unchanged from v1)
-# ===========================================================================
-
-# estimate_comm_charter() now lives in 03_R_functions/estimate_comm_charter.R
-# (shared, auto-sourced). crabbing_holiday_dates read from params. Behavior unchanged.
-
-
-# ===========================================================================
-# 7. RUN EVERYTHING
-# ===========================================================================
-
+```{r config-show, echo=FALSE}
+# 2026-09-29: the configuration as a TABLE a reader can check against run_config.R. Until this
+# date Section 1 printed nothing; the resolved values lived only in run_parameters.txt.
+.git <- function(args) tryCatch(suppressWarnings(system2("git", c("-C", here::here(), args), stdout = TRUE, stderr = FALSE)),
+                                error = function(e) character(0))
+run_git_sha   <- (.git(c("rev-parse", "--short", "HEAD")) %||% "unavailable")[1]
+run_git_dirty <- length(.git(c("status", "--porcelain", "--untracked-files=no"))) > 0
+.ss_tab <- paste(vapply(subseasons, function(ss) sprintf("%s %s to %s", ss$display_name, ss$start, ss$end), ""), collapse = "; ")
+.fmt <- function(x) if (is.null(x)) "(unset)" else if (is.list(x)) paste(names(x), vapply(x, function(v) paste(format(v), collapse = "/"), ""), sep = " = ", collapse = "; ") else paste(format(x), collapse = ", ")
+config_disp <- data.frame(check.names = FALSE, stringsAsFactors = FALSE,
+  Setting = c("Season(s)", "Estimation window", "Sub-seasons", "Shore effort unit", "Model",
+              "Chains / cores / seed / init_r", "Iterations (shore all-gear; boat all-gear; others)",
+              "Convergence gate", "AR cap (pooled)", "Level hierarchy, one section (A31)",
+              "Shore turnover prior", "Boat turnover prior", "Shared turnover", "Crabbing fraction f",
+              "Marine hazard term", "Opener covariates", "Census / charter", "PE unsampled cells",
+              "Code (git)", "Output folder"),
+  Value = c(paste(params$season_filter, collapse = " + "),
+            sprintf("%s to %s", params$est_date_start, params$est_date_end), .ss_tab,
+            params$shore_effort_unit %||% "gear-deployments", params$bss_model_file,
+            sprintf("%s / %s / %s / %s", params$bss_chains, params$bss_cores, params$bss_seed, params$bss_init_r %||% 2),
+            sprintf("%s (warmup %s); %s (warmup %s); %s (warmup %s)", params$bss_iter_shore_allgear, params$bss_warmup_shore_allgear,
+                    params$bss_iter_boat_allgear, params$bss_warmup_boat_allgear, params$bss_iter_default, params$bss_warmup_default),
+            sprintf("R-hat < 1.01, n_eff > 400, divergent fraction < %s, impact < %s SD",
+                    params$max_divergence_fraction, params$max_divergence_total_impact_sd),
+            .fmt(params$ar_max_resolution), as.character(params$mu_hier_collapse_single %||% "both"),
+            sprintf("%s (resolved in Section 3.1)", .fmt(params$tau_shore_prior_mu)),
+            sprintf("%s, log-SD %s (resolved in Section 3.1)", .fmt(params$tau_boat_prior_mu), .fmt(params$tau_boat_prior_sigma)),
+            .fmt(params$shared_tau),
+            sprintf("dynamic = %s, strata = %s, source = %s", .fmt(params$crab_fraction_dynamic), .fmt(params$crab_fraction_strata), .fmt(params$crab_fraction_source)),
+            sprintf("mode = %s; boat = %s; shore = %s; sub-seasons = %s", .fmt(params$marine_hazard_mode), .fmt(params$marine_hazard_manual_boat),
+                    if (length(params$marine_hazard_manual_shore)) .fmt(params$marine_hazard_manual_shore) else "none", .fmt(params$marine_hazard_gear_regimes)),
+            .fmt(params$opener_covariate_mode %||% "off"),
+            sprintf("census_expansion = %s; charter_frame = %s; charter_expansion = %s; census_uncertainty = %s",
+                    .fmt(params$census_expansion), .fmt(params$charter_frame), .fmt(params$charter_expansion), .fmt(params$census_uncertainty)),
+            sprintf("effort fill = %s; CPUE fill = %s; variance = %s", .fmt(params$pe_empty_effort_stratum), .fmt(params$pe_empty_stratum), .fmt(params$pe_variance)),
+            sprintf("%s%s", run_git_sha, if (run_git_dirty) " (working tree has uncommitted changes)" else ""),
+            basename(output_dir)))
+report_table(config_disp, caption = "This run's configuration (run_config.R merged with the driver's model settings). Every key is in run_parameters.txt.")
 ```
 
 ## 2. Data ingestion
 
-Reads the season's effort counts, crabber interviews, commercial tally, and ingress/egress (I/E) surveys, and classifies each interview into shore, private-boat, or commercial/charter.
+Reads the effort counts, crabber interviews, the commercial tally and charter roster, the ingress/egress (I/E) surveys, the sampler contacts and the OSP boat counts, and classifies each interview as shore, private boat, or commercial/charter. The table after this step counts what each stream delivered for this run's window.
 
 ```{r load-data, results='hide'}
 # ---- 7.0 LOAD DATA ----
@@ -511,23 +484,25 @@ params <- bss_resolve_tau_shore_prior(params, shore_turnover)
 # and whether the trip-type mix drifts with the hour inside the shift. Diagnostic only;
 # guarded so a missing shifts file cannot break a run (03_R_functions/sampler_shifts.R).
 sampler_shifts <- tryCatch(fetch_sampler_shifts(params),
-                           error = function(e) { cat("  Sampler shifts skipped:", conditionMessage(e), "\n"); NULL })
+                           error = function(e) { bss_warn("sampler shifts", paste("Sampler shifts skipped:", conditionMessage(e)), severity = "note"); NULL })
 shift_coverage <- tryCatch(diagnose_shift_coverage(sampler_shifts, ie_data, dwg$boat_contacts_detail, params, output_dir = output_dir),
-                           error = function(e) { cat("  Shift coverage diagnostic skipped:", conditionMessage(e), "\n"); NULL })
+                           error = function(e) { bss_warn("sampler shifts", paste("Shift coverage diagnostic skipped:", conditionMessage(e)), severity = "note"); NULL })
 
 # --- Phase 0: OSP Westport boat-count ingest + overlap calibration ---
 # NOT diagnostic only since 2026-09-08: under tau_boat_prior_mu = "calibration" the overlap
 # result sets the boat turnover prior centre (bss_resolve_tau_boat_prior below), and an error
-# caught here falls back to tau_boat_prior_mu_fallback (2026-09-29 sweep; outstanding).
+# caught here falls back to tau_boat_prior_mu_fallback (3.03, the 2024-25 calibration; D36,
+# 2026-09-29), and both the error and the fallback go to the run-warnings log (bss_warn),
+# which the report prints in its last section.
 # fetch_osp_boat_counts() and diagnose_osp_trailer_overlap() live in 03_R_functions/
 # (auto-sourced). The diagnostic writes osp_trailer_overlap_calibration.csv,
 # osp_trailer_overlap_pairs.csv, osp_coverage_audit.csv and osp_trailer_overlap.png to
 # output_dir. osp_boat is the per-day OSP series (boat_effort schema) that Phase 1
 # consumes as a second boat effort stream. Guarded so a missing file cannot break a run.
 osp_boat <- tryCatch(fetch_osp_boat_counts(params),
-                     error = function(e) { cat("  OSP ingest skipped:", conditionMessage(e), "\n"); NULL })
+                     error = function(e) { bss_warn("OSP", paste("OSP ingest skipped:", conditionMessage(e))); NULL })
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
-                        error = function(e) { cat("  OSP overlap diagnostic skipped:", conditionMessage(e), "\n"); NULL })
+                        error = function(e) { bss_warn("OSP", paste("OSP overlap diagnostic skipped:", conditionMessage(e))); NULL })
 # improvement 8: OSP crab-ONLY counts (a LOWER bound on the crabbing fraction f, because
 # OSP labels combo trips by the non-crab fishery). Lifted here so both the PE and the BSS
 # read the same rows from one file read. Empty until the crab-only column exists, in which
@@ -541,7 +516,7 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
 if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
   tryCatch(utils::write.csv(dplyr::mutate(params$osp_crab_rows, crab_only_share = osp_crab_only / osp_total),
                             file.path(output_dir, "osp_crab_only_daily.csv"), row.names = FALSE),
-           error = function(e) cat("  osp_crab_only_daily.csv not written:", conditionMessage(e), "\n"))
+           error = function(e) bss_warn("OSP", paste("osp_crab_only_daily.csv not written:", conditionMessage(e)), severity = "note"))
 
 # --- Review item 3 + 5 (2026-09-08): resolve the boat turnover prior centre from THIS
 # window's OSP/trailer overlap when tau_boat_prior_mu = "calibration". The resolved
@@ -551,8 +526,11 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
 params <- bss_resolve_tau_boat_prior(params, osp_overlap)
 
 # --- Fit L_effective regression ---
+# B55 (2026-09-29): only when a day length is used (a time-denominated shore unit, or
+# day_length_diagnostics = TRUE). Under gear-deployments nothing reads it; the I/E survey's
+# job is the shore turnover above (shore_turnover_*.csv) and the I/E observation stream.
 L_eff_model <- NULL
-if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
+if(isTRUE(params$use_ie_day_length) && bss_needs_day_length(params) && nrow(ie_data) > 0) {
   L_eff_model <- estimate_L_effective(ie_data, params)
   if(!is.null(L_eff_model)) {
     # Save regression diagnostics
@@ -567,9 +545,42 @@ timer_stop("1_load_data")
 
 ```
 
-## 3. Input diagnostics: effort, CPUE, and day length
+```{r inputs-show, echo=FALSE}
+# 2026-09-29: what each input stream delivered, so a thin or missing stream is visible here
+# rather than only as a PE fallback or a prior-only parameter much later.
+.in_win <- function(d) { d <- as.Date(d); d >= as.Date(params$est_date_start) & d <= as.Date(params$est_date_end) }
+.int_n <- table(factor(dwg$interview$population, levels = c("shore", "private_boat", "comm_charter")))
+.ie_n  <- if (nrow(ie_data)) table(factor(ie_data$population, levels = c("shore", "private_boat"))) else c(shore = 0, private_boat = 0)
+inputs_disp <- data.frame(check.names = FALSE, stringsAsFactors = FALSE,
+  Stream = c("Shore gear counts", "Private-boat trailer counts", "Interviews: shore", "Interviews: private boat",
+             "Interviews: commercial/charter", "Sampler boat contacts (crabbing fraction)", "OSP returning-boat days",
+             "OSP crab-only days", "Commercial/charter tally days", "Charter roster trips",
+             "I/E survey days: shore (all seasons)", "I/E survey days: boat (all seasons)"),
+  Rows = c(nrow(dwg$shore_effort), nrow(dwg$boat_effort), .int_n[["shore"]], .int_n[["private_boat"]], .int_n[["comm_charter"]],
+           nrow(dwg$boat_contacts_detail %||% data.frame()),
+           if (is.null(osp_boat)) 0 else nrow(osp_boat), nrow(params$osp_crab_rows %||% data.frame()),
+           sum(.in_win(dwg$comm_tally$date)), nrow(dwg$charter_roster %||% data.frame()),
+           .ie_n[["shore"]], .ie_n[["private_boat"]]),
+  `Days in window` = c(dplyr::n_distinct(dwg$shore_effort$event_date), dplyr::n_distinct(dwg$boat_effort$event_date),
+                       dplyr::n_distinct(dwg$interview$event_date[dwg$interview$population == "shore"]),
+                       dplyr::n_distinct(dwg$interview$event_date[dwg$interview$population == "private_boat"]),
+                       dplyr::n_distinct(dwg$interview$event_date[dwg$interview$population == "comm_charter"]),
+                       dplyr::n_distinct((dwg$boat_contacts_detail %||% data.frame(event_date = as.Date(character())))$event_date),
+                       if (is.null(osp_boat)) 0 else sum(.in_win(unique(osp_boat$event_date))),
+                       nrow(params$osp_crab_rows %||% data.frame()),
+                       sum(.in_win(dwg$comm_tally$date)),
+                       if (is.null(dwg$charter_roster)) 0 else sum(.in_win(unique(as.Date(dwg$charter_roster$date)))),
+                       if (nrow(ie_data)) sum(.in_win(unique(ie_data$event_date[ie_data$population == "shore"]))) else 0,
+                       if (nrow(ie_data)) sum(.in_win(unique(ie_data$event_date[ie_data$population == "private_boat"]))) else 0))
+report_table(inputs_disp, digits = 0, caption = paste(
+  "What each input stream delivered. 'Rows' counts records as read (the I/E rows span every season in the",
+  "workbook, because the shore turnover pools them; D24); 'Days in window' counts distinct days inside the",
+  "estimation window. The OSP crab-only column is optional (B48): zero days means OSP has not delivered it."))
+```
 
-Diagnostic views of the raw inputs before any modeling: sampled effort over the season by day type, interview CPUE over time, and the effective day length derived from the I/E surveys. Use these to spot data gaps or anomalies (for example a run of unsampled weekends, or an implausible CPUE spike).
+## 3. Input diagnostics: effort and CPUE
+
+The raw inputs before any modelling: the shore gear counts and the private-boat trailer counts (each point is a day's MEAN count, the quantity the effort likelihood is scaled to; days with more counts are larger), the OSP returning-boat totals, and the interview catch rate per gear deployment, the unit the model uses. Look for gaps (a run of unsampled weekends) and anomalies (an implausible spike).
 
 ```{r input-figures, results='hide', fig.show='hide'}
 # ---- 7.1 DIAGNOSTIC PLOTS ----
@@ -582,64 +593,82 @@ days_full <- prep_days_crab(params$est_date_start, params$est_date_end,
 # Plot 1: Shore gear count timeseries
 p_shore_effort <- dwg$shore_effort |>
   group_by(event_date) |>
-  summarise(total_gear = sum(count_quantity), n_counts = n(), .groups = "drop") |>
+  # 2026-09-29: the day's MEAN count (it was the SUM over the day's 1 to 3 counts, which
+  # inflated a multi-count day 2 to 3x on the page; the model never used the sum).
+  summarise(mean_gear = mean(count_quantity), n_counts = n(), .groups = "drop") |>
   mutate(day_type = classify_day_type(event_date, params)) |>
-  ggplot(aes(x = event_date, y = total_gear, color = day_type, size = n_counts)) +
+  ggplot(aes(x = event_date, y = mean_gear, color = day_type, size = n_counts)) +
   geom_point(alpha = 0.5) +
   pot_closure_markers(params, labels = TRUE) +
-  scale_size_continuous(range = c(1,3), breaks = 1:3, name = "Counts/day") +
-  labs(title = "Shore: Daily Gear Count (Docks F20 + F17-21)",
-       x = "Date", y = "Total gear count", color = "Day type") +
+  scale_size_continuous(range = c(1,3), breaks = 1:3, name = "Counts that day") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Shore gear in the water (Floats 20 and 17-21), mean per count",
+       subtitle = "Float 17-21 filled by the month's time-paired ratio where only Float 20 was counted (shore_f17_fill)",
+       x = "Date", y = "Gear deployments per count", color = "Day type") +
   theme_bw()
 ggsave(file.path(output_dir, "plot_shore_effort_timeseries.png"), p_shore_effort, width = 10, height = 6)
 
 # Plot 2: Boat trailer count timeseries
 p_boat_effort <- dwg$boat_effort |>
   group_by(event_date) |>
-  summarise(total_trailers = sum(count_quantity), n_counts = n(), .groups = "drop") |>
-  mutate(day_type = classify_day_type(event_date, params)) |>
-  ggplot(aes(x = event_date, y = total_trailers, color = day_type)) +
+  summarise(value = mean(count_quantity), n_counts = n(), .groups = "drop") |>
+  mutate(day_type = classify_day_type(event_date, params), series = "Trailers, mean per count") |>
+  dplyr::bind_rows(
+    if (!is.null(osp_boat) && nrow(osp_boat))
+      osp_boat |> group_by(event_date) |> summarise(value = sum(count_quantity), n_counts = 1L, .groups = "drop") |>
+        dplyr::filter(event_date >= as.Date(params$est_date_start), event_date <= as.Date(params$est_date_end)) |>
+        mutate(day_type = classify_day_type(event_date, params), series = "OSP returning private boats, daily total")
+    else NULL) |>
+  ggplot(aes(x = event_date, y = value, color = day_type)) +
   geom_point(alpha = 0.5) +
   pot_closure_markers(params, labels = FALSE) +
-  labs(title = "Private Boat: Daily Trailer Count", x = "Date", y = "Trailers", color = "Day type") +
+  facet_wrap(~series, ncol = 1, scales = "free_y") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Private-boat effort streams", x = "Date", y = NULL, color = "Day type") +
   theme_bw()
-ggsave(file.path(output_dir, "plot_boat_effort_timeseries.png"), p_boat_effort, width = 10, height = 6)
+ggsave(file.path(output_dir, "plot_boat_effort_timeseries.png"), p_boat_effort, width = 10, height = 8)
 
-# Plot 3: CPUE by population
+# Plot 3: CPUE by population, per GEAR DEPLOYMENT (2026-09-29: it was per crabber-hour, the
+# unit the model left in v7.7), as the day's ratio of sums, the estimator the PE uses.
 cpue_data <- dwg$interview |>
-  filter(fishing_time_total > 0, dungeness_kept >= 0) |>
-  mutate(cpue = dungeness_kept / fishing_time_total) |>
+  mutate(.g = suppressWarnings(as.numeric(number_of_gear))) |>
+  filter(is.finite(.g), .g > 0, dungeness_kept >= 0, population %in% c("shore", "private_boat")) |>
   group_by(event_date, population) |>
-  summarise(mean_cpue = mean(cpue), n_int = n(), .groups = "drop") |>
-  mutate(day_type = classify_day_type(event_date, params)) |>
-  filter(population %in% c("shore", "private_boat"))
+  summarise(cpue = sum(dungeness_kept) / sum(.g), n_int = n(), .groups = "drop") |>
+  mutate(day_type = classify_day_type(event_date, params),
+         population = dplyr::recode(population, shore = "Shore", private_boat = "Private boat"))
 
 p_cpue <- cpue_data |>
-  ggplot(aes(x = event_date, y = mean_cpue, color = day_type)) +
-  geom_point(alpha = 0.4, size = 1.5) +
-  geom_smooth(method = "loess", span = 0.3, se = TRUE, color = "grey30") +
+  ggplot(aes(x = event_date, y = cpue, color = day_type)) +
+  geom_point(aes(size = n_int), alpha = 0.4) +
+  geom_smooth(method = "loess", formula = y ~ x, span = 0.3, se = TRUE, color = "grey30") +
   pot_closure_markers(params, labels = FALSE) +
   facet_wrap(~population, ncol = 1, scales = "free_y") +
-  labs(title = "Dungeness CPUE by Population", x = "Date", y = "Mean CPUE", color = "Day type") +
+  scale_size_continuous(range = c(0.8, 3), name = "Interviews") +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(title = "Interview catch rate: Dungeness kept per gear deployment (daily ratio of sums)",
+       x = "Date", y = "Crab per gear deployment", color = "Day type") +
   theme_bw()
 ggsave(file.path(output_dir, "plot_cpue_timeseries.png"), p_cpue, width = 10, height = 8)
 
-# Plot 4: Gear counts by month and day type (boxplot)
+# Plot 4: Gear counts by month and day type (boxplot of the day's mean count)
 p_effort_month <- dwg$shore_effort |>
   group_by(event_date) |>
-  summarise(total_gear = sum(count_quantity), .groups = "drop") |>
+  summarise(mean_gear = mean(count_quantity), .groups = "drop") |>
   mutate(day_type = classify_day_type(event_date, params),
          month_label = factor(format(event_date, "%Y-%m"))) |>
-  ggplot(aes(x = month_label, y = total_gear, fill = day_type)) +
-  geom_boxplot() +
-  labs(title = "Shore Gear Counts by Month and Day Type",
-       x = "Month", y = "Daily gear count", fill = "Day type") +
+  ggplot(aes(x = month_label, y = mean_gear, fill = day_type)) +
+  geom_boxplot(outlier.size = 0.8) +
+  labs(title = "Shore gear counts by month and day type (mean per count)",
+       x = "Month", y = "Gear deployments per count", fill = "Day type") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave(file.path(output_dir, "plot_effort_by_month.png"), p_effort_month, width = 12, height = 6)
 
-# L_effective regression diagnostic plot
-if(!is.null(L_eff_model) && !is.null(L_eff_model$detail) && nrow(L_eff_model$detail) >= 3) {
+# L_effective regression and day-length plots: ONLY under a time-denominated unit (B55). Under
+# gear-deployments nothing reads a day length, and these two figures used to present one as the
+# quantity "propagated into the Stan model", which it is not.
+if(bss_needs_day_length(params) && !is.null(L_eff_model) && !is.null(L_eff_model$detail) && nrow(L_eff_model$detail) >= 3) {
   # Predict L over the estimation window (2026-09-28, B46: it was a fixed 2024 calendar year,
   # so the prediction line and the I/E points sat on different dates in every other season)
   viz_dates <- seq.Date(as.Date(params$est_date_start), as.Date(params$est_date_end), by = "day")
@@ -664,7 +693,8 @@ if(!is.null(L_eff_model) && !is.null(L_eff_model$detail) && nrow(L_eff_model$det
   ggsave(file.path(output_dir, "plot_L_effective_regression.png"), p_L_regression, width = 12, height = 6)
 }
 
-# Day length comparison (civil twilight vs regression)
+# Day length comparison (civil twilight vs regression), time units only (B55)
+if (bss_needs_day_length(params)) {
 p_day_length <- days_full |>
   ggplot(aes(x = event_date)) +
   geom_line(aes(y = day_length_civil_twilight, color = "Civil twilight"), alpha = 0.5) +
@@ -678,6 +708,7 @@ p_day_length <- days_full |>
   scale_color_manual(values = c("Civil twilight" = "grey60", "I/E L_effective (regression)" = "steelblue")) +
   theme_bw()
 ggsave(file.path(output_dir, "plot_day_length_comparison.png"), p_day_length, width = 10, height = 5)
+}
 
 cat("  Diagnostic plots saved.\n")
 timer_stop("2_diagnostic_plots")
@@ -685,13 +716,53 @@ timer_stop("2_diagnostic_plots")
 
 ```
 
-```{r input-figures-show, echo=TRUE, fig.height=6, fig.cap=c('Shore effort (gear counts) over the season by day type.','Private-boat effort (trailer counts) over the season by day type.','Interview CPUE over the season.','Effort by month.')}
+```{r input-figures-show, echo=FALSE, fig.height=7, fig.cap=c('Shore gear in the water, mean per count, by day type. The dotted and dashed lines mark the pot-closure start and the day pots open.','Private-boat effort: the trailer counts (mean per count) and the OSP returning-boat totals.','Interview catch rate per gear deployment, by population, with a loess smooth.','Shore gear counts by month and day type.')}
 for (nm in c('p_shore_effort','p_boat_effort','p_cpue','p_effort_month')) if (exists(nm)) print(get(nm))
 ```
 
-### 3.1 Ingress/egress and effective day length
+### 3.1 The expansion factors: shore and boat turnover
 
-The I/E surveys measure crabber arrivals and presence through the day, which sets the shore deployment TURNOVER `tau_shore` that expands the snapshot gear counts (`r if (is.numeric(params$tau_shore_prior_mu)) sprintf("%.3f on this run", params$tau_shore_prior_mu) else "this run's value is printed in the console log"`), derived from the `time` column at the hours the creel counts were actually taken. They also give the effective day length `L_effective` in hours, which is computed every run and is a DIAGNOSTIC: since the v7.7 move to gear-deployments the shore expansion is `lambda_E * R_G * tau_shore` and no day length appears in it. `L_effective` becomes the expansion factor only if the shore effort unit is set back to a time unit, and civil twilight (9 to 17 hours) is the fallback below it, which would overstate active fishing time by roughly a factor of two.
+A creel count is a snapshot, so each population's daily effort is the counted gear times a **turnover** `tau`: how many gear deployments pass through one counted slot in a day. It is the largest single lever on the total (the shore and boat components scale with it one for one), and both centres are **derived from data every run**, not set. The shore turnover comes from the I/E survey's `time` column, as arrivals over the presence at the hours the counts were actually taken; the boat turnover from the days OSP counted every returning private boat and the samplers counted trailers. With `shared_tau = TRUE` each fit estimates one season-level turnover `tau_bar` around this centre (Section 12.3). **Read the in-window shore value**: the derived centre pools every I/E day in the workbook (CHANGE_REGISTER D24), and where this window's own days give a different value the shore component moves with it. No day length appears in the expansion (B55); `L_effective` in hours is computed only under a time-denominated effort unit.
+
+```{r turnover-show, echo=FALSE}
+.st <- shore_turnover
+turnover_disp <- data.frame(check.names = FALSE, stringsAsFactors = FALSE,
+  Population = c("Shore", "Private boat"),
+  `Prior centre used` = c(sprintf("%.3f", as.numeric(params$tau_shore_prior_mu)), sprintf("%.3f", as.numeric(params$tau_boat_prior_mu))),
+  `Prior log-SD` = c(sprintf("%.2f", as.numeric(params$tau_shore_prior_sigma)), sprintf("%.2f", as.numeric(params$tau_boat_prior_sigma %||% 0.5))),
+  Source = c(params$tau_shore_prior_source %||% "config", params$tau_boat_prior_source %||% "config"),
+  `Alternatives this run` = c(
+    if (!is.null(.st)) sprintf("this window's own %d I/E day(s): %s; geometric mean %.3f; arrivals over PEAK presence (the retired 1.7 quantity) %.3f",
+                               .st$n_days_in_window %||% 0L, if (is.finite(.st$tau_in_window %||% NA)) sprintf("%.3f", .st$tau_in_window) else "n/a",
+                               .st$tau_geomean %||% NA, .st$tau_peak %||% NA) else "derivation unavailable",
+    if (!is.null(osp_overlap$calibration)) paste(sprintf("%s %.2f (n = %d, r = %.3f)", osp_overlap$calibration$trailer_metric,
+                                                       osp_overlap$calibration$implied_turnover, osp_overlap$calibration$n,
+                                                       osp_overlap$calibration$corr), collapse = "; ") else "no OSP/trailer overlap"))
+report_table(turnover_disp, caption = paste(
+  "The turnover prior centres this run used and where each came from. A 'fallback' source means the per-run",
+  "derivation could not run and the 2024-25 value was used instead (Section 16 records it)."))
+```
+
+```{r turnover-figs, echo=FALSE, fig.height=5, fig.cap=c("Shore turnover by I/E day (arrivals over the presence at the count hours), coloured by season; the line is the pooled centre the run used.")}
+if (!is.null(shore_turnover$by_day) && nrow(shore_turnover$by_day)) {
+  .bd <- shore_turnover$by_day
+  .bd$season <- .bd$season %||% "?"
+  p_turnover <- ggplot(.bd, aes(x = as.Date(event_date), y = tau_day, color = season)) +
+    geom_hline(yintercept = shore_turnover$tau, linetype = "dashed") +
+    geom_point(size = 2.5, alpha = 0.8) +
+    annotate("rect", xmin = as.Date(params$est_date_start), xmax = as.Date(params$est_date_end), ymin = -Inf, ymax = Inf, alpha = 0.08) +
+    labs(title = "Shore turnover by I/E day", subtitle = sprintf("Pooled centre %.3f over %d days (dashed); the shaded band is this run's window",
+                                                                  shore_turnover$tau, shore_turnover$n_days),
+         x = "I/E survey date", y = "Turnover (arrivals / presence at count hours)", color = "Season") +
+    theme_bw()
+  print(p_turnover)
+}
+```
+
+```{r osp-overlap-fig, echo=FALSE, out.width="70%", fig.cap="OSP daily private-boat total against the trailer count on the paired days; the line's inverse slope is the boat turnover centre."}
+.op <- file.path(output_dir, "osp_trailer_overlap.png")
+if (file.exists(.op)) knitr::include_graphics(.op)
+```
 
 ```{r ie-analysis, results='hide', fig.show='hide'}
 # ---- 7.1b I/E ANALYSIS ----
@@ -711,7 +782,8 @@ if(nrow(ie_data) > 0) {
   if(nrow(ie_validation) > 0) {
     # Shared helper (03_R_functions/bss_day_length.R) so the [9, 17] cap lives in
     # exactly one place; this previously hardcoded a 16.0 cap.
-    ie_validation$day_length_ct <- bss_day_length_civil(ie_validation$event_date, params)
+    # B55: the civil-twilight comparison only where a day length is used (suncalc).
+    ie_validation$day_length_ct <- if (bss_needs_day_length(params)) bss_day_length_civil(ie_validation$event_date, params) else NA_real_
 
     summ_shore_full <- prep_population_summary(dwg, "shore", params$est_date_start, params$est_date_end, params)
     cpg <- summ_shore_full$crabbers_per_gear
@@ -744,38 +816,41 @@ if(nrow(ie_data) > 0) {
       file.path(output_dir, "ie_analysis.csv"), row.names = FALSE)
   }
 } else {
-  cat("  No I/E data available.\n")
+  bss_warn("I/E", "No I/E data in the workbook: the shore turnover falls back to its prior centre and no I/E observation enters any fit.", severity = "note")
 }
 
 
 ```
 
-```{r ie-analysis-show, echo=TRUE, fig.height=5}
-for (nm in c('p_L_regression','p_day_length')) if (exists(nm)) print(get(nm))
+```{r ie-analysis-show, echo=FALSE, fig.height=5}
+# Only under a time-denominated effort unit (B55): the L_effective regression and day length.
+if (bss_needs_day_length(params)) for (nm in c('p_L_regression','p_day_length')) if (exists(nm)) print(get(nm))
 ```
 
 ### 3.2 Shore I/E representativeness (diagnostic)
 
-A large shore all-gear `sigma_IE` (it read about 1.07 in the 2026-07-12 development run, before the I/E observation was put on the effort unit on 2026-08-25) means the I/E stream and the effort counts disagree by roughly a factor of `e` at the tails. This check asks whether that is because the shore I/E days were sampled on unusually high-effort days (so the derived day length is unrepresentative) or is just sparse-data scatter across a handful of I/E days: it compares the shore daily gear counts on I/E observation days against all other sampled days (item 4 / GR-9).
+The shore turnover above is derived from the I/E survey days, so it is only as representative as those days are. This check compares the shore daily gear counts on I/E days against every other sampled day: a mean percentile rank near 0.5 and a non-significant rank test mean the I/E days look like the rest of the season; a rank far from 0.5 means the turnover was measured on unusually busy (or quiet) days, and the shore scale should be read with that in mind (CHANGE_REGISTER D24). The fitted `sigma_IE` (Section 12) is the in-model counterpart: it grows when the I/E arrivals and the counts disagree.
 
-```{r ie-representativeness, echo=FALSE}
-ie_rep <- tryCatch(diagnose_ie_representativeness(dwg, ie_data, params), error = function(e) NULL)
+```{r ie-representativeness, echo=FALSE, results='asis'}
+ie_rep <- tryCatch(diagnose_ie_representativeness(dwg, ie_data, params),
+                   error = function(e) { bss_warn("I/E", paste("I/E representativeness diagnostic not computed:", conditionMessage(e)), severity = "note"); NULL })
 if (!is.null(ie_rep)) {
   write.csv(ie_rep$table, file.path(output_dir, "ie_representativeness.csv"), row.names = FALSE)
   cat(sprintf("**Shore I/E days: %d.** %s\n\n", ie_rep$n_ie, ie_rep$verdict))
-  report_table(ie_rep$table |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(., 1))),
-    paste("Shore daily gear counts on I/E observation days vs other sampled days. A mean",
-          "percentile rank near 0.5 with a non-significant rank test means the I/E days are",
-          "representative, so a large shore sigma_IE reflects sparse-data scatter, not",
-          "sampling on peak-effort days."))
+  print(report_table(ie_rep$table |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(., 2))) |>
+                       dplyr::rename(dplyr::any_of(c(`Days` = "group", `Sampled days` = "n", `Mean gear count` = "mean_gear",
+                                                     `Median gear count` = "median_gear"))),
+    paste("Shore daily gear counts on I/E observation days against every other sampled day. A mean",
+          "percentile rank near 0.5 with a non-significant rank test means the I/E days, and so the",
+          "turnover derived from them, are representative of the season's effort.")))
 } else {
   cat("_Shore I/E representativeness diagnostic unavailable (no shore I/E data)._")
 }
 ```
 
-### 3.5 Other-fishery opener spillover (diagnostic)
+### 3.3 Other-fishery openers
 
-A hypothesis test, not a model change: do other coastal fishery openers pull effort or catch onto (or off of) crab days enough to deserve their own day category, the way crabbing holidays already do? Two openers are checked against the crab effort and CPUE series: Marine Area 2 finfish (salmon, halibut, bottomfish) from the MA2 opener calendar, and coastal razor-clam digs on the beaches nearest Grays Harbor (Twin Harbors, Copalis, Mocrocks) from the dig calendar. Because these openers cluster on weekends and in particular months, which already drive crab effort, the raw opener-vs-other comparison is shown alongside an **adjusted** association: the opener's coefficient in `lm(response ~ day_type + month + opener)`, i.e. the marginal effect after the weekend and monthly signal are removed. Read the adjusted column as the real test. This section changes no estimate; it only reports the associations so the analyst can decide whether to add an opener day category on a later run.
+Whether other coastal fishery openers (Marine Area 2 finfish, razor-clam digs) enter the EFFORT model as covariates this run. The spillover diagnostic behind the screen, a day-type and month adjusted comparison of crab effort and catch rate on opener days, is in [Appendix B](#appendix-b-other-fishery-opener-spillover); it changes no estimate. `opener_covariate_mode` selects `"off"` (no covariates), `"manual"` or `"auto"` (a candidate enters only if its adjusted effect clears `opener_auto_p` after a Benjamini-Hochberg adjustment across the effort tests). **A screen is not a verdict**: a term selected on a p-value from the data it is then fitted to has an inflated coefficient, and the arbiter is the effort streams' held-out predictive fit. A boat opener term should be paired with `crab_fraction_strata = "month_opener"`, not with `"opener"`: a crabbing fraction that cannot see opener days converts the opener surge in all-boat counts into crab effort, and plain `"opener"` anchors EVERY stratum to the level prior and silently discards the walk.
 
 ```{r fishery-spillover, results='hide', fig.show='hide'}
 # ---- 3.5 OTHER-FISHERY OPENER SPILLOVER (diagnostic; changes no estimate) ----
@@ -784,23 +859,23 @@ if (isTRUE(params$run_fishery_spillover_diag)) {
   timer_start("2b_fishery_spillover")
   spillover <- tryCatch(
     diagnose_fishery_spillover(dwg, params),
-    error = function(e) { cat(sprintf("  Fishery-opener spillover diagnostic skipped: %s\n", conditionMessage(e))); NULL })
+    error = function(e) { bss_warn("openers", sprintf("Fishery-opener spillover diagnostic skipped: %s", conditionMessage(e)), severity = "note"); NULL })
   if (!is.null(spillover)) {
     write.csv(spillover$raw,      file.path(output_dir, "fishery_spillover_raw.csv"),      row.names = FALSE)
     write.csv(spillover$adjusted, file.path(output_dir, "fishery_spillover_adjusted.csv"), row.names = FALSE)
-    for (nt in spillover$notes) cat("  NOTE:", nt, "\n")
+    for (nt in spillover$notes) bss_warn("openers", paste("Spillover diagnostic:", nt), severity = "note")
 
     sp_raw_disp <- spillover$raw |>
       dplyr::transmute(Series, Opener,
         `n (opener)` = n_opener, `Mean (opener)` = round(mean_opener, 2),
         `n (other)`  = n_other,  `Mean (other)`  = round(mean_other, 2),
         `Raw diff`   = round(raw_diff, 2), `Raw %` = round(raw_pct, 0),
-        `t-test p`   = round(t_p, 3))
+        `t-test p`   = fmt_p(t_p))
     sp_adj_disp <- spillover$adjusted |>
       dplyr::transmute(Series, Opener,
         `Adj. estimate` = round(adj_estimate, 2), SE = round(se, 2),
         `95% CI` = ifelse(is.na(ci_lo), "-", sprintf("[%.1f, %.1f]", ci_lo, ci_hi)),
-        p = round(adj_p, 3), Note = note)
+        p = fmt_p(adj_p), Note = note)
 
     mk_long <- function(df) df |>
       tidyr::pivot_longer(dplyr::all_of(spillover$flag_cols), names_to = "opener", values_to = "is_open") |>
@@ -816,59 +891,20 @@ if (isTRUE(params$run_fishery_spillover_diag)) {
       geom_boxplot(outlier.size = 0.5, alpha = 0.85) +
       facet_grid(series ~ Opener, scales = "free_y") +
       scale_fill_manual(values = c(Opener = "#c0392b", Other = "grey70")) +
-      labs(title = "Interview CPUE: other-fishery opener days vs other days", x = NULL, y = "Dungeness per crabber-hour") +
+      labs(title = "Interview CPUE: other-fishery opener days vs other days", x = NULL, y = "Dungeness per gear deployment") +
       theme_bw() + theme(legend.position = "none", axis.text.x = element_text(angle = 20, hjust = 1))
   }
   timer_stop("2b_fishery_spillover")
 }
 ```
 
-```{r fishery-spillover-raw-show, echo=FALSE}
-if (!is.null(sp_raw_disp)) {
-  report_table(sp_raw_disp, paste("Raw comparison: mean crab effort (daily counts) and CPUE (Dungeness per",
-    "crabber-hour) on other-fishery opener days vs other days. These are confounded with day-type and season;",
-    "read the adjusted table below for the marginal effect."))
-} else {
-  cat(if (isTRUE(params$run_fishery_spillover_diag))
-        "_Fishery-opener spillover diagnostic produced no output this run._"
-      else "_Fishery-opener spillover diagnostic is off (`run_fishery_spillover_diag = FALSE`)._")
-}
-```
-
-```{r fishery-spillover-adj-show, echo=FALSE}
-if (!is.null(sp_adj_disp)) report_table(sp_adj_disp, paste("Adjusted association: the opener coefficient in",
-  "lm(response ~ day-type + month + opener), the marginal effect after removing the weekend and monthly signal",
-  "the model already captures. Positive = more effort/CPUE on opener days. A blank estimate with a Note means",
-  "the opener could not be separated from day-type/month in this season."))
-```
-
-```{r fishery-spillover-notes, echo=FALSE, results='asis'}
-if (!is.null(spillover)) {
-  cat("**Identifiability notes (read before interpreting):**\n\n")
-  for (nt in spillover$notes) cat("- ", nt, "\n\n", sep = "")
-}
-```
-
-```{r fishery-spillover-plots, echo=FALSE, fig.height=7, fig.cap=c('Crab effort on other-fishery opener days vs other days, by opener and series.','Interview CPUE on other-fishery opener days vs other days, by opener and series.')}
-if (!is.null(p_spill_eff))  print(p_spill_eff)
-if (!is.null(p_spill_cpue)) print(p_spill_cpue)
-```
-
-### 3.6 Other-fishery opener effort covariates (improvement 4)
-
-Which other-fishery openers, if any, enter the EFFORT model this run, and why. `params$opener_covariate_mode` selects `"off"` (no covariates, the historical default), `"manual"` (an explicit list per population), or `"auto"` (include a candidate only if the spillover diagnostic's day-type/month-**adjusted** effect on that population's effort series clears `params$opener_auto_p` after a multiplicity adjustment across the eight effort tests).
-
-**Read the screen as a screen, not a verdict.** Selecting a covariate on a p-value from the same data that then fits it inflates the coefficient and understates its uncertainty, and with eight tests about one false positive is expected at a raw alpha of 0.05. The default adjustment is Benjamini-Hochberg for that reason. The arbiter is predictive: refit with `opener_covariate_mode = "off"` and compare the effort-stream `elpd_loo`. The project's one worked example is instructive, razor-dig on shore effort came in at p = 0.045, was fitted as `B3` in Run 3, and produced no predictive gain on any stream; under the default adjustment it does not survive the screen, while MA2 halibut on boat trailers (p = 3.6e-06) does.
-
-**One interaction to hold in mind before switching on a boat opener.** Boat effort counts all private boats, so a halibut term legitimately describes that series, but the boats it captures are not crabbing. A crabbing fraction that is not opener-aware converts the fitted surge into crab effort at the same rate as any other day, so fitting the surge better while multiplying it by an opener-blind `f` makes the boat catch more biased on those days, not less. **Pair a boat opener covariate with `crab_fraction_strata = "month_opener"`, not with `"opener"`.** Under the shipped dynamic `f` the two are not equivalent: `"month_opener"` keeps the random walk with one chain per opener class, while plain `"opener"` (like `"day_type"` and `"none"`) anchors EVERY stratum to the level prior and silently discards the walk, which is a larger loss than the interaction it would fix. The chunk warns if you pair neither.
-
-```{r opener-covariate-decision, echo=TRUE}
+```{r opener-covariate-decision, echo=FALSE, results='hide'}
 # --- improvement 4: opener effort covariates ---------------------------------------
 # Per-date opener flags for every candidate, used both by the screen and to build each
 # fit's X_open matrix. Guarded: a missing calendar disables the feature, never the run.
 params$opener_flags <- tryCatch(opener_flag_series(params),
-                                error = function(e) { cat("  Opener calendar unavailable:",
-                                                          conditionMessage(e), "\n"); NULL })
+                                error = function(e) { bss_warn("openers", paste("Opener calendar unavailable; no opener covariate can enter:",
+                                                          conditionMessage(e)), severity = "note"); NULL })
 
 # Compatibility switch: razor_dig_mode still works and is implemented as one column of
 # the opener machinery, so a razor-only run reproduces the retired B3 term exactly.
@@ -893,12 +929,11 @@ params$razor_dig_active <- switch(razor_mode,
   auto = is.finite(razor_auto_p) && razor_auto_p < razor_thresh,
   FALSE)
 if (razor_mode == "auto" && is.null(spillover))
-  cat("  NOTE: razor_dig_mode = 'auto' but the spillover diagnostic is off ",
-      "(run_fishery_spillover_diag = FALSE); the razor term stays OFF.\n", sep = "")
+  bss_warn("openers", "razor_dig_mode = 'auto' but the spillover diagnostic is off (run_fishery_spillover_diag = FALSE); the razor term stays OFF.", severity = "note")
 
 # The generalized screen.
 opener_sel <- tryCatch(opener_select(spillover, params),
-                       error = function(e) { cat("  Opener screen failed:", conditionMessage(e), "\n")
+                       error = function(e) { bss_warn("openers", paste("Opener screen failed; no opener covariate enters:", conditionMessage(e)))
                                              list(shore = character(0), private_boat = character(0),
                                                   table = NULL, mode = "off", note = "screen failed") })
 params$opener_selected <- list(shore = opener_sel$shore, private_boat = opener_sel$private_boat)
@@ -920,6 +955,8 @@ if (length(opener_sel$private_boat) > 0 &&
     !identical(params$crab_fraction_strata %||% "none", "opener") &&
     !identical(params$crab_fraction_strata %||% "none", "month_opener") &&
     isTRUE(params$use_crab_fraction)) {
+  bss_warn("openers", paste0("A BOAT opener covariate is active while crab_fraction_strata = '", params$crab_fraction_strata %||% "none",
+                             "': a crabbing fraction that cannot see opener days converts the opener surge in all-boat counts into crab effort. Use 'month_opener'."))
   cat(paste0("\n  *** WARNING: a BOAT opener covariate is active while crab_fraction_strata = '",
              params$crab_fraction_strata %||% "none", "'.\n",
              "      The covariate makes latent boat effort track the opener-day surge in ALL-boat\n",
@@ -938,34 +975,34 @@ params$opener_f_dates <- tryCatch({
 }, error = function(e) as.Date(character(0)))
 ```
 
-```{r opener-screen-show, echo=FALSE}
+```{r opener-screen-show, echo=FALSE, results='asis'}
 if (!is.null(opener_sel$table) && nrow(opener_sel$table) > 0) {
   report_table(
     dplyr::transmute(opener_sel$table,
       Population   = gsub("_", " ", population),
       Opener       = opener,
       `Adj. estimate` = round(adj_estimate, 3),
-      `p (raw)`    = signif(p_raw, 3),
-      `p (adjusted)` = signif(p_adj, 3),
+      `p (raw)`    = fmt_p(p_raw),
+      `p (adjusted)` = fmt_p(p_adj),
       Selected     = selected,
       Reason       = reason),
     caption = paste("Opener effort-covariate screen (improvement 4). 'Adj. estimate' is the opener",
                     "coefficient in lm(effort ~ day-type + month + opener) from the spillover",
                     "diagnostic; 'p (adjusted)' applies the configured multiplicity correction across",
                     "the effort tests. Selection is a SCREEN: confirm any selected term against an",
-                    "opener-free run's effort elpd_loo before citing it."))
+                    "opener-free run's effort elpd_loo before citing it.")) |> print()
 } else {
   cat("_No opener covariates considered this run (`opener_covariate_mode = 'off'`)._")
 }
 ```
 
-### 3.7 The marine hazard effort covariate (2026-09-25; the method of record since 2026-09-27)
+### 3.4 The marine hazard effort covariate (the method of record since 2026-09-27)
 
-**The method of record** (CHANGE_REGISTER A30, adopted 2026-09-27): whether an NWS **Small Craft Advisory or higher** was in effect for the Grays Harbor Bar or the coastal waters off Westport at any moment of the local 04:00 to 16:00 window enters the **private-boat all-gear** effort process as one season-constant term (`marine_hazard_mode = "manual"`, `marine_hazard_manual_boat = "nws_sca_any"`, `marine_hazard_gear_regimes = "all_gear"`). No shore term, not the samplers' bar-restriction tick, and not the pot-closure fit, which stays covariate-free. The flag is known on every day of the window from the archived NWS products in `04_input_files/nws_marine_hazards.xlsx`, which is what a covariate on a daily latent process needs. The other modes remain for experiments: `"off"` (the pre-2026-09-27 model; nothing is read), `"auto"` (a candidate enters a population's effort model only if its quasi-Poisson day-type + month adjusted effect on that population's sampled daily counts clears `params$marine_hazard_auto_p` after a multiplicity adjustment over the marine family), `"on"` (every candidate). Every term rides on the `K_open / X_open / B_open` block above as an extra column, so the Stan model is unchanged and its coefficient appears as `B_open_out[k]`, labelled in `opener_covariates_<fit>.csv`; the prep prints which fits a selected term enters and which it is withheld from.
+**The method of record** (CHANGE_REGISTER A30, adopted 2026-09-27): whether an NWS **Small Craft Advisory or higher** was in effect for the Grays Harbor Bar or the coastal waters off Westport at any moment of the local 04:00 to 16:00 window enters the **private-boat all-gear** effort process as one season-constant term (`marine_hazard_mode = "manual"`, `marine_hazard_manual_boat = "nws_sca_any"`, `marine_hazard_gear_regimes = "all_gear"`). No shore term, not the samplers' bar-restriction tick, and not the pot-closure fit, which stays covariate-free. The flag is known on every day of the window from the archived NWS products in `04_input_files/nws_marine_hazards.xlsx`, which is what a covariate on a daily latent process needs. The other modes remain for experiments: `"off"` (nothing is read), `"auto"` (a candidate enters only if its day-type and month adjusted effect clears `marine_hazard_auto_p` after a multiplicity adjustment), `"on"` (every candidate). The term rides on the effort-covariate block as a column, and its fitted coefficient is in [Section 12.4](#effort-day-covariates-as-fitted); the table below is the pre-fit screen on the sampled days.
 
-**What to hold when reading the boat term.** A boat term describes ALL private boats: if crabbing boats respond to an advisory differently from finfish boats, the crabbing fraction `f` differs on those days and the monthly `f` cannot see it (D30). The term is one coefficient for the season, and the four-season trailer record says the winter effect is about half the summer's, so the winter months are probably over-corrected while the season total is insensitive to that shape (D32). The evidence behind the adoption, and these caveats, are in `VALIDATION_CAMPAIGN.md` Sections 1x to 1z. If an experiment enters the bar-restriction tick, note that it is observed on sampled days only and **imputed** on the rest (an expected value from a logistic regression on the archived advisories, `bar_restriction_impute`), so its unsampled-day contribution rests on the NWS flags, not on an observation; on 2024-25 it added nothing beyond the archive.
+**What to hold when reading the boat term.** A boat term describes ALL private boats: if crabbing boats respond to an advisory differently from finfish boats, the crabbing fraction `f` differs on those days and the monthly `f` cannot see it (D30). The term is one coefficient for the season, and the four-season trailer record says the winter effect is about half the summer's, so the winter months are probably over-corrected while the season total is insensitive to that shape (D32). The evidence behind the adoption, and these caveats, are in `VALIDATION_CAMPAIGN.md` Sections 1x to 1z. If an experiment enters the bar-restriction tick, note that it is observed on sampled days only and **imputed** on the rest (an expected value from a logistic regression on the archived advisories, `bar_restriction_impute`), so its unsampled-day contribution rests on the NWS flags, not on an observation.
 
-```{r marine-hazard-decision, echo=TRUE}
+```{r marine-hazard-decision, echo=FALSE, results='hide'}
 # --- 2026-09-25: marine hazard effort covariates (03_R_functions/bss_marine_hazard_covariates.R)
 # The method of record since 2026-09-27 is "manual" with nws_sca_any on the boat (A30); the
 # selection is per population here, and the preps confine it to the sub-seasons named in
@@ -977,7 +1014,7 @@ marine_hazard <- marine_hazard_prepare(dwg, params, output_dir = output_dir)
 params <- marine_hazard$params
 ```
 
-```{r marine-hazard-show, echo=FALSE}
+```{r marine-hazard-show, echo=FALSE, results='asis'}
 if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
   report_table(
     dplyr::transmute(marine_hazard$sel$table,
@@ -985,8 +1022,8 @@ if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
       Covariate     = label,
       `Rate ratio`  = round(rate_ratio, 3),
       `Rate ratio (per count)` = if ("rate_ratio_per_count" %in% names(marine_hazard$sel$table)) round(rate_ratio_per_count, 3) else NA_real_,
-      `p (raw)`     = signif(p_raw, 3),
-      `p (adjusted)` = if ("p_adj" %in% names(marine_hazard$sel$table)) signif(p_adj, 3) else NA_real_,
+      `p (raw)`     = fmt_p(p_raw),
+      `p (adjusted)` = if ("p_adj" %in% names(marine_hazard$sel$table)) fmt_p(p_adj) else "-",
       Selected      = selected,
       Reason        = reason),
     caption = paste("Marine hazard effort-covariate screen. 'Rate ratio' is exp(coefficient) from",
@@ -995,7 +1032,7 @@ if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
                     "fitted per count rather than per daily sum, a sensitivity check nothing selects on;",
                     "'p (adjusted)' applies the configured multiplicity correction across the marine family. Definition:",
                     marine_hazard$definition %||% "", ". Selection is a SCREEN: confirm any selected term",
-                    "against a covariate-free run's paired effort elpd_loo before citing it."))
+                    "against a covariate-free run's paired effort elpd_loo before citing it.")) |> print()
 } else {
   cat(sprintf("_No marine hazard covariates considered this run (`marine_hazard_mode = '%s'`; the method of record since 2026-09-27 is `manual` with `nws_sca_any` on the boat all-gear fit, so this is a pre-adoption or experimental configuration)._",
               params$marine_hazard_mode %||% "off"))
@@ -1004,13 +1041,13 @@ if (!is.null(marine_hazard$sel$table) && nrow(marine_hazard$sel$table) > 0) {
 
 ## 4. Point Estimator (PE)
 
-The design-based estimator: it averages sampled days within each stat-week by day-type stratum and expands to the unsampled days. The PE is fast and transparent, and it is the fallback whenever a Bayesian fit does not pass the convergence gate.
+The design-based estimator: it averages the sampled days within each week by day-type stratum and expands to the unsampled days. The PE is fast and transparent, it is the independent check on the Bayesian estimate ([Section 13](#pe-vs-bss-comparison)), and it is what a component reports if its Bayesian fit fails the convergence gate.
 
-**Half of every component's days rest on one sampled day or none** (2026-09-12). With weekly strata and roughly 50% day coverage, a (week x day-type) cell often has one sampled day and sometimes none (this run's counts are tabulated after the PE, below, and written to `pe_empty_effort_strata.csv`). Three settings say what happens to those cells, all documented in `run_config.R` and implemented once in `03_R_functions/pe_effort_strata.R`:
+**Many of a component's days rest on one sampled day or none.** With weekly strata and partial day coverage, a (week x day-type) cell often has one sampled day and sometimes none; the table below gives this run's share for each component (also in `pe_empty_effort_strata.csv`). Three settings decide what happens to those cells, all documented in `run_config.R` and implemented once in `03_R_functions/pe_effort_strata.R`:
 
-- an unsampled cell's **effort** is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`). Through 2026-09-11 it contributed nothing, which took 20% of the season's effort out of the PE and did it on days that are disproportionately weekend and holiday days carrying 1.7 to 2.3x weekday effort. `"zero"` restores that, and every run now reports `pe_zeroed_effort_bias`, the effort those cells would have carried, so choosing it states its own cost.
-- an unsampled cell's **CPUE** is that month's ratio-of-sums (`pe_empty_stratum = "local"`), matching the scale of the effort fill. Pairing a month-local effort fill with the old sub-season-pooled rate counted the seasonal gradient twice and put the boat all-gear PE 13.6% too high.
-- an unsampled or singleton cell's **variance** (`pe_variance = "impute_aware"`). A singleton cell's `sd()` does not exist, and the retired formula replaced it with zero, so half of every component's reported effort carried no uncertainty and the SE was unchanged by imputation. A singleton cell now borrows its donor's spread with the divisor still 1 (the collapsed-stratum estimator), and an imputed cell carries the donor mean's sampling variance plus a between-cell surrogate. Since 2026-09-28 (B44) the component SE also carries the covariances between cells that share a donor mean. `effort_se_sampled_only` keeps the historical arithmetic on the page.
+- an unsampled cell's **effort** is imputed from the same day type in the same month (`pe_empty_effort_stratum = "local_day_type"`). Until 2026-09-12 it contributed nothing, which removed effort disproportionately from weekend and holiday days. `"zero"` restores that, and `pe_empty_effort_strata.csv` reports `zeroed_effort_bias`, the effort those cells would have carried, so that choice states its own cost.
+- an unsampled cell's **CPUE** is that month's ratio of sums (`pe_empty_stratum = "local"`), matching the scale of the effort fill. Whether that is the right fill is an open question (CHANGE_REGISTER D19).
+- an unsampled or singleton cell's **variance** (`pe_variance = "impute_aware"`): a singleton cell borrows its donor's spread (the collapsed-stratum estimator), an imputed cell carries the donor mean's sampling variance plus a between-cell surrogate, and the component SE carries the covariances between cells that share a donor (B44). `effort_se_sampled_only` in the CSV keeps the sampled-cells-only arithmetic.
 
 The point estimate is unaffected by the third setting. **This is not PE-only bookkeeping**: a component whose gate fails reports its PE point in the port total as a constant, so these settings reach the headline whenever a component falls back.
 
@@ -1047,19 +1084,20 @@ timer_stop("3_PE_estimates")
              `Share of calendar days` = sprintf("%.0f%%", 100 * ((x$n_empty_effort_days %||% 0) + (x$n_single_effort_days %||% 0)) / max(x$n_calendar_days %||% 1, 1)),
              `Effort SE` = sprintf("%s (%.1f%%)", format(round(x$effort_se %||% NA), big.mark = ","), 100 * (x$effort_se %||% NA) / max(x$effort_total %||% 1, 1)),
              `PE catch` = round(x$Dungeness_Kept %||% NA), check.names = FALSE) }))
-if (!is.null(.tc) && nrow(.tc)) report_table(.tc, caption = "This run's (week x day-type) cells: unsampled, resting on one sampled day, the share of calendar days they cover, the effort SE and the PE catch.")
+if (!is.null(.tc) && nrow(.tc)) { .tc$Component <- short_fit(.tc$Component)
+  print(report_table(.tc, digits = 0, caption = "This run's (week x day-type) cells: unsampled, resting on one sampled day, the share of calendar days they cover, the effort SE and the PE catch.")) }
 ```
 
 ### 4.1 Incomplete-trip treatment diagnostic (improvement 5)
 
-An incomplete trip is one where the crabber had not finished when we spoke to them. Their gear is all in the catch-rate denominator; only part of their catch is in the numerator, so the measured rate reads low (about -21% for pots, -23% for traps, -20% for snares; ring nets are effectively exempt at +4%). Production drops them, at a cost of roughly 36% of the interview sample.
+An incomplete trip is one where the crabber had not finished when we spoke to them. All their gear is in the catch-rate denominator but only part of their catch is in the numerator, so their measured rate reads low. Production drops them; the table below gives this run's incomplete share by component, which is what the filter costs in sample size.
 
 **The structural fact that bounds what any treatment can do.** Effort in this pipeline does not come from interviews. It comes from the dock gear counts and the trailer/OSP boat counts. Interviews supply only the catch **rate** and the gear **ratios** (`R_G`, gear per crabber; `R_G_boat` / the PE's gear-per-group). So no treatment of incomplete trips can add effort to the expansion; each arm below moves the estimate through the catch rate or through the gear ratios, and nothing else.
 
 Four arms are run against the fast design-based PE. **This section changes no reported number**; the production estimator remains `exclude`.
 
 - **exclude**, production today: drop them from both the catch rate and the gear ratios.
-- **gear_only**, drop their catch, keep their gear counts in the gear ratios. An interrupted trip's gear count is fully observed; only its catch is truncated. *The pipeline does not do this today*: `prep_bss_crab_*()` builds the `R_G` / `R_G_boat` interview set from the already-filtered frame, so an incomplete trip's gear count is currently discarded. Note also that the PE and the BSS disagree on this point; `run_pe_*()` computes the boat gear-per-group from the **unfiltered** set, so the boat PE already behaves like `gear_only` while the boat BSS behaves like `exclude`.
+- **gear_only**, drop their catch, keep their gear counts in the gear ratios. An interrupted trip's gear count is fully observed; only its catch is truncated. The pipeline does not do this: the PE and the BSS both build their gear ratios from the filtered frame (`pe_gear_ratio_arm = "match_bss"`, aligned 2026-09-02).
 - **impute_mean_cpue**, keep them with catch replaced by (complete-trip catch rate × their gear count). Expect close to no movement, and that is arithmetic rather than luck: a ratio-of-sums over complete-plus-imputed returns the complete-trip rate identically. Any movement is thin-stratum shrinkage toward the pooled rate.
 - **keep**, no filter (pre-v7.5 behaviour).
 
@@ -1081,15 +1119,16 @@ if (isTRUE(params$diagnose_incomplete_trips %||% TRUE)) {
                                          pe_fun = run_pe_pooled)
     if (!is.null(sens_df))
       write.csv(sens_df, file.path(output_dir, "sensitivity_incomplete_trips.csv"), row.names = FALSE)
-  }, error = function(e) cat(sprintf("  Incomplete-trip diagnostic skipped: %s\n", conditionMessage(e))))
+  }, error = function(e) bss_warn("PE", sprintf("Incomplete-trip diagnostic skipped: %s", conditionMessage(e)), severity = "note"))
 }
 
 
 ```
 
-```{r pe-sensitivity-show, echo=FALSE}
+```{r pe-sensitivity-show, echo=FALSE, results='asis'}
 if (!is.null(sens_df) && nrow(sens_df) > 0) {
-  report_table(
+  # 2026-09-29: print() -- the table was the non-final value of this block and never rendered.
+  print(report_table(
     dplyr::transmute(sens_df,
       Component         = component_disp,
       Arm               = arm,
@@ -1104,7 +1143,7 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
                     "'exclude' and is the reference row for the two '% vs exclude' columns. 'Gear ratio'",
                     "is gear per crabber (shore) or gear per boat group (boat); for shore on",
                     "gear-deployments it affects only the BSS, not the PE, so a flat shore PE across",
-                    "arms is expected. DIAGNOSTIC ONLY: no reported number changes."))
+                    "arms is expected. DIAGNOSTIC ONLY: no reported number changes.")))
   .lb <- dplyr::distinct(dplyr::select(sens_df, component_disp, gear_lengthbias_p))
   cat("\n\n**Length-bias check on the gear counts** (Welch t-test, incomplete vs complete trips; a small p with a HIGHER incomplete-trip gear count is what would disqualify the `gear_only` arm): ",
       paste(sprintf("%s p = %s", .lb$component_disp,
@@ -1117,16 +1156,17 @@ if (!is.null(sens_df) && nrow(sens_df) > 0) {
 
 ### 4.2 Commercial and charter census
 
-The commercial and charter harvest is not a modeled quantity, and since 2026-09-11 it is TWO estimators: the commercial vessels are an exact CENSUS summed over the tally days (`census_expansion = "none"`, because a window day with no tally is a day with no commercial operation), and the charter vessels are an EXPANSION over their trip roster stratified by vessel, with a finite-population correction, because charter trips are not fully sampled. As of the T1.4 change it uses a **separate mean catch per vessel for commercial vs charter vessels**, each applied to its own tally column, rather than one mean across the pooled tally; the two classes have different catch profiles, so a single mean biased the total whenever the commercial-to-charter mix in the tally differed from the mix in the interviews.
-
-**Two populations, two estimators (2026-09-11).** The COMMERCIAL vessels fishing as recreational are a census: the daily tally counts them (vessel monitoring for the fleet) and the samplers are scheduled on the days those vessels are confirmed to be operating, so a window day without a tally is a day with no commercial operation. Under `census_expansion = "none"` (the shipped value) that component is the exact sum over the tally days, with the unsampled days contributing zero, and `census_daily.csv` lists every calendar day as observed or no-operation. What remains is the per-vessel catch mean, a near-census sample mean (this run's interview and vessel-trip counts are printed below), reported in `census_variance.csv` and treated as a constant unless `census_uncertainty = "sampling"`. The CHARTER vessels are **not** fully sampled, so their component is an expansion: the frame is the operators' per-trip roster (`charter_trips.xlsx`: interviewed / missed / canceled) unioned per day with the tally's charter column, and the estimate is trips x mean catch per interviewed trip, stratified by vessel, with the finite-population-corrected variance `N^2 (1 - n/N) s^2 / n`. The trips in the frame, the trips interviewed and the resulting expansion are printed below for this run; that expansion SE is what `census_uncertainty = "charter"` (the shipped value) puts into the port interval. `charter_frame = "tally"` falls back to the tally column alone, and `charter_expansion = "pooled"` to one charter mean; the 2026-09-08 day-type expansion of the commercial part remains available as `census_expansion = "day_type"` for a season whose roster did not track operations.
+The commercial and charter harvest is not modelled: it is **two estimators**. The **commercial** vessels fishing recreationally are a **census**: the daily tally counts them and the samplers are scheduled on the days those vessels operate, so a window day without a tally is a day with no commercial operation (`census_expansion = "none"`). The component is the exact sum over the tally days of vessels times the mean catch per interviewed vessel; the count is exact, and the per-vessel mean is a near-census sample mean that enters the port interval only under `census_uncertainty = "sampling"` (CHANGE_REGISTER D16). The **charter** vessels are not fully sampled, so their component is an **expansion** over the operators' trip roster (`charter_trips.xlsx`, unioned per day with the tally's charter column), stratified by vessel, with the finite-population-corrected variance `N^2 (1 - n/N) s^2 / n`; that SE is what `census_uncertainty = "charter"` carries into the port interval. The census runs over the part of the census window inside the estimation window (B52). The frame conditions below say how the number should be read; none of them stops the run.
 
 ```{r pe-comm, results='hide'}
 # ---- 7.4 COMMERCIAL/CHARTER ----
 timer_start("4_commercial_charter")
 pe_all$comm_charter <- estimate_comm_charter(dwg, params)
-# Review item 4 (2026-09-08): the tally is exact on the days it was taken and imputed on
-# the rest. census_daily.csv flags every calendar day observed / imputed; census_variance.csv
+# 2026-09-29: the frame conditions go to the run-warnings log as well as census_frame_warnings.csv
+# (written in the port-total chunk); a missing frame or a census outside the window is a warning.
+for (.w in pe_all$comm_charter$frame_warnings %||% character(0))
+  bss_warn("census", .w, severity = if (grepl("^(NO CENSUS FRAME|CENSUS OUTSIDE)", .w)) "warning" else "note")
+# census_daily.csv flags every calendar day observed / no operation; census_variance.csv
 # carries the per-stratum imputation variance behind Dungeness_Kept_se. Whether that SE
 # reaches the port interval is params$census_uncertainty ("charter" SHIPS | "none" |
 # "sampling"; "imputed_days" survives only as the 2026-09-08 alias for "sampling").
@@ -1139,24 +1179,20 @@ timer_stop("4_commercial_charter")
 
 ```
 
-```{r pe-comm-show, echo=FALSE}
-# T1.4: show the commercial-vs-charter per-vessel split behind the census. Each class
-# gets its own mean Dungeness per vessel applied to its own tally column (Guide folded
-# into Charter); a class with no interviews falls back to the pooled mean.
-.vt <- tryCatch(pe_all$comm_charter$vessel_type_detail, error = function(e) NULL)
+```{r pe-comm-show, echo=FALSE, results='asis'}
+# The commercial-vs-charter split behind the component (Guide folded into Charter).
+.vt <- pe_all$comm_charter$vessel_type_detail
 if (!is.null(.vt) && nrow(.vt) > 0) {
-  report_table(
+  print(report_table(
     dplyr::transmute(.vt,
       `Vessel type`            = vessel_type,
       Interviews               = n_interviews,
       `Mean Dungeness/vessel`  = round(mean_dung_per_vessel, 1),
-      `Tally vessels (window)` = round(tally_vessels),
-      `Sampled-day catch`      = round(sampled_catch)),
-    caption = paste("Commercial vs charter split behind the census (T1.4). Each class's",
-                    "mean catch per vessel is applied to its own tally column instead of",
-                    "one pooled mean. 'Sampled-day catch' is the class census before the",
-                    "day-type expansion that produces the reported commercial/charter",
-                    "total, so it shows the split, not the final stratified figure."))
+      `Vessels or trips in the frame` = round(tally_vessels),
+      `Crab`                   = round(sampled_catch)),
+    caption = paste("Commercial census and charter expansion. Commercial: vessel-trips on the tally days",
+                    "times the mean catch per interviewed vessel. Charter: roster trips in the frame, expanded",
+                    "per vessel. Under census_expansion = 'none' these two add to the component total.")))
 } else {
   cat("_Commercial/charter vessel-type split unavailable this run._")
 }
@@ -1167,6 +1203,12 @@ if (!is.null(.ccx))
               format(.ccx$commercial_interviews %||% NA), format(round(.ccx$commercial_vessels %||% NA)),
               format(round(.ccx$charter_trips %||% NA)), format(.ccx$charter_interviews %||% NA),
               if (isTRUE((.ccx$charter_trips %||% 0) > 0)) sprintf("%.0f%%", 100 * (.ccx$charter_interviews %||% 0) / .ccx$charter_trips) else "no charter trips"))
+.fw0 <- .ccx$frame_warnings %||% character(0)
+if (length(.fw0)) {
+  cat(sprintf("\n**Census frame conditions (%d).** Facts about the frame, not the catch; none stops the run.\n\n", length(.fw0)))
+  for (i in seq_along(.fw0)) cat(sprintf("%d. %s\n", i, .fw0[i]))
+  cat("\n")
+} else cat("\n**Census frame conditions:** none.\n")
 ```
 
 ### 4.3 PE port totals
@@ -1191,7 +1233,10 @@ component_names <- c(unlist(lapply(pe_pops, function(p) sprintf("%s (%s)", pop_d
 
 pe_summary <- tibble(
   Component  = c(component_names, "PORT TOTAL"),
-  Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
+  # 2026-09-29: named for its unit. It was Effort_hrs; the fitted components are in gear
+  # deployments and the commercial/charter row in vessel-trips, so the PORT TOTAL row of this
+  # column adds two units and is not an effort figure (the report says so).
+  Effort = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
   Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
 
@@ -1201,13 +1246,14 @@ write.csv(pe_summary, file.path(output_dir, "pe_port_summary.csv"), row.names=FA
 
 ```
 
-```{r pe-port-show, echo=TRUE}
-report_table(pe_summary, 'Point Estimator (PE) port totals by component.')
+```{r pe-port-show, echo=FALSE}
+report_table(pe_summary |> dplyr::mutate(Effort = ifelse(Component == "PORT TOTAL", NA, Effort)), digits = 0,
+  caption = "Point Estimator (PE) totals by component. Effort is in gear deployments for the four fitted components and in vessel-trips for commercial/charter, so it is not summed.")
 ```
 
 ### 4.4 PE internal consistency (ratio-of-sums)
 
-Each component's PE stratum CPUE is a ratio-of-sums (`sum(catch)/sum(hrs)` within each week-by-day-type stratum), not a mean of per-day ratios (backlog P0). The mean-of-ratios was unstable in thin strata, a day with very little sampled effort produced an extreme daily ratio that was then multiplied by the full stratum effort, and it made the shore PE's implied CPUE about 2.9x its own interview ratio-of-sums. Ratio-of-sums removes that and matches the gear-resolved track. The check below is the guardrail: the PE's implied CPUE (its catch divided by its effort) must agree with the ratio-of-sums over the same interviews. A ratio far from 1 means catch and effort are on different scales, and the run stops if any component exceeds 2x, so a clean table here is itself the confirmation that the PE is internally consistent.
+Each component's PE stratum CPUE is a ratio-of-sums (`sum(catch)/sum(hrs)` within each week-by-day-type stratum), not a mean of per-day ratios (backlog P0). The mean-of-ratios was unstable in thin strata, a day with very little sampled effort produced an extreme daily ratio that was then multiplied by the full stratum effort, and it made the shore PE's implied CPUE about 2.9x its own interview ratio-of-sums. Ratio-of-sums removes that and matches the gear-resolved track. The check below is the guardrail: the PE's implied CPUE (its catch divided by its effort) should sit near the ratio of sums over the same interviews. Outside 0.5 to 2 the likeliest cause is a unit mismatch, though a steep within-season CPUE gradient can put a legitimate component there; such a component is flagged here and raises a warning (Section 16), and the run continues.
 
 ```{r pe-consistency-show, echo=FALSE}
 # P0: render the PE internal-consistency check returned by run_pe_pooled per component
@@ -1218,7 +1264,7 @@ pe_chk <- tryCatch(
     d <- pe_all[[k]]$pe_cpue_check
     if (is.null(d)) NULL else dplyr::mutate(d, Component = k)
   })),
-  error = function(e) NULL)
+  error = function(e) { bss_warn("PE", paste("PE consistency table not assembled:", conditionMessage(e)), severity = "note"); NULL })
 if (!is.null(pe_chk) && nrow(pe_chk) > 0) {
   report_table(
     dplyr::transmute(pe_chk,
@@ -1226,11 +1272,12 @@ if (!is.null(pe_chk) && nrow(pe_chk) > 0) {
       Unit              = effort_unit,
       `PE implied CPUE` = round(pe_implied_cpue, 3),
       `Interview RoS`   = round(interview_ros, 3),
-      Ratio             = round(ratio, 2)),
+      Ratio             = round(ratio, 2),
+      `Within 0.5-2`    = if ("within_0.5_to_2" %in% names(pe_chk)) within_0.5_to_2 else NA),
     caption = paste("PE internal-consistency check (P0). 'PE implied CPUE' is the",
                     "component's PE catch / PE effort; 'Interview RoS' is the ratio-of-sums",
-                    "over the same interviews. Healthy: Ratio near 1 (the run stops if any",
-                    "component is below 0.5 or above 2.0)."))
+                    "over the same interviews. Healthy: Ratio near 1; outside 0.5 to 2 is flagged and",
+                    "warned, not stopped (B46)."))
 } else {
   cat("_PE consistency check unavailable (no fitted components produced it)._")
 }
@@ -1238,7 +1285,7 @@ if (!is.null(pe_chk) && nrow(pe_chk) > 0) {
 
 ## 5. Bayesian state-space model fits
 
-Each population by sub-season is fit independently with a Bayesian state-space (BSS) model that treats daily effort and catch rate as smoothly evolving latent series, fills the gaps between sampled days, and returns full credible intervals. **What a healthy fit looks like:** R-hat below 1.01, effective sample size above 400, and few or no divergent transitions on every monitored quantity. Fits are checked against these criteria in the next section.
+Each population by sub-season is fitted independently with a Bayesian state-space (BSS) model: daily effort and catch rate are latent series that evolve as AR(1) processes at the resolution in the table below, observed through the gear or trailer counts, the OSP boat totals, the I/E arrivals and the interviews, and the model fills the unsampled days with full credible intervals. The table records how each fit was run. Whether each fit converged, and so whether its component reports the Bayesian estimate, is [Section 6](#convergence-gate-and-model-selection).
 
 ```{r bss-fits, results='hide', fig.show='hide'}
 # ---- 7.6 BSS MODEL RUNS ----
@@ -1249,6 +1296,7 @@ bss_catch_groups <- catch_groups
 bss_all <- list()
 ar_resolutions <- list()  # track AR resolution per fit (the FINAL attempt's, when escalating)
 ar_escalation_log <- list()  # improvement 7: one row per fit attempt (see ar_escalation_log.csv)
+fit_settings_log <- list()   # 2026-09-29: how each fit was run, for the report's Section 5 table
 .kept_attempt <- list()      # fit label -> the attempt index whose stanfit was retained
 
 for(cg in bss_catch_groups) {
@@ -1273,6 +1321,8 @@ for(cg in bss_catch_groups) {
 
       if(n_eff < 5 || n_int < params$bss_min_interviews) {
         cat(sprintf("  Insufficient data (%d effort, %d interviews), PE fallback.\n", n_eff, n_int))
+        bss_warn("fit", sprintf("%s: insufficient data (%d effort counts, %d interviews; floor %d); the component reports its PE.",
+                                label, n_eff, n_int, params$bss_min_interviews))
         bss_all[[label]] <- list(C_sum=NA, E_sum=NA, pe_fallback=TRUE,
                                  population=pop, subseason=ss$name, catch_group=cg)
         next
@@ -1348,6 +1398,8 @@ for(cg in bss_catch_groups) {
           cat(sprintf(paste0("  Post-filter interviews %d < bss_min_interviews_fitted = %d ",
                              "(pre-filter count was %d); PE fallback.\n"),
                       n_fitted, min_fitted, n_int))
+          bss_warn("fit", sprintf("%s: %d interviews after the filters, below bss_min_interviews_fitted = %d; the component reports its PE.",
+                                  label, n_fitted, min_fitted))
           bss_all[[label]] <- list(C_sum=NA, E_sum=NA, pe_fallback=TRUE,
                                    population=pop, subseason=ss$name, catch_group=cg)
           too_thin <- TRUE
@@ -1390,6 +1442,12 @@ for(cg in bss_catch_groups) {
                     bss_data_try$D, bss_data_try$P_n,
                     attr(bss_data_try, "ar_resolution"), bss_data_try$IntC))
 
+        fit_settings_log[[length(fit_settings_log) + 1]] <- tibble(
+          fit = label, attempt = attempt, ar_resolution = attr(bss_data_try, "ar_resolution") %||% NA_character_,
+          P_n = bss_data_try$P_n, days = bss_data_try$D, interviews = bss_data_try$IntC,
+          effort_obs = bss_data_try$n_effort_obs %||% NA_integer_, ie_obs = bss_data_try$IE_n %||% 0L,
+          iter = fit_iter, warmup = fit_warmup, max_treedepth = fit_treedep, adapt_delta = fit_delta,
+          init_r = as.numeric(params$bss_init_r %||% 2), level_collapse = as.character(params$mu_hier_collapse_single %||% "both"))
         timer_start(paste0("BSS_", label, "_att", attempt))
         # 2026-08-26: guarded wrapper, 03_R_functions/bss_stan_fit.R. On the happy path
         # this is rstan::stan() with the same arguments, same seed, same RNG stream, so
@@ -1422,7 +1480,7 @@ for(cg in bss_catch_groups) {
                            max_impact_sd    = params$max_divergence_total_impact_sd %||% 0.10,
                            max_div_fraction = params$max_divergence_fraction %||% 0.05,
                            ar_resolution    = attr(bss_data_try, "ar_resolution")),
-          error = function(e) NULL)
+          error = function(e) { bss_warn("gate", sprintf("%s attempt %d: the convergence gate could not be computed (%s).", label, attempt, conditionMessage(e))); NULL })
 
         # 2026-09-04: keep this rung's ANSWER, not only its sampler diagnostics. The loop
         # overwrites `fit` on the next attempt, so without this the estimate produced at
@@ -1521,6 +1579,8 @@ for(cg in bss_catch_groups) {
           cat(sprintf(paste0("  Gate FAILED at %s AR; escalating to %s and refitting ",
                              "(improvement 7 ladder).\n"),
                       attr(bss_data_try, "ar_resolution"), ar_ladder[attempt + 1]))
+          bss_warn("gate", sprintf("%s: the gate FAILED at %s AR; refitting at %s (the escalation ladder).",
+                                   label, attr(bss_data_try, "ar_resolution"), ar_ladder[attempt + 1]), severity = "note")
         } else {
           cat(paste0("  Gate FAILED at the coarsest rung on the ladder; this component will ",
                      "report the Point Estimator.\n"))
@@ -1584,7 +1644,7 @@ for(cg in bss_catch_groups) {
       # B46 (2026-09-28): the predictive total from the fitted observation model (party-level
       # ZINB, bss_predictive_catch.R); the Stan C_sum is Poisson and under-dispersed.
       C_pred_draws <- tryCatch(bss_predictive_catch(fit, bss_data, bss_predictive_seed(params$bss_seed, label)),
-                               error = function(e) { message("  predictive catch: ", conditionMessage(e)); NULL }) %||% C_draws
+                               error = function(e) { bss_warn("fit", sprintf("%s: the predictive catch could not be drawn from the fitted observation model (%s); Stan's Poisson C_sum stands in, which UNDERSTATES the predictive interval.", label, conditionMessage(e))); NULL }) %||% C_draws
 
       bss_all[[label]] <- list(
         C_sum = quantile(C_draws, c(0.025,0.5,0.975)),
@@ -1618,7 +1678,7 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = event_date)) +
         geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "steelblue") +
         geom_line(aes(y = median), color = "steelblue") +
-        labs(title = sprintf("BSS Daily Effort: %s", label),
+        labs(title = sprintf("Daily effort: %s", short_fit(label)),
              subtitle = sprintf("Median with 95%% credible interval (%s AR(1))",
                                 attr(bss_data, "ar_resolution") %||% "adaptive"),
              # improvement 1: the axis said "Crabber-hours" long after the v7.6/v7.7 move
@@ -1634,7 +1694,7 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = event_date)) +
         geom_ribbon(aes(ymin = lo95, ymax = hi95), alpha = 0.2, fill = "darkgreen") +
         geom_line(aes(y = median), color = "darkgreen") +
-        labs(title = sprintf("BSS Daily Expected Catch: %s", label),
+        labs(title = sprintf("Daily expected catch: %s", short_fit(label)),
              subtitle = "E[C|data] with 95% CI (no Poisson sampling noise)",
              x = "Date", y = "Expected Dungeness caught") +
         theme_bw()
@@ -1651,8 +1711,12 @@ for(cg in bss_catch_groups) {
         ggplot(aes(x = value, fill = param)) +
         geom_density(alpha = 0.4) +
         facet_wrap(~param, scales = "free") +
-        labs(title = sprintf("BSS Posteriors: %s", label), x = "Value", y = "Density") +
-        theme_bw() + theme(legend.position = "none")
+        scale_x_continuous(labels = scales::label_comma()) +
+        labs(title = sprintf("Season-total posteriors: %s", short_fit(label)),
+             subtitle = "Effort in gear deployments; catch in Dungeness crab. Density is relative within each panel.",
+             x = "Season total", y = NULL) +
+        theme_bw() + theme(legend.position = "none", axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                           plot.margin = margin(5.5, 18, 5.5, 5.5))   # room for the last x label
       ggsave(file.path(output_dir, paste0("plot_bss_posteriors_", label, ".png")),
              p_bss_post, width = 14, height = 5)
 
@@ -1714,7 +1778,23 @@ if (!is.null(ar_escalation_df))
 
 ```
 
-```{r ar-escalation-show, echo=FALSE}
+```{r fit-settings-show, echo=FALSE}
+fit_settings_df <- if (length(fit_settings_log)) dplyr::bind_rows(fit_settings_log) else NULL
+if (!is.null(fit_settings_df)) {
+  .tl <- bss_timer_log()
+  fit_settings_df$minutes <- vapply(sprintf("BSS_%s_att%d", fit_settings_df$fit, fit_settings_df$attempt),
+                                    function(k) round(as.numeric(.tl[[k]]$elapsed %||% NA), 1), numeric(1))
+  utils::write.csv(fit_settings_df, file.path(output_dir, "fit_settings.csv"), row.names = FALSE)
+  report_table(dplyr::transmute(fit_settings_df, Fit = short_fit(fit), Attempt = attempt, AR = ar_resolution,
+                                `AR periods` = P_n, Days = days, `Effort obs` = effort_obs, Interviews = interviews, `I/E obs` = ie_obs,
+                                `Iter (warmup)` = sprintf("%d (%d)", iter, warmup), `Max treedepth` = max_treedepth,
+                                `adapt_delta` = adapt_delta, init_r = init_r, Minutes = minutes),
+               digits = 2, caption = paste("How each fit was run: the AR resolution the coverage rule and the cap chose, the data it",
+                                            "saw, and the sampler settings (4 chains; seed and chains in Section 1). Written to fit_settings.csv."))
+}
+```
+
+```{r ar-escalation-show, echo=FALSE, results='asis'}
 if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
     # 2026-09-04: read the per-fit flag the loop already recorded. This condition used
     # isTRUE(params$ar_escalate), which is FALSE for every scoped form, so the table was
@@ -1744,7 +1824,7 @@ if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
                     "row. NOTE that a narrower interval is not by itself evidence of a better",
                     "model: on the 2026-08/09 boat 2x2 the two MISCALIBRATED cells had the",
                     "narrowest relative intervals. With ar_escalate = FALSE there is one row per",
-                    "fit and this table simply records the single attempt."))
+                    "fit and this table simply records the single attempt.")) |> print()
 } else if (!is.null(ar_escalation_df)) {
   cat("_AR escalation is off (`ar_escalate = FALSE`); each component was fitted once, at the resolution the coverage rule and `ar_max_resolution` selected._")
 }
@@ -1752,7 +1832,7 @@ if (!is.null(ar_escalation_df) && nrow(ar_escalation_df) > 0 &&
 
 ## 6. Convergence gate and model selection
 
-The scale-aware gate decides, per fit, whether to report the Bayesian posterior or fall back to the PE. A fit passes only if R-hat is below 1.01, effective sample size is above 400, the divergent fraction is under the 5 percent backstop, and the divergent draws do not move the reported totals by more than 0.10 posterior standard deviations. **If a component reads PE here, its Bayesian fit did not clear the gate;** that is expected for data-thin components (historically the private boat) and is not an error.
+The scale-aware gate decides, per fit, whether the component reports its Bayesian posterior or falls back to its PE point. A fit passes only if R-hat is below 1.01, the effective sample size is above 400, the divergent fraction is under the 5% backstop, and the divergent draws move neither reported total by more than 0.10 posterior standard deviations (Betancourt 2017). **Method** in the table is what the totals use. A PE fallback on a data-thin component is a measured outcome, not an error; the component's Bayesian draws are then not used anywhere in the totals. Model adequacy, which the gate does not judge, is in [Section 11](#model-diagnostics).
 
 ```{r gate, results='hide'}
 # ---- 7.6b SCALE-AWARE CONVERGENCE GATE (B1.8) ----
@@ -1808,9 +1888,55 @@ for(label in names(bss_all)) {
 
 ```
 
+```{r convergence-report, results='hide'}
+# ---- 7.11 CONVERGENCE REPORT ----
+# v7.0 (B1.8): the pass/fail decision and every diagnostic column are computed once
+# in 7.6b (bss_compute_gate) and stored as bss_all[[label]]$gate_info, so this section
+# is now pure assembly. This guarantees the report agrees with the method actually
+# used in the totals (7.7/7.8/7.8b consume the same use_bss flag). All gate
+# warnings were already emitted in 7.6b at fit time. Columns now include the
+# scale-aware impact (impact_C_sd, impact_E_sd; the gating criterion) and retain
+# the legacy level-distortion (distortion_C, distortion_E) as reported-only.
+cat("\n", strrep("=",60), "\n CONVERGENCE REPORT\n", strrep("=",60), "\n")
+
+convergence_df <- bind_rows(lapply(names(bss_all), function(label) bss_all[[label]]$gate_info))
+print(convergence_df)
+write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.names = FALSE)
+
+
+```
+
+```{r convergence-report-show, echo=FALSE}
+# Curated, HTML-friendly view of the convergence report: short fit labels and the key
+# gate columns only. The full ~20-column table (treedepth, level-distortion, and the
+# per-criterion pass flags) is written to convergence_report.csv.
+conv_disp <- tryCatch(
+  dplyr::transmute(convergence_df,
+    Fit             = short_fit(fit),
+    AR              = ar_resolution,
+    Div             = divergences,
+    `Div frac`      = round(divergence_fraction, 3),
+    `R-hat C`       = sprintf("%.3f", C_sum_rhat),
+    `R-hat E`       = sprintf("%.3f", E_sum_rhat),
+    `min n_eff`     = pmin(C_sum_neff, E_sum_neff),
+    `Impact C (SD)` = round(impact_C_sd, 3),
+    `Impact E (SD)` = round(impact_E_sd, 3),
+    Pass            = pass_convergence,
+    Method          = method_selected),
+  error = function(e) { bss_warn("gate", paste("Curated convergence view not built; the full table is shown:", conditionMessage(e)), severity = "note"); convergence_df })
+report_table(conv_disp,
+  paste("Per-fit convergence summary (key gate columns; full detail in",
+        "convergence_report.csv). Div frac is the divergent-transition fraction (backstop",
+        "0.05); Impact C/E (SD) is the scale-aware gating criterion (threshold 0.10);",
+        "Method is what the totals actually use. Healthy: R-hat near 1.00, min n_eff",
+        "above 400, Pass = TRUE."),
+  digits = 3)
+```
+
+
 ## 7. Headline result: port total
 
-The season harvest estimate: the sum of all components, reported as expected catch with a 95 percent credible interval. This is the number to cite, read together with the convergence and PE-vs-BSS sections. Components that passed the gate contribute their Bayesian posterior; components that did not contribute their PE point.
+The harvest estimate: the sum of the components, reported as expected catch with a 95% credible interval, which is the number to cite. A component that passed the gate contributes its posterior draws; one that did not contributes its PE point as a constant. The commercial census is exact on the count and enters as a constant; the charter expansion carries its sampling SE. **Read with the extrapolation share in [Section 11.4](#summer-extrapolation-transparency-t1.1)**: much of each fitted component's catch falls on days with no interview, where the catch rate is the model's.
 
 ```{r port-total, results='hide'}
 # ---- 7.7 COMBINED BSS PORT TOTAL ----
@@ -1881,19 +2007,9 @@ for(cg in bss_catch_groups) {
   # from the function as DATA and are printed here unconditionally, and written to
   # census_frame_warnings.csv so a verdict block can read them from the output folder
   # without re-running anything.
+  # 2026-09-29: this chunk is results='hide', so the block it printed here never reached the page.
+  # The conditions are now in Section 4.2 and the run-warnings log (Section 16), and in the CSV.
   .fw <- .cc$frame_warnings %||% character(0)
-  if (length(.fw)) {
-    cat("\n", strrep("!", 78), "\n", sep = "")
-    cat(sprintf(" CENSUS FRAME: %d condition(s) that change how the commercial/charter number\n",
-                length(.fw)))
-    cat(" should be read. None of these stops the run; every one of them is a fact about\n")
-    cat(" the FRAME, not about the catch.\n")
-    cat(strrep("!", 78), "\n", sep = "")
-    for (i in seq_along(.fw)) cat(sprintf(" %d. %s\n", i, .fw[i]))
-    cat(strrep("!", 78), "\n\n", sep = "")
-  } else {
-    cat("  Census frame: no frame conditions to report.\n")
-  }
   utils::write.csv(data.frame(n = seq_along(.fw), warning = if (length(.fw)) .fw else character(0),
                               stringsAsFactors = FALSE),
                    file.path(output_dir, "census_frame_warnings.csv"), row.names = FALSE)
@@ -1901,6 +2017,8 @@ for(cg in bss_catch_groups) {
   bss_C_pred_total <- bss_C_pred_total + .cc_draws
   bss_E_total <- bss_E_total + pe_all$comm_charter$effort_total
   .cc_draws_by_cg[[cg]] <- .cc_draws
+  # 2026-09-29: the component table (Section 7) and the BSS catch by mode (Section 9) read these.
+  if (identical(cg, "Dungeness_Kept")) port_C_draws <- bss_C_total
 
   final_table <- tibble(
     Catch_Group = cg,
@@ -1928,7 +2046,7 @@ for(cg in bss_catch_groups) {
 # the port-total draw assembly above can be rerun PER SEASON: same draws, same PE
 # fallbacks, same gate decisions, grouped by the season each fitted sub-season belongs
 # to. Each sub-season is an INDEPENDENT Stan fit (the driver loops over the sub-season
-# list); a span shares nothing across seasons except the I/E day-length regression and
+# list); a span shares nothing across seasons except the pooled shore turnover derivation and
 # the config priors, so season totals from a span match standalone runs up to those. The commercial/charter census contributes
 # per season when census_windows is configured (estimate_comm_charter()$by_season);
 # with the scalar census keys its single window is attributed to the season containing
@@ -2022,21 +2140,60 @@ if (length(.seasons)) {
       "Per-season totals over the multi-season span. Each season sums its own fitted",
       "sub-seasons (same posterior draws and gate decisions as the port total above) plus",
       "its census component. Every sub-season is an INDEPENDENT fit with its own effort,",
-      "CPUE and turnover parameters; nothing is shared across seasons except the I/E",
-      "day-length regression (pooled across seasons unless ie_filter_by_season = TRUE)",
+      "CPUE and turnover parameters; nothing is shared across seasons except the shore",
+      "turnover derivation (pooled across every I/E day unless tau_shore_derive_window_only = TRUE)",
       "and the config priors, so a season's total here equals a standalone single-season",
-      "run of the same data up to those two inputs and Monte Carlo error."))
+      "run of the same data up to those two inputs and Monte Carlo error.")) |> print()
   }
 }
 ```
 
-```{r port-total-show, echo=TRUE}
-report_table(final_table, 'Port total harvest estimate (expected catch with 95% credible interval), by component and combined.')
+```{r port-total-show, echo=FALSE}
+# 2026-09-29: the headline first, readably. Effort is on the fitted components' unit (gear
+# deployments) plus the census vessel-trips, so it is labelled as such, not as a like-for-like sum.
+.ft <- final_table
+.ft$Estimate <- dplyr::recode(.ft$Estimate, Expected_Catch = "Dungeness kept: expected catch (the headline)",
+                              Predictive_Catch = "Dungeness kept: predictive catch (a new season's observation noise)",
+                              Effort = "Effort (gear deployments; census vessel-trips added)")
+report_table(dplyr::transmute(.ft, Estimate, `Median` = BSS_median, `95% interval` = fmt_ci(BSS_median, BSS_lo95, BSS_hi95), `PE` = PE),
+             digits = 0, caption = "Port total. The expected catch is the estimate to cite; the predictive catch adds the observation noise a repeat season would show.")
+
+# The components behind it.
+comp_rows <- list()
+for (pop in c("shore", "private_boat")) for (ss in subseasons) {
+  .lb <- paste0(pop, "_", ss$name, "_Dungeness_Kept"); .pl <- paste0(pop, "_", ss$name); b <- bss_all[[.lb]]
+  pe_pt <- pe_all[[.pl]]$Dungeness_Kept %||% NA_real_
+  if (bss_use_pe_for(b)) {
+    comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
+                               Method = "PE (gate or data)", Median = pe_pt, lo = NA_real_, hi = NA_real_, PE = pe_pt)
+  } else {
+    q <- stats::quantile(b$C_exp_draws, c(0.5, 0.025, 0.975))
+    comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
+                               Method = "BSS", Median = q[[1]], lo = q[[2]], hi = q[[3]], PE = pe_pt)
+  }
+}
+.cc0 <- pe_all$comm_charter
+.char_draws <- .cc_draws_by_cg[["Dungeness_Kept"]] - (.cc0$commercial_dung %||% 0)
+comp_rows$comm <- tibble(Component = "Commercial (census)", Method = "Census (exact count)",
+                         Median = .cc0$commercial_dung %||% NA_real_, lo = NA_real_, hi = NA_real_, PE = .cc0$commercial_dung %||% NA_real_)
+comp_rows$char <- tibble(Component = "Charter (expansion)", Method = sprintf("Expansion (%s)", .cc0$charter_expansion %||% "vessel"),
+                         Median = stats::median(.char_draws), lo = stats::quantile(.char_draws, 0.025), hi = stats::quantile(.char_draws, 0.975),
+                         PE = .cc0$charter_dung %||% NA_real_)
+component_table <- dplyr::bind_rows(comp_rows)
+.pq <- stats::quantile(port_C_draws, c(0.5, 0.025, 0.975))
+component_table <- dplyr::bind_rows(component_table,
+  tibble(Component = "PORT TOTAL", Method = "sum of draws", Median = .pq[[1]], lo = .pq[[2]], hi = .pq[[3]], PE = pe_port_total("Dungeness_Kept")))
+component_table$Share <- sprintf("%.1f%%", 100 * component_table$Median / .pq[[1]])
+utils::write.csv(component_table, file.path(output_dir, "component_totals.csv"), row.names = FALSE)
+report_table(dplyr::transmute(component_table, Component, Method, Median = round(Median), `95% interval` = fmt_ci(Median, lo, hi),
+                              PE = round(PE), `Share of port median` = Share),
+             digits = 0, caption = paste("The components of the port total. Component medians do not add to the port median (medians of sums",
+                                         "are not sums of medians); the port interval comes from summing the draws. Written to component_totals.csv."))
 ```
 
 ## 8. Monthly estimates
 
-The season total broken out by month, with per-month credible intervals, showing the within-season harvest trajectory.
+The total by month with 95% credible intervals. Fitted components contribute their daily posterior draws summed by month; the commercial/charter component is spread over its months by its daily catch. Monthly medians do not add to the port median.
 
 ```{r monthly, results='hide', fig.show='hide'}
 # ---- 7.8 MONTHLY ESTIMATES ----
@@ -2139,8 +2296,9 @@ p_monthly <- monthly_summary |>
   ggplot(aes(x = Month)) +
   geom_col(aes(y = BSS_Catch_median), fill = "steelblue", alpha = 0.7) +
   geom_errorbar(aes(ymin = BSS_Catch_lo95, ymax = BSS_Catch_hi95), width = 0.3) +
-  labs(title = "Monthly Dungeness Catch (Expected, no Poisson noise)",
-       x = "Month", y = "Dungeness crab caught") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Monthly Dungeness catch (expected catch, median and 95% interval)",
+       x = "Month", y = "Dungeness crab kept") +
   theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave(file.path(output_dir, "plot_monthly_catch.png"), p_monthly, width = 12, height = 6)
 
@@ -2148,13 +2306,16 @@ ggsave(file.path(output_dir, "plot_monthly_catch.png"), p_monthly, width = 12, h
 # ===========================================================================
 ```
 
-```{r monthly-show, echo=TRUE, fig.height=6, fig.cap='Monthly Dungeness catch with 95% intervals.'}
-report_table(monthly_summary, 'Monthly harvest estimates with 95% intervals.'); if (exists('p_monthly')) print(p_monthly)
+```{r monthly-show, echo=FALSE, fig.height=6, fig.cap='Monthly Dungeness catch with 95% intervals.'}
+report_table(dplyr::transmute(monthly_summary, Month, Catch = BSS_Catch_median, `Catch 95% interval` = fmt_ci(BSS_Catch_median, BSS_Catch_lo95, BSS_Catch_hi95),
+                              Effort = BSS_Effort_median, `Effort 95% interval` = fmt_ci(BSS_Effort_median, BSS_Effort_lo95, BSS_Effort_hi95)),
+             digits = 0, caption = 'Monthly estimates: expected catch and effort (gear deployments) with 95% intervals.')
+if (exists('p_monthly')) print(p_monthly)
 ```
 
 ### 8.1 Monthly catch by crabbing mode
 
-The monthly trajectory split by mode (shore, private boat, commercial/charter). The uncertainty source matches the method selected for each component, so the boat interval here is a lower bound when the boat is on PE.
+The monthly trajectory by mode. Each fitted component contributes its posterior where it passed the gate; a component on PE contributes its PE point with a design-based effort SE, which omits the catch-rate uncertainty, so its interval here is a lower bound. The commercial/charter panel carries a per-vessel catch CV. This panel's census uncertainty is therefore not the one the port total carries (the charter expansion SE); the two agree on the medians.
 
 ```{r monthly-mode, results='hide', fig.show='hide'}
 # 7.8b MONTHLY ESTIMATES BY CRABBING MODE (with per-mode uncertainty)
@@ -2165,11 +2326,10 @@ The monthly trajectory split by mode (shore, private boat, commercial/charter). 
 #   Shore  (BSS, both sub-seasons): full posterior. Monthly catch draws are summed
 #          from the daily C_expected draws, then 2.5/50/97.5 quantiles.
 #   Private Boat: method is per sub-season (v7.0 scale-aware gate, B1.8). On the
-#          2024-25 data the all-gear sub-season passes the gate and uses the BSS
-#          posterior (full daily C_expected draws, CV ~27%), while the pot-closure
-#          sub-season has too few interviews (< bss_min_interviews) and uses PE.
-#          The PE branch distributes the selected PE point across months by monthly
-#          effort share, then applies a design-based relative SE (stratified effort
+#          method-of-record data every fit passes the gate and uses its BSS posterior
+#          (full daily C_expected draws). A component on PE instead spreads its PE
+#          point over months from its own strata (pe_monthly_split.R, B44), then
+#          applies a design-based relative SE (stratified effort
 #          SE / effort total) as ONE per-component lognormal scale shared across
 #          months, so the monthly catches move together and the boat total carries
 #          that relative SE. NOTE: the PE branch captures effort sampling
@@ -2219,7 +2379,8 @@ for(cg in bss_catch_groups) {
         eff_total <- pe_all[[pe_label]]$effort_total %||% NA_real_
         eff_se    <- pe_all[[pe_label]]$effort_se %||% NA_real_
         rel_se <- if(!is.na(eff_total) && eff_total > 0 && !is.na(eff_se) && eff_se > 0)
-                    eff_se / eff_total else 0.30
+                    eff_se / eff_total else {
+                      bss_warn("monthly", sprintf("%s: no PE effort SE; the by-mode monthly panel uses a relative SE of 0.30.", pe_label), severity = "note"); 0.30 }
         scale_draws <- rln_scale(n_draws_max, rel_se)   # common effort-level uncertainty
 
         for(m in monthly_pe$month_label) {
@@ -2254,7 +2415,7 @@ if(!is.null(pe_all$comm_charter$daily_est)) {
     cpv <- dwg$interview |> filter(population == "comm_charter") |> pull(dungeness_kept)
     cpv <- cpv[is.finite(cpv)]
     if(length(cpv) > 1 && mean(cpv) > 0) (sd(cpv) / sqrt(length(cpv))) / mean(cpv) else 0.12
-  }, error = function(e) 0.12)
+  }, error = function(e) { bss_warn("monthly", "Commercial/charter per-vessel CV not computed; 0.12 used in the by-mode monthly panel.", severity = "note"); 0.12 })
   scale_comm <- rln_scale(n_draws_max, rel_se_comm)
   if(total_sampled > 0) {
     for(m in unique(comm_daily$month_label)) {
@@ -2293,7 +2454,7 @@ p_bymode_dodge <- monthly_bymode |>
                 position = position_dodge(width = 0.8), width = 0.3) +
   scale_fill_manual(values = mode_cols) +
   labs(title = "Monthly Dungeness Catch by Crabbing Mode",
-       subtitle = "Median with 95% interval. Each component: its BSS posterior where the fit passed the gate, else its PE point with the design-based effort SE. Commercial/Charter: census, catch-per-vessel CV.",
+       subtitle = "Median and 95% interval: BSS where the fit passed the gate, else the PE point with its effort SE;\ncommercial/charter with a per-vessel catch CV",
        x = "Month", y = "Dungeness crab caught", fill = "Mode") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "top")
@@ -2318,13 +2479,13 @@ ggsave(file.path(output_dir, "plot_monthly_catch_by_mode_facet.png"), p_bymode_f
 # ===========================================================================
 ```
 
-```{r monthly-mode-show, echo=TRUE, fig.height=7}
-for (nm in c('p_bymode_dodge','p_bymode_facet')) if (exists(nm)) print(get(nm))
+```{r monthly-mode-show, echo=FALSE, fig.height=9, fig.cap='Monthly Dungeness catch by crabbing mode, median and 95% interval, each panel on its own scale. (The same figure with the modes side by side is plot_monthly_catch_by_mode.png.)'}
+if (exists('p_bymode_facet')) print(p_bymode_facet + scale_y_continuous(labels = scales::comma))
 ```
 
 ## 9. Catch by crabbing mode
 
-Total season catch attributed to each crabbing mode.
+The total by crabbing mode, from the same draws as the port total: each mode sums its fitted components' posterior draws (or PE points where a fit fell back), so the intervals are joint over the mode's sub-seasons. The PE column is the design-based estimate for comparison. (Until 2026-09-29 this table showed the PE alone, which contradicted the headline.)
 
 ```{r catch-mode, results='hide'}
 # 7.9 CATCH BY CRABBING MODE
@@ -2332,8 +2493,22 @@ Total season catch attributed to each crabbing mode.
 
 cat("\n", strrep("=",60), "\n CATCH BY CRABBING MODE\n", strrep("=",60), "\n")
 
+.mode_draws <- function(pop) {
+  tot <- rep(0, n_draws_max)
+  for (ss in subseasons) {
+    b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
+    tot <- tot + if (bss_use_pe_for(b)) (pe_all[[paste0(pop, "_", ss$name)]]$Dungeness_Kept %||% 0)
+                 else b$C_exp_draws[rep_len(seq_along(b$C_exp_draws), n_draws_max)]
+  }
+  tot
+}
+.md <- list(shore = .mode_draws("shore"), boat = .mode_draws("private_boat"), cc = .cc_draws_by_cg[["Dungeness_Kept"]], port = port_C_draws)
+.q <- function(x, p) as.numeric(stats::quantile(x, p))
 mode_table <- tibble(
   Mode = c("Shore (Dock/Jetty/Beach)", "Private Boat", "Commercial/Charter", "PORT TOTAL"),
+  BSS_median = vapply(.md, .q, numeric(1), p = 0.5),
+  BSS_lo95   = vapply(.md, .q, numeric(1), p = 0.025),
+  BSS_hi95   = vapply(.md, .q, numeric(1), p = 0.975),
   PE_Catch = c(
     pe_pop_sum("shore", "Dungeness_Kept"),
     pe_pop_sum("private_boat", "Dungeness_Kept"),
@@ -2354,13 +2529,16 @@ write.csv(mode_table, file.path(output_dir, "catch_by_mode.csv"), row.names = FA
 # ===========================================================================
 ```
 
-```{r catch-mode-show, echo=TRUE}
-report_table(mode_table, 'Season catch by crabbing mode.')
+```{r catch-mode-show, echo=FALSE}
+report_table(dplyr::transmute(mode_table, Mode, Catch = round(BSS_median), `95% interval` = fmt_ci(BSS_median, BSS_lo95, BSS_hi95),
+                              `Share of port median` = sprintf("%.1f%%", 100 * BSS_median / BSS_median[Mode == "PORT TOTAL"]),
+                              `PE catch` = round(PE_Catch)),
+             digits = 0, caption = "Season catch by crabbing mode (expected catch; BSS draws where the gate passed). Medians do not add to the port median.")
 ```
 
 ### 9.1 Catch by gear type
 
-In the pooled model, gear-type catch is derived after estimation by allocating each population's total over gear types using the interview gear-catch shares. As of the 2026-07-13 change (item 3 / T2.2) this allocation propagates uncertainty from both sources: the gear shares are drawn from a Dirichlet posterior (`pi ~ Dirichlet(observed gear catch + 0.5)`) and multiplied by the population total's BSS posterior draws, so each gear carries a 95% credible interval rather than a point. It is still an allocation of the pooled total, not an independently modeled per-gear CPUE process (that is the gear-resolved model's role), but its uncertainty is now honest.
+In the pooled model the gear-type catch is an allocation after estimation: each population and sub-season's total draws are split by the gear catch shares in that sub-season's interviews, drawn by a **trip-level bootstrap** (crab arrive in trips, so the trip is the sampling unit; review item 6, 2026-09-08). Each gear therefore carries both sources of uncertainty. It is an apportionment of the pooled total, not a per-gear catch-rate model; commercial/charter catch is all pot by construction. The share intervals are in `gear_shares_bootstrap.csv`.
 
 ```{r catch-gear, results='hide', fig.show='hide'}
 # 7.10 CATCH BY GEAR TYPE (trip-level bootstrap shares x component total draws)
@@ -2436,7 +2614,7 @@ gear_summary <- tryCatch({
         fb <- gear_share_point(gear_int |> filter(population == pop), gear_levels)
         if (all(is.na(fb))) fb <- setNames(c(1, 0, 0, 0, 0), gear_levels)
         shares <- matrix(fb, n_gd, length(gear_levels), byrow = TRUE, dimnames = list(NULL, gear_levels))
-        cat(sprintf("  gear split: %s / %s has no catch-bearing interviews; season-wide point shares used.\n", pop, ss$name))
+        bss_warn("gear split", sprintf("%s / %s has no catch-bearing interviews; its gear split uses the population's season-wide point shares.", pop, ss$name), severity = "note")
       } else if (anyNA(shares)) {
         # a rare replicate with zero total catch: replace it by the point shares
         pt <- gear_share_point(iv, gear_levels)
@@ -2456,14 +2634,14 @@ gear_summary <- tryCatch({
   write.csv(bind_rows(gear_share_detail), file.path(output_dir, "gear_shares_bootstrap.csv"), row.names = FALSE)
   tibble(
     gear_primary = gear_levels,
-    PE_Catch = round(apply(per_gear, 2, median)),
+    Catch_median = round(apply(per_gear, 2, median)),
     lo95     = round(apply(per_gear, 2, quantile, 0.025)),
     hi95     = round(apply(per_gear, 2, quantile, 0.975))
   ) |>
-    dplyr::mutate(Proportion = round(PE_Catch / sum(PE_Catch), 3)) |>
-    dplyr::arrange(dplyr::desc(PE_Catch))
+    dplyr::mutate(Proportion = round(Catch_median / sum(Catch_median), 3)) |>
+    dplyr::arrange(dplyr::desc(Catch_median))
 }, error = function(e) {
-  cat(sprintf("  Gear bootstrap propagation failed (%s); using point allocation.\n", conditionMessage(e)))
+  bss_warn("gear split", sprintf("Gear bootstrap propagation failed (%s); the gear table is a point allocation with no intervals.", conditionMessage(e)))
   ge <- gear_props |>
     group_by(population, gear_primary) |>
     summarise(total_catch = sum(total_catch), .groups = "drop") |>
@@ -2475,9 +2653,9 @@ gear_summary <- tryCatch({
   ge <- bind_rows(ge, tibble(gear_primary = "Pot",
                              est_catch = round(pe_all$comm_charter$Dungeness_Kept %||% 0)))
   ge |> group_by(gear_primary) |>
-    summarise(PE_Catch = sum(est_catch), .groups = "drop") |>
-    mutate(lo95 = NA_real_, hi95 = NA_real_, Proportion = round(PE_Catch / sum(PE_Catch), 3)) |>
-    arrange(desc(PE_Catch))
+    summarise(Catch_median = sum(est_catch), .groups = "drop") |>
+    mutate(lo95 = NA_real_, hi95 = NA_real_, Proportion = round(Catch_median / sum(Catch_median), 3)) |>
+    arrange(desc(Catch_median))
 })
 
 cat("\n--- Catch by Gear Type (trip-level bootstrap shares x component totals) ---\n")
@@ -2485,91 +2663,53 @@ print(gear_summary)
 write.csv(gear_summary, file.path(output_dir, "catch_by_gear_type.csv"), row.names = FALSE)
 
 p_gear <- gear_summary |>
-  mutate(gear_primary = fct_reorder(gear_primary, PE_Catch)) |>
-  ggplot(aes(x = gear_primary, y = PE_Catch, fill = gear_primary)) +
-  geom_col() +
+  dplyr::filter(Catch_median > 0 | !is.na(hi95) & hi95 > 0) |>
+  mutate(gear_primary = fct_reorder(gear_primary, Catch_median),
+         label_y = pmax(hi95, Catch_median, na.rm = TRUE)) |>
+  ggplot(aes(x = gear_primary, y = Catch_median)) +
+  geom_col(fill = "steelblue", alpha = 0.8) +
   geom_errorbar(aes(ymin = lo95, ymax = hi95), width = 0.2, na.rm = TRUE) +
-  geom_text(aes(label = sprintf("%s (%.0f%%)", format(PE_Catch, big.mark=","), Proportion*100)),
-            hjust = -0.1, size = 3) +
-  labs(title = "Estimated Dungeness Catch by Gear Type (bootstrap shares x component totals)",
-       x = "Gear Type", y = "Estimated Catch (median, 95% CI)") +
-  theme_bw() + theme(legend.position = "none") + coord_flip()
+  # labels sit PAST the interval, so they no longer print over the whiskers (2026-09-29)
+  geom_text(aes(y = label_y, label = sprintf("%s (%.0f%%)", format(Catch_median, big.mark = ","), Proportion * 100)),
+            hjust = -0.1, size = 3.2) +
+  scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.25))) +
+  labs(title = "Dungeness catch by gear type", subtitle = "Trip-level bootstrap gear shares x component total draws; median and 95% interval",
+       x = NULL, y = "Dungeness crab kept") +
+  theme_bw() + coord_flip()
 ggsave(file.path(output_dir, "plot_catch_by_gear_type.png"), p_gear, width = 10, height = 6)
 
 
 ```
 
-```{r catch-gear-show, echo=TRUE, fig.height=6, fig.cap='Catch by gear type.'}
-report_table(gear_summary, 'Season catch by gear type: trip-level bootstrap interview gear-shares, per population and sub-season, times each component total (BSS draws or PE point); median and 95% interval. An NA interval marks the point-allocation fallback.'); if (exists('p_gear')) print(p_gear)
+```{r catch-gear-show, echo=FALSE, fig.height=5, fig.cap='Catch by gear type, median and 95% interval.'}
+report_table(dplyr::transmute(gear_summary, `Gear` = gear_primary, Catch = Catch_median, `95% interval` = fmt_ci(Catch_median, lo95, hi95),
+                              Share = sprintf("%.1f%%", 100 * Proportion)),
+             digits = 0, caption = 'Season catch by gear type: trip-level bootstrap interview gear shares, per population and sub-season, times each component total (BSS draws or PE point). A "-" interval marks the point-allocation fallback.')
+if (exists('p_gear')) print(p_gear)
 ```
 
-## 10. Convergence report
+## 10. Per-fit BSS plots {.tabset}
 
-The per-fit diagnostic table behind the gate decision: R-hat and effective sample size for the summed effort and catch, the divergent fraction, and the pass/fail flag. **Healthy:** `pass_convergence` TRUE with R-hat near 1.00 and effective sample size well above 400 on every fit that had sufficient data.
+For each fitted component: the daily effort and the daily expected catch (posterior median with the 95% interval), and the posterior of the component's season totals. One tab per fit; each figure is also a PNG in the run folder.
 
-```{r convergence-report, results='hide'}
-# ---- 7.11 CONVERGENCE REPORT ----
-# v7.0 (B1.8): the pass/fail decision and every diagnostic column are computed once
-# in 7.6b (bss_compute_gate) and stored as bss_all[[label]]$gate_info, so this section
-# is now pure assembly. This guarantees the report agrees with the method actually
-# used in the totals (7.7/7.8/7.8b consume the same use_bss flag). All gate
-# warnings were already emitted in 7.6b at fit time. Columns now include the
-# scale-aware impact (impact_C_sd, impact_E_sd; the gating criterion) and retain
-# the legacy level-distortion (distortion_C, distortion_E) as reported-only.
-cat("\n", strrep("=",60), "\n CONVERGENCE REPORT\n", strrep("=",60), "\n")
-
-convergence_df <- bind_rows(lapply(names(bss_all), function(label) bss_all[[label]]$gate_info))
-print(convergence_df)
-write.csv(convergence_df, file.path(output_dir, "convergence_report.csv"), row.names = FALSE)
-
-
-```
-
-```{r convergence-report-show, echo=TRUE}
-# Curated, HTML-friendly view of the convergence report: short fit labels and the key
-# gate columns only. The full ~20-column table (treedepth, level-distortion, and the
-# per-criterion pass flags) is written to convergence_report.csv.
-conv_disp <- tryCatch(
-  dplyr::transmute(convergence_df,
-    Fit             = short_fit(fit),
-    AR              = ar_resolution,
-    Div             = divergences,
-    `Div frac`      = round(divergence_fraction, 3),
-    `R-hat C`       = round(C_sum_rhat, 3),
-    `R-hat E`       = round(E_sum_rhat, 3),
-    `min n_eff`     = pmin(C_sum_neff, E_sum_neff),
-    `Impact C (SD)` = round(impact_C_sd, 3),
-    `Impact E (SD)` = round(impact_E_sd, 3),
-    Pass            = pass_convergence,
-    Method          = method_selected),
-  error = function(e) convergence_df)
-report_table(conv_disp,
-  paste("Per-fit convergence summary (key gate columns; full detail in",
-        "convergence_report.csv). Div frac is the divergent-transition fraction (backstop",
-        "0.05); Impact C/E (SD) is the scale-aware gating criterion (threshold 0.10);",
-        "Method is what the totals actually use. Healthy: R-hat near 1.00, min n_eff",
-        "above 400, Pass = TRUE."),
-  digits = 3)
-```
-
-### 10.1 Per-fit BSS plots
-
-Per-component season-total posterior densities (C_sum, E_sum), the BSS daily effort ribbon, and the BSS daily expected-catch ribbon, one set per fitted component. Each is also saved as a PNG in the run folder.
-
-```{r bss-fit-plots-show, echo=FALSE, fig.cap="Per-fit BSS effort, catch, and posterior-density plots (one set per fitted component)."}
-# Embed the per-fit BSS plots the fit loop ggsave'd. The fit loop runs fig.show='hide'
-# and overwrites each plot object every iteration, so the objects do not survive the loop
-# for on-page printing; the saved PNGs do. This surfaces them (posteriors, effort, catch)
-# in the HTML, matching the gear-resolved report.
-bss_fit_pngs <- list.files(output_dir,
-  pattern = "^plot_bss_(effort|catch|posteriors)_.*\\.png$", full.names = TRUE)
-if (length(bss_fit_pngs)) knitr::include_graphics(sort(bss_fit_pngs)) else
-  cat("_No per-fit BSS plots found (no fitted components this run)._")
+```{r bss-fit-plots-show, echo=FALSE, results='asis'}
+# 2026-09-29: one tab per FIT (the figures were one list sorted by file name, so the four catch
+# plots came first, then the four effort plots, under one repeated caption).
+.fits_plotted <- names(bss_all)[vapply(bss_all, function(b) !is.null(b$fit), logical(1))]
+if (!length(.fits_plotted)) cat("_No fitted components this run._\n")
+for (.lb in .fits_plotted) {
+  cat(sprintf("\n### %s\n\n", short_fit(.lb)))
+  for (.kind in c("effort", "catch", "posteriors")) {
+    .f <- file.path(output_dir, sprintf("plot_bss_%s_%s.png", .kind, .lb))
+    if (file.exists(.f)) cat(sprintf("![%s: %s](%s){width=100%%}\n\n", short_fit(.lb),
+      c(effort = "daily effort", catch = "daily expected catch", posteriors = "season-total posteriors")[[.kind]], .f))
+  }
+}
 ```
 
 ## 11. Model diagnostics
 
-Per-fit diagnostics are written to the run folder: structural-parameter summaries, divergence localization, and posterior-predictive calibration (PPC/PIT). **Healthy:** PPC coverage near nominal (about 0.95 at the 95 percent level) and PIT means near 0.5. These files are the deeper check behind the gate.
+The gate says whether the sampler worked; this section says whether the model carries the data. **Posterior-predictive calibration** (below) compares each observation with its predictive distribution: coverage near nominal and PIT histograms that are flat mean a calibrated stream; a hump means the predictive is too wide, a U too narrow. **Model adequacy** (11.5) summarises the flags per fit, **prior influence** (11.6) lists the parameters whose posterior is essentially the prior, and the **block cross-validation** (11.7) scores each effort stream on whole held-out weeks, the interpolation the model is actually used for.
 
 ```{r diag-perfit, results='hide'}
 # ---- 7.12 PER-FIT MODEL DIAGNOSTICS (B1.6) ----
@@ -2621,6 +2761,15 @@ report_table(ppc_disp,
   paste("Posterior-predictive calibration by fit and data stream. Healthy: Cover 95%",
         "near 0.95 and PIT mean near 0.50; coverage well above nominal means the",
         "predictive is too wide (over-dispersed), the effort streams are the known case."))
+```
+
+```{r diag-pit-show, echo=FALSE, results='asis'}
+.pits <- list.files(output_dir, pattern = "^ppc_pit_.*\\.png$", full.names = TRUE)
+if (length(.pits)) {
+  cat("**PIT histograms, one per fit** (flat is calibrated):\n\n")
+  for (.f in .pits) cat(sprintf("![PIT histogram, %s](%s){width=100%%}\n\n",
+                                short_fit(sub("^ppc_pit_(.*)\\.png$", "\\1", basename(.f))), .f))
+}
 ```
 
 ### 11.1 Effort over-dispersion decomposition
@@ -2800,9 +2949,19 @@ Where the divergent transitions (if any) concentrate. **Healthy:** small `|SMD|`
 # Large |SMD| (standardized median difference between divergent and bulk draws) points
 # at the parameter/geometry the divergences concentrate in (e.g. a hierarchical funnel).
 dl <- read_fit_outputs("divergence_localization")
+# A parameter that enters no likelihood in a fit (decoupled: sigma_mu_E once A31 collapses a
+# single-section level, R_G_boat in a shore fit) samples its prior, so where its divergent
+# draws sit says nothing about the fit's geometry; it is listed in 11.6 and left out here.
+.decoupled <- tryCatch({
+  .sp <- read_fit_outputs("structural_params")
+  if (!is.null(.sp) && "decoupled" %in% names(.sp))
+    dplyr::transmute(dplyr::filter(.sp, as.logical(decoupled) %in% TRUE), fit_lbl, param = sub("\\[.*$", "", parameter))
+  else NULL }, error = function(e) NULL)
 dl_disp <- if (!is.null(dl) && "smd" %in% names(dl)) tryCatch(
   dl |>
     dplyr::filter(!is.na(smd)) |>
+    (\(d) if (is.null(.decoupled)) d else dplyr::anti_join(dplyr::mutate(d, .p = sub("\\[.*$", "", param)),
+                                                          dplyr::rename(.decoupled, .p = param), by = c("fit_lbl", ".p")))() |>
     dplyr::group_by(fit_lbl) |>
     dplyr::slice_max(abs(smd), n = 3, with_ties = FALSE) |>
     dplyr::ungroup() |>
@@ -2813,7 +2972,8 @@ dl_disp <- if (!is.null(dl) && "smd" %in% names(dl)) tryCatch(
 report_table(dl_disp,
   paste("Top divergence-localization drivers per fit (largest |SMD|). A large |SMD| is",
         "where divergent draws depart most from the bulk; it names the geometry to watch.",
-        "Small values across the board mean divergences are diffuse, not biasing a total."))
+        "Small values across the board mean divergences are diffuse, not biasing a total.",
+        "Prior-only parameters (Section 11.6) are left out."))
 ```
 
 
@@ -2868,9 +3028,85 @@ if (!is.null(extrap_tbl) && nrow(extrap_tbl) > 0) {
 }
 ```
 
+### 11.5 Model adequacy
+
+Reported beside the gate, never gating it (`model_adequacy.csv`). **p_loo fraction**: the effective number of parameters as a share of the observations in the worst stream (high means the model is nearly memorising that stream). **Pareto k > 0.7**: observations whose leave-one-out estimate is unreliable. **PIT bias** and **coverage deviation**: how far the worst stream's predictive calibration is from nominal. The flags summarise these against the thresholds in `bss_model_adequacy.R`.
+
+```{r adequacy-show, echo=FALSE}
+.adq <- tryCatch(utils::read.csv(file.path(output_dir, "model_adequacy.csv"), stringsAsFactors = FALSE), error = function(e) NULL)
+if (!is.null(.adq) && nrow(.adq)) {
+  .flags <- c(flag_overparameterised = "overparameterised", flag_loo_unreliable = "LOO unreliable", flag_pit_bias = "PIT bias",
+              flag_miscalibrated = "miscalibrated", flag_dispersion_neff = "dispersion n_eff")
+  .fl <- apply(.adq[, intersect(names(.flags), names(.adq)), drop = FALSE], 1, function(r) {
+    f <- names(r)[as.logical(r) %in% TRUE]; if (length(f)) paste(.flags[f], collapse = ", ") else "none" })
+  report_table(data.frame(check.names = FALSE, Fit = short_fit(.adq$fit),
+                          `p_loo fraction (worst stream)` = sprintf("%.3f (%s)", .adq$p_loo_frac, .adq$p_loo_worst_stream),
+                          `Pareto k > 0.7` = .adq$n_pareto_bad,
+                          `PIT bias (worst)` = sprintf("%.3f (%s)", .adq$pit_worst_bias, .adq$pit_worst_stream),
+                          `50% coverage deviation (worst)` = sprintf("%.3f (%s)", .adq$cov50_worst_dev, .adq$cov50_worst_stream),
+                          Flags = .fl),
+               caption = "Model adequacy per fit (model_adequacy.csv). A flag is a reason to read that fit's streams with care, not a gate failure.")
+} else cat("_model_adequacy.csv was not written this run._")
+```
+
+### 11.6 Prior influence
+
+Parameters whose posterior barely moved from the prior (`prior_influential` in `prior_vs_posterior_<fit>.csv`: contraction below the threshold in `save_run_diagnostics.R`), and parameters that enter no likelihood in a fit and so report their prior exactly (`decoupled` in `structural_params_<fit>.csv`). Neither is an estimate. A prior-influenced parameter that the total depends on (a turnover, for example) means that part of the total rests on the prior's centre.
+
+```{r prior-influence-show, echo=FALSE}
+.pvp <- read_fit_outputs("prior_vs_posterior")
+.stp <- read_fit_outputs("structural_params")
+.pi_tab <- NULL
+if (!is.null(.pvp) && "prior_influential" %in% names(.pvp)) {
+  .pi_tab <- .pvp |> dplyr::filter(prior_influential %in% TRUE) |> dplyr::group_by(Fit = fit_lbl) |>
+    dplyr::summarise(`Prior-influenced (contraction)` = paste(sprintf("%s (%.2f)", parameter, contraction), collapse = "; "), .groups = "drop")
+}
+if (!is.null(.stp) && "decoupled" %in% names(.stp)) {
+  .dc <- .stp |> dplyr::filter(decoupled %in% TRUE) |> dplyr::group_by(Fit = fit_lbl) |>
+    dplyr::summarise(`Prior only (enters no likelihood)` = paste(unique(sub("\\[.*$", "", parameter)), collapse = ", "), .groups = "drop")
+  .pi_tab <- if (is.null(.pi_tab)) .dc else dplyr::full_join(.pi_tab, .dc, by = "Fit")
+}
+if (!is.null(.pi_tab) && nrow(.pi_tab)) {
+  .pi_tab[is.na(.pi_tab)] <- "none"
+  report_table(.pi_tab, caption = "Parameters that report (mostly) their prior, per fit. Contraction is 1 - posterior SD / prior SD.")
+} else cat("_No prior-influenced or prior-only parameters were flagged._")
+```
+
+### 11.7 Leave-one-week-out cross-validation of the effort streams
+
+Pointwise LOO scores single days, but the model's job is to fill whole unsampled stretches. The block cross-validation (`loo_block_<stream>_<fit>.csv`, B39) leaves out each week in turn and scores the effort stream there by PSIS. A low reliable share (Pareto k > 0.7 on many weeks) means the week-level score cannot be trusted for that stream; where it is reliable, the elpd per observation is comparable between runs on the same data.
+
+```{r blockcv-show, echo=FALSE}
+.bcv <- read_fit_outputs("loo_block")
+if (!is.null(.bcv) && nrow(.bcv)) {
+  # file names are loo_block_<stream>_<fit>.csv, so the label carries the stream as a prefix
+  .bcv_s <- .bcv |> dplyr::mutate(Fit = sub("^(gear|trailer|osp|joint)_", "", fit_lbl)) |>
+    dplyr::group_by(Fit, Stream = data_type) |>
+    dplyr::summarise(Weeks = dplyr::n(), Observations = sum(n_obs), `Reliable weeks` = sum(reliable %in% TRUE),
+                     `elpd (sum)` = round(sum(elpd_block), 1), `elpd per obs` = round(sum(elpd_block) / max(sum(n_obs), 1), 3),
+                     `worst Pareto k` = round(max(pareto_k, na.rm = TRUE), 2), .groups = "drop")
+  report_table(.bcv_s, caption = "Leave-one-week-out PSIS cross-validation by fit and effort stream (the joint row leaves out every boat stream of the week together).")
+} else cat("_No block cross-validation output this run._")
+```
+
+### 11.8 Sampler health
+
+Per chain: divergent transitions, the mean and maximum tree depth, the step size and the energy Bayesian fraction of missing information (E-BFMI; below 0.3 means the sampler explored the tails poorly). Written to `sampler_diagnostics_<fit>.csv`.
+
+```{r sampler-show, echo=FALSE}
+.smp <- read_fit_outputs("sampler_diagnostics")
+if (!is.null(.smp) && nrow(.smp))
+  report_table(.smp |> dplyr::group_by(Fit = fit_lbl) |>
+                 dplyr::summarise(Chains = dplyr::n(), Divergent = sum(divergent), `Mean treedepth` = round(mean(mean_treedepth), 1),
+                                  `Max treedepth` = max(max_treedepth), `Mean step size` = signif(mean(mean_stepsize), 2),
+                                  `Min E-BFMI` = round(min(ebfmi, na.rm = TRUE), 2), `Low E-BFMI chains` = sum(ebfmi_low_flag %in% TRUE),
+                                  .groups = "drop"),
+               caption = "Sampler health per fit, over its chains.")
+```
+
 ## 12. Effort and CPUE multipliers
 
-The fitted effort and CPUE structural quantities (day-type effects, the CPUE weekend effect B1_C, and the effort multipliers) that shape the daily series.
+The fitted day-type effects: how much more effort and how much higher a catch rate a weekend or holiday carries than a weekday, as multipliers with 95% intervals.
 
 ```{r multipliers, results='hide'}
 # ---- 7.14 EFFORT & CPUE MULTIPLIERS ----
@@ -2918,13 +3154,15 @@ if(length(multiplier_results) > 0) {
 
 ```
 
-```{r multipliers-show, echo=TRUE}
-if (exists('multiplier_df')) report_table(multiplier_df, 'Fitted effort and CPUE multipliers.')
+```{r multipliers-show, echo=FALSE}
+if (exists('multiplier_df')) report_table(dplyr::transmute(multiplier_df, Fit = short_fit(fit), `Weekend effort` = weekend_effort_mult,
+                                                           `Holiday effort` = holiday_effort_mult, `Weekend catch rate` = weekend_cpue_mult),
+                                          caption = 'Fitted multipliers relative to a weekday: median (95% interval).')
 ```
 
 ### 12.1 Expansion ratios (R_G and R_G_boat)
 
-The gear-per-crabber ratio (shore) and gear-per-boat-group ratio (boat) that carry effort onto the gear-deployment scale. The R_G posterior below is under the model's data-driven R_G prior by default. For the T1.3 prior-sensitivity analysis the prior is overridable from `run_config.R` (`R_G_prior_mu` / `R_G_prior_sigma`); the console log records whether the prior was data-driven or an override, and this report reflects whichever prior was active for the run. A full sensitivity is a small grid of runs (R_G at 1.0, the empirical value, and 1.5) compared on the port total, not a single knit.
+The gear-per-crabber ratio `R_G` (learned from the shore interviews) and the gear-per-boat-group ratio `R_G_boat` (learned from the boat interviews) that carry the counts onto the gear-deployment scale. Each ratio is declared in every fit but informed only in its own population's fits; in the other it reports its prior and is marked PRIOR ONLY. The `R_G` prior centre is the season's interview ratio unless `R_G_prior_mu` overrides it (the sensitivity sweep is `06_diagnostics/run_rg_sweep.R`).
 
 ```{r expansion, results='hide'}
 # ---- 7.16 R_G AND R_G_boat POSTERIORS ----
@@ -2947,14 +3185,19 @@ for(label in names(bss_all)) {
     # suffix on the string, so it cannot be quoted by accident from either.
     .rgb_decoupled <- is.null(b$bss_data) ||
       ((b$bss_data$T_n %||% 0) == 0 && (b$bss_data$OSP_n %||% 0) == 0)
+    # 2026-09-29: R_G is informed only by the shore gear interviews (IntA_gear), so in a boat fit
+    # it is its prior too; that was reported as an estimate (1.25 [0.69, 2.27] on 2024-25).
+    .rg_decoupled <- is.null(b$bss_data) || (b$bss_data$IntA_gear %||% 0) == 0
     expansion_results[[label]] <- tibble(
       fit = label,
-      R_G_interpretation = sprintf("%.2f gear/crabber (%.2f-%.2f)",
-        median(R_G_draws), quantile(R_G_draws, 0.025), quantile(R_G_draws, 0.975)),
+      R_G_interpretation = sprintf("%.2f gear/crabber (%.2f-%.2f)%s",
+        median(R_G_draws), quantile(R_G_draws, 0.025), quantile(R_G_draws, 0.975),
+        if (.rg_decoupled) "  [PRIOR ONLY: no shore gear interviews in this fit]" else ""),
       R_G_boat_interpretation = sprintf("%.2f gear/group (%.2f-%.2f)%s",
         median(R_G_boat_draws), quantile(R_G_boat_draws, 0.025), quantile(R_G_boat_draws, 0.975),
         if (.rgb_decoupled) "  [PRIOR ONLY: no boat count stream in this fit]" else ""),
-      R_G_boat_decoupled = .rgb_decoupled
+      R_G_boat_decoupled = .rgb_decoupled,
+      R_G_decoupled = .rg_decoupled
     )
   }
 }
@@ -2971,13 +3214,52 @@ if(length(expansion_results) > 0) {
 
 ```
 
-```{r expansion-show, echo=TRUE}
-if (exists('expansion_df')) report_table(expansion_df, 'Expansion-ratio posteriors (R_G, R_G_boat).')
+```{r expansion-show, echo=FALSE}
+if (exists('expansion_df')) report_table(dplyr::transmute(expansion_df, Fit = short_fit(fit), `R_G (gear per crabber)` = R_G_interpretation,
+                                                          `R_G_boat (gear per boat group)` = R_G_boat_interpretation),
+                                         caption = 'Expansion-ratio posteriors, median (95% interval). PRIOR ONLY marks a ratio no data in that fit informs.')
 ```
 
-### 12.2 Effort day covariates as fitted
+### 12.2 Turnover as fitted
 
-Every fit's day-covariate block (`K_open`): which columns it carries, on how many of its days each column is set, and the fitted effect on the latent effort (`B_open_out`, with its rate ratio). Under the method of record (CHANGE_REGISTER A30) the private-boat all-gear fit carries the NWS Small-Craft-Advisory flag `nws_sca_any` and every other fit carries nothing (`marine_hazard_gear_regimes`, B42); an other-fishery opener column appears here only when `opener_covariate_mode` selects one. Section 3.7 shows the covariate's pre-fit screen on the sampled days; this table is the fitted model. Written to `effort_day_covariates.csv`.
+The season-level turnover `tau_bar` each fit estimated around the prior centre of [Section 3.1](#the-expansion-factors-shore-and-boat-turnover). A posterior close to the prior (Section 11.6 flags it) means the component's scale rests on the derived centre; the shore fits are the case to watch, because only the in-window I/E days inform them.
+
+```{r tau-show, echo=FALSE}
+.tb <- read_fit_outputs("structural_params")
+if (!is.null(.tb)) {
+  .tb <- .tb[grepl("^tau_bar", .tb$parameter), , drop = FALSE]
+  if (nrow(.tb)) report_table(data.frame(check.names = FALSE, Fit = .tb$fit_lbl,
+      `Prior centre` = ifelse(grepl("^shore", .tb$fit_lbl), sprintf("%.3f", as.numeric(params$tau_shore_prior_mu)), sprintf("%.3f", as.numeric(params$tau_boat_prior_mu))),
+      `tau_bar posterior` = fmt_ci(.tb$median, .tb$lo95, .tb$hi95, digits = 3), n_eff = round(.tb$n_eff), `R-hat` = sprintf("%.3f", .tb$Rhat)),
+    caption = "Fitted season-level turnover per fit, median (95% interval).")
+  else cat("_No shared turnover in this run (shared_tau = FALSE)._")
+}
+```
+
+### 12.3 The crabbing fraction f
+
+The share of private-boat effort that is crab-directed, a monthly logit random walk informed by the sampler's boat contacts (and OSP's crab-only share when delivered, as a lower bound through the combo share `c`). It multiplies the boat effort one for one, so a month with few contacts leans on its neighbours through the walk. From `crab_fraction_strata_<fit>.csv`.
+
+```{r f-show, echo=FALSE, fig.height=4.5, fig.cap="Crabbing fraction f by month (median and 95% interval) for each boat fit; point size is the number of boat contacts."}
+.fs <- read_fit_outputs("crab_fraction_strata")
+if (!is.null(.fs) && nrow(.fs)) {
+  report_table(dplyr::transmute(.fs, Fit = fit_lbl, Month = label, `Contacts (crabbing)` = sprintf("%d (%d)", contacts, contacts_crabbing),
+                                f = fmt_ci(f_median, f_lo95, f_hi95, digits = 2), `Combo share c` = fmt_ci(c_median, c_lo95, c_hi95, digits = 2),
+                                `OSP days` = osp_days),
+               caption = "Crabbing fraction f and combo share c by month, median (95% interval).")
+  p_f <- ggplot(.fs, aes(x = label, y = f_median, group = fit_lbl, color = fit_lbl)) +
+    geom_linerange(aes(ymin = f_lo95, ymax = f_hi95), linewidth = 0.8, alpha = 0.6) +
+    geom_point(aes(size = contacts)) + geom_line(alpha = 0.5) +
+    scale_y_continuous(limits = c(0, 1)) + scale_size_continuous(range = c(1.5, 4)) +
+    labs(x = "Month", y = "Crabbing fraction f", color = "Fit", size = "Contacts") +
+    theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(p_f)
+} else cat("_The crabbing fraction is not estimated in this run._")
+```
+
+### 12.4 Effort day covariates as fitted
+
+Every fit's day-covariate block (`K_open`): which columns it carries, on how many of its days each column is set, and the fitted effect on the latent effort (`B_open_out`, with its rate ratio). Under the method of record (CHANGE_REGISTER A30) the private-boat all-gear fit carries the NWS Small-Craft-Advisory flag `nws_sca_any` and every other fit carries nothing (`marine_hazard_gear_regimes`, B42); an other-fishery opener column appears here only when `opener_covariate_mode` selects one. Section 3.4 shows the covariate's pre-fit screen on the sampled days; this table is the fitted model. Written to `effort_day_covariates.csv`.
 
 ```{r day-covariates, results='hide'}
 # ---- 7.16b EFFORT DAY COVARIATES AS FITTED (2026-09-28, B43) ----
@@ -2986,7 +3268,7 @@ Every fit's day-covariate block (`K_open`): which columns it carries, on how man
 # fit, and the fit loop's chunk hides its output. bss_day_covariate_report.R builds the table
 # from bss_all, so it is the fits that are reported, not the configuration.
 day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params), error = function(e) {
-  cat("  effort day covariates: table not built:", conditionMessage(e), "\n"); NULL })
+  bss_warn("covariates", paste("Effort day covariate table not built:", conditionMessage(e)), severity = "note"); NULL })
 if (!is.null(day_cov_df) && nrow(day_cov_df) > 0) {
   for (i in seq_len(nrow(day_cov_df)))
     cat(sprintf("  %s: %s%s\n", day_cov_df$fit[i], day_cov_df$covariate[i],
@@ -2996,15 +3278,17 @@ if (!is.null(day_cov_df) && nrow(day_cov_df) > 0) {
 }
 ```
 
-```{r day-covariates-show, echo=TRUE}
+```{r day-covariates-show, echo=FALSE}
 if (!is.null(day_cov_df) && nrow(day_cov_df) > 0)
-  report_table(day_cov_df[, c("fit", "covariate", "source", "days_flagged", "column_sum", "fit_days", "coef_median", "coef_lo95", "coef_hi95", "rate_ratio")],
+  report_table(dplyr::transmute(day_cov_df, Fit = short_fit(fit), Covariate = covariate, Source = source,
+                                `Days flagged` = days_flagged, `Column sum` = column_sum, `Fit days` = fit_days,
+                                `Coefficient` = fmt_ci(coef_median, coef_lo95, coef_hi95, digits = 2), `Rate ratio` = rate_ratio),
                'Effort day covariates as fitted: per fit, the columns of the K_open block, the days each flags (column_sum is the column total, which differs for an imputed fractional column), and the posterior of its coefficient (rate ratio = exp(coefficient), the multiplier on latent effort on a flagged day).')
 ```
 
 ## 13. PE vs BSS comparison
 
-Side by side, the design-based PE and the Bayesian BSS for each component. **How to read it:** close agreement is reassuring; a large gap on a component means the two methods disagree there, usually because that component is data-thin, and the BSS interval width tells you how well-identified it is. Since both now run on the same effort unit, a remaining gap is a genuine model disagreement, not a unit artifact.
+The design-based PE and the Bayesian estimate for each component, on the same effort unit, so a gap is a genuine disagreement between the methods and not a unit artifact. Close agreement is reassuring; a large gap usually marks a data-thin component, where the PE's thin-cell fills (Section 4) and the BSS's AR process fill the unsampled days differently. `Totals use` says which one the port total carries.
 
 ```{r pe-vs-bss, results='hide'}
 # ---- 7.17 PE VS BSS COMPARISON ----
@@ -3057,7 +3341,9 @@ comparison[[length(comparison)+1]] <- tibble(
     format(round(.c$commercial_dung %||% NA), big.mark = ","), .c$commercial_vessels %||% NA,
     sum(.c$daily_full$observed %||% NA), sum(!(.c$daily_full$observed %||% NA)),
     if (identical(.c$census_expansion %||% "none", "none")) "= no operation" else sprintf("imputed at %s", format(round(.c$imputed_dung %||% NA), big.mark = ",")),
-    .c$charter_interviews %||% NA, format(round(.c$commercial_se %||% NA), big.mark = ","),
+    # 2026-09-29: the commercial per-vessel mean rests on the COMMERCIAL interviews; this read
+    # charter_interviews (20 on 2024-25) where the count is commercial_interviews (141).
+    .c$commercial_interviews %||% NA, format(round(.c$commercial_se %||% NA), big.mark = ","),
     .c$charter_frame %||% "tally",
     if ((.c$n_roster_only_days %||% 0L) > 0) sprintf(" incl. %s crab on %d day(s) with no tally", format(round(.c$charter_roster_dung %||% 0), big.mark = ","), .c$n_roster_only_days) else "",
     .c$charter_expansion %||% "pooled", .c$charter_trips %||% NA, .c$charter_interviews %||% NA,
@@ -3079,13 +3365,22 @@ write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.
 
 ```
 
-```{r pe-vs-bss-show, echo=TRUE}
-report_table(comparison_df, 'Point Estimator versus Bayesian state-space estimate, by component.')
+```{r pe-vs-bss-show, echo=FALSE, results='asis'}
+.cmp <- comparison_df
+.cmp$method_short <- ifelse(grepl("census", .cmp$component), "Census + charter expansion", .cmp$method_selected)
+.cmp$Component <- sub("^comm_charter \\(census\\)$", "Commercial/charter", sub("^private_boat ", "Private boat ", sub("^shore ", "Shore ", .cmp$component)))
+print(report_table(dplyr::transmute(.cmp, Component, `PE effort` = round(PE_effort), `BSS effort` = round(BSS_effort),
+                                    `Effort BSS vs PE (%)` = round(effort_diff_pct, 1), `PE catch` = round(PE_catch), `BSS catch` = round(BSS_catch),
+                                    `Catch BSS vs PE (%)` = round(catch_diff_pct, 1), `Totals use` = method_short),
+                   digits = 1, caption = paste("Point Estimator against the Bayesian estimate by component (BSS medians). Effort is in gear deployments;",
+                                               "the census row in vessel-trips. 'Totals use' is the estimate the port total carries.")))
+.cens <- .cmp$method_selected[grepl("census", .cmp$component)]
+if (length(.cens)) cat("\n**Commercial/charter component:** ", .cens, "\n", sep = "")
 ```
 
-## 14. Season summary
+## 14. Run summary
 
-Run-level metadata: the season window, sampling coverage, interview count, how many fits passed convergence, and the model configuration used.
+The window, the sampling coverage, the interviews the fits used, and how many fits passed the gate.
 
 ```{r season-summary, results='hide'}
 # ---- 7.18 SEASON SUMMARY ----
@@ -3094,6 +3389,9 @@ cat("\n", strrep("=",60), "\n SEASON SUMMARY\n", strrep("=",60), "\n")
 season_days <- as.integer(as.Date(params$est_date_end) - as.Date(params$est_date_start) + 1)
 total_effort_days <- n_distinct(c(dwg$shore_effort$event_date, dwg$boat_effort$event_date))
 total_interview_n <- nrow(dwg$interview)
+# 2026-09-29: the interviews the fits actually used (after the incomplete-trip and gear filters),
+# beside the raw count of every interview in the window, which includes commercial/charter.
+fitted_interview_n <- sum(vapply(bss_all, function(b) if (!is.null(b$bss_data)) as.numeric(b$bss_data$IntC %||% 0) else 0, numeric(1)))
 n_bss_fits <- sum(!sapply(bss_all, function(b) !is.null(b$pe_fallback) && b$pe_fallback))
 n_pass <- sum(convergence_df$pass_convergence, na.rm=TRUE)
 
@@ -3104,16 +3402,19 @@ cat(sprintf("  BSS convergence: %d of %d fits passed\n", n_pass, n_bss_fits))
 
 season_summary <- tibble(
   metric = c("Model configuration", "Season start", "Season end", "Season days",
-             "Effort days sampled", "Total interviews", "BSS fits attempted", "BSS fits passed",
-             "L_effective method", "AR temporal resolution"),
-  value = c(sprintf("%s CPUE; seasons %s; effort unit %s; AR %s; marine term %s", if (exists("model") && is.character(model)) model else "pooled",
+             "Effort days sampled", "Total interviews", "Interviews used by the fits", "BSS fits attempted", "BSS fits passed",
+             "Day length", "AR temporal resolution"),
+  # 2026-09-29: this driver IS the pooled model. It read the orchestrator's `model`, which is
+  # "both" when the two models render in turn, so the table said "both CPUE".
+  value = c(sprintf("%s CPUE; seasons %s; effort unit %s; AR %s; marine term %s", "pooled",
                     paste(params$season_filter, collapse = " + "), params$shore_effort_unit %||% "?",
                     if (is.null(params$ar_escalate) || isFALSE(params$ar_escalate)) "adaptive (capped)" else "escalation ladder (scoped)",
                     params$marine_hazard_mode %||% "off"),
             params$est_date_start, params$est_date_end,
             as.character(season_days), as.character(total_effort_days),
-            as.character(total_interview_n), as.character(n_bss_fits), as.character(n_pass),
-            if(!is.null(L_eff_model)) L_eff_model$method else "civil_twilight",
+            format(total_interview_n, big.mark = ","), format(fitted_interview_n, big.mark = ","), as.character(n_bss_fits), as.character(n_pass),
+            if (!bss_needs_day_length(params)) "not used (gear-deployment unit; the expansion is the turnover)"
+            else if (!is.null(L_eff_model)) L_eff_model$method else "civil_twilight",
             paste(unique(na.omit(unlist(ar_resolutions))), collapse = ", "))
 )
 write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names = FALSE)
@@ -3121,13 +3422,13 @@ write.csv(season_summary, file.path(output_dir, "season_summary.csv"), row.names
 
 ```
 
-```{r season-summary-show, echo=TRUE}
-report_table(season_summary, 'Season summary and run configuration.')
+```{r season-summary-show, echo=FALSE}
+report_table(dplyr::rename(season_summary, Item = metric, Value = value), caption = 'Run summary. "Total interviews" counts every interview in the window, commercial/charter included; the fits use the filtered subset.')
 ```
 
-## 15. Run parameters and timing
+## 15. Run parameters, timing and software
 
-Writes the full run parameters and the timing summary to the run folder for reproducibility.
+The full parameters are written to `run_parameters.txt` and the R session to `session_info.txt`; the tables below give the wall-clock by section and the software that produced this run.
 
 ```{r save-params, results='hide'}
 # ---- 7.19 SAVE PARAMETERS ----
@@ -3178,11 +3479,53 @@ cat(sprintf("\n  TOTAL RUNTIME: %.1f minutes (%.1f hours)\n",
 # save.image(file = file.path(output_dir, "BSS-GH-pooled-CPUE-model_workspace.RData"))
 ```
 
-## Appendix: divergence diagnostics (manual)
+```{r run-info-show, echo=FALSE}
+report_table(dplyr::mutate(timing_df, Section = sub("^BSS_(.*)_Dungeness_Kept_att([0-9]+)$", "fit: \\1 (attempt \\2)", Section)),
+             digits = 1, caption = sprintf("Wall-clock minutes by section; total %.1f minutes.", as.numeric(run_total)))
+.si <- sessionInfo()
+report_table(data.frame(check.names = FALSE, Item = c("R", "rstan", "StanHeaders", "Platform", "Code (git)", "Seed / init_r"),
+  Value = c(.si$R.version$version.string, as.character(utils::packageVersion("rstan")),
+            tryCatch(as.character(utils::packageVersion("StanHeaders")), error = function(e) "?"), .si$platform,
+            sprintf("%s%s", run_git_sha, if (run_git_dirty) " (uncommitted changes)" else ""),
+            sprintf("%s / %s", params$bss_seed, params$bss_init_r %||% 2))),
+  caption = "Software and reproducibility. A render of the same code, data and configuration on the same platform reproduces this run's draws.")
+```
 
-These localize divergences parameter by parameter. They are opt-in (`divergence_appendix = TRUE` in `run_config.R`): until 2026-09-28 (B46) this chunk ran on every render although it was described as manual, after `run_parameters.txt` was written and outside any `tryCatch`, so an error here failed a finished run.
+## 16. Run warnings and notes
 
-```{r divergence-diagnostics, results='hide', eval=isTRUE(params$divergence_appendix)}
+Every condition this run recorded, in one place: fallbacks (a turnover prior centred on its fallback, a component on its PE), skipped diagnostics, census frame conditions, and every R warning and message a step raised. **Warnings** can affect a number and should be read before citing the estimate; **notes** record a choice or a missing optional input. Written to `run_warnings.csv`. An empty table means the run recorded nothing.
+
+```{r run-warnings-show, echo=FALSE}
+# 2026-09-29 (D36 / the report overhaul). Two sources: bss_warn() calls (a structured log in
+# 03_R_functions/bss_run_warnings.R) and every warning or message knitr captured from any chunk
+# (the setup hooks). A bss_warn() warning is also raised as an R warning, so its knitr copy is
+# dropped here rather than listed twice; repeats are counted, not repeated.
+.bw <- bss_warn_log()
+.kc <- .report_conditions$log
+.bw_tab <- if (nrow(.bw)) data.frame(Source = .bw$source, Severity = .bw$severity, Message = .bw$message, stringsAsFactors = FALSE) else NULL
+.kc_tab <- if (nrow(.kc)) {
+  .m <- sub("^\\[[^]]+\\] ", "", .kc$message)
+  .keep <- !(.m %in% .bw$message)
+  data.frame(Source = sprintf("R %s (chunk %s)", .kc$type[.keep], .kc$chunk[.keep]),
+             Severity = ifelse(.kc$type[.keep] == "warning", "warning", "note"), Message = .m[.keep], stringsAsFactors = FALSE)
+} else NULL
+run_warnings <- dplyr::bind_rows(.bw_tab, .kc_tab)
+if (!is.null(run_warnings) && nrow(run_warnings)) {
+  run_warnings <- run_warnings |> dplyr::count(Severity, Source, Message, name = "Times") |>
+    dplyr::arrange(factor(Severity, levels = c("warning", "note")), Source)
+  utils::write.csv(run_warnings, file.path(output_dir, "run_warnings.csv"), row.names = FALSE)
+  report_table(run_warnings, digits = 0, caption = sprintf("Run warnings (%d) and notes (%d), each listed once with the number of times it was raised.",
+                                                           sum(run_warnings$Severity == "warning"), sum(run_warnings$Severity == "note")))
+} else {
+  utils::write.csv(data.frame(Severity = character(0), Source = character(0), Message = character(0), Times = integer(0)),
+                   file.path(output_dir, "run_warnings.csv"), row.names = FALSE)
+  cat("No warnings or notes were recorded this run.\n")
+}
+```
+
+`r if (isTRUE(params$divergence_appendix)) "## Appendix A: divergence diagnostics\n\nParameter-by-parameter divergence localization (opt-in: \x60divergence_appendix = TRUE\x60 in \x60run_config.R\x60)." else ""`
+
+```{r divergence-diagnostics, echo=FALSE, eval=isTRUE(params$divergence_appendix)}
 
 # load('output/20260619/pooled-CPUE/BSS-GH-pooled-CPUE-model_workspace.RData')
 
@@ -3195,6 +3538,41 @@ for (nm in names(bss_all)) {
   b <- bss_all[[nm]]
   if (is.null(b) || isTRUE(b$pe_fallback) || is.null(b$fit)) next
   cat(sprintf("\n=== Divergence diagnostics: %s ===\n", nm))
-  tryCatch(diagnose_divergences(b$fit), error = function(e) cat("  skipped:", conditionMessage(e), "\n"))
+  tryCatch(diagnose_divergences(b$fit), error = function(e) bss_warn("divergence appendix", sprintf("%s: skipped (%s)", nm, conditionMessage(e)), severity = "note"))
 }
+```
+
+## Appendix B: Other-fishery opener spillover
+
+A hypothesis test, not a model change: do other coastal fishery openers (Marine Area 2 finfish, coastal razor-clam digs near Grays Harbor) pull crab effort or catch rate onto or off opener days beyond what the day type and the month already explain? The **adjusted** table is the test: the opener's coefficient in `lm(response ~ day_type + month + opener)`. It feeds the opener screen in Section 3.3 and changes no estimate by itself.
+
+```{r fishery-spillover-raw-show, echo=FALSE}
+if (!is.null(sp_raw_disp)) {
+  report_table(sp_raw_disp, paste("Raw comparison: mean crab effort (daily counts) and CPUE (Dungeness per gear",
+    "deployment) on other-fishery opener days vs other days. These are confounded with day-type and season;",
+    "read the adjusted table below for the marginal effect."))
+} else {
+  cat(if (isTRUE(params$run_fishery_spillover_diag))
+        "_Fishery-opener spillover diagnostic produced no output this run._"
+      else "_Fishery-opener spillover diagnostic is off (`run_fishery_spillover_diag = FALSE`)._")
+}
+```
+
+```{r fishery-spillover-adj-show, echo=FALSE}
+if (!is.null(sp_adj_disp)) report_table(sp_adj_disp, paste("Adjusted association: the opener coefficient in",
+  "lm(response ~ day-type + month + opener), the marginal effect after removing the weekend and monthly signal",
+  "the model already captures. Positive = more effort/CPUE on opener days. A blank estimate with a Note means",
+  "the opener could not be separated from day-type/month in this season."))
+```
+
+```{r fishery-spillover-notes, echo=FALSE, results='asis'}
+if (!is.null(spillover)) {
+  cat("**Identifiability notes (read before interpreting):**\n\n")
+  for (nt in spillover$notes) cat("- ", nt, "\n\n", sep = "")
+}
+```
+
+```{r fishery-spillover-plots, echo=FALSE, fig.height=7, fig.cap=c('Crab effort on other-fishery opener days vs other days, by opener and series.','Interview CPUE on other-fishery opener days vs other days, by opener and series.')}
+if (!is.null(p_spill_eff))  print(p_spill_eff)
+if (!is.null(p_spill_cpue)) print(p_spill_cpue)
 ```

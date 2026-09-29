@@ -29,6 +29,22 @@ Two boat-side features are opt-in via `run_config` and behavior-neutral when off
 
 As of 2026-09-07 the pooled model's catch likelihood is a zero-inflated negative binomial on the populations named by `catch_zi_populations` (shore in production): `P(0) = theta_C + (1 - theta_C) * NB2(0)`, with Stan's `log_lik` carrying the mixture and the season total scaled by `(1 - theta_C)` in generated quantities so enabling the feature is not itself an inflation. **`crab_bss_gear_resolved.stan` has carried the same block since 2026-09-13** (the D6 port; until then it had none and the gear track silently ignored `estimate_catch_zi`). Which TRACKS fit it is `catch_zi_tracks` in `run_config.R`, which ships `"pooled"`, so `prep_bss_crab_gear()` emits `zi_catch = 0` and the gear track still fits plain NB2 as shipped; the OFF path is bit-identical to the pre-port model (11,021 parameter rows). The two tracks therefore still differ in the shore catch likelihood as shipped (worth about -0.3% on the pooled shore component). D6 in `07_documentation/development_notes/CHANGE_REGISTER.md` says adopt, pending one render at the matched configuration. Changing `estimate_catch_zi` (like `razor_dig_mode` and `estimate_cpue_density`) forces a Stan recompile.
 
+## The level hierarchy with one section (A31, 2026-09-29)
+
+Each model writes the effort and CPUE levels as a hierarchy over sections,
+`mu[g,s] = mu_mu[g] + eps_mu[g,s] * sigma_mu`. With ONE section, which is every production fit,
+only the sum enters the likelihood, so `sigma_mu` is unidentified and the product is a funnel;
+the pooled shore all-gear fit's divergences sat on the effort one (D33). The gear-resolved
+model has collapsed both levels at `S == 1` since v6.0 (its P2 block). **The pooled model
+collapses them per level since 2026-09-29**, from the data int `mu_hier_collapse_single`
+(0 none, the pre-A31 model exactly; 1 the effort level only; 2 both, shipped), set by
+`run_config$mu_hier_collapse_single`, so no recompile. A collapsed level's `eps_mu` is zero-size
+and its `sigma_mu` keeps a proper prior that enters nothing; it reports its prior and
+`bss_decoupled_reasons()` flags it. `collapse_mu_hier = 1` still forces both collapses on a
+multi-section fit. The container validation, and why `"both"` ships (collapsing the effort level
+alone left the CPUE funnel, and 4.7% divergences on the shore all-gear fit at the shipped
+`init_r`), are in CHANGE_REGISTER A31.
+
 ## Selecting a model
 
 The driver's `bss_model_file` parameter names the file (the `bss_model_file_covariates` key belonged to the weather-tide driver and went with it on 2026-09-13). Earlier prototype models (`BSS_creel_model_02_*.stan`, `BSS_crab_model_01/02/03.stan`) from the freshwater-creel lineage are retired and are not in this folder.

@@ -664,7 +664,10 @@ crab_fraction_source_rows <- function(dwg, ie_data, params, quiet = FALSE) {
       bm <- rows |> mutate(m = format(event_date, "%Y-%m")) |> group_by(m) |>
         summarise(t = sum(boats_total), c = sum(boats_crabbing), .groups = "drop")
       cat("    by month:", paste(sprintf("%s %.2f (n=%.0f)", bm$m, bm$c / pmax(bm$t, 1), bm$t), collapse = ", "), "\n")
-    } else cat(sprintf("  Crab-fraction classification rows (source = %s): none; f rests on its prior.\n", src))
+    } else {
+      cat(sprintf("  Crab-fraction classification rows (source = %s): none; f rests on its prior.\n", src))
+      if (exists("bss_warn", mode = "function")) bss_warn("crabbing fraction", sprintf("No crab-fraction classification rows (source = %s): the boat crabbing fraction f rests on its prior.", src))
+    }
   }
   rows
 }

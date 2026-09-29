@@ -47,8 +47,29 @@ if not, see <https://www.gnu.org/licenses/>.
 -->
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+# 2026-09-29: warnings and messages are CAPTURED for the closing "Run warnings and notes"
+# section and run_warnings.csv (as in the pooled driver), not discarded.
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE,
                       fig.align = "center", fig.width = 10, fig.height = 6)
+.report_conditions <- new.env(parent = emptyenv())
+.report_conditions$log <- data.frame(chunk = character(0), type = character(0), message = character(0),
+                                     stringsAsFactors = FALSE)
+.problem_pattern <- "warn|fallback|fall back|skip|fail|could not|cannot|unavailable|unusable|not available|dropped|ignored|error|clipped|outside the window|stuck|refus"
+.record_condition <- function(type) function(x, options) {
+  # knitr can hand the hook SEVERAL conditions at once (a character vector): record each.
+  x <- gsub("(^|\n)## ?", "\\1", as.character(x))       # knitr's comment prefix, on every line
+  msg <- trimws(gsub("^(Warning|Message)( in [^:]*)?:\\s*", "", gsub("\\s*\n+\\s*", " ", x)))
+  msg <- msg[nzchar(msg) & !grepl("^[=-]*$", msg)]
+  # message() is also how many chunks print progress banners; a note is kept only when it
+  # reports a problem (a warning, fallback, skip or failure), so the section is not a console dump.
+  if (identical(type, "message"))
+    msg <- msg[grepl(.problem_pattern, msg, ignore.case = TRUE)]
+  if (length(msg))
+    .report_conditions$log <- rbind(.report_conditions$log,
+      data.frame(chunk = if (is.null(options$label)) "?" else options$label, type = type, message = msg, stringsAsFactors = FALSE))
+  ""
+}
+knitr::knit_hooks$set(warning = .record_condition("warning"), message = .record_condition("message"))
 # Display helpers (parity with the pooled driver's knit-HTML report). report_table renders
 # a clean captioned kable; short_fit makes HTML-friendly fit labels; read_fit_outputs reads
 # back the per-fit diagnostic CSVs this driver writes so they can render on the page.
@@ -246,9 +267,8 @@ params <- list(
   centroid_lon = -124.105,
   local_tz     = "America/Los_Angeles",
 
-  # --- v5.2: Convergence divergence criterion (count-based; superseded for the
-  #     PE/BSS decision by the scale-aware gate below, retained for reporting) ---
-  max_divergences = 5,
+  # (D37, 2026-09-29: the v5.2 count-based max_divergences key was removed; the
+  #  scale-aware gate below superseded it and nothing read it.)
 
   # --- B1.8 scale-aware convergence gate (ported from pooled) -----------------
   # A fit passes only if R-hat/n_eff pass AND the divergence fraction is below
@@ -485,7 +505,7 @@ shift_coverage <- tryCatch(diagnose_shift_coverage(sampler_shifts, ie_data, dwg$
 # output_dir. Guarded so a missing file cannot break a run. The gear-resolved boat fit
 # consumes OSP via prep_bss_crab_gear() when use_osp_boat_counts = TRUE (Phase 1b).
 osp_boat <- tryCatch(fetch_osp_boat_counts(params),
-                     error = function(e) { message("  OSP ingest skipped: ", conditionMessage(e)); NULL })
+                     error = function(e) { bss_warn("OSP", paste("OSP ingest skipped:", conditionMessage(e))); NULL })
 # improvement 8: OSP crab-ONLY counts (a LOWER bound on the crabbing fraction f, because
 # OSP labels combo trips by the non-crab fishery). Lifted so the PE and the BSS read the
 # same rows from one file read. Empty until the crab-only column exists.
@@ -498,15 +518,17 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
            error = function(e) cat("  osp_crab_only_daily.csv not written:", conditionMessage(e), "\n"))
 
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
-                        error = function(e) { message("  OSP overlap diagnostic skipped: ", conditionMessage(e)); NULL })
+                        error = function(e) { bss_warn("OSP", paste("OSP overlap diagnostic skipped:", conditionMessage(e))); NULL })
 # Review item 3 + 5 (2026-09-08): resolve tau_boat_prior_mu = "calibration" from THIS
 # window's overlap; the resolved number replaces the key so the PE (run_pe_gear), the
 # daily-combined series, the shared-turnover prior and the tau projection agree. Mirrors
 # the pooled driver. See 03_R_functions/bss_turnover_prior.R.
 params <- bss_resolve_tau_boat_prior(params, osp_overlap)
 
+# B55 (2026-09-29): the L_effective regression only when a day length is used (see the
+# pooled driver and bss_needs_day_length()); under gear-deployments nothing reads it.
 L_eff_model <- NULL
-if(isTRUE(params$use_ie_day_length) && nrow(ie_data) > 0) {
+if(isTRUE(params$use_ie_day_length) && bss_needs_day_length(params) && nrow(ie_data) > 0) {
   L_eff_model <- estimate_L_effective(ie_data, params)
   if(!is.null(L_eff_model) && !is.null(L_eff_model$detail)) {
     write.csv(L_eff_model$detail,
@@ -710,12 +732,12 @@ for(pop in c("shore","private_boat")) {
     spec_d <- bss_effort_spec(is_shore_d, days_ss, params)
     if(is_shore_d) {
       mult_d <- if(spec_d$effort_scale_gear == 1L) 1.0 else summ_ss$crabbers_per_gear
-      Lcol_d <- if(spec_d$unit == "gear-deployments") (params$tau_shore_prior_mu %||% 1.7) else NA
+      Lcol_d <- if(spec_d$unit == "gear-deployments") (params$tau_shore_prior_mu %||% bss_tau_fallback("shore", params)) else NA
     } else {
       ng_d   <- suppressWarnings(as.numeric(summ_ss$interview$number_of_gear))
       ng_d   <- ng_d[!is.na(ng_d) & ng_d > 0]
       mult_d <- if(length(ng_d) > 0) mean(ng_d) else (params$gear_per_group_default %||% 4.0)
-      Lcol_d <- params$tau_boat_prior_mu %||% 1.2
+      Lcol_d <- params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)
     }
 
     de <- summ_ss$effort_index |>
@@ -755,6 +777,9 @@ timer_stop("3_PE_estimates")
 # ---- 7.4 COMMERCIAL/CHARTER ----
 timer_start("4_commercial_charter")
 pe_all$comm_charter <- estimate_comm_charter(dwg, params)
+# 2026-09-29: the frame conditions also go to the run-warnings log (the closing section).
+for (.w in pe_all$comm_charter$frame_warnings %||% character(0))
+  bss_warn("census", .w, severity = if (grepl("^(NO CENSUS FRAME|CENSUS OUTSIDE)", .w)) "warning" else "note")
 # Review item 4 (2026-09-08): observed / imputed per-day flags and the imputation variance
 # behind Dungeness_Kept_se (see estimate_comm_charter.R); same files as the pooled track.
 if (!is.null(pe_all$comm_charter$daily_full))
@@ -809,7 +834,7 @@ component_names <- c(unlist(lapply(pe_pops, function(p) sprintf("%s (%s)", pop_d
 
 pe_summary <- tibble(
   Component  = c(component_names, "PORT TOTAL"),
-  Effort_hrs = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
+  Effort = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),   # gear deployments (census: vessel-trips); was Effort_hrs
   Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
 )
 
@@ -2086,13 +2111,13 @@ for(pop in c("shore","private_boat")) {
     if (pop == "shore") {
       .mult_dc <- if (.spec_dc$effort_scale_gear == 1L) 1.0 else summ_ss$crabbers_per_gear
       .L_dc    <- if (identical(.spec_dc$unit, "gear-deployments"))
-                    (params$tau_shore_prior_mu %||% 1.7) else NA_real_
+                    (params$tau_shore_prior_mu %||% bss_tau_fallback("shore", params)) else NA_real_
       .f_dc    <- rep(1, nrow(days_ss))
     } else {
       .ng_dc   <- suppressWarnings(as.numeric(summ_ss$interview$number_of_gear))
       .ng_dc   <- .ng_dc[is.finite(.ng_dc) & .ng_dc > 0]
       .mult_dc <- if (length(.ng_dc)) mean(.ng_dc) else (params$gear_per_group_default %||% 4.0)
-      .L_dc    <- params$tau_boat_prior_mu %||% 1.2
+      .L_dc    <- params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)
       .f_dc    <- crab_fraction_point_day(TRUE, days_ss, params)   # crab-directed, matching the PE
     }
     .h_dc <- .spec_dc$h_col
@@ -2932,5 +2957,32 @@ if (!is.null(extrap_tbl) && nrow(extrap_tbl) > 0) {
            "diagnostic, not a re-estimate of the total."))
 } else {
   message("_Extrapolation transparency unavailable (daily catch / CPUE outputs not found)._")
+}
+```
+
+## Run warnings and notes
+
+Every warning, fallback and note this run recorded (the structured log from `bss_warn()` and every R warning or message a step raised), each listed once with a count. Written to `run_warnings.csv`.
+
+```{r run-warnings-show, echo=FALSE}
+.bw <- bss_warn_log()
+.kc <- .report_conditions$log
+.bw_tab <- if (nrow(.bw)) data.frame(Source = .bw$source, Severity = .bw$severity, Message = .bw$message, stringsAsFactors = FALSE) else NULL
+.kc_tab <- if (nrow(.kc)) {
+  .m <- sub("^\\[[^]]+\\] ", "", .kc$message)
+  .keep <- !(.m %in% .bw$message)
+  data.frame(Source = sprintf("R %s (chunk %s)", .kc$type[.keep], .kc$chunk[.keep]),
+             Severity = ifelse(.kc$type[.keep] == "warning", "warning", "note"), Message = .m[.keep], stringsAsFactors = FALSE)
+} else NULL
+run_warnings <- dplyr::bind_rows(.bw_tab, .kc_tab)
+if (!is.null(run_warnings) && nrow(run_warnings)) {
+  run_warnings <- run_warnings |> dplyr::count(Severity, Source, Message, name = "Times") |>
+    dplyr::arrange(factor(Severity, levels = c("warning", "note")), Source)
+  utils::write.csv(run_warnings, file.path(output_dir, "run_warnings.csv"), row.names = FALSE)
+  report_table(run_warnings, digits = 0, caption = "Run warnings and notes.")
+} else {
+  utils::write.csv(data.frame(Severity = character(0), Source = character(0), Message = character(0), Times = integer(0)),
+                   file.path(output_dir, "run_warnings.csv"), row.names = FALSE)
+  cat("No warnings or notes were recorded this run.\n")
 }
 ```

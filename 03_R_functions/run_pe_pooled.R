@@ -94,7 +94,7 @@ run_pe_pooled <- function(summ, days, params, population_name) {
     # retired 1.2 from two I/E days. Until this fix the boat PE-vs-BSS comparison was
     # mostly the two turnovers disagreeing (PE effort 3,709 vs BSS 11,118), not the two
     # estimators; the PE is meant to be the design-based cross-check and now is one.
-    tau_boat_pe <- params$tau_boat_prior_mu %||% 1.2
+    tau_boat_pe <- params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)
     if (!is.numeric(tau_boat_pe) || !is.finite(tau_boat_pe))
       stop("run_pe_pooled(): params$tau_boat_prior_mu is unresolved (", deparse(tau_boat_pe),
            "); the driver must call bss_resolve_tau_boat_prior() before the PE.", call. = FALSE)
@@ -111,7 +111,7 @@ run_pe_pooled <- function(summ, days, params, population_name) {
     # est_crabbers * day_length exactly (gear_mult = crabbers_per_gear, L_pe = day_length).
     eff_spec_pe    <- bss_effort_spec(TRUE, days, params)
     effort_unit_pe <- eff_spec_pe$unit
-    tau_shore_pe   <- params$tau_shore_prior_mu %||% 1.7
+    tau_shore_pe   <- params$tau_shore_prior_mu %||% bss_tau_fallback("shore", params)
     gear_mult      <- if (eff_spec_pe$effort_scale_gear == 1L) 1.0 else summ$crabbers_per_gear
     daily_effort <- daily_effort |>
       mutate(L_pe = if (effort_unit_pe == "gear-deployments") tau_shore_pe else day_length,

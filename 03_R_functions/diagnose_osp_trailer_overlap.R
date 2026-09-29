@@ -103,11 +103,19 @@ diagnose_osp_trailer_overlap <- function(osp, params, output_dir = NULL) {
     fit_one(pairs$trail_mean, "trailer_mean_per_visit"),
     fit_one(pairs$trail_max,  "trailer_max_per_day"),
     fit_one(pairs$trail_sum,  "trailer_sum_per_day"))
-  prim <- calibration |> dplyr::filter(trailer_metric == "trailer_max_per_day")
+  # 2026-09-29: the verdict and the plot use the metric the turnover prior is calibrated on
+  # (tau_boat_calibration_metric, trailer_mean_per_visit as shipped, 3.03 on 2024-25). They used
+  # the max-per-day metric (2.74), so the report's figure disagreed with the adopted centre.
+  .metric <- params$tau_boat_calibration_metric %||% "trailer_mean_per_visit"
+  if (!.metric %in% calibration$trailer_metric) .metric <- "trailer_mean_per_visit"
+  .ycol <- c(trailer_mean_per_visit = "trail_mean", trailer_max_per_day = "trail_max", trailer_sum_per_day = "trail_sum")[[.metric]]
+  .ylab <- c(trailer_mean_per_visit = "Trailer count (mean per visit)", trailer_max_per_day = "Trailer snapshot (max/day)",
+             trailer_sum_per_day = "Trailer count (sum over the day)")[[.metric]]
+  prim <- calibration |> dplyr::filter(trailer_metric == .metric)
 
   # zero agreement on the primary metric
   z_osp <- pairs$osp == 0
-  zero_agree <- sprintf("%d/%d", sum(z_osp & pairs$trail_max == 0), sum(z_osp))
+  zero_agree <- sprintf("%d/%d", sum(z_osp & pairs[[.ycol]] == 0), sum(z_osp))
 
   # --- Coverage / NS audit over the estimation window ---
   d0 <- as.Date(params$est_date_start %||% "2024-09-16")
@@ -126,11 +134,11 @@ diagnose_osp_trailer_overlap <- function(osp, params, output_dir = NULL) {
   coverage <- audit |> dplyr::count(coverage_class, name = "days")
 
   verdict <- sprintf(paste0(
-    "OSP daily total vs trailer snapshot (max/day): n=%d, r=%.3f, trailer = %.3f * OSP through origin ",
+    "OSP daily total vs trailer (%s): n=%d, r=%.3f, trailer = %.3f * OSP through origin ",
     "(within-day turnover ~ %.1f); on OSP-zero days the trailer is also zero %s. Near-proportional, so ",
     "the two series can enter the boat effort model as one latent process with a fixed scale ratio: the ",
     "%d overlap days calibrate it and the trailer-only stretch carries the OSP-dark winter."),
-    prim$n, prim$corr, prim$origin_slope, prim$implied_turnover, zero_agree, prim$n)
+    .metric, prim$n, prim$corr, prim$origin_slope, prim$implied_turnover, zero_agree, prim$n)
   cat("  ", verdict, "\n", sep = "")
 
   # --- Persist (guarded, matching repo convention) ---
@@ -146,15 +154,17 @@ diagnose_osp_trailer_overlap <- function(osp, params, output_dir = NULL) {
 
     if (requireNamespace("ggplot2", quietly = TRUE)) {
       tryCatch({
-        p <- ggplot2::ggplot(pairs, ggplot2::aes(.data$osp, .data$trail_max)) +
+        p <- ggplot2::ggplot(pairs, ggplot2::aes(.data$osp, .data[[.ycol]])) +
           ggplot2::geom_abline(slope = prim$origin_slope, intercept = 0, color = "#D55E00", linewidth = 1) +
           ggplot2::geom_point(color = "#0072B2", alpha = 0.8, size = 2) +
           ggplot2::labs(
-            x = "OSP daily boat total (all private boats)", y = "Trailer snapshot (max/day)",
-            title = sprintf("OSP vs trailer overlap (n=%d, r=%.3f, trailer=%.3f*OSP, turnover~%.1f)",
-                            prim$n, prim$corr, prim$origin_slope, prim$implied_turnover)) +
+            x = "OSP daily boat total (all private boats)", y = .ylab,
+            title = sprintf("OSP vs trailer on %d paired days: r = %.3f, implied turnover %.2f",
+                            prim$n, prim$corr, prim$implied_turnover),
+            subtitle = sprintf("Line: trailer = %.3f x OSP through the origin\nCalibration metric: %s",
+                               prim$origin_slope, .metric)) +
           ggplot2::theme_minimal(base_size = 11)
-        ggplot2::ggsave(file.path(output_dir, "osp_trailer_overlap.png"), p, width = 7, height = 5, dpi = 140)
+        ggplot2::ggsave(file.path(output_dir, "osp_trailer_overlap.png"), p, width = 8, height = 5.5, dpi = 140)
       }, error = function(err) cat("  (overlap plot not written:", conditionMessage(err), ")\n"))
     }
   }

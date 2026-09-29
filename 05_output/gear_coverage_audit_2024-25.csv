@@ -1,0 +1,21 @@
+"population","subseason","gear","single_gear_n","frac_effective_n","estimable"
+"shore","ring_net_only","Pot",0,0,FALSE
+"shore","ring_net_only","Ring Net",200,253.8,TRUE
+"shore","ring_net_only","Trap",207,271.8,TRUE
+"shore","ring_net_only","Snare",65,95.3,TRUE
+"shore","ring_net_only","Mixed",149,NA,TRUE
+"shore","all_gear","Pot",382,544.1,TRUE
+"shore","all_gear","Ring Net",223,370.1,TRUE
+"shore","all_gear","Trap",378,528.6,TRUE
+"shore","all_gear","Snare",130,201.2,TRUE
+"shore","all_gear","Mixed",531,NA,TRUE
+"private_boat","ring_net_only","Pot",0,0,FALSE
+"private_boat","ring_net_only","Ring Net",13,13,FALSE
+"private_boat","ring_net_only","Trap",1,1,FALSE
+"private_boat","ring_net_only","Snare",1,1,FALSE
+"private_boat","ring_net_only","Mixed",0,NA,FALSE
+"private_boat","all_gear","Pot",117,120.5,TRUE
+"private_boat","all_gear","Ring Net",5,9,FALSE
+"private_boat","all_gear","Trap",0,0.5,FALSE
+"private_boat","all_gear","Snare",0,0,FALSE
+"private_boat","all_gear","Mixed",8,NA,FALSE

@@ -137,7 +137,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` parameter. Ear
    ```
 
    which regenerates `interview_combined.xlsx`, `effort_combined.xlsx`, `sampler_shifts.xlsx`, `wes_commercial_tally.xlsx`, `charter_trips.xlsx` and `crabbing_holidays.xlsx` in dependency order. **Do not hand-edit those six**; an edit is discarded the next time anyone adds a season. Four inputs are not built by `build_all_inputs.R`, because their sources are not the season workbooks; the first three are maintained by hand and the fourth has its own builder:
-   - `ingress_egress.xlsx` (I/E surveys; the shore turnover and `L_effective`)
+   - `ingress_egress.xlsx` (I/E surveys; the shore turnover, and `L_effective` only under a time-denominated effort unit)
    - `WBL_boat_counts.xlsx` (OSP daily private-boat totals; used when `use_osp_boat_counts = TRUE`)
    - `fishery_opener_dates.xlsx` (the other-fishery opener calendar; pooled report diagnostic only)
    - `nws_marine_hazards.xlsx` (the NWS Small Craft Advisory archive for the bar and coastal zones; read by every production run, since `marine_hazard_mode` ships `"manual"` (the method of record since 2026-09-27), and a run stops if it does not cover the window; only `"off"` skips it; rebuilt before each new season by `Rscript 04_input_files/build_nws_marine_hazards.R`, which needs the network and is not part of `build_all_inputs.R`)
@@ -147,7 +147,7 @@ The `.Rmd` files select their Stan model via the `bss_model_file` parameter. Ear
 
 ### Setting up R
 
-**Requirements:** R 4.2+ and a C++ toolchain for Stan (Rtools on Windows, Xcode command-line tools on macOS, `build-essential` on Linux). The R packages are the ten in `bss_required_packages` (`03_R_functions/bss_packages.R`: tidyverse, lubridate, rstan, here, readxl, rmarkdown, knitr, loo, suncalc, digest) and their dependencies; `renv.lock` pins all 120 of them, including the BH and RcppEigen headers rstan compiles every model against. The weather-tide module's extra dependencies (mgcv, httr, jsonlite, geosphere) and its network calls went with it on 2026-09-13, so a run needs no network access once the packages are installed.
+**Requirements:** R 4.2+ and a C++ toolchain for Stan (Rtools on Windows, Xcode command-line tools on macOS, `build-essential` on Linux). The R packages are the nine in `bss_required_packages` (`03_R_functions/bss_packages.R`: tidyverse, lubridate, rstan, here, readxl, rmarkdown, knitr, loo, digest; suncalc is needed only under a time-denominated shore effort unit, B55) and their dependencies; `renv.lock` pins all 120 of them, including the BH and RcppEigen headers rstan compiles every model against. The weather-tide module's extra dependencies (mgcv, httr, jsonlite, geosphere) and its network calls went with it on 2026-09-13, so a run needs no network access once the packages are installed.
 
 1. Open R in the repository root (open `Coastal-Rec-Crab-BSS.Rproj` in RStudio, or start R there). The committed `.Rprofile` runs `renv/activate.R`, which installs renv 1.0.3 on first use if it is missing and points the session at the project library.
 2. Run `renv::restore()` once. It installs the pinned versions into the project library (`renv/library/`, git-ignored). On Windows install Rtools matching your R version first; rstan and StanHeaders are compiled from source when no binary exists.

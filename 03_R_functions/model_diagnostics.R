@@ -117,6 +117,20 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
       if (ospf_n == 0) set(base == "f_lower", "no typed contacts and no OSP days: f(1 - c) rests on c's prior")
     }
   }
+  # T2.5 (2026-09-29): with one section the level hierarchy is collapsed on BOTH tracks (the
+  # pooled Stan's use_mu_hier, the gear Stan's use_mu_hier_E / _C, both S > 1), and the
+  # pooled lever collapse_mu_hier = 1 forces it; sigma_mu_E / sigma_mu_C then multiply
+  # nothing and report their half-Cauchy PRIOR. Before this rule the gear track's
+  # structural_params listed sigma_mu_E = 2.03 [0.10, 43.5] as an estimate.
+  # The pooled lever mu_hier_collapse_single: 0 none, 1 effort only, 2 both (A31); the gear
+  # track carries no such key and collapses both at S == 1, so an absent key reads as 2.
+  one_s  <- identical(as.integer(g("S", 1L)), 1L)
+  lvl    <- as.integer(g("mu_hier_collapse_single", 2L))
+  forced <- identical(as.integer(g("collapse_mu_hier", 0L)), 1L)
+  if (forced || (one_s && lvl >= 1L)) set(base %in% c("sigma_mu_E", "eps_mu_E"),
+    "the effort level hierarchy is collapsed (one section, or collapse_mu_hier = 1): this is its prior")
+  if (forced || (one_s && lvl >= 2L)) set(base %in% c("sigma_mu_C", "eps_mu_C"),
+    "the CPUE level hierarchy is collapsed (one section, or collapse_mu_hier = 1): this is its prior")
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
   # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
@@ -448,11 +462,13 @@ write_bss_diagnostics <- function(fit, stan_data, label, output_dir, fit_method 
                     100 * ppc$summary$coverage_95[k], ppc$summary$n[k]))
       if (requireNamespace("ggplot2", quietly = TRUE)) {
         p <- ggplot2::ggplot(ppc$pit, ggplot2::aes(x = pit)) +
-          ggplot2::geom_histogram(boundary = 0, bins = 10, fill = "steelblue",
+          # 2026-09-29: explicit breaks on [0, 1]; bins = 10 let the last bin run to 1.1.
+          ggplot2::geom_histogram(breaks = seq(0, 1, by = 0.1), fill = "steelblue",
                                   colour = "white") +
           ggplot2::geom_hline(yintercept = 0, colour = NA) +
+          ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
           ggplot2::facet_wrap(~data_type, scales = "free_y") +
-          ggplot2::labs(title = sprintf("PPC PIT: %s", label),
+          ggplot2::labs(title = sprintf("PIT histogram: %s", gsub("_", " ", sub("_Dungeness_Kept$", "", label))),
                         subtitle = "Uniform => calibrated; U-shape => underdispersed; hump => overdispersed",
                         x = "PIT", y = "count") +
           ggplot2::theme_bw()

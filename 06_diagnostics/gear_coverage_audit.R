@@ -34,7 +34,10 @@
 #
 #     source("06_diagnostics/gear_coverage_audit.R")
 #
-# It prints a per-cell table and writes gear_coverage_audit.csv to the repo root.
+# It prints a per-cell table and writes 05_output/gear_coverage_audit_<season>.csv (the
+# repository root until 2026-09-29, D37, where .gitignore did not cover it). The sub-seasons
+# come from build_subseasons(), the production definition, so a multi-season window
+# (pot_closures) is audited per closure; it read the scalar pot_closure_end until D37.
 # Output columns per (population, subseason, gear): single_gear_n (interviews
 # reporting only that gear), frac_effective_n (the OLD fractional metric the
 # collapse used), estimable (single_gear_n >= threshold). A "Mixed" row per cell
@@ -50,15 +53,15 @@ suppressPackageStartupMessages({ library(here); library(dplyr); library(stringr)
 if (!exists("run_config")) source(here::here("run_config.R"))
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
 p <- run_config
+source(here::here("03_R_functions", "build_subseasons.R"))   # the production sub-season definition
 
+# The threshold is the gear driver's params_model bss_min_gear_effective_n (15); run_config
+# does not carry it, so the literal is kept equal to the driver's by the harness (D37).
 thr        <- p$bss_min_gear_effective_n %||% 15
 season_f   <- p$season_filter            %||% "2024-25"
 loc        <- p$gh_creel_location        %||% "Grays Harbor"
 min_ft     <- p$min_fishing_time         %||% 0.5
-d_start    <- as.Date(p$est_date_start   %||% "2024-09-16")
-d_potclose <- as.Date(p$pot_closure_end  %||% "2024-11-30")
-d_potopen  <- as.Date(p$pot_open_date    %||% "2024-12-01")
-d_end      <- as.Date(p$est_date_end     %||% "2025-09-15")
+subs       <- build_subseasons(p)
 
 int <- readxl::read_excel(here::here("04_input_files", p$interview_file %||% "interview_combined.xlsx"),
                           sheet = p$input_sheet %||% "data", guess_max = 100000) |>
@@ -100,14 +103,15 @@ int <- int |>
     has_ring_net = as.integer(str_detect(gear_type, "(?i)\\bring\\s*net\\b")),
     has_trap     = as.integer(str_detect(gear_type, "(?i)\\b(trap|star)\\b")),
     has_snare    = as.integer(str_detect(gear_type, "(?i)\\bsnare\\b")),
-    subseason = case_when(
-      event_date >= d_start   & event_date <= d_potclose ~ "pot_closure",
-      event_date >= d_potopen & event_date <= d_end      ~ "all_gear",
-      TRUE ~ NA_character_)) |>
-  filter(!is.na(subseason))
+    subseason = NA_character_, regime = NA_character_)
+for (ss in subs) {
+  in_ss <- int$event_date >= ss$start & int$event_date <= ss$end
+  int$subseason[in_ss] <- ss$name; int$regime[in_ss] <- ss$gear_regime
+}
+int <- int |> filter(!is.na(subseason))
 
-# Regulatory exclusion: pots illegal in the pot-closure sub-season
-int <- int |> mutate(has_pot = if_else(subseason == "pot_closure", 0L, has_pot))
+# Regulatory exclusion: pots illegal in a pot-closure sub-season
+int <- int |> mutate(has_pot = if_else(regime == "pot_closure", 0L, has_pot))
 
 gears  <- c(Pot = "has_pot", `Ring Net` = "has_ring_net", Trap = "has_trap", Snare = "has_snare")
 int <- int |> mutate(n_types = has_pot + has_ring_net + has_trap + has_snare,
@@ -118,7 +122,7 @@ cat(sprintf("\nGR-7 Phase 0 gear-coverage audit  |  season %s  |  single-gear th
             season_f, thr))
 cat(strrep("=", 78), "\n")
 for (popn in c("shore", "private_boat")) {
-  for (ss in c("pot_closure", "all_gear")) {
+  for (ss in vapply(subs, function(x) x$name, character(1))) {
     sub <- int |> filter(population == popn, subseason == ss)
     if (nrow(sub) == 0) next
     n_single <- sum(sub$n_types == 1); n_mixed <- sum(sub$n_types > 1)
@@ -145,5 +149,6 @@ for (popn in c("shore", "private_boat")) {
   }
 }
 out <- dplyr::bind_rows(rows)
-write.csv(out, here::here("gear_coverage_audit.csv"), row.names = FALSE)
-cat(sprintf("\nWrote %s\n", here::here("gear_coverage_audit.csv")))
+out_file <- here::here("05_output", sprintf("gear_coverage_audit_%s.csv", paste(season_f, collapse = "_")))
+write.csv(out, out_file, row.names = FALSE)
+cat(sprintf("\nWrote %s\n", out_file))

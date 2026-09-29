@@ -156,6 +156,38 @@ estimate_comm_charter <- function(dwg, params) {
   census_start <- as.Date(params$census_start_date)
   census_end   <- as.Date(params$census_end_date)
 
+  # D34 (2026-09-29): the census is CLIPPED TO THE ESTIMATION WINDOW. It was filtered by the
+  # census dates alone, so a part-season window (or a naive new window) that excluded the
+  # census still added the whole commercial census and charter expansion to the port total,
+  # and validate_season_window() said the component "will be empty", which was false. Every
+  # frame below (the tally, the commercial/charter interviews, the charter roster and the
+  # census calendar) now runs over the intersection; the per-vessel catch means come from
+  # the interviews inside it, as they always came from the interviews inside the census.
+  # A clip, and a census wholly outside the window, are frame warnings (the report prints
+  # them and census_frame_warnings.csv records them). No committed run changes: every
+  # production window contains its census.
+  census_clip_note <- character(0)
+  census_outside   <- FALSE
+  est_s <- suppressWarnings(as.Date(params$est_date_start %||% NA))
+  est_e <- suppressWarnings(as.Date(params$est_date_end   %||% NA))
+  if (!is.na(est_s) && !is.na(est_e) && !is.na(census_start) && !is.na(census_end)) {
+    cs0 <- census_start; ce0 <- census_end
+    census_start <- max(census_start, est_s); census_end <- min(census_end, est_e)
+    if (census_start > census_end) {
+      census_outside <- TRUE
+      census_clip_note <- sprintf(paste0("CENSUS OUTSIDE THE WINDOW: the census window %s to %s does not overlap the ",
+                                         "estimation window %s to %s, so the commercial/charter component is 0 for this ",
+                                         "run. That is the population's absence from the window, not an estimate of zero harvest."),
+                                  cs0, ce0, est_s, est_e)
+      census_start <- cs0; census_end <- cs0 - 1   # an empty calendar below
+    } else if (census_start != cs0 || census_end != ce0) {
+      census_clip_note <- sprintf(paste0("CENSUS CLIPPED TO THE WINDOW: the census window %s to %s runs outside the ",
+                                         "estimation window %s to %s; the component covers %s to %s only."),
+                                  cs0, ce0, est_s, est_e, census_start, census_end)
+    }
+    if (length(census_clip_note)) cat("  ", census_clip_note, "\n", sep = "")
+  }
+
   census_expansion <- tolower(params$census_expansion %||% "none")
   if (!census_expansion %in% c("none", "day_type"))
     stop("params$census_expansion must be 'none' or 'day_type' (got '", census_expansion, "')", call. = FALSE)
@@ -184,7 +216,7 @@ estimate_comm_charter <- function(dwg, params) {
 
   .day_type <- function(d) case_when(d %in% crabbing_holiday_dates ~ "weekend",
                                      bss_weekday(d) %in% params$days_wkend ~ "weekend", TRUE ~ "weekday")
-  census_calendar <- tibble(date = seq.Date(census_start, census_end, by = "day")) |>
+  census_calendar <- tibble(date = if (census_outside) as.Date(character(0)) else seq.Date(census_start, census_end, by = "day")) |>
     mutate(day_of_week = bss_weekday(date), day_type = .day_type(date))
 
   # 2026-09-13: frame_warnings carries every condition a READER OF THE REPORT needs, not
@@ -194,7 +226,7 @@ estimate_comm_charter <- function(dwg, params) {
   # batch runner that renders with quiet = TRUE never shows them at all. So the condition is
   # ALSO returned as data, printed by both drivers in a visible block, and written to
   # census_frame_warnings.csv so a verdict block can read it from the output folder.
-  .fw <- character(0)
+  .fw <- census_clip_note   # D34: a clip or a census outside the window leads the list
   if (nrow(comm_int) == 0 || (nrow(tally) == 0 && !use_roster)) {
     if (nrow(comm_int) > 0 && nrow(tally) == 0) {
       .m <- sprintf(paste0("NO CENSUS FRAME: %d commercial/charter interview(s) in the window %s to %s but NO vessel tally ",

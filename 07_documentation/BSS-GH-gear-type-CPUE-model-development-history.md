@@ -19,6 +19,19 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-29 (second entry), WHAT THE POOLED FIXES CHANGED ON THIS TRACK
+
+The gear-resolved Stan program is unchanged: its single-section level collapse (P2, since v6.0)
+is what the pooled model adopted as A31. What moved here: the census is clipped to the
+estimation window (B52, the shared `estimate_comm_charter()`); the turnover fallbacks are 3.03 /
+2.477 and are logged (B53); `run_pe_gear()` filters the gear-per-group frame on a positive angler
+count and returns `pe_cpue_check` as the pooled PE does (B54, inert on 2024-25); the day length
+is computed only under a time unit (B55); the report captures R warnings and messages and closes
+with a "Run warnings and notes" section written to `run_warnings.csv` (B56), the census frame
+conditions and any OSP skip among them; the PE summary's effort column is named `Effort` (it was
+`Effort_hrs`, on gear deployments); `sigma_mu_E` / `sigma_mu_C` are now flagged prior-only in
+`structural_params_*` (they read as estimates, 2.03 [0.10, 43.5] on the 2026-09-28 shore fit).
+
 ### 2026-09-29, THE CROSS-CHECK UNDER THE METHOD OF RECORD PASSES: -1.29% (on `main`)
 
 The cross-check owed in the entry below was rendered on 2026-09-28 in the same call as the

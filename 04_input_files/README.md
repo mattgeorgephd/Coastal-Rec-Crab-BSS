@@ -56,7 +56,7 @@ Which readers filter on it:
 - `effort_combined.xlsx` and `interview_combined.xlsx` filter to `season == run_config$season_filter` (existing behavior).
 - `wes_commercial_tally.xlsx` carries the column but is scoped by the census date window in `estimate_comm_charter` (unchanged); the column is provenance.
 - `fishery_opener_dates.xlsx` carries the column; the spillover diagnostic joins by date, so all rows are kept (a lookup calendar).
-- `ingress_egress.xlsx` carries the column but is **not** filtered by default: the `L_effective` day-length regression intentionally pools all seasons of I/E history. Set `run_config$ie_filter_by_season = TRUE` to restrict it to the current season.
+- `ingress_egress.xlsx` carries the column but is **not** filtered by default: the shore turnover derivation deliberately pools all seasons of I/E history (CHANGE_REGISTER D24; `tau_shore_derive_window_only = TRUE` restricts it to the window), as does the `L_effective` day-length regression, which since 2026-09-29 runs only under a time-denominated shore effort unit (B55). Set `run_config$ie_filter_by_season = TRUE` to restrict the I/E rows to the current season.
 
 ## Columns: modelling-relevant
 
