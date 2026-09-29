@@ -1082,6 +1082,9 @@ verdict_D29 <- function(dirs) {
   standing <- paste(sprintf("%s %s", P$rung, P$standing), collapse = "; ")
   if (!("daily" %in% P$rung)) standing <- paste0(standing, "; daily not rendered")
   better <- finer[finer$standing %in% "BETTER", , drop = FALSE]
+  # a D29D that did not render (failed, timed out, or dropped from STAGES) is not a rung the
+  # rule decided on; the recommendation says so rather than implying daily was weighed
+  scope <- if ("daily" %in% P$rung) "" else " [scope: weekly to monthly; the daily rung was not rendered]"
   if (!complete) {
     rec_row("D29", "REVIEW: the pooled ladder is incomplete, so the rule does not run", "D29-0 / D29-4(c)", standing)
   } else if (nrow(better)) {
@@ -1091,12 +1094,12 @@ verdict_D29 <- function(dirs) {
       rec_row("D29", sprintf("REVIEW: %s interpolates BETTER than monthly, but the finer %s could not be decided", b$rung, paste(undecided_finer$rung, collapse = ", ")),
               "D29-4(c)", standing)
     else
-      rec_row("D29", sprintf("MOVE the pooled boat all-gear cap to %s (ar_max_resolution$pooled$private_boat$all_gear), and the gear track to match (D3)", b$rung),
+      rec_row("D29", sprintf("MOVE the pooled boat all-gear cap to %s (ar_max_resolution$pooled$private_boat$all_gear), and the gear track to match (D3)%s", b$rung, scope),
               "D29-4(a): the finest eligible, adequate rung that interpolates BETTER than monthly",
               sprintf("%s: catch %s against monthly %s; block %s; adequate rungs span %s to %s. %s", b$rung, fmt(b$catch_median, 0), fmt(mon$catch_median[1], 0),
                       b$block_vs_monthly, fmt(span[1], 0), fmt(span[2], 0), standing))
   } else if (nrow(mon) && isTRUE(mon$pass_gate[1]) && isTRUE(mon$adequate[1]) && all(decided(finer$standing))) {
-    rec_row("D29", "KEEP monthly: the data do not support moving the cap. The span across the adequate rungs is this component's resolution uncertainty; applying the shore precedent (finest adequate rung) is Matt's decision, not the rule's",
+    rec_row("D29", paste0("KEEP monthly: the data do not support moving the cap. The span across the adequate rungs is this component's resolution uncertainty; applying the shore precedent (finest adequate rung) is Matt's decision, not the rule's", scope),
             "D29-4(b)", sprintf("adequate rungs span %s to %s. %s", fmt(span[1], 0), fmt(span[2], 0), standing))
   } else {
     rec_row("D29", "REVIEW: the rule could not decide", "D29-4(c)",
