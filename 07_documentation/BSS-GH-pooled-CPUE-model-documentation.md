@@ -6,7 +6,7 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29**. **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`). The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29**. **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section effort-level hierarchy collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run predates B51 and A31, so a render of the shipped configuration differs from it within Monte Carlo error. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
 **Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
@@ -501,7 +501,9 @@ seed at 0.5 gave four clean chains (1.6%, R-hat 1.000) and a median within 0.4% 
 that passed. The radius moves where chains START, not the posterior they sample, so a
 well-mixed fit at 0.5 is the same fit in distribution as at 2, but not the same draws: **a
 render of the shipped configuration does not reproduce the authoritative run of 2026-09-28 to
-the crab**, which was rendered at 2. Expect agreement within Monte Carlo error.
+the crab**, which was rendered at 2. Expect agreement within Monte Carlo error. The same day the
+funnel itself was removed (A31, Section 14.2), so the radius is now a precaution rather than the
+thing that keeps the shore all-gear fit inside the gate; it stays at 0.5.
 
 Two caveats that matter when comparing runs.
 
@@ -568,8 +570,15 @@ lambda_E_S[s][d,g] = exp( mu_E[g,s] + omega_E[period[d], gs]
                           + X_open[d] . B_open )         (the last term only if K_open > 0)
 ```
 
-**The level** is two-tier: `mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E`, collapsing
-to `mu_mu_E[g]` under `collapse_mu_hier = 1` (off in production).
+**The level** is two-tier, `mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E`, only where
+there is something to pool: with ONE section (every production fit) the pair `mu_mu_E` and
+`sigma_mu_E * eps_mu_E` enter the likelihood only through their sum, so `sigma_mu_E` was
+unidentified and its funnel was what the shore all-gear divergences sat on (D33). **Since
+2026-09-29 (A31, T2.5) the effort level is collapsed to `mu_E = mu_mu_E` on a single-section
+fit** (`mu_hier_collapse_single = "effort"`; `"both"` also collapses the CPUE level, as the
+gear-resolved model does; `"none"` restores the old form exactly). `sigma_mu_E` stays declared
+with its proper prior and enters nothing, so it reports its prior and is flagged prior-only.
+`collapse_mu_hier = 1` forces the collapse on a multi-section fit (off in production).
 
 **The AR(1)** is on `omega_E`, indexed by PERIOD, not by day, so every day in a period shares
 one deviation exactly:
@@ -779,8 +788,9 @@ approximation, and the beta-binomial's `osp_f_kappa` absorbs extra day-to-day sp
 ### 14.4 The turnovers
 
 `L[d]` is the daily expansion factor and it is a **TURNOVER**, not a day length: trips per
-gear slot per day, dimensionless. `L_effective` in hours is computed every run but is a
-diagnostic; it becomes `L` only if the shore effort unit is set back to a time unit.
+gear slot per day, dimensionless. `L_effective` in hours (and the civil-twilight day length) is
+used only if the shore effort unit is set back to a time unit, and since 2026-09-29 (B55) it is
+computed only then (or with `day_length_diagnostics = TRUE`).
 
 ```
 L[d] = tau_bar * exp(shared_tau_sigma * L_raw[d])     if shared_tau == 1
@@ -808,8 +818,8 @@ above the floor (the floor is applied per fit).
 
 | | shipped setting | 2024-25 prior centre | fitted | what it replaced |
 |---|---|---|---|---|
-| shore | `tau_shore_prior_mu = "derived"` | **2.477**, log-SD 0.10 (floored) | posterior 2.394 | a literal 1.7 |
-| boat | `tau_boat_prior_mu = "calibration"` | **3.030**, SD 0.50, from 61 paired overlap days | `tau_bar` **3.118** (2.977 on R4, before the boat term) | a literal 1.2 |
+| shore | `tau_shore_prior_mu = "derived"` | **2.477**, log-SD 0.10 (floored) | posterior median 2.373 [1.98, 2.86] (authoritative run) | a literal 1.7 |
+| boat | `tau_boat_prior_mu = "calibration"` | **3.030**, SD 0.50, from 61 paired overlap days | `tau_bar` median **3.097** [2.52, 3.84], mean 3.118 (2.977 on R4, before the boat term) | a literal 1.2 |
 
 Both resolve per run and both are printed with their source, so a run says where its turnover
 came from rather than leaving it to be looked up: `derived (I/E time column, 40 days,
@@ -1214,8 +1224,9 @@ fraction was **4.07% (shore all-gear) against the 5% backstop** (1.78% on the 20
 before the Float 17-21 fill; Section 20, limitation 15, and D33), treedepth saturation 0%, the
 gate's R-hats within 1.0007, `n_eff` on the summed catch and effort from 4,604 to 12,502
 against the 400 floor, and divergence impact at most **0.010** posterior SD against the 0.10
-threshold. Every chain now starts within `init_r = 0.5` (Section 13), which a refit showed keeps
-the shore all-gear chains out of the funnel; the reference run predates it. (Until 2026-09-28
+threshold. Every chain now starts within `init_r = 0.5` (Section 13), and the funnel itself was
+removed the same day by collapsing the single-section effort level (A31, limitation 15); the
+reference run predates both. (Until 2026-09-28
 this paragraph quoted 2.17%, 21,200 and 0.003: those were the extremes of the whole 2026-09-11
 ladder, from rungs R1, R2 and R2f, not of the reference run.)
 
@@ -1485,19 +1496,22 @@ mechanically (A14) from 2024-25 onward; D32's multi-season test is such a span, 
 2025-26 data (including its OSP record, D18) are complete. The four-season desk screen behind
 D32 reads the pre-2024-25 trailer counts only as a descriptive screen, not as a model fit.
 
-**15. The shore all-gear fit's effort level sits on an unidentified scale, and its sampling is
-close to the gate (D33, T2.5).** The effort level is `mu_E = mu_mu_E + eps_mu_E * sigma_mu_E`
-(Section 14.2), and with one section the spread `sigma_mu_E` has nothing to learn from: its
-posterior follows its half-Cauchy(0, 1) prior's tail (97.5% quantile 4.7 to 7.9 against a median
-of 0.72 on the 2026-09-28 code). That is a funnel. On the authoritative run the shore all-gear
-fit passed the gate at 4.07% divergences, against the 5% backstop, where it read 1.78% before
-the Float 17-21 fill; one render of the same code elsewhere left a chain stuck in the funnel and
-failed the gate, which then reported the component's PE. `init_r = 0.5` (Section 13) keeps
-chains out of the funnel's mouth; it does not remove the funnel. The durable fix is a
-reparameterisation of the single-cell level (T2.5), a model change that needs its own design
-and validation run; collapsing the level outright was tried in 2026-06 and made this fit hang.
-The gate catches a failure, so the exposure is a fallback to the PE (without its interval in
-the port total), not a wrong Bayesian number.
+**15. The single-section effort level was unidentified, and the funnel it made is removed
+(D33, T2.5, closed 2026-09-29 by A31, pending the first render at this code).** Until A31 the
+effort level was `mu_E = mu_mu_E + eps_mu_E * sigma_mu_E`, and with one section the spread
+`sigma_mu_E` had nothing to learn from: its posterior followed its half-Cauchy(0, 1) prior's
+tail. On the authoritative run the shore all-gear fit passed the gate at 4.07% divergences
+against the 5% backstop, and a render of the same code elsewhere left a chain stuck in the
+funnel and failed the gate. The collapse removes the funnel rather than steering around it
+(Section 14.2): on container refits from the saved Stan data, the seed and initial radius that
+had failed now pass cleanly, the estimate moves by a small fraction of a posterior SD, and the
+fits run several times faster (CHANGE_REGISTER A31 has the table). What remains: the collapse
+was validated on refits of one season's data and on four seeds or radii, not yet on a full
+render; the 2026-06 attempt to collapse the level made a DAILY-AR shore fit hang, and every
+shore fit has been on a coarse AR since 2026-09-07, so a future window fitted at daily AR
+should be watched for the same symptom (long trajectories, treedepth saturation). The CPUE
+level keeps its hierarchy as shipped (`mu_hier_collapse_single = "effort"`), because on the
+short pot-closure fit its collapse made the CPUE level mix poorly at one of two seeds.
 
 ## 21. Weather and tide covariates: evaluated and excluded
 
@@ -1593,7 +1607,7 @@ section 13.1, `effort_day_covariates.csv`).
 | **adequacy** | the model-adequacy statistics, reported beside the gate and never gating |
 | **gear-deployment** | a piece of gear a crabber had in the water on that trip; the effort unit. Not a pot lift |
 | **turnover, `tau`** | trips per gear slot per day, dimensionless. The daily expansion factor `L` |
-| **`L_effective`** | the effective day length in hours, from the I/E regression. A DIAGNOSTIC under the production effort unit, not the expansion factor |
+| **`L_effective`** | the effective day length in hours, from the I/E regression. Used, and since B55 computed, only under a time-denominated effort unit; never the expansion factor under gear deployments |
 | **crabbing fraction, `f`** | the share of counted boats that were crabbing. A per-stratum logit random walk in Method v2.0 |
 | **combo share, `c`** | among crabbing boats, the share whose trip also targeted another fishery |
 | **`f_lower`** | under the dynamic `f`, the derived quantity `f(1-c)`: the model's prediction of OSP's crabbing-only column. Under the legacy construction, a hard lower bound on `f`. Same name, two meanings |
@@ -1615,6 +1629,11 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
+- **2026-09-29 (second).** A31: the single-section effort-level hierarchy collapsed (T2.5,
+  closing D33; Section 14.2, limitation 15), container-validated on every fit and on the seeds
+  and radii that had failed; B52 the census clipped to the estimation window; B53 the turnover
+  fallbacks (3.03 / 2.477) and a run-level warnings log; B55 the day length computed only under
+  a time-denominated unit; B56 the results report rebuilt. Not yet rendered.
 - **2026-09-28 / 2026-09-29.** The method of record re-rendered at the current code with its
   gear cross-check (B50): port total **99,873 [82,414, 124,438]**, +3.9% on 96,118, all of it the
   shore (the Float 17-21 fill, B45); the boat fits byte-identical; the gear-resolved track at

@@ -141,14 +141,20 @@ validate_season_window <- function(effort, interview, params, quiet = FALSE) {
       if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))
         warning(sprintf("A census_windows entry (%s to %s) lies entirely outside the estimation window; that season's census component will be empty.",
                         cs, ce), call. = FALSE)
+      else if (!is.na(cs) && !is.na(ce) && (cs < ws || ce > we))
+        message(sprintf("  A census_windows entry (%s to %s) runs outside the estimation window; it is clipped to the window (D34).", cs, ce))
     }
     return(invisible(TRUE))
   }
   cs <- suppressWarnings(as.Date(params$census_start_date %||% NA))
   ce <- suppressWarnings(as.Date(params$census_end_date   %||% NA))
+  # D34 (2026-09-29): these two messages are TRUE since estimate_comm_charter() clips the
+  # census to the window; before that the census was added whole whatever the window.
   if (!is.na(cs) && !is.na(ce) && (ce < ws || cs > we))
     warning(sprintf(paste0("The commercial/charter census window (%s to %s) lies entirely outside the ",
                            "estimation window; the census component will be empty. census_start_date / ",
                            "census_end_date are per-season settings."), cs, ce), call. = FALSE)
+  else if (!is.na(cs) && !is.na(ce) && (cs < ws || ce > we))
+    message(sprintf("  The commercial/charter census window (%s to %s) runs outside the estimation window; it is clipped to the window (D34).", cs, ce))
   invisible(TRUE)
 }

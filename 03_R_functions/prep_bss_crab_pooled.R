@@ -227,8 +227,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # I/E days to bind harder; see the shore-I/E representativeness diagnostic (GR-9 / item 4).
   ie_min_obs_shore <- params$ie_min_obs_shore %||% 3L
   if (IE_n > 0 && IE_n < ie_min_obs_shore) {
-    cat(sprintf("  I/E stream dropped: %d in-window obs < ie_min_obs_shore = %d; sigma_IE left decoupled (GR-8 guard).\n",
-                IE_n, ie_min_obs_shore))
+    .msg <- sprintf("I/E stream dropped for %s/%s: %d in-window obs < ie_min_obs_shore = %d; sigma_IE left decoupled (GR-8 guard).",
+                    population_name, gear_regime %||% "?", IE_n, ie_min_obs_shore)
+    cat("  ", .msg, "\n", sep = "")
+    if (exists("bss_warn", mode = "function")) bss_warn("I/E", .msg, severity = "note")   # 2026-09-29: for the report's warnings section
     IE_n <- 0L
   }
 
@@ -250,8 +252,19 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   mu_E_prior <- if(is_shore) log(25) else log(10)
   mu_C_prior <- log(0.5)
 
+  # A31: the Stan code for run_config$mu_hier_collapse_single (validated here, so a typo stops
+  # the prep rather than silently fitting the wrong model).
+  bss_mu_hier_collapse_code <- function(x) {
+    x <- tolower(as.character(x %||% "effort"))
+    code <- c(none = 0L, effort = 1L, both = 2L)[x]
+    if (length(x) != 1L || is.na(code))
+      stop("run_config$mu_hier_collapse_single must be \"none\", \"effort\" or \"both\" (got ", deparse(x), ").", call. = FALSE)
+    unname(code)
+  }
   # POOL-4: resolve the collapse_mu_hier lever (global logical OR per-population
-  # named list; default FALSE = current v6.8 hierarchy). Passed to Stan as an int.
+  # named list). Passed to Stan as an int. Since T2.5 (2026-09-29) the Stan program
+  # collapses the level hierarchy by itself whenever S == 1 (every production fit), so
+  # this lever only changes a fit with more than one section.
   collapse_flag <- if(is.list(params$collapse_mu_hier)) {
     isTRUE(params$collapse_mu_hier[[population_name]])
   } else {
@@ -281,8 +294,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   if (open_spec$K_open > 0)
     cat(sprintf("  Effort day covariates on the K_open block (%d): %s\n", open_spec$K_open,
                 paste(open_spec$labels, collapse = ", ")))
-  for (msg in open_spec$dropped)
+  for (msg in open_spec$dropped) {
     cat(sprintf("  Effort day covariate DROPPED for this fit: %s\n", msg))
+    if (exists("bss_warn", mode = "function")) bss_warn("covariates", sprintf("Effort day covariate DROPPED for %s/%s: %s", population_name, gear_regime %||% "?", msg))
+  }
 
   # Days that can inform L in THIS fit: the I/E days always, plus the OSP days when
   # osp_scale_is_tau puts L into the OSP mean. This is what the shared-turnover floor gates on.
@@ -300,6 +315,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
     O=array(1.0, dim=c(D,S,G)),
     collapse_mu_hier = as.integer(collapse_flag),   # POOL-4 lever (0 = v6.8 default)
+    # A31 (2026-09-29): which S == 1 level hierarchies to collapse (run_config
+    # mu_hier_collapse_single): "none" = 0 (the pre-A31 model exactly), "effort" = 1, "both" = 2.
+    mu_hier_collapse_single = bss_mu_hier_collapse_code(params$mu_hier_collapse_single),
 
     L_data = L_data_vec,
     estimate_L = estimate_L_flag,

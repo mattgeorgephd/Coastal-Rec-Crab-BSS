@@ -33,8 +33,11 @@
 # from CRAN (cloud.r-project.org unless a repository is already set). Either way a package that
 # is still missing STOPS the run here, naming it.
 ###############################################################################
+# B55 (2026-09-29): suncalc left this list. It serves only the civil-twilight day length, which
+# only a time-denominated shore effort unit reads (bss_needs_day_length()); it stays in
+# renv.lock, and bss_day_length_civil() stops with the fix if it is called without it.
 bss_required_packages <- c("tidyverse", "lubridate", "rstan", "here", "readxl", "rmarkdown",
-                           "knitr", "loo", "suncalc", "digest")
+                           "knitr", "loo", "digest")
 bss_attached_packages <- c("tidyverse", "lubridate", "rstan", "here", "readxl")
 
 bss_load_packages <- function(pkgs = bss_required_packages, attach = bss_attached_packages) {

@@ -45,8 +45,12 @@
 #       the model's trailer level is the per-visit mean, not the daily maximum,
 #       and the PE expands mean_count per day the same way.
 #   tau_boat_prior_mu = <number>       -> used as is (the historical behaviour).
-#   No overlap (OSP absent, or < 3 paired days) -> params$tau_boat_prior_mu_fallback
-#       (SEASON-DERIVED in run_config.R; 2.7 = the 2024-25 max-per-day calibration).
+#   No overlap (OSP absent, the overlap diagnostic failed, or < 3 paired days)
+#       -> params$tau_boat_prior_mu_fallback (SEASON-DERIVED in run_config.R; 3.03, the
+#       2024-25 calibration on the SAME metric, trailer_mean_per_visit, n = 61). Until
+#       2026-09-29 it was 2.7, the max-per-day metric's value, so a fallback also switched
+#       metric without saying so (D36). A fallback is recorded by bss_warn(): the report's
+#       warnings section and run_warnings.csv carry it, not only a console line.
 #
 # ON THE DOUBLE USE OF THE OVERLAP DAYS. The same 61 days sit in the likelihood, so
 #   centring the prior on them is a mild empirical-Bayes step. It is harmless only
@@ -62,11 +66,24 @@
 # params$tau_boat_prior_calibration_table.
 ###############################################################################
 
+# D36 (2026-09-29): ONE home for the turnover fallback centres, read by the two resolvers
+# and by every consumer that needs a number when the resolved key is absent. They are the
+# 2024-25 values of the SHIPPED methods (SEASON-DERIVED; run_config.R owns them): the shore
+# turnover derived from the I/E time column (2.477, 40 days) and the boat calibration on
+# trailer_mean_per_visit (3.03, 61 paired days). The retired literals (1.7 shore, arrivals
+# over PEAK presence; 1.2 boat, two WBL I/E days) are no longer anyone's default.
+bss_tau_fallback <- function(population = c("shore", "private_boat"), params = list()) {
+  population <- match.arg(population)
+  v <- if (identical(population, "shore")) params$tau_shore_prior_mu_fallback %||% 2.477
+       else params$tau_boat_prior_mu_fallback %||% 3.03
+  suppressWarnings(as.numeric(v))
+}
+
 bss_resolve_tau_boat_prior <- function(params, osp_overlap = NULL, quiet = FALSE) {
   .say <- function(...) if (!isTRUE(quiet)) cat(...)
-  raw <- params$tau_boat_prior_mu %||% 1.2
+  raw <- params$tau_boat_prior_mu %||% "calibration"
   metric   <- params$tau_boat_calibration_metric %||% "trailer_mean_per_visit"
-  fallback <- suppressWarnings(as.numeric(params$tau_boat_prior_mu_fallback %||% 2.7))
+  fallback <- bss_tau_fallback("private_boat", params)
   min_pairs <- as.integer(params$tau_boat_calibration_min_pairs %||% 3L)
 
   # Numeric: historical behaviour, nothing to resolve.
@@ -81,8 +98,11 @@ bss_resolve_tau_boat_prior <- function(params, osp_overlap = NULL, quiet = FALSE
   cal <- osp_overlap$calibration
   if (is.null(cal) || !is.data.frame(cal) || !nrow(cal) ||
       !all(c("trailer_metric", "n", "implied_turnover") %in% names(cal))) {
-    .say(sprintf(paste0("  tau_boat prior: no OSP/trailer overlap calibration available; using the ",
-                        "fallback centre %.2f (tau_boat_prior_mu_fallback).\n"), fallback))
+    .msg <- sprintf(paste0("tau_boat prior: no OSP/trailer overlap calibration available (OSP absent, or the ",
+                           "overlap diagnostic failed); the boat turnover prior is centred on the fallback %.2f ",
+                           "(tau_boat_prior_mu_fallback, the 2024-25 calibration), not on this window's own overlap."), fallback)
+    .say("  ", .msg, "\n", sep = "")
+    if (exists("bss_warn", mode = "function")) bss_warn("turnover", .msg)
     params$tau_boat_prior_mu     <- fallback
     params$tau_boat_prior_source <- "fallback (no overlap calibration)"
     return(params)
@@ -94,8 +114,11 @@ bss_resolve_tau_boat_prior <- function(params, osp_overlap = NULL, quiet = FALSE
   val <- suppressWarnings(as.numeric(row$implied_turnover[1]))
   n   <- suppressWarnings(as.integer(row$n[1]))
   if (!is.finite(val) || val <= 0 || !is.finite(n) || n < min_pairs) {
-    .say(sprintf(paste0("  tau_boat prior: overlap calibration unusable (metric %s, n = %s, value %s); ",
-                        "using the fallback centre %.2f.\n"), metric, n, val, fallback))
+    .msg <- sprintf(paste0("tau_boat prior: overlap calibration unusable (metric %s, n = %s paired days, value %s); ",
+                           "the boat turnover prior is centred on the fallback %.2f (tau_boat_prior_mu_fallback)."),
+                    metric, n, val, fallback)
+    .say("  ", .msg, "\n", sep = "")
+    if (exists("bss_warn", mode = "function")) bss_warn("turnover", .msg)
     params$tau_boat_prior_mu     <- fallback
     params$tau_boat_prior_source <- sprintf("fallback (calibration n = %s below %d)", n, min_pairs)
     return(params)

@@ -14,6 +14,28 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-09-29 (second entry), THE DURABLE FUNNEL FIX, FOUR DEFECTS CLOSED AND THE REPORT REBUILT (A31, B52 to B56)
+
+Matt's list after B51, while the first render at `init_r = 0.5` ran on his machine. Each item has
+a CHANGE_REGISTER row; in one line each:
+- **A31 (T2.5, D33): the single-section level hierarchy is collapsed** on the pooled track, per
+  level (`mu_hier_collapse_single`), the structure the gear track has used since v6.0. Validated
+  by container refits of every fit from saved Stan data, including the two seed and `init_r`
+  combinations that had failed the gate; the register row carries the table and the reason for
+  the shipped level. **It changes every fit's draws**, so the render at `init_r = 0.5` that
+  predates it is not at this code.
+- **B52 (D34):** the commercial/charter census is clipped to the estimation window.
+- **B53 (D36):** the turnover fallbacks are 3.03 (boat) and 2.477 (shore), the 2024-25 values of
+  the shipped methods, in one function, and every fallback is recorded for the report
+  (`bss_run_warnings.R`, new).
+- **B54 (D37):** the housekeeping list (dead keys, absent-key defaults, `run_pe_gear()` parity,
+  the orchestrator's package guard, `gear_coverage_audit.R`, three harness gaps).
+- **B55:** the day length (`L_effective`, civil twilight, suncalc) is computed only under a
+  time-denominated effort unit; nothing on the gear-deployment path read it.
+- **B56:** the results report rebuilt: warnings captured and listed, configuration, inputs,
+  turnovers, fit settings, components, BSS catch by mode, adequacy, prior influence, block CV,
+  sampler health, `tau_bar` and `f` on the page; eight defects in what it printed fixed.
+
 ### 2026-09-29, THE MODEL OF RECORD AS OF THIS DATE: B44 to B51, the re-render at the current code, and `init_r = 0.5` (on `main`)
 
 **The model of record is the pooled model as of 2026-09-29.** The method is still Method v2.0 plus

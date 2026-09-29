@@ -48,13 +48,11 @@
 #   module's method document at 07_documentation/archive/. CHANGE_REGISTER A29.
 ###############################################################################
 
-suppressPackageStartupMessages({
-  library(here)
-  library(rmarkdown)
-})
-
 # 2026-09-28 (B46): one package list and loader (03_R_functions/bss_packages.R): renv.lock's
 # versions when renv is active, a stop naming the package when one cannot be had.
+# D37 (2026-09-29): the guard now runs FIRST. A library(here) above it used to fail on a
+# missing package with R's generic error before this message could name the fix; here and
+# rmarkdown are attached by bss_load_packages() with every other package.
 if (!requireNamespace("here", quietly = TRUE)) stop("Package 'here' is missing: run renv::restore() first.", call. = FALSE)
 source(here::here("03_R_functions", "bss_packages.R")); bss_load_packages()
 rstan_options(auto_write = TRUE)

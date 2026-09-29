@@ -227,6 +227,9 @@ bss_select_ar_resolution <- function(days, eff_d, population_name, params,
       cat(sprintf("  AR resolution FORCED to '%s' for %s/%s (ar_force experiment override)\n",
                   ar_resolution, population_name, gear_regime %||% "all"))
     }
+    # 2026-09-29: an experiment override on a production render must be visible in the report.
+    if (exists("bss_warn", mode = "function")) bss_warn("AR", sprintf("AR resolution FORCED to '%s' for %s/%s by ar_force (an experiment override, not the data-driven choice).",
+                                ar_resolution, population_name, gear_regime %||% "all"))
   }
 
   # --- Map resolution -> period count and day -> period index ----------------

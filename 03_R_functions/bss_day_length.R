@@ -402,10 +402,26 @@ estimate_L_effective <- function(ie_data, params) {
 # CIVIL TWILIGHT HELPER + DAY-LENGTH ASSIGNMENT
 # ===========================================================================
 
+# 2026-09-29 (B55): IS A DAY LENGTH NEEDED AT ALL? Only under a TIME-denominated shore
+# effort unit ("crabber-hours" / "gear-hours"), where the PE and the Stan L take the day
+# length in hours. Under the shipped "gear-deployments" unit the expansion is the turnover
+# tau (bss_effort_spec), and neither L_effective nor civil twilight is read by any estimate:
+# the regression, the civil-twilight fallback and their two report figures were computed
+# every run and then discarded. params$day_length_diagnostics = TRUE computes them anyway
+# (for the I/E trip-length diagnostic); nothing ships it on.
+bss_needs_day_length <- function(params = list()) {
+  unit <- params$shore_effort_unit %||% "gear-deployments"
+  unit %in% c("crabber-hours", "gear-hours") || isTRUE(params$day_length_diagnostics)
+}
+
 # Dawn-to-dusk hours at the project centroid, clamped to the configured cap.
 # Defaults match the historical Westport values so a caller that passes no
-# location still reproduces prior behavior.
+# location still reproduces prior behavior. suncalc is needed only here, and only when
+# bss_needs_day_length() (B55): it is no longer a package every run must load.
 bss_day_length_civil <- function(dates, params = list()) {
+  if (!requireNamespace("suncalc", quietly = TRUE))
+    stop("bss_day_length_civil(): the civil-twilight day length needs the suncalc package, used only under a ",
+         "time-denominated shore_effort_unit. Run renv::restore() (it is in renv.lock).", call. = FALSE)
   sun <- suncalc::getSunlightTimes(
     date = dates,
     lat  = params$centroid_lat %||% 46.904,
@@ -432,6 +448,16 @@ bss_day_length_civil <- function(dates, params = list()) {
 # L_eff_model = NULL means no usable I/E data: fall back to civil twilight and
 # warn, because that path reintroduces the ~2x shore effort bias.
 bss_assign_day_length <- function(days, L_eff_model, params = list()) {
+
+  # B55 (2026-09-29): under the gear-deployment unit no estimate reads these columns, so
+  # they are NA (present, so every select() downstream still resolves) and suncalc is not
+  # called. The time-unit path below is unchanged.
+  if (!bss_needs_day_length(params)) {
+    days$day_length <- NA_real_; days$day_length_civil_twilight <- NA_real_
+    days$L_mu <- NA_real_; days$L_prior_sigma <- NA_real_
+    attr(days, "l_source") <- "not used (gear-deployment effort unit; the expansion is the turnover tau)"
+    return(days)
+  }
 
   days$day_length <- bss_day_length_civil(days$event_date, params)
   days$day_length_civil_twilight <- days$day_length
@@ -664,8 +690,9 @@ write_shore_turnover <- function(st, output_dir) {
 # per-day draws average it away).
 bss_resolve_tau_shore_prior <- function(params, shore_turnover = NULL, quiet = FALSE) {
   .say <- function(...) if (!isTRUE(quiet)) cat(...)
-  mu_raw <- params$tau_shore_prior_mu    %||% 1.7
-  sd_raw <- params$tau_shore_prior_sigma %||% 0.3
+  # D36 (2026-09-29): an absent key means the shipped method, "derived", not the retired 1.7.
+  mu_raw <- params$tau_shore_prior_mu    %||% "derived"
+  sd_raw <- params$tau_shore_prior_sigma %||% "derived"
   floor_sd <- as.numeric(params$tau_shore_prior_sigma_floor %||% 0.10)
   derived <- function(x) is.character(x) && identical(tolower(x), "derived")
   if (is.numeric(mu_raw) && is.numeric(sd_raw)) {
@@ -676,9 +703,18 @@ bss_resolve_tau_shore_prior <- function(params, shore_turnover = NULL, quiet = F
   ok <- !is.null(st) && is.finite(st$tau %||% NA_real_) && (st$n_days %||% 0) >= as.integer(params$tau_shore_derive_min_days %||% 10L)
   if (derived(mu_raw)) {
     if (!ok) {
-      params$tau_shore_prior_mu <- as.numeric(params$tau_shore_prior_mu_fallback %||% 1.7)
+      # D36 (2026-09-29): the fallback is the 2024-25 DERIVED value (2.477), no longer the
+      # retired 1.7, and it is recorded for the report, not only printed. The log-SD falls
+      # back to 0.3 below (wide), because a borrowed centre is not this window's measurement.
+      params$tau_shore_prior_mu <- bss_tau_fallback("shore", params)
       params$tau_shore_prior_source <- "fallback (turnover derivation unavailable)"
-      .say(sprintf("  tau_shore prior: derivation unavailable; using the fallback centre %.2f.\n", params$tau_shore_prior_mu))
+      .msg <- sprintf(paste0("tau_shore prior: the turnover derivation is unavailable (%s I/E day(s), %s needed); ",
+                             "the shore turnover prior is centred on the fallback %.3f (tau_shore_prior_mu_fallback, ",
+                             "the 2024-25 derivation) with log-SD 0.3."),
+                      if (is.null(st)) "no" else as.character(st$n_days %||% 0),
+                      as.integer(params$tau_shore_derive_min_days %||% 10L), params$tau_shore_prior_mu)
+      .say("  ", .msg, "\n", sep = "")
+      if (exists("bss_warn", mode = "function")) bss_warn("turnover", .msg)
     } else {
       params$tau_shore_prior_mu <- st$tau
       params$tau_shore_prior_source <- sprintf("derived (I/E time column, %d days, %s)", st$n_days, st$method)

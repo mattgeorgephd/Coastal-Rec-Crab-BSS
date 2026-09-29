@@ -35,7 +35,7 @@ for (f in c("bss_rng.R", "classify_day_type.R",   # 2026-09-28 (B46): bss_with_s
             "bss_ar_rung_summary.R",
             "read_input_workbook.R")) source(file.path("03_R_functions", f))   # 2026-09-10: the workbook reader
 
-ok <- 0; bad <- 0
+ok <- 0; bad <- 0; skipped <- 0
 # 2026-09-13: an ERROR while evaluating a condition is a FAIL, not the end of the run.
 # `cond` is a promise, so an error raised while computing it surfaces here. Before this,
 # any unexpected error in any one of a thousand conditions aborted the harness and threw
@@ -51,6 +51,12 @@ chk <- function(nm, cond, extra="") {
          cat("FAIL ", nm, extra,
              if (!is.null(attr(v, "err"))) paste0("  [ERROR while evaluating: ",
                                                   substr(attr(v, "err"), 1, 220), "]") else "", "\n") } }
+
+# D37 (2026-09-29): a check whose INPUT is absent is a SKIP, counted and printed apart. It
+# used to be chk(name, TRUE, "skipped"), a PASS, or an if (dir.exists()) with no else, which
+# ran nothing and said nothing; either way a checkout missing a committed run folder read as
+# a clean harness. The summary line now reports the skips, and on a full checkout it is 0.
+skp <- function(nm, why = "input absent") { skipped <<- skipped + 1; cat("SKIP ", nm, paste0("(", why, ")"), "\n") }
 
 mkdays <- function(start, n) {
   d <- as.Date(start) + 0:(n-1)
@@ -655,7 +661,7 @@ local({
     chk("adequacy: the daily fit carries more unreliable LOO points",
         sum(b[["n_pareto_k_gt_0.7"]]) > sum(a[["n_pareto_k_gt_0.7"]]))
   } else {
-    chk("adequacy: reference runs present for the threshold check", TRUE, "skipped, runs absent")
+    skp("adequacy: the threshold check's reference runs", "runs absent")
   }
 
   # A decoupled dispersion parameter must NOT drag the minimum down: an unused r_OSP in a
@@ -715,7 +721,7 @@ local({
     chk("retro-audit: window-dependent rules are reported unknown, not guessed",
         any(grepl("^unknown", a$status)))
   } else {
-    chk("retro-audit: annotated baseline present", TRUE, "skipped, not yet annotated")
+    skp("retro-audit: the annotated baseline", "not yet annotated")
   }
 })
 
@@ -793,6 +799,7 @@ local({
       exists("annotate_model_adequacy_run", mode = "function") &&
       exists(".bma_core", mode = "function"))
   d <- "05_output/20260829/pooled-CPUE-IP-F-escalate"
+  if (!dir.exists(d)) skp("adequacy retro: stage F annotation", "folder absent")
   if (dir.exists(d)) {
     a <- annotate_model_adequacy_run(d, overwrite = TRUE, quiet = TRUE)
     r <- a[a$fit == "private_boat_all_gear_Dungeness_Kept", ]
@@ -838,6 +845,7 @@ local({
                   b$disp_scale_min, b$disp_neff_min, g$disp_scale_min))
     }
     e <- "05_output/20260829/pooled-CPUE-IP-E-tau-on-pooled"
+    if (!dir.exists(e)) skp("adequacy retro: stage E", "folder absent")
     if (dir.exists(e)) {
       b <- annotate_model_adequacy_run(e, overwrite = TRUE, quiet = TRUE)
       rb <- b[b$fit == "private_boat_all_gear_Dungeness_Kept", ]
@@ -846,7 +854,7 @@ local({
           sprintf("(E p_loo %.3f bias %.3f vs F p_loo %.3f bias %.3f)",
                   rb$p_loo_frac, rb$pit_worst_bias, r$p_loo_frac, r$pit_worst_bias))
     }
-  } else chk("adequacy retro: stage F folder present", TRUE, "skipped, folder absent")
+  } else skp("adequacy retro: stage F", "folder absent")
 })
 
 # ---------------------------------------------------------------------------
@@ -908,7 +916,7 @@ local({
     list("05_output/20260829/gear-type-CPUE-model-S5-3-tau-gear", "private_boat \\(All gear\\)", 30760))
   for (r in ref) {
     p <- file.path(r[[1]], "pe_vs_bss_comparison.csv")
-    if (!file.exists(p)) { chk(paste("stage5 REF:", basename(r[[1]])), TRUE, "skipped, folder absent"); next }
+    if (!file.exists(p)) { skp(paste("stage5 REF:", basename(r[[1]])), "folder absent"); next }
     d <- read.csv(p, stringsAsFactors = FALSE)
     v <- d$BSS_catch[grepl(r[[2]], d$component)][1]
     chk(sprintf("stage5 REF: %s boat all-gear is still %d", basename(r[[1]]), r[[3]]),
@@ -1094,6 +1102,7 @@ local({
     x <- read.csv(p, stringsAsFactors = FALSE); round(x[[col]][grepl(pat, x$component)][1])
   }
   v1 <- "05_output/20260831/pooled-CPUE-VAL-1-adopted"
+  if (!dir.exists(v1)) skp("V1: the adopted configuration's components", "folder absent")
   if (dir.exists(v1)) {
     chk("V1: the adopted configuration reproduces S2's components",
         isTRUE(bag(v1) == 31008) &&
@@ -1123,6 +1132,7 @@ local({
         sprintf("(%d/%d/%d/%d, interaction %+d)", v[1], v[2], v[3], v[4], inter))
   }
   v5 <- "05_output/20260901/pooled-CPUE-VAL-5-floor20"
+  if (!(dir.exists(v5) && dir.exists(v1))) skp("V5: the shared_tau_min_obs threshold", "folder absent")
   if (dir.exists(v5) && dir.exists(v1))
     chk("V5: the shared_tau_min_obs threshold is worth ~169 crab, 0.24% of the port",
         isTRUE(abs((bag(v1, "private_boat \\(Pot closure\\)") -
@@ -1132,6 +1142,7 @@ local({
   # GR-7 Phase 2, sampled for the first time: widen intervals, do not move medians.
   a <- "05_output/20260901/gear-type-CPUE-model-VAL-2-gearG-phase1"
   b <- "05_output/20260901/gear-type-CPUE-model-VAL-3-gearG-dirichlet"
+  if (!(dir.exists(a) && dir.exists(b))) skp("VAL-2 / VAL-3 gear intervals", "folder absent")
   if (dir.exists(a) && dir.exists(b)) {
     g <- function(d) { x <- read.csv(file.path(d, "catch_by_gear_type_detail.csv"), stringsAsFactors = FALSE)
       x <- x[x$population == "shore" & x$subseason == "all_gear", ]
@@ -1259,6 +1270,7 @@ local({
       grepl("expect_delta", t, fixed = TRUE) && grepl("config_delta <- function", t, fixed = TRUE))
   # Drift guard on the production numbers the ladder is judged against.
   v1 <- "05_output/20260831/pooled-CPUE-VAL-1-adopted"
+  if (!dir.exists(v1)) skp("shore/zi REF: production adequacy", "folder absent")
   if (dir.exists(v1)) {
     a <- read.csv(file.path(v1, "model_adequacy.csv"), stringsAsFactors = FALSE)
     r <- a[a$fit == "shore_all_gear_Dungeness_Kept", ]
@@ -3551,6 +3563,25 @@ local({
   }, live)
   chk("pointers: no live document offers 72,027 without marking it superseded",
       length(bad_ptr) == 0, sprintf("(%s)", paste(bad_ptr, collapse = ", ")))
+  # D37 (2026-09-29): the guard above covered ONE superseded total. Every later one (R4's
+  # 94,376, the 2026-09-27 render's 96,118, and their folders) appears legitimately in dozens
+  # of historical sentences, so a blacklist would be brittle; what must never happen is a
+  # line that CLAIMS a run is the authoritative / current one naming a superseded total or
+  # folder without marking it so. Add a total here when the box moves.
+  stale_runs <- c("72,027", "94,376", "96,118", "pooled-CPUE-canonical-2024-25", "pooled-CPUE-IMP-R4")
+  claim_re <- "authoritative|method of record|current reference|reference run|the current run"
+  label_re <- paste0("supersed|SUPERSED|historical|HISTORICAL|previous|used to|replaced|replaces|was the|until |",
+                     "before |against|first render|rendered 2026-09-27|R4|what this replaced|the run it|moves|moved|from 9|ladder")
+  bad_claim <- unlist(lapply(unique(grep("/archive/", live, value = TRUE, invert = TRUE)), function(f) {   # an archive is a record
+    if (!file.exists(f)) return(character(0))
+    L0 <- readLines(f, warn = FALSE)
+    hit <- vapply(L0, function(l) grepl(claim_re, l, ignore.case = TRUE) &&
+                    any(vapply(stale_runs, function(t) grepl(t, l, fixed = TRUE), logical(1))) && !grepl(label_re, l),
+                  logical(1))
+    if (any(hit)) sprintf("%s:%d", f, which(hit)) else character(0)
+  }))
+  chk("pointers: no live line calls a superseded run (94,376, 96,118, their folders) authoritative or current",
+      length(bad_claim) == 0, sprintf("(%s)", paste(bad_claim, collapse = ", ")))
 
   # section 1v: one direction, stated. Moved to VALIDATION_CAMPAIGN.md on 2026-09-12, so the
   # assertion follows it and also checks that the status document still routes the reader.
@@ -3952,7 +3983,7 @@ local({
   drv <- rd("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")
   chk("in-code docs: the pooled report quotes the gate's ACTUAL divergence backstop",
       grepl("max_divergence_fraction        = 0.05", drv, fixed = TRUE) &&
-      grepl("the divergent fraction is under the 5 percent backstop", drv, fixed = TRUE) &&
+      grepl("the divergent fraction is under the 5% backstop", drv, fixed = TRUE) &&   # 2026-09-29 report wording
       !grepl("under the 15 percent backstop", drv, fixed = TRUE))
 
   # (2) the v7.7 shore unit: no executable file may describe the shore expansion as hours
@@ -4616,9 +4647,11 @@ local({
         grepl("for (k in warn_keys) if (length(per[[i]][[k]]))", t, fixed = TRUE) })
   for (f in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd",
               "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
-    chk(sprintf("census: %s prints the frame conditions and writes the CSV", basename(f)),
+    chk(sprintf("census: %s prints the frame conditions, logs them for the warnings section and writes the CSV", basename(f)),
         { t <- flat(rd(f))
-          grepl("CENSUS FRAME:", t, fixed = TRUE) &&
+          # 2026-09-29: the pooled report prints them in Section 4.2 (its port-total chunk is hidden)
+          (grepl("CENSUS FRAME:", t, fixed = TRUE) || grepl("**Census frame conditions (%d).**", t, fixed = TRUE)) &&
+          grepl('bss_warn("census", .w', t, fixed = TRUE) &&
           grepl("census_frame_warnings.csv", t, fixed = TRUE) },
         paste("A bare warning() does not reach a rendered report: knitr defers warnings,",
               "html_document can hide them, and quiet = TRUE suppresses them entirely."))
@@ -4652,7 +4685,8 @@ local({
            "run_tau_sweep")   # 2026-09-28 (B46): superseded by its own header; now guarded
   LIVE <- c("run_improvements_2026-09-08", "run_gear_ar_zi_2026-09-13",
             "run_rg_sweep",
-            "run_marine_hazard_batch_2026-09-25")   # 2026-09-25: A30 / B35
+            "run_marine_hazard_batch_2026-09-25",   # 2026-09-25: A30 / B35
+            "run_marine_block_cv_2026-09-26")       # D37 (2026-09-29): B39's runner was in neither list
   chk("diagnostics: the superseded-runner helper exists and offers an override",
       file.exists("03_R_functions/bss_superseded_runner.R") &&
       { t <- flat(rd("03_R_functions/bss_superseded_runner.R"))
@@ -4670,6 +4704,10 @@ local({
                     fixed = TRUE)), logical(1))]
         length(bad) == 0 },
       "(guarding the current ladder would be the same mistake in reverse)")
+  chk("diagnostics: every run_*.R is classified SETTLED or LIVE here (D37: run_marine_block_cv was in neither)",
+      { allr <- sub("[.]R$", "", list.files("06_diagnostics", pattern = "^run_.*[.]R$"))
+        length(setdiff(allr, c(SUP, LIVE))) == 0 && length(intersect(SUP, LIVE)) == 0 },
+      sprintf("(unclassified: %s)", paste(setdiff(sub("[.]R$", "", list.files("06_diagnostics", pattern = "^run_.*[.]R$")), c(SUP, LIVE)), collapse = ", ")))
   chk("diagnostics: the README labels every runner LIVE or RECORD",
       { t <- rd("06_diagnostics/README.md")
         rows <- grep("^\\| `run_|^\\| `test_|^\\| `gear_coverage", t, value = TRUE)
@@ -5919,6 +5957,7 @@ local({
     identical(unname(tools::md5sum(file.path(a, f))), unname(tools::md5sum(file.path(b, f))))
 
   # ---- (1) the render as evidence ---------------------------------------------------------------
+  if (!(dir.exists(P) && file.exists(file.path(P, "port_total_Dungeness_Kept.csv")))) skp("80 render: the 2026-09-27 render", "folder absent")
   if (dir.exists(P) && file.exists(file.path(P, "port_total_Dungeness_Kept.csv"))) {
     rp <- readLines(file.path(P, "run_parameters.txt"), warn = FALSE)
     chk("80 render: run_parameters.txt records the method of record's keys (manual, boat nws_sca_any, all_gear, no shore term)",
@@ -5963,6 +6002,7 @@ local({
     if (file.exists(mf)) chk("80 render: its manifest names code 74d9731 and was cut off at 99 keys by str() (the defect B43 fixes)",
         { m <- readLines(mf, warn = FALSE); any(grepl("^git sha\\s*: 74d9731$", m)) && any(grepl("list output truncated", m, fixed = TRUE)) &&
           !any(grepl("marine_hazard_mode", m, fixed = TRUE)) })
+    if (!dir.exists(M6)) skp("80 render: B38 in the field (M6)", "folder absent")
     if (dir.exists(M6)) {
       chk("80 render: B38 in the field: M6 and this render (both post-B38) wrote byte-identical saved draws for the shore fits; R4 (pre-B38) did not",
           same(P, M6, sprintf("bss_draws_summed_%s.csv", FIT[["sag"]])) && same(P, M6, sprintf("bss_draws_summed_%s.csv", FIT[["spc"]])) &&
@@ -6068,7 +6108,7 @@ local({
         length(k) == 1 && grepl("^if \\(!is.null\\(day_cov_df\\) && nrow\\(day_cov_df\\) > 0\\)$", gd[k + 1]) && grepl("^  report_table\\(", gd[k + 2]) } &&
       { k <- grep("^```\\{r day-covariates-show", rmd); length(k) == 1 && grepl("^if \\(!is.null\\(day_cov_df\\)", rmd[k + 1]) && grepl("^  report_table\\(", rmd[k + 2]) })
   chk("B43 table: both reports carry it (pooled 12.2, gear 13.1) and write effort_day_covariates.csv",
-      any(grepl("^### 12.2 Effort day covariates as fitted", rmd)) && any(grepl("^### 13.1 Effort day covariates as fitted", gd)) &&
+      any(grepl("^### 12.4 Effort day covariates as fitted", rmd)) && any(grepl("^### 13.1 Effort day covariates as fitted", gd)) &&
       any(grepl("day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params)", rmd, fixed = TRUE)) &&
       any(grepl("day_cov_df <- tryCatch(bss_day_covariate_table(bss_all, params)", gd, fixed = TRUE)) &&
       sum(grepl('"effort_day_covariates.csv"', c(rmd, gd), fixed = TRUE)) == 2)
@@ -6458,7 +6498,7 @@ local({
       grepl("Unknown argument", re, fixed = TRUE) && grepl("cross_check_%s.csv", re, fixed = TRUE) &&
       regexpr("write_manifest(stages, .base)", re, fixed = TRUE) < regexpr('stop(sprintf("Model stage(s) failed', re, fixed = TRUE))
   chk("B46 appendix: the manual divergence chunk is opt-in",
-      any(grepl("{r divergence-diagnostics, results='hide', eval=isTRUE(params$divergence_appendix)}", readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), fixed = TRUE)))
+      any(grepl("{r divergence-diagnostics, echo=FALSE, eval=isTRUE(params$divergence_appendix)}", readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), fixed = TRUE)))
   # 3.5: the report names the modelled seasons
   chk("B46 report: neither report hard-codes a season in its title or banner",
       !any(grepl("2024-25 Season Results Report", readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), fixed = TRUE)) &&
@@ -6619,6 +6659,7 @@ local({
     st <- utils::read.csv(file.path(N, "season_totals.csv"), stringsAsFactors = FALSE)
     chk("85 render (B43 in production): season_totals.csv equals the port total on a single season",
         identical(as.numeric(c(st$BSS_median, st$BSS_lo95, st$BSS_hi95)), as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95))))
+    if (!dir.exists(O)) skp("85 render: boat fits byte-identical to 2026-09-27", "folder absent")
     if (dir.exists(O)) {
       same <- function(f) identical(unname(tools::md5sum(file.path(N, f))), unname(tools::md5sum(file.path(O, f))))
       bf <- c("bss_full_summary_private_boat_all_gear_Dungeness_Kept.csv", "bss_full_summary_private_boat_ring_net_only_Dungeness_Kept.csv",
@@ -6672,7 +6713,229 @@ local({
   md <- paste(readLines("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md", warn = FALSE), collapse = " ")
   chk("B51 docs: the box says the authoritative run was rendered at 2, the method document states the radius and the funnel limitation",
       grepl("init_r = 0.5", ps, fixed = TRUE) && grepl("**The initial-value radius is part of the configuration", md, fixed = TRUE) &&
-      grepl("**15. The shore all-gear fit's effort level sits on an unidentified scale", md, fixed = TRUE))
+      # 2026-09-29: limitation 15 now records the A31 collapse that closed D33
+      grepl("**15. The single-section effort level was unidentified, and the funnel it made is removed", md, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 87. D34 (2026-09-29): THE CENSUS IS CLIPPED TO THE ESTIMATION WINDOW. The same synthetic
+#     two-week census as section 53; a window that covers it changes nothing, a window that
+#     cuts it keeps the tally days inside only and says so, and a window that misses it gives
+#     a zero component with a warning that says the zero is an absence, not an estimate.
+# ---------------------------------------------------------------------------
+local({
+  cal <- seq(as.Date("2025-01-06"), as.Date("2025-01-19"), by = "day")
+  wk  <- weekdays(cal) %in% c("Saturday", "Sunday")
+  samp <- c(cal[!wk][1:8], cal[wk][1:2])
+  tally <- tibble(date = samp, commercial_tally = c(4, 6, 5, 7, 4, 6, 5, 3, 8, 10), charter_tally = c(1, 0, 1, 1, 0, 1, 1, 0, 2, 2))
+  ints  <- tibble(population = "comm_charter", event_date = rep(samp, each = 2),
+                  boat_type_clean = rep(c("Commercial", "Charter"), 10), dungeness_kept = rep(c(40, 60), 10), red_rock_kept = 0)
+  dwg <- list(comm_tally = tally, interview = ints)
+  P0 <- list(census_start_date = "2025-01-06", census_end_date = "2025-01-19", days_wkend = c("Saturday", "Sunday"),
+             crabbing_holiday_dates = as.Date(character()))
+  q <- function(...) { r <- NULL
+    utils::capture.output(r <- suppressWarnings(estimate_comm_charter(dwg, modifyList(P0, list(...)))))
+    r }
+  r_all  <- q()
+  r_in   <- q(est_date_start = "2024-12-01", est_date_end = "2025-09-15")
+  r_cut  <- q(est_date_start = "2025-01-13", est_date_end = "2025-09-15")
+  r_out  <- q(est_date_start = "2025-02-01", est_date_end = "2025-03-01")
+  keep <- tally$date >= as.Date("2025-01-13")
+  chk("D34: a window containing the census changes nothing (no clip note)",
+      isTRUE(all.equal(r_in$Dungeness_Kept, r_all$Dungeness_Kept)) && !any(grepl("CENSUS", r_in$frame_warnings)))
+  chk("D34: a window cutting the census keeps only the tally days inside it, and a CLIPPED note leads the frame warnings",
+      isTRUE(all.equal(r_cut$Dungeness_Kept, sum(tally$commercial_tally[keep] * 40 + tally$charter_tally[keep] * 60))) &&
+      min(r_cut$daily_full$date) == as.Date("2025-01-13") && grepl("^CENSUS CLIPPED TO THE WINDOW", r_cut$frame_warnings[1]))
+  chk("D34: a window missing the census gives 0 with an OUTSIDE note saying the zero is an absence, not an estimate",
+      r_out$Dungeness_Kept == 0 && nrow(r_out$daily_full) == 0 &&
+      grepl("^CENSUS OUTSIDE THE WINDOW", r_out$frame_warnings[1]) && grepl("not an estimate of zero harvest", r_out$frame_warnings[1], fixed = TRUE))
+  chk("D34: census_windows entries are clipped the same way (the recursion calls the scalar path)",
+      { rw <- q(census_windows = list(`2024-25` = c("2025-01-06", "2025-01-19")), est_date_start = "2025-01-13", est_date_end = "2025-09-15")
+        isTRUE(all.equal(rw$Dungeness_Kept, r_cut$Dungeness_Kept)) })
+  vs <- paste(readLines("03_R_functions/validate_season_window.R", warn = FALSE), collapse = "\n")
+  chk("D34: the validator says a partly-outside census is clipped",
+      grepl("it is clipped to the window (D34)", vs, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 88. A31 / T2.5 (2026-09-29): THE SINGLE-SECTION LEVEL HIERARCHY IS COLLAPSED ON THE POOLED
+#     TRACK, per level (run_config mu_hier_collapse_single: "effort" ships, "both" is the gear
+#     track's P2 structure, "none" the pre-A31 model). With S == 1 the pair
+#     (mu_mu, sigma_mu * eps_mu) is unidentified and sigma_mu_E's funnel was D33.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  ps <- rd("02_stan_models/crab_bss_pooled.stan"); gs <- rd("02_stan_models/crab_bss_gear_resolved.stan")
+  chk("A31 Stan: per-level collapse flags in transformed data, driven by mu_hier_collapse_single (0/1/2) and the POOL-4 lever",
+      grepl("int<lower=0,upper=2> mu_hier_collapse_single;", ps, fixed = TRUE) &&
+      grepl("int<lower=0, upper=1> use_mu_hier_E = (collapse_mu_hier == 0 && (S > 1 || mu_hier_collapse_single == 0)) ? 1 : 0;", ps, fixed = TRUE) &&
+      grepl("int<lower=0, upper=1> use_mu_hier_C = (collapse_mu_hier == 0 && (S > 1 || mu_hier_collapse_single < 2)) ? 1 : 0;", ps, fixed = TRUE))
+  chk("A31 Stan: eps_mu_E / eps_mu_C are zero-size when their level is collapsed, and their priors are guarded",
+      grepl("matrix[G * use_mu_hier_E, S] eps_mu_E;", ps, fixed = TRUE) && grepl("matrix[G * use_mu_hier_C, S] eps_mu_C;", ps, fixed = TRUE) &&
+      grepl("if (use_mu_hier_E == 1) eps_mu_E[g,s] ~ std_normal();", ps, fixed = TRUE) && grepl("if (use_mu_hier_C == 1) eps_mu_C[g,s] ~ std_normal();", ps, fixed = TRUE))
+  chk("A31 Stan: sigma_mu_E / sigma_mu_C keep their proper priors (prior-only when collapsed)",
+      grepl("sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);", ps, fixed = TRUE) && grepl("sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);", ps, fixed = TRUE))
+  chk("A31 Stan: the gear track's P2 collapse is unchanged",
+      grepl("int<lower=0, upper=1> use_mu_hier_E = (S > 1) ? 1 : 0;", gs, fixed = TRUE))
+  dr <- function(pars, ...) bss_decoupled_reasons(pars, list(...))
+  pp <- c("sigma_mu_E", "sigma_mu_C", "mu_mu_E[1]")
+  chk("A31 reporting: 'effort' flags sigma_mu_E prior-only and not sigma_mu_C; 'both' (and the gear track, no key) flags both; 'none' neither; S > 1 neither unless forced",
+      { e <- dr(pp, S = 1L, mu_hier_collapse_single = 1L); b <- dr(pp, S = 1L, mu_hier_collapse_single = 2L)
+        g0 <- dr(pp, S = 1L); n <- dr(pp, S = 1L, mu_hier_collapse_single = 0L)
+        m <- dr(pp, S = 2L, mu_hier_collapse_single = 2L); f <- dr(pp, S = 2L, collapse_mu_hier = 1L, mu_hier_collapse_single = 0L)
+        !is.na(e[1]) && is.na(e[2]) && all(!is.na(b[1:2])) && all(!is.na(g0[1:2])) && all(is.na(n)) &&
+          all(is.na(m)) && all(!is.na(f[1:2])) && all(is.na(c(e[3], b[3], f[3]))) })
+  rc <- rd("run_config.R"); pr <- rd("03_R_functions/prep_bss_crab_pooled.R")
+  chk("A31 config: mu_hier_collapse_single is a named level, validated by the prep (a typo stops); collapse_mu_hier ships FALSE",
+      grepl('mu_hier_collapse_single    = "effort",', rc, fixed = TRUE) && grepl("collapse_mu_hier           = FALSE,", rc, fixed = TRUE) &&
+      grepl("mu_hier_collapse_single = bss_mu_hier_collapse_code(params$mu_hier_collapse_single),", pr, fixed = TRUE) &&
+      grepl('code <- c(none = 0L, effort = 1L, both = 2L)[x]', pr, fixed = TRUE))
+  v <- "05_output/t25_collapse_2026-09-29_validation.csv"
+  if (!file.exists(v)) skp("A31 evidence: the container validation table", "file absent") else {
+    x <- utils::read.csv(v, stringsAsFactors = FALSE)
+    sh <- x[x$level == "effort", ]
+    chk("A31 evidence: every refit at the shipped level passes the gate, including shore all-gear at the seed and init_r = 2 that got stuck before",
+        nrow(sh) >= 4 && all(sh$pass_convergence) && any(sh$fit == "shore_all_gear" & sh$init_r == 2 & sh$divergence_fraction < 0.01))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# 89. D36 / B53 (2026-09-29): THE TURNOVER FALLBACKS ARE THE UPDATED VALUES, AND LOUD. One home
+#     (bss_tau_fallback), the 2024-25 values of the shipped methods, and every fallback lands
+#     in the run-warnings log that the report prints.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("D36: the fallback centres are 2.477 (shore, derived) and 3.03 (boat, trailer_mean_per_visit)",
+      isTRUE(all.equal(bss_tau_fallback("shore", list()), 2.477)) && isTRUE(all.equal(bss_tau_fallback("private_boat", list()), 3.03)) &&
+      isTRUE(all.equal(bss_tau_fallback("shore", list(tau_shore_prior_mu_fallback = 2)), 2)))
+  rc <- rd("run_config.R")
+  chk("D36: run_config ships the same two values",
+      grepl("tau_shore_prior_mu_fallback = 2.477,", rc, fixed = TRUE) && grepl("tau_boat_prior_mu_fallback  = 3.03,", rc, fixed = TRUE))
+  bss_warn_reset()
+  pb <- suppressWarnings(bss_resolve_tau_boat_prior(list(tau_boat_prior_mu = "calibration"), NULL, quiet = TRUE))
+  pb0 <- suppressWarnings(bss_resolve_tau_boat_prior(list(), NULL, quiet = TRUE))
+  ps <- suppressWarnings(bss_resolve_tau_shore_prior(list(tau_shore_prior_mu = "derived", tau_shore_prior_sigma = "derived"), NULL, quiet = TRUE))
+  lg <- bss_warn_log()
+  chk("D36: a failed overlap centres the boat on 3.03, and an absent key means the shipped method (not the retired 1.2)",
+      isTRUE(all.equal(pb$tau_boat_prior_mu, 3.03)) && grepl("^fallback", pb$tau_boat_prior_source) && isTRUE(all.equal(pb0$tau_boat_prior_mu, 3.03)))
+  chk("D36: an unavailable derivation centres the shore on 2.477 with log-SD 0.3",
+      isTRUE(all.equal(ps$tau_shore_prior_mu, 2.477)) && isTRUE(all.equal(ps$tau_shore_prior_sigma, 0.3)))
+  chk("D36: every fallback is in the run-warnings log (three here), not only on the console",
+      nrow(lg) == 3 && all(lg$source == "turnover") && all(lg$severity == "warning"))
+  src <- paste(vapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", "[.]Rmd$", full.names = TRUE)), rd, ""), collapse = "\n")
+  chk("D36: no code path defaults a turnover to the retired literals (1.7, 1.2) or to 2.7",
+      !grepl("prior_mu(_fallback)?\\s*%\\|\\|%\\s*(1\\.7|1\\.2|2\\.7)\\b", src, perl = TRUE))
+  pd <- rd("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"); gd <- rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")
+  chk("D36: both drivers route a failed OSP ingest or overlap diagnostic to the run-warnings log",
+      all(vapply(list(pd, gd), function(t) grepl('bss_warn("OSP", paste("OSP overlap diagnostic skipped:"', t, fixed = TRUE) &&
+                                                  grepl('bss_warn("OSP", paste("OSP ingest skipped:"', t, fixed = TRUE), logical(1))))
+  bss_warn_reset()
+  chk("run warnings: a note is recorded but not raised; a warning is both",
+      { w <- tryCatch({ bss_warn("x", "a note", severity = "note"); "none" }, warning = function(w) "raised")
+        w2 <- tryCatch({ bss_warn("x", "a warning"); "none" }, warning = function(w) "raised")
+        identical(w, "none") && identical(w2, "raised") && nrow(bss_warn_log()) == 2 })
+  bss_warn_reset()
+})
+
+# ---------------------------------------------------------------------------
+# 90. D37 / B54 (2026-09-29): THE HOUSEKEEPING ITEMS.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  pd <- rd("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"); gd <- rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")
+  chk("D37(a): the dead params_model keys are gone from both drivers",
+      !grepl("^\\s*max_divergences\\s*=", pd, perl = TRUE) && !grepl("max_divergence_distortion\\s*=", pd, perl = TRUE) &&
+      !grepl("ie_use_all_dates_for_diagnostics\\s*=", pd, perl = TRUE) && !grepl("(?m)^\\s*max_divergences\\s*=", gd, perl = TRUE))
+  src <- paste(vapply(list.files("03_R_functions", full.names = TRUE), rd, ""), collapse = "\n")
+  chk("D37(b): tau_boat_prior_sigma defaults to 0.5 everywhere and shore_effort_unit to gear-deployments",
+      !grepl("tau_boat_prior_sigma %||% 0.3", src, fixed = TRUE) && !grepl('shore_effort_unit %||% "crabber-hours"', src, fixed = TRUE))
+  pg <- rd("03_R_functions/run_pe_gear.R")
+  chk("D37(c): run_pe_gear filters the ratio frame on a positive angler count and returns pe_cpue_check",
+      grepl(".ac > 0", pg, fixed = TRUE) && grepl("results$pe_cpue_check <-", pg, fixed = TRUE))
+  re <- readLines("run_estimation.R", warn = FALSE)
+  g <- grep('requireNamespace("here"', re, fixed = TRUE)[1]; l <- grep("^\\s*library\\(", re)
+  chk("D37(d): run_estimation.R checks for here before any library() call",
+      !is.na(g) && (!length(l) || all(l > g)))
+  ga <- rd("06_diagnostics/gear_coverage_audit.R")
+  thr_g <- regmatches(gd, regexpr("bss_min_gear_effective_n = [0-9]+", gd))
+  chk("D37(e): gear_coverage_audit uses build_subseasons, writes under 05_output, and its threshold literal equals the gear driver's",
+      grepl("build_subseasons(p)", ga, fixed = TRUE) && grepl('here::here("05_output"', ga, fixed = TRUE) &&
+      !grepl('here::here("gear_coverage_audit.csv")', ga, fixed = TRUE) &&
+      length(thr_g) == 1 && grepl(sprintf("bss_min_gear_effective_n %%||%% %s", sub(".*= ", "", thr_g)), ga, fixed = TRUE))
+  h <- rd("06_diagnostics/test_improvements_2026-08-25.R")
+  chk("D37(f): the harness counts skips apart and reports them on the summary line",
+      grepl(paste0("skp <- function(nm, why = \"input absent\")"), h, fixed = TRUE) &&
+      grepl(paste0("%d passed, %d failed, %d ", "skipped"), h, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 91. B55 (2026-09-29): THE DAY LENGTH IS COMPUTED ONLY WHERE IT IS USED. Under the
+#     gear-deployment unit nothing reads L_effective (hours) or civil twilight, so neither is
+#     computed and suncalc is not a required package; a time unit still gets both.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("B55: a day length is needed only under a time unit, or when asked for",
+      !bss_needs_day_length(list()) && !bss_needs_day_length(list(shore_effort_unit = "gear-deployments")) &&
+      bss_needs_day_length(list(shore_effort_unit = "crabber-hours")) && bss_needs_day_length(list(shore_effort_unit = "gear-hours")) &&
+      bss_needs_day_length(list(day_length_diagnostics = TRUE)))
+  dd <- tibble(event_date = as.Date("2025-01-01") + 0:2, day_type = "weekday")
+  a <- bss_assign_day_length(dd, NULL, list(shore_effort_unit = "gear-deployments"))
+  chk("B55: under gear-deployments the day-length columns exist and are NA, and the source says why",
+      all(c("day_length", "day_length_civil_twilight", "L_mu", "L_prior_sigma") %in% names(a)) && all(is.na(a$day_length)) &&
+      grepl("not used", attr(a, "l_source"), fixed = TRUE))
+  chk("B55: suncalc is no longer a required package (it stays in renv.lock for the time-unit path)",
+      !"suncalc" %in% bss_required_packages)
+  chk("B55: both drivers fit the L_effective regression only when a day length is needed",
+      all(vapply(c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"), function(f)
+        grepl("isTRUE(params$use_ie_day_length) && bss_needs_day_length(params) && nrow(ie_data) > 0", rd(f), fixed = TRUE), logical(1))))
+  chk("B55: the ladder counts the in-window I/E days from shore_turnover_by_day.csv (older rungs: the L_effective detail)",
+      grepl('rd(dir, "shore_turnover_by_day.csv") %||% rd(dir, "L_effective_ie_detail.csv")', rd("06_diagnostics/run_improvements_2026-09-08.R"), fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 92. B56 (2026-09-29): THE POOLED REPORT REBUILT. Each row pins a defect the 2026-09-28 render's
+#     audit found, so it cannot come back quietly.
+# ---------------------------------------------------------------------------
+local({
+  rmd <- paste(readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
+  gd  <- paste(readLines("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd", warn = FALSE), collapse = "\n")
+  chk("B56: both reports capture warnings and messages (hooks) instead of discarding them",
+      all(vapply(list(rmd, gd), function(t) grepl("message = TRUE, warning = TRUE", t, fixed = TRUE) &&
+        grepl('knitr::knit_hooks$set(warning = .record_condition("warning"), message = .record_condition("message"))', t, fixed = TRUE) &&
+        !grepl("opts_chunk$set(echo = TRUE, message = FALSE", t, fixed = TRUE), logical(1))))
+  chk("B56: both reports close with the run warnings and notes and write run_warnings.csv",
+      grepl("## 16. Run warnings and notes", rmd, fixed = TRUE) && grepl("## Run warnings and notes", gd, fixed = TRUE) &&
+      all(vapply(list(rmd, gd), function(t) grepl('file.path(output_dir, "run_warnings.csv")', t, fixed = TRUE), logical(1))))
+  chk("B56: the configuration, inputs, turnover, fit-settings, component and structural tables exist",
+      all(vapply(c("```{r config-show", "```{r inputs-show", "```{r turnover-show", "```{r fit-settings-show", "component_totals.csv",
+                   "```{r adequacy-show", "```{r prior-influence-show", "```{r blockcv-show", "```{r sampler-show", "```{r tau-show",
+                   "```{r f-show", "```{r run-info-show"), function(k) grepl(k, rmd, fixed = TRUE), logical(1))))
+  chk("B56: the incomplete-trip table is printed (it was a non-final value and never rendered)",
+      grepl("print(report_table(\n    dplyr::transmute(sens_df,", rmd, fixed = TRUE))
+  chk("B56: the census string counts the COMMERCIAL interviews; the run summary does not read the orchestrator's model",
+      grepl(".c$commercial_interviews %||% NA, format(round(.c$commercial_se", rmd, fixed = TRUE) &&
+      !grepl('if (exists("model") && is.character(model)) model', rmd, fixed = TRUE))
+  chk("B56: catch by mode reports the BSS draws beside the PE",
+      grepl(".mode_draws <- function(pop)", rmd, fixed = TRUE) && grepl("BSS_median = vapply(.md, .q, numeric(1), p = 0.5)", rmd, fixed = TRUE))
+  chk("B56: the input plots use the day's MEAN count and CPUE per gear deployment; the day-length figures only under a time unit",
+      grepl("summarise(mean_gear = mean(count_quantity), n_counts = n()", rmd, fixed = TRUE) &&
+      !grepl("summarise(total_gear = sum(count_quantity)", rmd, fixed = TRUE) &&
+      grepl("Crab per gear deployment", rmd, fixed = TRUE) && !grepl("cpue = dungeness_kept / fishing_time_total", rmd, fixed = TRUE) &&
+      grepl("if (bss_needs_day_length(params)) {\np_day_length <- days_full", rmd, fixed = TRUE))
+  chk("B56: p-values are formatted as text so kable cannot round them to 0",
+      grepl("fmt_p <- function(p)", rmd, fixed = TRUE) && !grepl("signif(p_raw, 3)", rmd, fixed = TRUE) && !grepl("round(t_p, 3)", rmd, fixed = TRUE))
+  chk("B56: the OSP overlap plot and verdict use the calibration metric, not the max-per-day one",
+      { o <- paste(readLines("03_R_functions/diagnose_osp_trailer_overlap.R", warn = FALSE), collapse = "\n")
+        grepl('.metric <- params$tau_boat_calibration_metric %||% "trailer_mean_per_visit"', o, fixed = TRUE) &&
+        !grepl('prim <- calibration |> dplyr::filter(trailer_metric == "trailer_max_per_day")', o, fixed = TRUE) })
+  chk("B56: the PIT histogram bins stop at 1",
+      grepl("breaks = seq(0, 1, by = 0.1)", paste(readLines("03_R_functions/model_diagnostics.R", warn = FALSE), collapse = "\n"), fixed = TRUE))
+  chk("B56: no report sentence quotes a hard-coded 2024-25 result as this run's",
+      !grepl("Half of every component's days rest on one sampled day", rmd, fixed = TRUE) &&
+      !grepl("about -21% for pots", rmd, fixed = TRUE) && !grepl("pi ~ Dirichlet(observed gear catch + 0.5)", rmd, fixed = TRUE) &&
+      !grepl("the run stops if any component exceeds 2x", rmd, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------
@@ -6704,5 +6967,5 @@ local({
   }
 })
 
-cat(sprintf("\n==== %d passed, %d failed ====\n", ok, bad))
+cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
 if (bad > 0) quit(status = 1)

@@ -110,7 +110,7 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
     # 2026-09-08 (review item 3): tau_boat_prior_mu may be the string "calibration" in
     # run_config; the driver resolves it to a number through bss_resolve_tau_boat_prior()
     # BEFORE any prep runs. Refuse an unresolved value here rather than hand Stan a string.
-    .tau_b <- params$tau_boat_prior_mu %||% 1.2
+    .tau_b <- params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)
     if (!is.numeric(.tau_b) || length(.tau_b) != 1L || !is.finite(.tau_b) || .tau_b <= 0)
       stop("bss_effort_spec(): params$tau_boat_prior_mu is not a positive number (got ",
            deparse(.tau_b), "). Call bss_resolve_tau_boat_prior(params, osp_overlap) first ",
@@ -121,14 +121,14 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
       h_fun             = function(int_d) .num(int_d, "number_of_gear"),
       effort_scale_gear = 0L,
       L_data            = rep(.tau_b, D),
-      L_prior_sigma     = rep(params$tau_boat_prior_sigma %||% 0.3, D),
+      L_prior_sigma     = rep(params$tau_boat_prior_sigma %||% 0.5, D),
       ie_obs_col        = "ie_trips",           # boat ingress count (F2)
       ie_obs_unit       = "boat trips",
       L_unit            = "turnover (trips per present group per day)"
     ))
   }
 
-  unit <- params$shore_effort_unit %||% "crabber-hours"
+  unit <- params$shore_effort_unit %||% "gear-deployments"   # D37: the shipped unit, not the invalid crabber-hours
   allowed <- c("crabber-hours", "gear-hours", "gear-deployments")
   if (!unit %in% allowed) {
     stop("params$shore_effort_unit must be one of: ",
@@ -164,7 +164,7 @@ bss_effort_spec <- function(is_shore, days, params = list()) {
       # derive arrivals / presence AT THE COUNT HOURS from the I/E time column
       # (estimate_shore_turnover, ~2.5 on 2024-25) and resolve "derived" to that number
       # BEFORE any prep runs. Refuse an unresolved string here.
-      .tau_s <- params$tau_shore_prior_mu    %||% 1.7
+      .tau_s <- params$tau_shore_prior_mu    %||% bss_tau_fallback("shore", params)
       .sd_s  <- params$tau_shore_prior_sigma %||% 0.3
       if (!is.numeric(.tau_s) || length(.tau_s) != 1L || !is.finite(.tau_s) || .tau_s <= 0 ||
           !is.numeric(.sd_s) || !is.finite(.sd_s) || .sd_s <= 0)
