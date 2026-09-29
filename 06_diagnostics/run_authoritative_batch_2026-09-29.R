@@ -284,7 +284,7 @@ STAGE_DEFS <- list(
   A    = list(model = "both", fit = TRUE, tag = BASE$run_tag, orchestrator = TRUE,
               item = "THE AUTHORITATIVE RENDER: run_estimation.R --model both, run_config.R as shipped", delta = list()),
   D3   = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D3-gear-matched",
-              item = "D3: gear track at the pooled per-population AR periods",
+              item = "D3: gear track, per-population AR period (shore at the pooled caps; only shore all-gear moves)",
               delta = list(gear_period_bss = MATCHED)),
   D6   = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D6-gear-matched-zi",
               item = "D6: D3 + the zero-inflated shore catch on the gear track",
