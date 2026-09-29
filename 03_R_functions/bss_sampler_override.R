@@ -64,7 +64,7 @@
 # Sampler keys only. Matches bss_iter_*, bss_warmup_*, bss_treedepth_*, bss_delta_*,
 # bss_max_treedepth_*, bss_adapt_delta*, bss_chains, bss_cores, bss_max_interviews.
 .BSS_SAMPLER_OVERRIDE_PATTERN <-
-  "^bss_(iter|warmup|treedepth|delta|max_treedepth|adapt_delta)(_|$)|^bss_(chains|cores|max_interviews)$"
+  "^bss_(iter|warmup|treedepth|delta|max_treedepth|adapt_delta)(_|$)|^bss_(chains|cores|max_interviews|init_r)$"
 
 bss_apply_sampler_override <- function(params, override = NULL, model_label = "",
                                        quiet = FALSE) {

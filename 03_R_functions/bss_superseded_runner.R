@@ -21,8 +21,8 @@
 ###############################################################################
 # bss_superseded_runner.R  --  a batch runner whose question is CLOSED refuses to run
 # -----------------------------------------------------------------------------
-# THE PROBLEM THIS SOLVES, measured rather than assumed. 06_diagnostics/ holds eleven
-# batch runners. A static audit on 2026-09-13 asked how many of the fifteen levers that
+# THE PROBLEM THIS SOLVES, measured rather than assumed. 06_diagnostics/ held eleven
+# batch runners then (thirteen run_*.R files as of 2026-09-29). A static audit on 2026-09-13 asked how many of the fifteen levers that
 # define Method v2.0 each one PINS or SETS:
 #
 #   run_improvements_2026-09-08.R  12/15   (it has the WINDOW pin, added by B22)

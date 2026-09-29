@@ -7,7 +7,7 @@
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the **CROSS-CHECK** to the pooled model, not the headline estimator, and that is a design decision rather than a ranking of quality (Section 2).
 **Framework version:** 6.0, adopted 2026-09-12, when the method of record moved to Method v2.0 and this track was brought onto the same configuration. Framework v5.6, frozen against the same era as Method v1.0, is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
-**Reference run:** `05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, ladder rung R5 on the configuration of pooled R4 (the 2026-09-12 method). The pooled reference run has since moved to the method of record, which adds the boat all-gear advisory-day term (A30, 2026-09-27); this track has not yet been rendered with it (the gear prep confines the term the same way), so its cross-check against the current pooled total is owed.
+**Reference run:** `05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same `run_estimation.R` call as the pooled reference run (`model = "both"`, 2026-09-28, committed `ff750c4`): 98,588 [81,046, 123,563], **-1.29%** against the pooled 99,873, inside the 2% criterion. It superseded ladder rung R5 (`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, 93,274, at R4's configuration and on the predictive catch).
 **Convention:** no em dashes.
 
 > ### READ THE POOLED DOCUMENT FIRST
@@ -68,7 +68,7 @@ effort stream, so a naive `G > 1` would apportion the whole effort series to eve
 block ships off.** The block was ported from the pooled model on 2026-09-13 (D6) and is
 switched by `catch_zi_tracks`, which ships `"pooled"`, so as shipped this track fits plain NB2.
 So the two tracks currently differ in a resolution AND in a likelihood, which is why the port
-gap is -1.17% rather than smaller. At a COMMON resolution the two agree on shore all-gear to
+gap is -1.29% under the method of record (-1.17% at R4's configuration) rather than smaller. At a COMMON resolution the two agree on shore all-gear to
 **0.08%** (20,771 against 20,754), which is the number that shows the gap is a resolution
 difference and not a disagreement. The gear-track ladder that was to close it ran on
 2026-09-13/14 (`run_gear_ar_zi_2026-09-13.R`, campaign Section 1w): D6 says ADOPT the ZINB
@@ -107,9 +107,9 @@ B44 this driver writes the pooled track's three rows (`Effort`, `Expected_Catch`
 `Predictive_Catch`) from the same quantities, so a cross-check rendered at or after B44 compares
 like with like; the run above is rendered after it.
 
-All four fits passed the gate. Sampler health is clean: every R-hat within 1.0011, `n_eff`
-from 8,008 to 11,715 against the 400 floor, treedepth saturation 0%, and the worst divergence
-fraction well inside the 5% backstop. Percentages are PE relative to BSS, as in the pooled
+All four fits passed the gate. Sampler health is clean: every R-hat on the summed catch and
+effort within 1.0000, `n_eff` from 7,981 to 10,618 against the 400 floor, treedepth saturation
+0%, and the worst divergence fraction 0.19%, well inside the 5% backstop. Percentages are PE relative to BSS, as in the pooled
 document.
 
 **The boat all-gear fit sampling with zero divergences is worth noting**, because for most of

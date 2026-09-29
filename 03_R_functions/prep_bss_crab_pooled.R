@@ -185,12 +185,14 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   ie_obs_col  <- eff_spec$ie_obs_col  %||% "ie_crabber_hours"
   ie_obs_unit <- eff_spec$ie_obs_unit %||% "crabber-hours"
   ie_match <- tibble(event_date = Date(), ie_obs = numeric())
-  # The I/E stream is fed for SHORE only (predicted mean lambda_E * L = crabber-
-  # hours). With POOL-1/POOL-3 the boat is now on the gear-deployment scale, so a
-  # boat I/E observation would be boat TRIPS with predicted mean
-  # (lambda_E / R_G_boat) * tau (see gear-resolved's ie_group_scale). Activating
-  # that is a follow-up; the boat I/E is empty for the 2024-25 window anyway (no
-  # WBL ingress days inside it), so leaving it off here is behavior-neutral.
+  # The I/E stream is fed for SHORE only (predicted mean lambda_E * L, in the unit
+  # ie_obs_unit names: crabber trips under gear-deployments). With POOL-1/POOL-3 the boat
+  # is on the gear-deployment scale, so a boat I/E observation would be boat TRIPS with
+  # predicted mean (lambda_E / R_G_boat) * tau (see gear-resolved's ie_group_scale).
+  # KNOWN ASYMMETRY (2026-09-29 sweep): the GEAR track does feed boat I/E when
+  # use_boat_ie = TRUE and ie_min_obs_boat days fall in the window; this track never
+  # does. 2024-25 has no WBL boat I/E day in the window and 2025-26 one, so the tracks
+  # agree today; on a season with two or more they would not.
   if(!is.null(ie_data) && nrow(ie_data) > 0 && is_shore) {
     if (!ie_obs_col %in% names(ie_data))
       stop("prep_bss_crab_pooled(): the I/E observation column '", ie_obs_col,

@@ -65,9 +65,10 @@
 # anywhere else in the repository without checking it there.
 #
 # The two-season 2023-25 span that used to ship here is staged in
-# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is BLOCKED on
-# data: there is no 2023-24 vessel tally or charter roster, so that season's
-# commercial/charter component is 0 (CHANGE_REGISTER D8).
+# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is OUT OF SCOPE
+# (Matt, 2026-09-28; CHANGE_REGISTER D8 closed): seasons before 2024-25 were exploratory and
+# not the current protocol. It was also blocked on data (no 2023-24 vessel tally or charter
+# roster).
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
@@ -442,10 +443,19 @@ run_config <- list(
   ie_boat_location  = "WBL",         # location_name kept as the BOAT I/E series
   ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E for the L_effective
 
-  # --- 1.5 Sampler (MCMC). Machine-dependent, not methodological. ----------
+  # --- 1.5 Sampler (MCMC). Not methodological: these move the draws, not the posterior. ---
   bss_chains        = 4,
   bss_cores         = 4,
   bss_seed          = 20260619,       # fixed seed for reproducible fits
+  # Initial-value radius for every fit on both tracks (2026-09-29, B51; D33). rstan draws each
+  # chain's starting point uniformly on (-init_r, init_r) on the unconstrained scale, default 2.
+  # At 2 a chain of the shore all-gear fit can start in the mouth of the sigma_mu_E funnel and
+  # stay there (T2.5): one render of the B44-B49 code failed its gate that way, while a refit
+  # of the same data and seed at 0.5 gave four clean chains (1.6% divergences, R-hat 1.000).
+  # It changes where chains START, not the posterior they sample; a well-mixed fit is the same
+  # fit in distribution, but not the same draws, so a render at 0.5 does not reproduce a render
+  # at 2 to the crab. The authoritative run of 2026-09-28 (05_output/20260928/) used 2.
+  bss_init_r        = 0.5,
   bss_max_count_seq = 3,              # cap on count sequences per day
 
   # ============================================================================
@@ -949,21 +959,23 @@ run_config <- list(
   # Cap on the finest AR resolution the data-driven selector may choose, per
   # population. The two models legitimately differ, so both maps live here and each
   # driver reads run_config$ar_max_resolution$<model> just after it merges run_config:
-  #   pooled:        runs adaptive AR, capped here (boat weakly informative -> weekly).
+  #   pooled:        runs adaptive AR, capped here (the boat at monthly; see the map).
   #   gear_resolved: reads its map only when ar_adaptive = TRUE; production
   #                  gear-resolved is ar_adaptive = FALSE (fixed period_bss), so its
-  #                  map is dormant. Coarser than pooled: the gear-resolved latent AR
-  #                  is P_n x (G*S), ~4x the pooled dimension with 4 gear types.
+  #                  map is dormant. Coarser than pooled: with gear_resolved_G = TRUE the
+  #                  latent AR is P_n x (G*S), several times the pooled dimension (production
+  #                  runs G = 1, where the two are the same size).
   # A population absent from a map defaults to "daily" (no cap). A population's
   # entry may be a single resolution (applied to all its sub-seasons) OR a named
   # list keyed by gear_regime ("all_gear" | "pot_closure", from build_subseasons)
   # for a PER-SUB-SEASON cap; an unlisted regime falls back to a "default" key,
-  # then to "daily". The pooled shore uses this to keep daily AR on the well-
-  # sampled all-gear fit while capping the thin pot-closure (ring-net) fit at
+  # then to "daily". The pooled shore uses this to cap the all-gear fit at WEEKLY
+  # (adopted 2026-09-07; the ladder found daily overfitted) while capping the thin
+  # pot-closure (ring-net) fit at
   # biweekly: the pot-closure fit funnels at daily AR (~1,165 divergences on Run 1),
   # fails its gate, and falls back to PE; biweekly removes the funnel so it reports
-  # BSS, matching the gear track's biweekly ring-net period_bss. all-gear is left
-  # data-driven (daily) because it fits cleanly there. The gear_resolved map takes
+  # BSS, matching the gear track's biweekly ring-net period_bss. (Until 2026-09-07 the
+  # all-gear fit was left data-driven at daily.) The gear_resolved map takes
   # the SAME per-sub-season structure; its values mirror the gear track's fixed
   # period_bss (monthly all-gear, biweekly ring-net). NOTE the gear map is dormant
   # in production: gear-resolved runs ar_adaptive = FALSE, so fixed_resolution =

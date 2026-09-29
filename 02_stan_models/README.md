@@ -2,7 +2,7 @@
 
 Stan model code for the Bayesian State-Space (BSS) estimator. These are called by the drivers in `01_BSS_models/` (and by the batch runners in `06_diagnostics/`, which render those drivers) via `rstan::stan(file = here("02_stan_models", <model_file>), ...)`. The driver passes only the filename; the folder is supplied by the `here()` call.
 
-Both models share the same core architecture: an adaptive-resolution AR(1) process for effort and CPUE over `P_n` periods (daily / weekly / biweekly / monthly; selected in R from effort-data density, then coarsened by the per-population `ar_max_resolution` cap, or forced by the ladder/`ar_force`), a sparse per-observation effort overdispersion term (`eps_E_H_obs`, one per actual count), I/E-anchored effort integration, and dual reporting of expected catch plus posterior predictive draws. They differ in how CPUE is modeled and in a few effort-side effects.
+Both models share the same core architecture: an adaptive-resolution AR(1) process for effort and CPUE over `P_n` periods (daily / weekly / biweekly / monthly; selected in R from effort-data density, then coarsened by the per-population `ar_max_resolution` cap, or forced by the ladder/`ar_force`), effort overdispersion marginalized as NB2 (`r_E`; the per-observation `eps_E_H_obs` latents were removed in B1.5), I/E-anchored effort integration, and dual reporting of expected catch plus posterior predictive draws. They differ in how CPUE is modeled and in a few effort-side effects.
 
 ## Files
 

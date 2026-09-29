@@ -19,6 +19,22 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-09-29, THE CROSS-CHECK UNDER THE METHOD OF RECORD PASSES: -1.29% (on `main`)
+
+The cross-check owed in the entry below was rendered on 2026-09-28 in the same call as the
+pooled re-render (`run_estimation.R` with `model = "both"`, committed `ff750c4`; CHANGE_REGISTER
+B50): **`05_output/20260928/gear-type-CPUE-model-2024-25`, 98,588 [81,046, 123,563], against the
+pooled 99,873: -1.29%**, inside the 2% criterion, every fit passing the gate with at most 0.19%
+divergences. It is the first like-for-like check under the method of record, because of what
+landed on this track since: B44 (the port total sums the EXPECTED catch under the pooled row
+labels; every earlier gear total, 93,274 included, summed the predictive catch), B46 (the shore
+`R_G` prior from the season's interviews rather than the 2024-25 literal 1.3; the tau
+sensitivity over every boat all-gear sub-season; `season_totals.csv` and `session_info.txt`
+written; a banner that names the modelled season), and B51 (every chain within `init_r = 0.5`,
+as on the pooled track; not yet rendered). By component the gap is the known one: shore all-gear
+-2.8% at this track's monthly AR against the pooled weekly (D3), boat pot closure -6.2% at
+biweekly against monthly.
+
 ### 2026-09-28, THE POOLED METHOD OF RECORD RENDERED; THIS TRACK'S CROSS-CHECK UNDER IT IS OWED (branch `OSP-boat-count-incorporation`)
 
 The pooled track's authoritative run moved to `05_output/20260927/pooled-CPUE-canonical-2024-25`, 96,118 [79,418, 120,558]: Method v2.0 plus the NWS Small-Craft-Advisory day flag on the private-boat all-gear effort process (CHANGE_REGISTER A30, adopted 2026-09-27). This track's prep confines the term the same way (`marine_hazard_terms_for()`, B42), so the like-for-like cross-check is `Rscript run_estimation.R --model gear_resolved` on the shipped configuration, judged on the pre-set 2%; the last gear cross-check at the production configuration, ladder rung R5 (93,274), is at R4's configuration, -1.17% from R4 (the D3 ladder's rungs G1 to G5, 2026-09-13/14, varied the AR period and are not cross-checks). The driver gained the fitted day-covariate table (section 13.1, `effort_day_covariates.csv`, B43), the same table as the pooled report's, so the two renders can be compared term for term. The version log was not kept between 2026-09-11 and this entry; `development_notes/CHANGE_REGISTER.md` and `VALIDATION_CAMPAIGN.md` Sections 1w to 1z carry the interval.

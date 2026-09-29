@@ -3582,8 +3582,10 @@ local({
   chk("pointers: the campaign's future-date guard is section 70's, which maintains itself",
       { h <- paste(readLines("06_diagnostics/test_improvements_2026-08-25.R", warn = FALSE),
                    collapse = "\n")
-        grepl("no marker in %s postdates its own 'Last updated'", h, fixed = TRUE) &&
-        grepl("no marker postdates the branch tip's author date", h, fixed = TRUE) },
+        # 2026-09-29: the patterns are built from two pieces, because written whole they
+        # appeared in this very check and matched themselves, so the row could never fail.
+        grepl(paste0("chk(sprintf(\"chronology: no marker in %s ", "postdates its own 'Last updated'"), h, fixed = TRUE) &&
+        grepl(paste0("chk(sprintf(\"chronology: no marker ", "postdates the branch tip's author date"), h, fixed = TRUE) },
       "(the hardcoded 2026-09-13..19 window it replaced fired on Section 1w, which is correct)")
 })
 
@@ -5864,7 +5866,10 @@ local({
   cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
   ng <- rd("07_documentation/NEW_SEASON_GUIDE.md"); cl <- rd("07_documentation/CLAUDE.md")
   chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
-      grepl("**last moved 2026-09-27**", md, fixed = TRUE) && grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
+      # 2026-09-29: the header moved again (B44 to B51); it must still name A30 among what it carries
+      grepl("**last moved 2026-09-2", md, fixed = TRUE) &&
+      grepl("the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27)", md, fixed = TRUE) &&
+      grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
       grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
       grepl("### 21a. The marine hazard covariate: built 2026-09-25, adopted 2026-09-27 for the boat all-gear fit", md, fixed = TRUE) &&
       grepl("**12. The boat advisory term describes all private boats.**", md, fixed = TRUE) && grepl("**13. The advisory term is one coefficient for the season", md, fixed = TRUE) &&
@@ -6109,7 +6114,10 @@ local({
       grepl("Section 1z.5", ps, fixed = TRUE))
   chk("80 docs: the register moves its authoritative run, marks A30 RENDERED, carries B43 and six 2026-09-28 defect rows",
       grepl("the run it superseded, `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558]", cr, fixed = TRUE) &&
-      grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the authoritative run**", cr, fixed = TRUE) && grepl("| B43 |", cr, fixed = TRUE) &&
+      # 2026-09-29: A30's run is no longer the authoritative one (B50 superseded it), so the row
+      # says so; the pin follows the row rather than holding it to a stale claim.
+      grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the first render of the method of record (superseded as the authoritative run", cr, fixed = TRUE) &&
+      grepl("| B43 |", cr, fixed = TRUE) &&
       # at least B43's six: B44's five defect rows landed the same day (>= rather than ==, 2026-09-28)
       length(gregexpr("| 2026-09-28 |", cr, fixed = TRUE)[[1]]) >= 6 && grepl("**Confirmed in the field 2026-09-28**", cr, fixed = TRUE))
   chk("80 docs: the campaign has 1z.5 and the 1z anchor names the render's commit and folder; the method document's reference run moved",
@@ -6622,7 +6630,8 @@ local({
     chk("85 render: the manifest records code 4828b76, the one config file that differed, and R 4.2.2 / rstan 2.32.7",
         any(grepl("^git sha\\s*: 4828b76", mf)) && any(grepl("run_config.R", mf, fixed = TRUE)) &&
         any(grepl("R version 4.2.2", mf, fixed = TRUE)) && any(grepl("rstan_2.32.7", mf, fixed = TRUE)))
-  }
+  } else chk("85 render: the committed 20260928 run folders are present (the documents cite them)", FALSE,
+             "missing; they are committed, so their absence is a checkout problem, not a skip")
   ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
   gd <- rd("07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md")
@@ -6636,6 +6645,34 @@ local({
       grepl("### 1z.6 The method of record re-rendered at B44 to B49", vc, fixed = TRUE) && grepl("`ff750c4` (the re-render at B44 to B49, 1z.6)", vc, fixed = TRUE) &&
       grepl("| **port total** | **99,873 [82,414, 124,438]** | **88,758** | **-11.1%** | |", md, fixed = TRUE) &&
       grepl("| **port total** | **98,588 [81,046, 123,563]** | **88,758** | **-10.0%** | | |", gd, fixed = TRUE))
+})
+
+# ---------------------------------------------------------------------------
+# 86. B51 (2026-09-29): EVERY CHAIN STARTS WITHIN init_r = 0.5 (D33). rstan's default radius
+#     is 2; at 2 a shore all-gear chain can start in the sigma_mu_E funnel and stay there. The
+#     key is on the control surface, both drivers pass it to bss_stan_fit() (which forwards it
+#     to rstan::stan(); checked there on a toy model when B51 landed), it is logged per fit,
+#     and the sampler override accepts it for experiments.
+# ---------------------------------------------------------------------------
+local({
+  e <- new.env(); sys.source("run_config.R", envir = e)
+  chk("B51 config: run_config ships bss_init_r = 0.5 in the sampler section",
+      identical(e$run_config$bss_init_r, 0.5))
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    x <- readLines(drv, warn = FALSE); x <- x[!grepl("^\\s*#", x)]
+    chk(sprintf("B51 %s passes init_r = params$bss_init_r to bss_stan_fit() and prints it on the sampler line", basename(drv)),
+        sum(grepl("init_r = params$bss_init_r %||% 2", x, fixed = TRUE)) == 1 &&
+        any(grepl("init_r=%.2f", x, fixed = TRUE)) &&
+        !any(grepl("bss_init_r *=", x)))                   # not in params_model: run_config owns it
+  }
+  source("03_R_functions/bss_sampler_override.R")
+  chk("B51 override: bss_init_r is a sampler key the override accepts",
+      grepl(.BSS_SAMPLER_OVERRIDE_PATTERN, "bss_init_r") && !grepl(.BSS_SAMPLER_OVERRIDE_PATTERN, "bss_init_radius"))
+  ps <- paste(readLines("07_documentation/development_notes/PIPELINE_STATUS.md", warn = FALSE), collapse = " ")
+  md <- paste(readLines("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md", warn = FALSE), collapse = " ")
+  chk("B51 docs: the box says the authoritative run was rendered at 2, the method document states the radius and the funnel limitation",
+      grepl("init_r = 0.5", ps, fixed = TRUE) && grepl("**The initial-value radius is part of the configuration", md, fixed = TRUE) &&
+      grepl("**15. The shore all-gear fit's effort level sits on an unidentified scale", md, fixed = TRUE))
 })
 
 # ---------------------------------------------------------------------------

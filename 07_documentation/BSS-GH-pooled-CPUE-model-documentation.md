@@ -6,7 +6,7 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-27** (the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process, CHANGE_REGISTER A30). Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29**. **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`). The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
 **Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
@@ -169,9 +169,9 @@ fell back**.
 
 The two are always reported side by side, which is the single most useful validation in the
 pipeline: they share almost no machinery, so where they agree, both are more credible. On the
-reference run the shore all-gear components agree to **1.3% on effort and 1.8% on catch**,
+reference run the shore all-gear components agree to **1.3% on effort and 1.9% on catch**,
 which is the strongest cross-estimator agreement the project has produced. The boat does not
-agree as well (-21.8% under the method of record, -18.8% before the boat term moved the BSS and
+agree as well (-21.9% under the method of record, -18.8% before the boat term moved the BSS and
 not the PE), and Section 20 says what is known about why.
 
 ## 5. The three population components and the sub-seasons
@@ -395,7 +395,7 @@ spending effective parameters at a rate the data cannot support. `flag_miscalibr
 (50% coverage off by more than 0.15) says the intervals are the wrong width.
 `flag_loo_unreliable`, `flag_pit_bias` and `flag_dispersion_neff` are the others. **On the
 reference run nothing is flagged**, `p_loo` runs 7 to 18% of observations, and the only
-`flag_loo_unreliable` cases are one bad Pareto k each on shore all-gear and boat pot closure.
+`flag_loo_unreliable` cases are one bad Pareto k each on the two pot-closure fits.
 
 **3. How much of the estimate is extrapolated, and from what?** `fit_data_summary.csv` gives
 the sampled-day fraction per component. On 2024-25 the shore effort series covers 197 of 365
@@ -405,11 +405,12 @@ the port total. No modelling choice manufactures uncollected information.
 
 **4. Do the PE and the BSS agree?** `pe_vs_bss_comparison.csv`. They share almost nothing, so
 agreement is real evidence. Two cautions. The annual agreement is not monthly agreement:
-on the reference run the shore annual totals agree to 1.8% while the PE over-allocates
-January to March by about 2.2x and under-allocates June and July, and the errors cancel. And
-the comparison depends on a lever: the boat PE sits 21.8% below the boat BSS under the
-shipped `pe_empty_stratum = "local"` and about 9.5% below under `"pooled"` (18.8% and 6.1% on
-R4, before the boat term raised the BSS; Section 20).
+on the reference run the shore annual totals agree to 1.9%, and since B44 (the PE's monthly
+split read from its own strata) the shore months agree too, 0.90x to 1.23x of the BSS; the boat
+months do not (0.34x to 1.61x), so the boat's annual agreement is not monthly agreement. And
+the comparison depends on a lever: the boat PE sits 21.9% below the boat BSS under the
+shipped `pe_empty_stratum = "local"`, and on the 2026-09-27 run about 9.5% below under
+`"pooled"` (18.8% and 6.1% on R4, before the boat term raised the BSS; Section 20).
 
 **5. Is the PE resting on thin cells?** `pe_empty_effort_strata.csv`. With weekly strata and
 about 50% day coverage, **roughly 44% of the shore all-gear component's calendar days and 43%
@@ -488,6 +489,19 @@ a multi-hour fit, and none of them changes an estimate.
 `bss_seed` is fixed and should stay fixed. A fixed-seed re-run of the same configuration on
 the same data reproduces the same fits, which is what makes the ladder's bit-identity claims
 possible.
+
+**The initial-value radius is part of the configuration (2026-09-29, B51).** rstan starts each
+chain at a point drawn uniformly on `(-init_r, init_r)` on the unconstrained scale. Every render
+before 2026-09-29 used rstan's default, 2; `run_config.R` now ships `bss_init_r = 0.5` for every
+fit on both tracks. The reason is the shore all-gear fit's `sigma_mu_E` funnel (Section 20, and
+CHANGE_REGISTER D33): with one section that scale is unidentified, and a chain started in the
+funnel's mouth can stay there. One render of the B44 to B49 code did exactly that (23.3%
+divergences, the gate failed, the component fell back to its PE); a refit of the same data and
+seed at 0.5 gave four clean chains (1.6%, R-hat 1.000) and a median within 0.4% of the render
+that passed. The radius moves where chains START, not the posterior they sample, so a
+well-mixed fit at 0.5 is the same fit in distribution as at 2, but not the same draws: **a
+render of the shipped configuration does not reproduce the authoritative run of 2026-09-28 to
+the crab**, which was rendered at 2. Expect agreement within Monte Carlo error.
 
 Two caveats that matter when comparing runs.
 
@@ -632,7 +646,7 @@ through the expansion.
 > its location, so `lambda_E * L` is the median of observed arrivals and the mean is
 > `lambda_E * L * exp(sigma_IE^2 / 2)`. That is a genuine asymmetry with the three count
 > streams, whose stated means are means. On the reference run's shore all-gear fit
-> `sigma_IE = 0.577`, so the implied mean exceeds the median by 1.18x. The Stan file does not
+> `sigma_IE = 0.566`, so the implied mean exceeds the median by 1.17x. The Stan file does not
 > comment on this, and it is worth keeping in view whenever the I/E stream is used to argue
 > about the level of shore effort.
 
@@ -941,8 +955,8 @@ source.
 > `C = poisson_rng(lambda_Ctot_S)`: Poisson on the expected rate. It propagates all posterior
 > parameter uncertainty but carries **neither** the catch likelihood's NB2 overdispersion `r_C`
 > **nor** the zero-inflation mixture, so it is under-dispersed relative to the fitted
-> observation model. On the reference run this is why `Predictive_Catch` (96,119 [79,418,
-> 120,553]) was no wider than `Expected_Catch` (96,118 [79,418, 120,558]).
+> observation model. On the 2026-09-27 render, before B46, this is why `Predictive_Catch` (96,119
+> [79,418, 120,553]) was no wider than `Expected_Catch` (96,118 [79,418, 120,558]).
 >
 > **The reported predictive catch (B46).** Both drivers now build `Predictive_Catch` after the
 > fit, in R, from the saved draws (`bss_predictive_catch()`), leaving the Stan code and every
@@ -1195,12 +1209,14 @@ Reported beside the gate but **not gating**: the legacy level-distortion statist
 continuity; it scales with posterior width) and treedepth saturation, which raises a soft
 warning above 5% and explicitly does not affect the verdict.
 
-On the reference run every fit passed with room: worst divergence fraction 1.78% (shore
-all-gear) against the 5% backstop, treedepth saturation 0%, the gate's R-hats within 1.0007
-(every R-hat in the full summaries within 1.0055), `n_eff`
-on the summed catch and effort from 4,604 to 12,334 against the 400 floor, and divergence
-impact at most **0.0016** posterior SD against the 0.10 threshold. (Until 2026-09-28 this
-paragraph quoted 2.17%, 21,200 and 0.003: those were the extremes of the whole 2026-09-11
+On the reference run every fit passed, one of them without much room: the worst divergence
+fraction was **4.07% (shore all-gear) against the 5% backstop** (1.78% on the 2026-09-27 run,
+before the Float 17-21 fill; Section 20, limitation 15, and D33), treedepth saturation 0%, the
+gate's R-hats within 1.0007, `n_eff` on the summed catch and effort from 4,604 to 12,502
+against the 400 floor, and divergence impact at most **0.010** posterior SD against the 0.10
+threshold. Every chain now starts within `init_r = 0.5` (Section 13), which a refit showed keeps
+the shore all-gear chains out of the funnel; the reference run predates it. (Until 2026-09-28
+this paragraph quoted 2.17%, 21,200 and 0.003: those were the extremes of the whole 2026-09-11
 ladder, from rungs R1, R2 and R2f, not of the reference run.)
 
 **`bss_use_pe_for(b)` is the only correct way to ask whether a component should report PE**
@@ -1302,8 +1318,9 @@ deployments, and slot re-use across the day is carried separately by `tau`.
 single latent catch rate and splits the total to gear types using Dirichlet-propagated
 interview shares. The alternative, a genuine per-gear CPUE process, is what the gear-resolved
 model is for, and it is the cross-check rather than the headline because the per-gear
-likelihood is thinner; at R4's configuration the two agreed to 1.17% at the port, and the same
-check under the method of record is owed.
+likelihood is thinner; under the method of record (2026-09-28) the two agree to 1.29% at the
+port (98,588 against 99,873, inside the 2% criterion), and at R4's configuration they agreed to
+1.17%.
 
 **The AR(1) is on a period index, not on days.** That is what makes resolution a lever at
 all, and it means the same Stan program serves every resolution.
@@ -1374,7 +1391,7 @@ alternative, and the field fix that would actually settle it is a paired gear co
 I/E day. Tracked as CHANGE_REGISTER D24.
 
 **4. The PE's unsampled-cell CPUE fill is not settled, and it moves the validation rather
-than the estimate.** The boat PE sits 21.8% below the boat BSS under the shipped
+than the estimate.** The boat PE sits 21.9% below the boat BSS under the shipped
 `pe_empty_stratum = "local"` and about 9.5% below under `"pooled"` (18.8% and 6.1% on R4: the
 boat term raised the BSS and left the PE alone), and the PE's own internal target points the
 same way: the boat interview ratio-of-sums is 3.276 crab per deployment while the PE's implied
@@ -1409,12 +1426,13 @@ the PE's monthly figures were split from the component total by effort share at 
 CPUE, over sampled days only; that split, not the PE, produced the shore "over-allocates January
 to March by about 2.2x, under-allocates June and July" this item used to report. Since B44
 (2026-09-28) the split spreads each stratum's own estimate over its own calendar days
-(`pe_monthly_split()`). Against the reference run's BSS months, recomputed on the same inputs:
-the shore all-gear PE now reads 0.90x to 1.28x of the BSS in every month (was 0.35x to 2.26x);
-the boat all-gear reads 0.34x to 1.60x (was 0.23x to 2.34x), the boat's thin interview sample
+(`pe_monthly_split()`). In the reference run's `monthly_pe_vs_bss.csv`, the first render to
+carry the new split: the shore all-gear PE reads 0.90x to 1.23x of the BSS in every month (the
+old split gave 0.35x to 2.26x); the boat all-gear reads 0.34x to 1.61x (was 0.23x to 2.34x),
+the boat's thin interview sample
 showing through its stratum CPUEs. So the shore agrees month by month; the boat does not, and
-its annual agreement must not be cited as monthly agreement. `monthly_pe_vs_bss.csv` carries
-the new split from the next render.
+its annual agreement must not be cited as monthly agreement. `monthly_pe_vs_bss.csv` has
+carried the new split since the 2026-09-28 render.
 
 **8. The design-based layer is inconsistent on finite-population corrections, and the PE has
 no catch variance.** Section 15 states both. Neither affects the headline, because the
@@ -1466,6 +1484,20 @@ staged for it is out of scope (CHANGE_REGISTER D8, closed). Multi-season spans r
 mechanically (A14) from 2024-25 onward; D32's multi-season test is such a span, once the
 2025-26 data (including its OSP record, D18) are complete. The four-season desk screen behind
 D32 reads the pre-2024-25 trailer counts only as a descriptive screen, not as a model fit.
+
+**15. The shore all-gear fit's effort level sits on an unidentified scale, and its sampling is
+close to the gate (D33, T2.5).** The effort level is `mu_E = mu_mu_E + eps_mu_E * sigma_mu_E`
+(Section 14.2), and with one section the spread `sigma_mu_E` has nothing to learn from: its
+posterior follows its half-Cauchy(0, 1) prior's tail (97.5% quantile 4.7 to 7.9 against a median
+of 0.72 on the 2026-09-28 code). That is a funnel. On the authoritative run the shore all-gear
+fit passed the gate at 4.07% divergences, against the 5% backstop, where it read 1.78% before
+the Float 17-21 fill; one render of the same code elsewhere left a chain stuck in the funnel and
+failed the gate, which then reported the component's PE. `init_r = 0.5` (Section 13) keeps
+chains out of the funnel's mouth; it does not remove the funnel. The durable fix is a
+reparameterisation of the single-cell level (T2.5), a model change that needs its own design
+and validation run; collapsing the level outright was tried in 2026-06 and made this fit hang.
+The gate catches a failure, so the exposure is a fallback to the PE (without its interval in
+the port total), not a wrong Bayesian number.
 
 ## 21. Weather and tide covariates: evaluated and excluded
 
@@ -1541,9 +1573,10 @@ the constant term probably over-corrects the winter months and the season total 
 insensitive to that shape (D32). Design, evidence and caveats:
 `development_notes/marine-hazard-covariates-2026-09-25.md`.
 
-**Rendered.** The reference run of this document is the method of record's first production
-render (`05_output/20260927/pooled-CPUE-canonical-2024-25`, `VALIDATION_CAMPAIGN.md` Section
-1z.5): its boat all-gear fit is the ladder's rung M2 fit byte for byte, and its other three fits
+**Rendered.** The method of record's first production render was
+`05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118, superseded 2026-09-28 by the
+re-render at B44 to B49, whose boat fits are byte-identical to it; `VALIDATION_CAMPAIGN.md`
+Sections 1z.5 and 1z.6): its boat all-gear fit is the ladder's rung M2 fit byte for byte, and its other three fits
 are R4's, so the term entered the one fit it was confined to and moved nothing else. Port
 96,118 [79,418, 120,558] against R4's 94,376, **+1.85%**, all on the boat all-gear component;
 by month the port rises 1.5% to 7.7% from December to March and moves a few percent either way
@@ -1582,6 +1615,14 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
+- **2026-09-28 / 2026-09-29.** The method of record re-rendered at the current code with its
+  gear cross-check (B50): port total **99,873 [82,414, 124,438]**, +3.9% on 96,118, all of it the
+  shore (the Float 17-21 fill, B45); the boat fits byte-identical; the gear-resolved track at
+  -1.29%, inside the 2% criterion. Also B44 (unique interview ids; the gear port total on the
+  expected catch; the PE's monthly split and donor covariances), B46 (ISO-week strata; the gear
+  `R_G` prior from the season; the predictive catch from the fitted zero-inflated NB; fail-closed
+  verdicts; `run_estimation.R --model both`), B48 (OSP's crab-only share out of the boats sampled,
+  inert until the column arrives) and B51 (`init_r = 0.5`, Section 13).
 - **2026-09-27 / 2026-09-28.** The NWS Small-Craft-Advisory day flag on the private-boat
   all-gear effort process adopted (A30) and rendered: port total **96,118 [79,418, 120,558]**,
   +1.85% on R4, every fit byte-identical to the fit the adoption named (Section 21a).

@@ -112,7 +112,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # this line said "day-type-stratified commercial / charter census expansion" until
 # 2026-09-12, which is the retired estimator). Framework v6.0 on the Method v2.0
 # configuration: dynamic per-stratum crabbing fraction f, derived shore turnover,
-# calibration boat turnover with a shared tau_bar. No ZI block on this track.
+# calibration boat turnover with a shared tau_bar. The zero-inflated catch block has been in
+# this track's Stan model since 2026-09-13 (the D6 port) and ships OFF (catch_zi_tracks =
+# "pooled"). Every chain starts with init_r = run_config$bss_init_r (0.5, B51).
 #
 # FULL CHANGE LOG (framework v5.x, the F/P fix-markers, and the GR backlog):
 #   07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
@@ -948,9 +950,9 @@ for(cg in bss_catch_groups) {
           fit_delta   <- params$bss_adapt_delta_default
         }
 
-        message(sprintf("  Stan [attempt %d/%d, %s AR]: iter=%d, warmup=%d, max_treedepth=%d, adapt_delta=%.2f\n",
+        message(sprintf("  Stan [attempt %d/%d, %s AR]: iter=%d, warmup=%d, max_treedepth=%d, adapt_delta=%.2f, init_r=%.2f\n",
                     attempt, length(ar_ladder), bss_data_try$.ar_resolution,
-                    fit_iter, fit_warmup, fit_treedep, fit_delta))
+                    fit_iter, fit_warmup, fit_treedep, fit_delta, params$bss_init_r %||% 2))
 
         timer_start(paste0("BSS_", label, "_att", attempt))
         # 2026-08-26: guarded wrapper, 03_R_functions/bss_stan_fit.R. On the happy path
@@ -970,7 +972,10 @@ for(cg in bss_catch_groups) {
           chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
           control = list(adapt_delta = fit_delta, max_treedepth = fit_treedep),
           seed = params$bss_seed,   # was missing: gear-resolved fits were not reproducible
-          cores = params$bss_cores
+          cores = params$bss_cores,
+          # B51 (2026-09-29): the initial-value radius, run_config$bss_init_r (0.5 shipped;
+          # rstan's default is 2, the value every render before B51 used). D33.
+          init_r = params$bss_init_r %||% 2
         )
         timer_stop(paste0("BSS_", label, "_att", attempt))
 

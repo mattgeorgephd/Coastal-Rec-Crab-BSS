@@ -113,7 +113,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 ```{r config, results='hide'}
 ###############################################################################
 # Crab Creel Estimation - Westport / Grays Harbor  |  Pooled CPUE Model
-# 2024-25 Season  |  Pipeline code v7.9 (2026-07-12)
+# Any season, part-season or span (2024-25 is the development test season)
+# Pipeline code: last numbered tag v7.9 (2026-07-12); versioned by date since, and the
+# model of record is this code as of 2026-09-29 (B44 to B51; see the development history)
 #
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # from a single pooled CPUE process shared across gear types. Three population
@@ -126,7 +128,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # "ring-net only"; non-pot gear other than ring nets is also legal, so the name was
 # a misnomer. The internal key stays "ring_net_only" for output-filename continuity.
 #
-# CURRENT STATE (v7.9): both fitted components run on the gear-DEPLOYMENT effort
+# CURRENT STATE: both fitted components run on the gear-DEPLOYMENT effort
 # unit (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
 # Helper functions live in 03_R_functions/ (sourced wholesale in the setup chunk),
 # and every user-selectable toggle lives in run_config.R (the single file you edit);
@@ -139,7 +141,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # shore catch; commercial census + charter expansion. L_effective from I/E is computed but is
 # a DIAGNOSTIC under the deployment unit; data-driven R_G prior;
 # gear-deployment effort scale (R_G_boat / tau_boat, tau_shore); scale-aware
-# convergence gate; expected + predictive catch in the generated quantities.
+# convergence gate; the expected catch from the generated quantities and, since B46, the
+# predictive catch drawn after the fit from the fitted zero-inflated NB
+# (03_R_functions/bss_predictive_catch.R); every chain started with init_r = 0.5 (B51).
 #
 # FULL CHANGE LOG (every version, newest first, with working notes):
 #   07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
@@ -511,7 +515,10 @@ sampler_shifts <- tryCatch(fetch_sampler_shifts(params),
 shift_coverage <- tryCatch(diagnose_shift_coverage(sampler_shifts, ie_data, dwg$boat_contacts_detail, params, output_dir = output_dir),
                            error = function(e) { cat("  Shift coverage diagnostic skipped:", conditionMessage(e), "\n"); NULL })
 
-# --- Phase 0: OSP Westport boat-count ingest + overlap calibration (diagnostic only) ---
+# --- Phase 0: OSP Westport boat-count ingest + overlap calibration ---
+# NOT diagnostic only since 2026-09-08: under tau_boat_prior_mu = "calibration" the overlap
+# result sets the boat turnover prior centre (bss_resolve_tau_boat_prior below), and an error
+# caught here falls back to tau_boat_prior_mu_fallback (2026-09-29 sweep; outstanding).
 # fetch_osp_boat_counts() and diagnose_osp_trailer_overlap() live in 03_R_functions/
 # (auto-sourced). The diagnostic writes osp_trailer_overlap_calibration.csv,
 # osp_trailer_overlap_pairs.csv, osp_coverage_audit.csv and osp_trailer_overlap.png to
@@ -1378,8 +1385,8 @@ for(cg in bss_catch_groups) {
           fit_delta   <- params$bss_adapt_delta
         }
 
-        cat(sprintf("  Stan [attempt %d/%d]: iter=%d, warmup=%d, max_treedepth=%d, adapt_delta=%.2f, D=%d days, P_n=%d (%s), %d interviews\n",
-                    attempt, length(ar_ladder), fit_iter, fit_warmup, fit_treedep, fit_delta,
+        cat(sprintf("  Stan [attempt %d/%d]: iter=%d, warmup=%d, max_treedepth=%d, adapt_delta=%.2f, init_r=%.2f, D=%d days, P_n=%d (%s), %d interviews\n",
+                    attempt, length(ar_ladder), fit_iter, fit_warmup, fit_treedep, fit_delta, params$bss_init_r %||% 2,
                     bss_data_try$D, bss_data_try$P_n,
                     attr(bss_data_try, "ar_resolution"), bss_data_try$IntC))
 
@@ -1401,7 +1408,10 @@ for(cg in bss_catch_groups) {
           chains = params$bss_chains, iter = fit_iter, warmup = fit_warmup,
           control = list(adapt_delta=fit_delta, max_treedepth=fit_treedep),
           seed = params$bss_seed,
-          cores = params$bss_cores
+          cores = params$bss_cores,
+          # B51 (2026-09-29): the initial-value radius, run_config$bss_init_r (0.5 shipped;
+          # rstan's default is 2, the value every render before B51 used). D33.
+          init_r = params$bss_init_r %||% 2
         )
         timer_stop(paste0("BSS_", label, "_att", attempt))
 
