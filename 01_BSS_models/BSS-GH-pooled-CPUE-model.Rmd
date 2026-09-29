@@ -1494,6 +1494,17 @@ for(cg in bss_catch_groups) {
         .radq <- if (isTRUE(params$ar_rung_adequacy %||% TRUE) && length(ar_ladder) > 1)
                    bss_rung_adequacy(fit_try, bss_data_try) else
                    bss_rung_adequacy(NULL, NULL)
+        # 2026-09-29 (D29): the leave-one-week-out block CV PER RUNG, for the reason above:
+        # only the kept rung reaches write_block_cv_diagnostics(), and the block CV is the
+        # one test of what an AR period decides, the interpolation of the unsampled weeks.
+        # Written as ladder_block_<stream>_<label>_<resolution>.csv (a prefix the report's
+        # block-CV table does not read); seconds per rung; ladders only.
+        if (isTRUE(params$ar_rung_adequacy %||% TRUE) && length(ar_ladder) > 1)
+          tryCatch(write_block_cv_diagnostics(fit_try, bss_data_try, days_ss,
+                                              paste0(label, "_", attr(bss_data_try, "ar_resolution") %||% attempt),
+                                              output_dir, prefix = "ladder_block"),
+                   error = function(e) bss_warn("ladder", sprintf("%s attempt %d: the rung's block CV was not written (%s).",
+                                                               label, attempt, conditionMessage(e)), severity = "note"))
         ar_escalation_log[[length(ar_escalation_log) + 1]] <- tibble(
           fit                = label,
           attempt            = attempt,
@@ -1518,6 +1529,7 @@ for(cg in bss_catch_groups) {
           n_pareto_bad       = .radq$n_pareto_bad,
           cov50_gear         = .radq$cov50_gear,
           cov50_catch        = .radq$cov50_catch,
+          cov50_trailer      = .radq$cov50_trailer,
           pit_mean_catch     = .radq$pit_mean_catch,
           selected           = FALSE      # set on the surviving rung after the loop
         )

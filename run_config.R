@@ -41,19 +41,28 @@
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
-# THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative
-# run: the single 2024-25 season, both models (the pooled headline and its gear-resolved
-# cross-check), Method v2.0 and the boat all-gear advisory-day term (section 2.10, A30).
+# THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative run
+# PLUS two changes made after it and not yet rendered in production: every chain starts
+# within init_r = 0.5 (B51, section 1.5) and the single-section level hierarchies are
+# collapsed (A31, mu_hier_collapse_single = "both", section 4.5). The single 2024-25 season,
+# both models (the pooled headline and its gear-resolved cross-check), Method v2.0 and the
+# boat all-gear advisory-day term (section 2.10, A30). The render that makes this file the
+# authoritative run again is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R
+# (B58), which renders it exactly as shipped through run_estimation.R.
 #
 #   05_output/20260928/pooled-CPUE-2024-25
 #   port total 99,873  [82,414, 124,438]      4 of 4 components fitted, all BSS
 #   05_output/20260928/gear-type-CPUE-model-2024-25: 98,588, -1.29%, the cross-check PASSES
 #
-# Those folders were rendered from THIS file by run_estimation.R with model = "both"
-# (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not ladder rungs
-# with a window pin: sourcing the orchestrator on this file as shipped reproduces their
-# configuration, and on the same machine and toolchain their numbers to the crab (B38; the
-# boat fits are byte-identical to the 2026-09-27 render's). They superseded
+# Those folders were rendered from this file as it stood at 4828b76 by run_estimation.R with
+# model = "both" (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not
+# ladder rungs with a window pin. B51 and A31 have shipped since, so a render of the file as
+# shipped today is the first at the A31 code: it changes every fit's draws, the container
+# refits put each component within about 0.1 posterior SD of these, and it will NOT
+# reproduce 99,873 to the crab. (Two renders of ONE configuration on one machine do agree
+# to the crab, B38.) The only render at init_r = 0.5 so far, of the pre-A31 code
+# (05_output/20260928/pooled-CPUE-2024-25-222347, B57), failed its shore pot-closure gate and
+# is NOT the authoritative run. They superseded
 # 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
 # Float 17-21 fill, B45), which had superseded ladder rung R4
 # (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits were the
@@ -127,8 +136,9 @@
 # binomial, everything else NB2. The commercial vessels are an exact census over the
 # tally days; the charter vessels are an expansion over their trip roster. Every fit is
 # gated, and a fit that fails the gate reports the design-based Point Estimator instead.
-# The three changes that distinguish v2.0 from v1.0 in the number are the dynamic `f`,
-# the derived shore turnover, and the calibration boat turnover; together +31%.
+# The four changes that distinguish v2.0 from v1.0 in the number are the dynamic `f`,
+# the derived shore turnover, the calibration boat turnover and the census split; together
+# +31% (the 2026-09-11 ladder).
 #
 # WHAT THE OSP DATA IS, and why the boat model is built the way it is. OSP will
 # provide, per day: (a) the TOTAL number of vessels returning, and (b) the
@@ -170,7 +180,8 @@
 # tuning on top: each .Rmd does `params <- modifyList(run_config, params_model)`,
 # where `params_model` holds ONLY that model's specifics (Stan file, per-fit
 # sampler settings, gate thresholds, AR-selector thresholds, model constants).
-# The two key sets are disjoint, so the merge order carries intent only.
+# The two key sets are INTENDED to be disjoint; a key in both is decided silently by the
+# driver (params_model wins), so grep both params_model blocks before adding a key here.
 # This file is the SINGLE SOURCE OF TRUTH for every user-selectable toggle,
 # including the AR resolution map in section 2.6; the two .Rmd files no longer carry
 # their own copies, so there is nothing to keep in sync. The AR map is per-model (the
@@ -1767,6 +1778,8 @@ run_config <- list(
                                        #   S == 1, which is every production fit, so this changes
                                        #   nothing as shipped. Accepts a per-population named list,
                                        #   e.g. list(private_boat = TRUE).
+  # >>> THE ONE KEY IN THIS SECTION THAT IS PART OF THE METHOD OF RECORD (A31, ADOPTED). It sits
+  # >>> here beside collapse_mu_hier, its older sibling, and is NOT a rejected alternative.
   # A31 / T2.5 (2026-09-29; D33): with ONE section the level hierarchy
   # mu = mu_mu + sigma_mu * eps_mu is unidentified (only the sum enters the likelihood), and
   # its funnels are what the shore all-gear divergences sat on. "both" collapses the effort
@@ -1785,8 +1798,8 @@ run_config <- list(
   # ----------------------------------------------------------------------------
   # Read by crab_bss_gear_resolved.stan and its driver; the pooled model ignores every
   # key in this section. The gear-resolved track is the CROSS-CHECK, not the headline
-  # estimator: it ran as ladder rung R5 on the same configuration as the authoritative
-  # pooled run and agreed to -1.17% at the port.
+  # estimator: it was rendered with the authoritative pooled run (model = "both",
+  # 2026-09-28) and agreed to -1.29% at the port (B50).
   # ============================================================================
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).

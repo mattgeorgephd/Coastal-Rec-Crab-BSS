@@ -30,7 +30,7 @@
 **Two questions the pooled model cannot answer as well.**
 
 **Gear-type catch with its own uncertainty.** The pooled model fits one catch rate and splits
-the total to gear types afterwards, using Dirichlet-propagated interview shares. That gives a
+the total to gear types afterwards, using trip-level bootstrap interview shares (A17). That gives a
 gear breakdown whose uncertainty is the uncertainty of the shares, not of the gear-specific
 catch rates. With `gear_resolved_G = TRUE` the shore fits carry a genuine per-gear CPUE
 process, so a per-gear catch estimate carries posterior uncertainty from the model.
@@ -144,8 +144,9 @@ interview-share uncertainty into the per-gear intervals. It parses, it is byte-i
 the previous behaviour when off, and it is forced off at `G = 1`. It has been sampled in
 validation stages and never adopted, because at `G = 1` there is nothing for it to do.
 
-**A separate holiday effort effect `B2`.** The gear-resolved effort process carries its own
-holiday term. As in the pooled model, note that the day-type indicators NEST: the weekend
+**The holiday effort effect `B2`, and no separate holiday CPUE term.** The effort process
+carries the same holiday term `B2` as the pooled model; the difference is on the CPUE side,
+where this track folds holidays into `B1_C` and the pooled model has `B2_C`. As in the pooled model, note that the day-type indicators NEST: the weekend
 indicator is 1 on weekends and on holidays, so `B2` is an increment on top of the weekend
 effect rather than a separate level.
 
@@ -154,7 +155,7 @@ effect rather than a separate level.
 line. `catch_zi_tracks` decides which tracks fit it and ships `"pooled"`, so the gear prep
 emits `zi_catch = 0` and the shore catch likelihood here is plain NB2 as shipped; the OFF path
 is bit-identical to the pre-port model (11,021 parameter rows). This is the likelihood half of
-the -1.17% gap, worth about -0.3%. Adding `"gear_resolved"` to `catch_zi_tracks` is the D6
+the cross-track gap (-1.29% under the method of record), worth about -0.3%. Adding `"gear_resolved"` to `catch_zi_tracks` is the D6
 adoption, which the evidence supports pending one render at the matched configuration.
 
 **The shore gear-count expansion prior `R_G` is the pooled one (B46, 2026-09-28).** Until

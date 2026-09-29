@@ -44,7 +44,7 @@ labels; every earlier gear total, 93,274 included, summed the predictive catch),
 `R_G` prior from the season's interviews rather than the 2024-25 literal 1.3; the tau
 sensitivity over every boat all-gear sub-season; `season_totals.csv` and `session_info.txt`
 written; a banner that names the modelled season), and B51 (every chain within `init_r = 0.5`,
-as on the pooled track; not yet rendered). By component the gap is the known one: shore all-gear
+as on the pooled track; rendered 2026-09-29 in B57: 98,382 [81,145, 122,466], every fit passing). By component the gap is the known one: shore all-gear
 -2.8% at this track's monthly AR against the pooled weekly (D3), boat pot closure -6.2% at
 biweekly against monthly.
 

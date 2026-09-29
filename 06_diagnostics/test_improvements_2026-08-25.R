@@ -4686,7 +4686,8 @@ local({
   LIVE <- c("run_improvements_2026-09-08", "run_gear_ar_zi_2026-09-13",
             "run_rg_sweep",
             "run_marine_hazard_batch_2026-09-25",   # 2026-09-25: A30 / B35
-            "run_marine_block_cv_2026-09-26")       # D37 (2026-09-29): B39's runner was in neither list
+            "run_marine_block_cv_2026-09-26",       # D37 (2026-09-29): B39's runner was in neither list
+            "run_authoritative_batch_2026-09-29")   # B58 (2026-09-29): the A31 authoritative render + D29/D3/D6
   chk("diagnostics: the superseded-runner helper exists and offers an override",
       file.exists("03_R_functions/bss_superseded_runner.R") &&
       { t <- flat(rd("03_R_functions/bss_superseded_runner.R"))
@@ -5741,7 +5742,7 @@ local({
       grepl("desk_sca_season_split_2026-09-27.R", vc, fixed = TRUE) && grepl("0.43 [0.29, 0.62]", vc, fixed = TRUE) &&
       grepl("### 1y.5 The decision this leaves with Matt", vc, fixed = TRUE))
   chk("1y docs: the status document, the diagnostics README, run_config.R and the design note carry the block-CV outcome",
-      grepl("ADOPTED 2026-09-27; A30; RENDERED 2026-09-28, `1d3409d`, the authoritative run", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
+      grepl("ADOPTED 2026-09-27; A30; RENDERED 2026-09-28, `1d3409d` (superseded as the authoritative run the same day by B50", ps, fixed = TRUE) && grepl("**RAN 2026-09-26** (`c7e8cd5`", dr, fixed = TRUE) &&
       grepl("THAT RAN 2026-09-26 (Section 1y)", rc, fixed = TRUE) && grepl("## 11. What the block cross-validation said", dn, fixed = TRUE))
 })
 
@@ -6988,6 +6989,59 @@ local({
                 if (is.na(q)) "nothing" else formatC(q, format = "d", big.mark = ","),
                 total, sites))
   }
+})
+
+# ---------------------------------------------------------------------------
+# 93. B58 (2026-09-29): THE OVERNIGHT BATCH. The authoritative render at the A31 code and the
+#     renders that close D29, D3 and D6, with their decision rules written before the run, and
+#     the two driver additions the D29 rule reads (every ladder rung's block CV and trailer
+#     coverage).
+# ---------------------------------------------------------------------------
+local({
+  flat <- function(x) paste(x, collapse = "\n")
+  rd <- function(p) readLines(p, warn = FALSE)
+  rf <- "06_diagnostics/run_authoritative_batch_2026-09-29.R"
+  r  <- readLines(rf, warn = FALSE); rt <- paste(r, collapse = "\n")
+  chk("B58: the batch runner ships DRY_RUN <- TRUE and starts only on --go or BSS_BATCH_GO=1 (so the tracked tree stays clean)",
+      identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)") &&
+      grepl('if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE', rt, fixed = TRUE))
+  chk("B58: the stages are the authoritative render, D3, D6, the two D29 ladders, the radius check and the daily rung, in that order",
+      grepl('STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")', rt, fixed = TRUE))
+  chk("B58: stage A renders through run_estimation.R --model both (the production orchestrator, manifest and cross-check), not a copy of it",
+      grepl('A    = list(model = "both", fit = TRUE, tag = BASE$run_tag, orchestrator = TRUE', rt, fixed = TRUE) &&
+      grepl('system2(RSCRIPT, c(shQuote(ORCH), "--model", st$model)', rt, fixed = TRUE))
+  chk("B58: every decision rule is written in the header before the run (A, R2, D3, D6, D29)",
+      all(vapply(c("# A (can this render become the authoritative run?)", "# R2 (does A31 still need init_r = 0.5?)",
+                   "# D3 (the gear track's AR period, per population)", "# D6 (the gear-track zero-inflated shore catch)",
+                   "# D29 (the boat all-gear AR period)", "D29-4 THE DECISION, pooled track only"),
+                 function(x) grepl(x, rt, fixed = TRUE), logical(1))))
+  chk("B58: D3 and D29G use the POOLED caps as the gear per-population periods, by construction",
+      grepl("MATCHED <- BASE$ar_max_resolution$pooled", rt, fixed = TRUE) &&
+      grepl("delta = list(gear_period_bss = MATCHED)),", rt, fixed = TRUE))
+  chk("B58: the D29 ladders are scoped to the boat all-gear fit, fit every rung, and ignore the cap under test",
+      grepl('ar_escalate = list(private_boat = "all_gear"), ar_escalate_stop = "all_rungs"', rt, fixed = TRUE) &&
+      grepl('ar_escalate_ladder = c("weekly", "biweekly", "monthly")', rt, fixed = TRUE) &&
+      grepl("ar_escalate_respect_cap = FALSE", rt, fixed = TRUE))
+  chk("B58: RESUME reuses a folder only on a digest over the whole resolved configuration, the code and the inputs",
+      grepl("stage_digest <- function(sid) {", rt, fixed = TRUE) &&
+      grepl(".cfg_text(resolve_cfg(sid)), CODE_FP, INPUTS_FP", rt, fixed = TRUE))
+  chk("B58: the runner is recorded in the register (B58), the status document and the diagnostics README",
+      grepl("| B58 |", flat(rd("07_documentation/development_notes/CHANGE_REGISTER.md")), fixed = TRUE) &&
+      grepl("run_authoritative_batch_2026-09-29.R", flat(rd("07_documentation/development_notes/PIPELINE_STATUS.md")), fixed = TRUE) &&
+      grepl("run_authoritative_batch_2026-09-29.R", flat(rd("06_diagnostics/README.md")), fixed = TRUE))
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) {
+    t <- flat(rd(drv))
+    chk(sprintf("B58: %s writes every ladder rung's block CV (prefix ladder_block) and logs trailer coverage per rung", basename(drv)),
+        grepl('output_dir, prefix = "ladder_block"),', t, fixed = TRUE) && grepl("cov50_trailer", t, fixed = TRUE))
+  }
+  bcv <- flat(rd("03_R_functions/bss_block_cv.R"))
+  chk("B58: write_block_cv_diagnostics() keeps the loo_block default prefix (the report reads it) and takes another",
+      grepl('prefix = "loo_block") {', bcv, fixed = TRUE) &&
+      grepl('sprintf("%s_%s_%s.csv", prefix, sn, label)', bcv, fixed = TRUE))
+  source("03_R_functions/bss_rung_adequacy.R", local = TRUE)
+  chk("B58: bss_rung_adequacy() carries cov50_trailer, NA when there is no fit",
+      exists("bss_rung_adequacy") && "cov50_trailer" %in% names(bss_rung_adequacy(NULL, NULL)) &&
+      is.na(bss_rung_adequacy(NULL, NULL)$cov50_trailer))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
