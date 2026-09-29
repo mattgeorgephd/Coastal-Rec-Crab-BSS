@@ -9,6 +9,7 @@
 "shore_all_gear","pooled, A31 lever","both",20260620,0.5,19,0.0019,32475,26220,40399,0.9997,13659,1.0004,3345,7.1,TRUE,"res_shore_all_gear_i0.5_s20260620_L2.rds",""
 "shore_all_gear","pooled, A31 lever","effort",20260619,2,277,0.0277,32420,26155,40490,0.9999,12784,1.0005,7183,35.2,TRUE,"res_shore_all_gear_i2_s20260619_L1.rds",""
 "shore_all_gear","pooled, A31 lever","effort",20260619,0.5,474,0.0474,32414,26242,40506,1,9366,1.0032,1305,29.9,TRUE,"res_shore_all_gear_i0.5_s20260619_L1.rds",""
+"shore_all_gear","pooled, A31 lever","effort",20260620,0.5,233,0.0233,32469,26008,40645,0.9997,11876,1.0006,4799,30.1,TRUE,"res_shore_all_gear_i0.5_s20260620_L1.rds",""
 "shore_ring_net_only","pooled, A31 lever","both",20260619,0.5,124,0.0207,9456,7256,12514,1.002,3329,1.0418,106,1,TRUE,"res_shore_ring_net_only_0.5.rds",""
 "shore_ring_net_only","pooled, A31 lever","both",20260620,0.5,11,0.0018,9495,7313,12444,0.9998,7068,1.0023,1211,1.3,TRUE,"res_shore_ring_net_only_i0.5_s20260620_L2.rds",""
 "shore_ring_net_only","pooled, A31 lever","both",20260621,0.5,31,0.0052,9528,7272,12565,1.0003,7020,1.0069,1295,0.9,TRUE,"res_shore_ring_net_only_i0.5_s20260621_L2.rds",""
