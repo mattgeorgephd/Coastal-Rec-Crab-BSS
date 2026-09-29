@@ -6794,8 +6794,12 @@ local({
   if (!file.exists(v)) skp("A31 evidence: the container validation table", "file absent") else {
     x <- utils::read.csv(v, stringsAsFactors = FALSE)
     sh <- x[x$level == "effort", ]
-    chk("A31 evidence: every refit at the shipped level passes the gate, including shore all-gear at the seed and init_r = 2 that got stuck before",
-        nrow(sh) >= 4 && all(sh$pass_convergence) && any(sh$fit == "shore_all_gear" & sh$init_r == 2 & sh$divergence_fraction < 0.01))
+    # The stuck case on the old model: 23.3% divergent, a chain in the funnel, gate FAILED. At the
+    # shipped level it must pass and sit under the 5% backstop; it is NOT required to be near zero
+    # ("effort" leaves the CPUE-level hierarchy, and its divergences, in place; "both" removes them).
+    chk("A31 evidence: all four fits refit at the shipped level, every one passes the gate, and shore all-gear at the seed and init_r = 2 that got stuck before is under the 5% backstop",
+        all(c("shore_all_gear", "shore_ring_net_only", "private_boat_all_gear", "private_boat_ring_net_only") %in% sh$fit) &&
+        all(sh$pass_convergence) && any(sh$fit == "shore_all_gear" & sh$init_r == 2 & sh$divergence_fraction < 0.05))
   }
 })
 
