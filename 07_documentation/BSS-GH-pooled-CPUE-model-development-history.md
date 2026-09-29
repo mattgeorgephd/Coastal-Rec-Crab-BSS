@@ -6,13 +6,70 @@
 - **Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted. Code **v7.7** (2026-07-11) moves the shore component onto the gear-deployment scale as well (POOL-7), so both fitted components now run on gear-deployments; it moves the publication shore number, so v7.7 must be re-run before the shore total is trusted. Code **v7.8** (2026-07-11) is a behavior-preserving repository refactor (helper functions extracted into `03_R_functions/`; all user toggles centralized into `run_config.R`) together with one number-moving completion fix: the pooled `run_pe` shore branch, which had been left on crabber-hours after v7.7, is ported onto the shared effort module so the shore PE matches the shore BSS unit. Code **v7.9** (2026-07-12) restructures `run_config.R` into the base parameter set, moves the per-population AR-resolution map into it, and tightens the pooled divergence-fraction backstop to 0.05 (P5/P7), with no estimate change. The current state is v7.9 plus the nine-item **Tier-2 + parity batch** (2026-07-13), validated by Run 1 (the authoritative run: pooled default, port total BSS 83,035) and cross-checked by the gear-resolved Run 2; that batch adds the pooled Stan terms `B2_C` / `B3` / `gamma_C` and the PE empty-stratum fallback among nine items, all detailed in the newest version-log entry and in `development_notes/PIPELINE_STATUS.md`.
 - **Convention:** no em dashes.
 
-This file is the provenance record for the pooled model. The published method document summarizes this history in one screen (its Section 19) and refers here for the detail. Entries are newest-first. The model's first published, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
+This file is the provenance record for the pooled model. The published method document summarizes this history in one screen (its Section 23) and refers here for the detail. Entries are newest-first. The model's first published, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
 
 A note on numbering: these version tags (v6.x, v7.x) are the internal development tags carried in the driver's header and in the Stan model headers. They are distinct from the published "Method v1.0" label, which names the frozen method rather than a code revision. Method v1.0 = code v7.4.
 
 ------------------------------------------------------------------------
 
 ## Version log
+
+### 2026-09-29 (second entry), THE DURABLE FUNNEL FIX, FOUR DEFECTS CLOSED AND THE REPORT REBUILT (A31, B52 to B56)
+
+Matt's list after B51, while the first render at `init_r = 0.5` ran on his machine. Each item has
+a CHANGE_REGISTER row; in one line each:
+- **A31 (T2.5, D33): the single-section level hierarchies are collapsed** on the pooled track,
+  effort and CPUE (`mu_hier_collapse_single = "both"`), the structure the gear track has used
+  since v6.0. Validated by container refits of every fit from saved Stan data, including the two
+  seed and `init_r` combinations that had failed the gate: the shore all-gear fit is under 0.2%
+  divergent at every seed and radius. A first draft collapsed the effort level only; its shore
+  all-gear refit at the shipped `init_r = 0.5` was 4.7% divergent, so both ship. The register
+  row carries the table. **It changes every fit's draws**, so the render at `init_r = 0.5` that
+  predates it is not at this code.
+- **B52 (D34):** the commercial/charter census is clipped to the estimation window.
+- **B53 (D36):** the turnover fallbacks are 3.03 (boat) and 2.477 (shore), the 2024-25 values of
+  the shipped methods, in one function, and every fallback is recorded for the report
+  (`bss_run_warnings.R`, new).
+- **B54 (D37):** the housekeeping list (dead keys, absent-key defaults, `run_pe_gear()` parity,
+  the orchestrator's package guard, `gear_coverage_audit.R`, three harness gaps).
+- **B55:** the day length (`L_effective`, civil twilight, suncalc) is computed only under a
+  time-denominated effort unit; nothing on the gear-deployment path read it.
+- **B56:** the results report rebuilt: warnings captured and listed, configuration, inputs,
+  turnovers, fit settings, components, BSS catch by mode, adequacy, prior influence, block CV,
+  sampler health, `tau_bar` and `f` on the page; eight defects in what it printed fixed.
+
+### 2026-09-29, THE MODEL OF RECORD AS OF THIS DATE: B44 to B51, the re-render at the current code, and `init_r = 0.5` (on `main`)
+
+**The model of record is the pooled model as of 2026-09-29.** The method is still Method v2.0 plus
+the boat advisory term (A30); what changed is the code under it and one sampler setting. The
+branch merged into `main` on 2026-09-28 (pull requests #5 and #6), and the work continues there.
+
+**NEW AUTHORITATIVE RUN: `05_output/20260928/pooled-CPUE-2024-25`, port total 99,873 [82,414,
+124,438]** (Matt, `run_estimation.R` with `model = "both"`, committed `ff750c4`; B50), with the
+gear-resolved cross-check at 98,588, **-1.29%**, inside the 2% criterion. +3,755 (+3.9%) on
+96,118, all of it the shore; both boat fits byte-identical to the run it replaces.
+
+What landed between the two entries, in one line each (CHANGE_REGISTER has every detail):
+- **B44** the gear port total on the expected catch; unique interview ids; the PE's monthly
+  split from its own strata; the PE effort SE with the donor covariances; Red Rock removed.
+- **B45** an unsampled Float 17-21 count filled by the month's time-paired ratio, not read as
+  zero (the shore gear count +9.0%; this is what moved the number).
+- **B46** ISO-week strata and AR periods; the gear `R_G` prior from the season; the predictive
+  catch drawn from the fitted zero-inflated NB; fail-closed gate and ladder verdicts; the RNG
+  restored after every seeded draw; `bss_output_dir()`; `renv.lock` rebuilt;
+  `run_estimation.R --model both` with its cross-check file; the runners' guards.
+- **B47** the post-merge documentation sweep. **B48** OSP's crab-only share out of the boats
+  SAMPLED (the per-day rate and the manual's schedule; inert until the column arrives).
+  **B49** `run_rg_sweep.R` fixed. **B50** the re-render.
+- **B51** every chain starts within `init_r = 0.5`: the shore all-gear fit reached 4.07%
+  divergences on the authoritative run, and one render of the same code elsewhere left a chain
+  stuck in the `sigma_mu_E` funnel and failed its gate (D33). A refit at 0.5 gave four clean
+  chains. It moves where chains start, not the posterior; the authoritative run was rendered at
+  2, so a render of the shipped file agrees with it within Monte Carlo error, not to the crab.
+
+Decisions recorded the same days: D4 (the catch likelihood stays as it is), D8 (pre-2024-25
+seasons out of scope), the licensing confirmations (NOTICE C1 to C4). Open and next: the first
+render at `init_r = 0.5`; T2.5 (the durable fix for the funnel); D29, D24 and D2.
 
 ### 2026-09-28, THE METHOD OF RECORD RENDERED: a new authoritative run, and what reading it found (branch `OSP-boat-count-incorporation`)
 

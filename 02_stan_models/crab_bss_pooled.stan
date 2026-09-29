@@ -96,6 +96,13 @@
 //   stays on PE; the durable fix is a more informative boat effort series, not
 //   parameter surgery. See documentation Section 14.
 //
+// 2026-09-29 (T2.5, D33): the collapse is now AUTOMATIC with one section (S == 1),
+//   exactly as the gear-resolved model's P2 has done since v6.0. What changed since
+//   B1.7: every shore fit is on a coarse AR (weekly all-gear, biweekly pot closure,
+//   2026-09-07), so there is no 289-day daily ridge for the level to reconcile
+//   against, and the gear track fits the same data with the layer collapsed. The
+//   eps_mu_* matrices are zero-size when collapsed; sigma_mu_* stay, prior-only.
+//
 // 2026-09-08 (review item 1B): the crabbing fraction f becomes DYNAMIC. Under
 //   crab_fraction_dynamic = 1, logit f follows a random walk across the strata in
 //   chronological order (non-centred, learned step SD, optional Student-t steps for the
@@ -144,15 +151,16 @@ data {
   vector[D * K_open] X_open_flat;
   real<lower=0> O[D,S,G];               // Open/closed
 
-  // POOL-4: single-cell mu-hierarchy collapse lever. 0 (default) keeps the v6.8
-  // decoupled level term (mu = mu_mu + eps_mu * sigma_mu); 1 collapses it to
-  // mu = mu_mu, i.e. the B1.7 experiment that cleared the boat funnel offline but
-  // hung the shore all-gear fit in production (289-day daily AR; see header v6.9
-  // note and documentation Section 14). Exposed as data so the collapse can be
-  // toggled PER FIT from the driver (params$collapse_mu_hier) without editing this
-  // file mid-investigation. The durable fix for the funnel is a more informative
-  // boat effort series, not this parameter surgery; this is only a safe lever.
+  // POOL-4: mu-hierarchy collapse lever. Since T2.5 (2026-09-29) the hierarchy is
+  // collapsed automatically whenever S == 1 (every production fit; see transformed data),
+  // so this lever only matters for a fit with S > 1, where 1 forces mu = mu_mu. Exposed as
+  // data so it can be set per fit from the driver (params$collapse_mu_hier).
   int<lower=0,upper=1> collapse_mu_hier;
+  // A31 (2026-09-29): which single-section (S == 1) level hierarchies are collapsed.
+  // 0 = none (the pre-A31 model exactly), 1 = the EFFORT level only (the sigma_mu_E funnel of
+  // D33), 2 = effort and CPUE. Set from run_config$mu_hier_collapse_single, so the change can be
+  // priced and reversed without editing this file. With S > 1 both hierarchies pool as before.
+  int<lower=0,upper=2> mu_hier_collapse_single;
 
   // --- Day length / effort expansion factor L ---
   //   shore: effective day length in HOURS (I/E-derived L_mu).
@@ -456,6 +464,22 @@ transformed data {
   int n_f_dyn = crab_fraction_estimate * crab_fraction_dynamic;
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
   int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
+  // T2.5 (2026-09-29, D33): the single-cell level hierarchy is COLLAPSED whenever there is
+  // one section. With S == 1, mu_E[g,1] = mu_mu_E[g] + eps_mu_E[g,1] * sigma_mu_E has one
+  // element per level, so only the SUM enters the likelihood: mu_mu_E and
+  // sigma_mu_E * eps_mu_E trade off exactly, sigma_mu_E follows its half-Cauchy prior, and
+  // the product is the funnel the shore all-gear fit's divergences sat on (4.07% on the
+  // authoritative run; one container render left a chain stuck in it and failed the gate).
+  // The level is then mu_mu_E alone, on its normal(value_normal_mu_mu_E, 2) prior, and
+  // eps_mu_E / eps_mu_C are zero-size. sigma_mu_E / sigma_mu_C keep their proper priors and
+  // enter nothing, so they report their PRIOR (flagged by bss_decoupled_reasons()). This is
+  // the gear-resolved model's P2 structure, which has fitted the same data cleanly
+  // (0.14% divergences on its 2026-09-28 shore all-gear fit). With S > 1 the hierarchy pools
+  // across sections as before, and collapse_mu_hier = 1 still forces the collapse there.
+  // (The 2026-06-21 B1.7 collapse hung a DAILY-AR shore fit; that fit is weekly since
+  // 2026-09-07, and the container validation of this change is CHANGE_REGISTER A31.)
+  int<lower=0, upper=1> use_mu_hier_E = (collapse_mu_hier == 0 && (S > 1 || mu_hier_collapse_single == 0)) ? 1 : 0;
+  int<lower=0, upper=1> use_mu_hier_C = (collapse_mu_hier == 0 && (S > 1 || mu_hier_collapse_single < 2)) ? 1 : 0;
   for (k in 1:K_open)
     for (d in 1:D)
       X_open[d, k] = X_open_flat[(k - 1) * D + d];
@@ -490,7 +514,7 @@ parameters {
   matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_E[G];
   real<lower=0> sigma_mu_E;
-  matrix[G,S] eps_mu_E;
+  matrix[G * use_mu_hier_E, S] eps_mu_E;   // T2.5: zero rows when the effort hierarchy is collapsed
 
   // B1.5: eps_E_H_obs[n_effort_obs] removed. The effort-count overdispersion is
   //       now marginalized into neg_binomial_2 in the model block, so the per-
@@ -542,7 +566,7 @@ parameters {
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
   real mu_mu_C[G];
   real<lower=0> sigma_mu_C;
-  matrix[G,S] eps_mu_C;
+  matrix[G * use_mu_hier_C, S] eps_mu_C;   // T2.5: zero rows when the CPUE hierarchy is collapsed
 
   vector[D * estimate_L] L_raw;
   // improvement 2.1: the shared level. Size 0 when shared_tau = 0, so the unconstrained
@@ -673,18 +697,12 @@ transformed parameters {
 
   for (g in 1:G) {
     for (s in 1:S) {
-      // POOL-4 lever: collapse_mu_hier == 1 removes the decoupled single-cell
-      // level (mu = mu_mu), the B1.7 collapse. Default 0 reproduces the v6.8
-      // hierarchy EXACTLY, so the default posterior is unchanged. When collapsed,
-      // eps_mu_* and sigma_mu_* keep their priors (below) but enter no likelihood,
-      // so they are proper and decoupled (like sigma_IE at IE_n = 0), not a funnel.
-      if (collapse_mu_hier == 1) {
-        mu_E[g,s] = mu_mu_E[g];
-        mu_C[g,s] = mu_mu_C[g];
-      } else {
-        mu_E[g,s] = mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E;
-        mu_C[g,s] = mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C;
-      }
+      // T2.5 (2026-09-29): collapsed per level on S == 1 fits (use_mu_hier_E / _C, transformed data), and
+      // wherever the POOL-4 lever collapse_mu_hier == 1 asks for it. sigma_mu_* keep their
+      // priors (below) but enter no likelihood, so they are proper and decoupled (like
+      // sigma_IE at IE_n = 0), not a funnel; eps_mu_* are zero-size.
+      mu_E[g,s] = (use_mu_hier_E == 1) ? mu_mu_E[g] + eps_mu_E[g,s] * sigma_mu_E : mu_mu_E[g];
+      mu_C[g,s] = (use_mu_hier_C == 1) ? mu_mu_C[g] + eps_mu_C[g,s] * sigma_mu_C : mu_mu_C[g];
     }
     for (d in 1:D) {
       for (s in 1:S) {
@@ -837,8 +855,8 @@ model {
     for (s in 1:S) {
       omega_E_0_raw[g,s] ~ std_normal();   // B1.3: prior on raw; omega_*_0 scaled in TP
       omega_C_0_raw[g,s] ~ std_normal();
-      eps_mu_E[g,s] ~ std_normal();
-      eps_mu_C[g,s] ~ std_normal();
+      if (use_mu_hier_E == 1) eps_mu_E[g,s] ~ std_normal();   // T2.5: zero-size when collapsed
+      if (use_mu_hier_C == 1) eps_mu_C[g,s] ~ std_normal();
     }
   }
 

@@ -77,7 +77,7 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     #   gear-deployments: gear                                   x tau_shore
     eff_spec_pe <- bss_effort_spec(TRUE, days, params)
     effort_unit_pe <- eff_spec_pe$unit
-    tau_shore_pe <- params$tau_shore_prior_mu %||% 1.7
+    tau_shore_pe <- params$tau_shore_prior_mu %||% bss_tau_fallback("shore", params)
     days <- days |> mutate(
       L_pe = if(effort_unit_pe == "gear-deployments") tau_shore_pe else day_length)
     gear_mult <- if(eff_spec_pe$effort_scale_gear == 1L) 1.0 else summ$crabbers_per_gear
@@ -95,15 +95,17 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     # 2026-09-02: the frame now comes from the shared pe_gear_ratio_frame(), so this track
     # and the pooled one cannot drift. The comment above USED to claim this matched the BSS's
     # R_G_boat and it did not: the BSS frame is incomplete-trip filtered and this one was not.
-    ng_pe  <- suppressWarnings(as.numeric(
-      pe_gear_ratio_frame(summ$interview, summ$interview_gear, params,
-                          label = "gear-resolved boat")$number_of_gear))
-    ng_pe  <- ng_pe[!is.na(ng_pe) & ng_pe > 0]
+    # D37 (2026-09-29): the same frame filter as run_pe_pooled(): gear > 0 AND a positive
+    # angler count (inert on 2024-25, where every boat interview has one).
+    .rf    <- pe_gear_ratio_frame(summ$interview, summ$interview_gear, params, label = "gear-resolved boat")
+    .ac    <- if ("angler_count" %in% names(.rf)) suppressWarnings(as.numeric(.rf$angler_count)) else rep(1, nrow(.rf))
+    ng_pe  <- suppressWarnings(as.numeric(.rf$number_of_gear))
+    ng_pe  <- ng_pe[!is.na(ng_pe) & ng_pe > 0 & !is.na(.ac) & .ac > 0]
     if(length(ng_pe) > 0) gpg_pe <- mean(ng_pe)
     # REVIEW ITEM 5 (2026-09-08): params$tau_boat_prior_mu is resolved by the driver
     # (bss_resolve_tau_boat_prior) to the OSP/trailer overlap calibration before the PE
     # runs, so the PE and the BSS prior expand the trailer count by one turnover.
-    tau_pe <- params$tau_boat_prior_mu %||% 1.2
+    tau_pe <- params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)
     if (!is.numeric(tau_pe) || !is.finite(tau_pe))
       stop("run_pe_gear(): params$tau_boat_prior_mu is unresolved (", deparse(tau_pe),
            "); the driver must call bss_resolve_tau_boat_prior() before the PE.", call. = FALSE)
@@ -146,6 +148,7 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
   results$effort_se    <- .rep$effort_se
   results$effort_se_sampled_only <- .rep$effort_se_sampled_only
 
+  pe_check_rows <- list()   # D37: the check table, as run_pe_pooled() builds it
   for(cg in catch_groups) {
     if(!cg %in% names(summ$interview)) { results[[cg]] <- 0; next }
 
@@ -219,6 +222,11 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
       rel <- implied / ros
       cat(sprintf("  PE check [%s / %s]: implied CPUE %.4f vs interview ratio-of-sums %.4f (%.2fx) [%s]\n",
                   population_name, cg, implied, ros, rel, effort_unit_pe))
+      # D37 (2026-09-29): the check TABLE too, as run_pe_pooled() returns it, so both tracks
+      # hand their report the same pe_cpue_check.
+      pe_check_rows[[cg]] <- tibble(catch_group = cg, effort_unit = effort_unit_pe,
+                                    pe_implied_cpue = implied, interview_ros = ros, ratio = rel,
+                                    within_0.5_to_2 = rel >= 0.5 && rel <= 2.0)
       # 2026-09-28 (B46): a WARNING, not a stop, and a flag in the check table (report 4.4).
       # Outside [0.5, 2] the likeliest cause is still a unit mismatch, but a new season whose
       # interviews sit in low-CPUE months while its effort sits in high ones (month-local
@@ -234,6 +242,7 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
     }
   }
 
+  results$pe_cpue_check <- if (length(pe_check_rows)) bind_rows(pe_check_rows) else NULL
   cat(sprintf("  PE %s: Effort=%s %s, Dung=%s\n", population_name,
               format(round(results$effort_total),big.mark=","), effort_unit_pe,
               format(round(results$Dungeness_Kept),big.mark=",")))

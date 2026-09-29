@@ -2,7 +2,7 @@
 
 Stan model code for the Bayesian State-Space (BSS) estimator. These are called by the drivers in `01_BSS_models/` (and by the batch runners in `06_diagnostics/`, which render those drivers) via `rstan::stan(file = here("02_stan_models", <model_file>), ...)`. The driver passes only the filename; the folder is supplied by the `here()` call.
 
-Both models share the same core architecture: an adaptive-resolution AR(1) process for effort and CPUE over `P_n` periods (daily / weekly / biweekly / monthly; selected in R from effort-data density, then coarsened by the per-population `ar_max_resolution` cap, or forced by the ladder/`ar_force`), a sparse per-observation effort overdispersion term (`eps_E_H_obs`, one per actual count), I/E-anchored effort integration, and dual reporting of expected catch plus posterior predictive draws. They differ in how CPUE is modeled and in a few effort-side effects.
+Both models share the same core architecture: an adaptive-resolution AR(1) process for effort and CPUE over `P_n` periods (daily / weekly / biweekly / monthly; selected in R from effort-data density, then coarsened by the per-population `ar_max_resolution` cap, or forced by the ladder/`ar_force`), effort overdispersion marginalized as NB2 (`r_E`; the per-observation `eps_E_H_obs` latents were removed in B1.5), I/E-anchored effort integration, and dual reporting of expected catch plus posterior predictive draws. They differ in how CPUE is modeled and in a few effort-side effects.
 
 ## Files
 
@@ -28,6 +28,22 @@ Two boat-side features are opt-in via `run_config` and behavior-neutral when off
 ## The zero-inflated catch likelihood: in both models, on the pooled track only as shipped
 
 As of 2026-09-07 the pooled model's catch likelihood is a zero-inflated negative binomial on the populations named by `catch_zi_populations` (shore in production): `P(0) = theta_C + (1 - theta_C) * NB2(0)`, with Stan's `log_lik` carrying the mixture and the season total scaled by `(1 - theta_C)` in generated quantities so enabling the feature is not itself an inflation. **`crab_bss_gear_resolved.stan` has carried the same block since 2026-09-13** (the D6 port; until then it had none and the gear track silently ignored `estimate_catch_zi`). Which TRACKS fit it is `catch_zi_tracks` in `run_config.R`, which ships `"pooled"`, so `prep_bss_crab_gear()` emits `zi_catch = 0` and the gear track still fits plain NB2 as shipped; the OFF path is bit-identical to the pre-port model (11,021 parameter rows). The two tracks therefore still differ in the shore catch likelihood as shipped (worth about -0.3% on the pooled shore component). D6 in `07_documentation/development_notes/CHANGE_REGISTER.md` says adopt, pending one render at the matched configuration. Changing `estimate_catch_zi` (like `razor_dig_mode` and `estimate_cpue_density`) forces a Stan recompile.
+
+## The level hierarchy with one section (A31, 2026-09-29)
+
+Each model writes the effort and CPUE levels as a hierarchy over sections,
+`mu[g,s] = mu_mu[g] + eps_mu[g,s] * sigma_mu`. With ONE section, which is every production fit,
+only the sum enters the likelihood, so `sigma_mu` is unidentified and the product is a funnel;
+the pooled shore all-gear fit's divergences sat on the effort one (D33). The gear-resolved
+model has collapsed both levels at `S == 1` since v6.0 (its P2 block). **The pooled model
+collapses them per level since 2026-09-29**, from the data int `mu_hier_collapse_single`
+(0 none, the pre-A31 model exactly; 1 the effort level only; 2 both, shipped), set by
+`run_config$mu_hier_collapse_single`, so no recompile. A collapsed level's `eps_mu` is zero-size
+and its `sigma_mu` keeps a proper prior that enters nothing; it reports its prior and
+`bss_decoupled_reasons()` flags it. `collapse_mu_hier = 1` still forces both collapses on a
+multi-section fit. The container validation, and why `"both"` ships (collapsing the effort level
+alone left the CPUE funnel, and 4.7% divergences on the shore all-gear fit at the shipped
+`init_r`), are in CHANGE_REGISTER A31.
 
 ## Selecting a model
 

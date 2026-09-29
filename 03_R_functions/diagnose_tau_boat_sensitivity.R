@@ -72,8 +72,8 @@ diagnose_tau_boat_sensitivity <- function(boat,
   fail <- function(msg) invisible(list(table = NULL, prior_dominated = NA,
                                        note = msg, csv = NA_character_))
 
-  tau_mu  <- suppressWarnings(as.numeric(params$tau_boat_prior_mu %||% 1.2))
-  tau_sig <- suppressWarnings(as.numeric(params$tau_boat_prior_sigma %||% 0.3))
+  tau_mu  <- suppressWarnings(as.numeric(params$tau_boat_prior_mu %||% bss_tau_fallback("private_boat", params)))
+  tau_sig <- suppressWarnings(as.numeric(params$tau_boat_prior_sigma %||% 0.5))
   grid    <- params$tau_sensitivity_grid %||% c(2.0, 2.4, 2.7, 3.0, 3.4)   # 2026-09-08: re-centred on the overlap calibration
   grid    <- sort(unique(suppressWarnings(as.numeric(grid))))
   grid    <- grid[is.finite(grid) & grid > 0]

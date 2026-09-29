@@ -42,18 +42,22 @@
 #
 # ---------------------------------------------------------------------------
 # THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative
-# run: the single 2024-25 season, pooled model, Method v2.0 and the boat all-gear
-# advisory-day term (section 2.10, A30) throughout.
+# run: the single 2024-25 season, both models (the pooled headline and its gear-resolved
+# cross-check), Method v2.0 and the boat all-gear advisory-day term (section 2.10, A30).
 #
-#   05_output/20260927/pooled-CPUE-canonical-2024-25
-#   port total 96,118  [79,418, 120,558]      4 of 4 components fitted, all BSS
+#   05_output/20260928/pooled-CPUE-2024-25
+#   port total 99,873  [82,414, 124,438]      4 of 4 components fitted, all BSS
+#   05_output/20260928/gear-type-CPUE-model-2024-25: 98,588, -1.29%, the cross-check PASSES
 #
-# That folder was rendered from THIS file by source("run_estimation.R") (2026-09-27,
-# committed 2026-09-28), so it is not a ladder rung with a window pin: sourcing the
-# orchestrator on this file as shipped reproduces its configuration, and on the same machine
-# and toolchain its numbers to the crab (B38). It superseded
-# ladder rung R4 (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits
-# are this file's with marine_hazard_mode = "off" (rung M1 of the marine ladder re-rendered
+# Those folders were rendered from THIS file by run_estimation.R with model = "both"
+# (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not ladder rungs
+# with a window pin: sourcing the orchestrator on this file as shipped reproduces their
+# configuration, and on the same machine and toolchain their numbers to the crab (B38; the
+# boat fits are byte-identical to the 2026-09-27 render's). They superseded
+# 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
+# Float 17-21 fill, B45), which had superseded ladder rung R4
+# (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits were the
+# 2026-09-27 render's with marine_hazard_mode = "off" (rung M1 of the marine ladder re-rendered
 # them bit for bit; CHANGE_REGISTER D28 closed 2026-09-12 the window gap that once separated
 # the shipped file from the ladder). The authoritative
 # total and its caveats live in ONE place, the box at the top of
@@ -61,9 +65,10 @@
 # anywhere else in the repository without checking it there.
 #
 # The two-season 2023-25 span that used to ship here is staged in
-# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is BLOCKED on
-# data: there is no 2023-24 vessel tally or charter roster, so that season's
-# commercial/charter component is 0 (CHANGE_REGISTER D8).
+# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is OUT OF SCOPE
+# (Matt, 2026-09-28; CHANGE_REGISTER D8 closed): seasons before 2024-25 were exploratory and
+# not the current protocol. It was also blocked on data (no 2023-24 vessel tally or charter
+# roster).
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
@@ -242,8 +247,8 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118 [79,418, 120,558] (and of R4,
-  # 05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376, the run before it).
+  # 05_output/20260928/pooled-CPUE-2024-25, 99,873 [82,414, 124,438] (and of the runs before
+  # it: 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118, and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on
@@ -436,12 +441,22 @@ run_config <- list(
   charter_roster_port = "Westport",
   ie_shore_location = "WDF20",       # location_name kept as the SHORE I/E series
   ie_boat_location  = "WBL",         # location_name kept as the BOAT I/E series
-  ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E for the L_effective
+  ie_filter_by_season = FALSE,       # FALSE pools all seasons of I/E rows (the shore turnover derivation, D24, and the
+                                     #   time-unit L_effective regression); TRUE keeps season_filter only.
 
-  # --- 1.5 Sampler (MCMC). Machine-dependent, not methodological. ----------
+  # --- 1.5 Sampler (MCMC). Not methodological: these move the draws, not the posterior. ---
   bss_chains        = 4,
   bss_cores         = 4,
   bss_seed          = 20260619,       # fixed seed for reproducible fits
+  # Initial-value radius for every fit on both tracks (2026-09-29, B51; D33). rstan draws each
+  # chain's starting point uniformly on (-init_r, init_r) on the unconstrained scale, default 2.
+  # At 2 a chain of the shore all-gear fit can start in the mouth of the sigma_mu_E funnel and
+  # stay there (T2.5): one render of the B44-B49 code failed its gate that way, while a refit
+  # of the same data and seed at 0.5 gave four clean chains (1.6% divergences, R-hat 1.000).
+  # It changes where chains START, not the posterior they sample; a well-mixed fit is the same
+  # fit in distribution, but not the same draws, so a render at 0.5 does not reproduce a render
+  # at 2 to the crab. The authoritative run of 2026-09-28 (05_output/20260928/) used 2.
+  bss_init_r        = 0.5,
   bss_max_count_seq = 3,              # cap on count sequences per day
 
   # ============================================================================
@@ -528,7 +543,11 @@ run_config <- list(
   tau_shore_prior_mu     = "derived", # shore deployment turnover from the I/E time column (2.48 on 2024-25)
   tau_shore_prior_sigma  = "derived", # bootstrap log-SE of the level, floored below
   tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
-  tau_shore_prior_mu_fallback = 1.7,  # used by "derived" when the I/E time column is absent
+  # SEASON-DERIVED fallback (D36, 2026-09-29): used by "derived" when the I/E time column is
+  # absent or has fewer than tau_shore_derive_min_days days. The 2024-25 derivation (40 I/E
+  # days), not the retired 1.7 (arrivals over PEAK presence, the wrong quantity). A fallback
+  # is recorded in the report's warnings section and run_warnings.csv, and its log-SD is 0.3.
+  tau_shore_prior_mu_fallback = 2.477,
   tau_shore_derive_min_days   = 10,   # minimum I/E days behind a derived centre
   # WHICH I/E DAYS THE DERIVED CENTRE USES (surfaced 2026-09-11 by the first full ladder
   # run; CHANGE_REGISTER D24). FALSE (shipped) pools EVERY I/E interval day in the
@@ -571,9 +590,12 @@ run_config <- list(
   tau_boat_prior_mu      = "calibration",
   tau_boat_prior_sigma   = 0.5,
   tau_boat_calibration_metric = "trailer_mean_per_visit",  # | "trailer_max_per_day" | "trailer_sum_per_day"
-  # SEASON-DERIVED fallback for a window with no OSP/trailer overlap (fewer than
-  # tau_boat_calibration_min_pairs paired days): the 2024-25 max-per-day calibration.
-  tau_boat_prior_mu_fallback  = 2.7,
+  # SEASON-DERIVED fallback (D36, 2026-09-29) for a window with no usable OSP/trailer overlap
+  # (OSP absent, the overlap diagnostic failed, or fewer than tau_boat_calibration_min_pairs
+  # paired days): the 2024-25 calibration on the SHIPPED metric, trailer_mean_per_visit
+  # (3.03, 61 paired days). It was 2.7, the max-per-day metric's value, so a fallback also
+  # changed metric silently. Recorded in the report's warnings section and run_warnings.csv.
+  tau_boat_prior_mu_fallback  = 3.03,
   tau_boat_calibration_min_pairs = 3,
   # FALSE (default) keeps the historical parameterization: L is D INDEPENDENT per-day draws,
   # each anchored on tau_*_prior_mu, with nothing pooling information across days. The
@@ -945,21 +967,23 @@ run_config <- list(
   # Cap on the finest AR resolution the data-driven selector may choose, per
   # population. The two models legitimately differ, so both maps live here and each
   # driver reads run_config$ar_max_resolution$<model> just after it merges run_config:
-  #   pooled:        runs adaptive AR, capped here (boat weakly informative -> weekly).
+  #   pooled:        runs adaptive AR, capped here (the boat at monthly; see the map).
   #   gear_resolved: reads its map only when ar_adaptive = TRUE; production
   #                  gear-resolved is ar_adaptive = FALSE (fixed period_bss), so its
-  #                  map is dormant. Coarser than pooled: the gear-resolved latent AR
-  #                  is P_n x (G*S), ~4x the pooled dimension with 4 gear types.
+  #                  map is dormant. Coarser than pooled: with gear_resolved_G = TRUE the
+  #                  latent AR is P_n x (G*S), several times the pooled dimension (production
+  #                  runs G = 1, where the two are the same size).
   # A population absent from a map defaults to "daily" (no cap). A population's
   # entry may be a single resolution (applied to all its sub-seasons) OR a named
   # list keyed by gear_regime ("all_gear" | "pot_closure", from build_subseasons)
   # for a PER-SUB-SEASON cap; an unlisted regime falls back to a "default" key,
-  # then to "daily". The pooled shore uses this to keep daily AR on the well-
-  # sampled all-gear fit while capping the thin pot-closure (ring-net) fit at
+  # then to "daily". The pooled shore uses this to cap the all-gear fit at WEEKLY
+  # (adopted 2026-09-07; the ladder found daily overfitted) while capping the thin
+  # pot-closure (ring-net) fit at
   # biweekly: the pot-closure fit funnels at daily AR (~1,165 divergences on Run 1),
   # fails its gate, and falls back to PE; biweekly removes the funnel so it reports
-  # BSS, matching the gear track's biweekly ring-net period_bss. all-gear is left
-  # data-driven (daily) because it fits cleanly there. The gear_resolved map takes
+  # BSS, matching the gear track's biweekly ring-net period_bss. (Until 2026-09-07 the
+  # all-gear fit was left data-driven at daily.) The gear_resolved map takes
   # the SAME per-sub-season structure; its values mirror the gear track's fixed
   # period_bss (monthly all-gear, biweekly ring-net). NOTE the gear map is dormant
   # in production: gear-resolved runs ar_adaptive = FALSE, so fixed_resolution =
@@ -1224,7 +1248,11 @@ run_config <- list(
   # Line 30.7 on 3); "pooled" uses one charter mean for every trip (2,186, SE 118).
   charter_expansion = "vessel",
 
-  # --- 2.9 The I/E day-length regression (feeds the shore turnover derivation) ---
+  # --- 2.9 The I/E day-length regression (a TIME-UNIT lever only) ---
+  # It does NOT feed the shore turnover derivation (that reads the I/E time column directly,
+  # section 2.x above). Since 2026-09-29 (B55) it runs only when shore_effort_unit is a time
+  # unit or day_length_diagnostics = TRUE: under gear-deployments no estimate reads it.
+  day_length_diagnostics = FALSE,   # TRUE computes L_effective and civil twilight anyway (needs suncalc)
                                      #   regression (historical, current behavior). TRUE
                                      #   restricts to season_filter via the workbook's
                                      #   season column (now the fishery season label).
@@ -1733,10 +1761,23 @@ run_config <- list(
   estimate_cpue_density = FALSE,
   # --- Model-specific toggles (centralized here; each is read only by its own
   #     model and ignored by the other, so they are safe to keep in one list) --
-  collapse_mu_hier           = FALSE, # (pooled) collapse the single-cell mu-hierarchy
-                                       #   (B1.7/POOL-4 experiment lever). FALSE = current
-                                       #   hierarchy, posterior unchanged. Accepts a per-
-                                       #   population named list, e.g. list(private_boat = TRUE).
+  collapse_mu_hier           = FALSE, # (pooled) force the level-hierarchy collapse on a fit
+                                       #   with MORE than one section (POOL-4 lever). Since T2.5
+                                       #   (2026-09-29) the pooled Stan collapses it by itself when
+                                       #   S == 1, which is every production fit, so this changes
+                                       #   nothing as shipped. Accepts a per-population named list,
+                                       #   e.g. list(private_boat = TRUE).
+  # A31 / T2.5 (2026-09-29; D33): with ONE section the level hierarchy
+  # mu = mu_mu + sigma_mu * eps_mu is unidentified (only the sum enters the likelihood), and
+  # its funnels are what the shore all-gear divergences sat on. "both" collapses the effort
+  # AND the CPUE level (mu = mu_mu) on every S == 1 fit, the gear-resolved model's structure
+  # since v6.0; "effort" collapses the effort level only; "none" restores the pre-A31 pooled
+  # model exactly (to price the change or reproduce an earlier run). "both" ships because
+  # "effort" alone left the CPUE funnel: the shore all-gear fit at the shipped init_r = 0.5
+  # was 4.7% divergent under "effort" and 0.07% under "both" (CHANGE_REGISTER A31 has the
+  # table, and the one cost: a short pot-closure fit's CPUE level can mix slowly at a rare seed
+  # without moving its total). Stan data, so changing it recompiles nothing.
+  mu_hier_collapse_single    = "both",     # (pooled) "both" | "effort" | "none"
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
 
   # ============================================================================
