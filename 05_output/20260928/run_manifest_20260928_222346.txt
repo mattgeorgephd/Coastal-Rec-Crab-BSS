@@ -1,0 +1,246 @@
+Run manifest
+============
+timestamp   : 20260928_222346
+model       : pooled + gear_resolved
+git sha     : 0da0f41
+git tree    : clean (the render ran on the committed tree)
+
+Stages:
+  pooled          244.9 min   C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260928/pooled-CPUE-2024-25-222347
+  gear_resolved    35.9 min   C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260929/gear-type-CPUE-model-2024-25
+
+run_config (run-level overrides applied to the model; all 188 keys):
+List of 188
+ $ run_tag                             : chr "2024-25"
+ $ cross_check_tolerance               : num 0.02
+ $ est_date_start                      : chr "2024-09-16"
+ $ est_date_end                        : chr "2025-09-15"
+ $ season_filter                       : chr "2024-25"
+ $ pot_closures                        : NULL
+ $ pot_closure_start                   : chr "2024-09-16"
+ $ pot_closure_end                     : chr "2024-11-30"
+ $ pot_open_date                       : chr "2024-12-01"
+ $ census_windows                      : NULL
+ $ census_start_date                   : chr "2024-12-01"
+ $ census_end_date                     : chr "2025-02-08"
+ $ commercial_opener                   : chr "2025-02-11"
+ $ effort_file                         : chr "effort_combined.xlsx"
+ $ interview_file                      : chr "interview_combined.xlsx"
+ $ tally_file                          : chr "wes_commercial_tally.xlsx"
+ $ input_sheet                         : chr "data"
+ $ charter_trips_file                  : chr "charter_trips.xlsx"
+ $ charter_trips_sheet                 : chr "data"
+ $ ie_data_file                        : chr "ingress_egress.xlsx"
+ $ ie_sheet                            : chr "data"
+ $ crabbing_holidays_file              : chr "crabbing_holidays.xlsx"
+ $ crabbing_holidays_sheet             : chr "data"
+ $ sampler_shifts_file                 : chr "sampler_shifts.xlsx"
+ $ sampler_shifts_sheet                : chr "data"
+ $ gh_creel_location                   : chr "Grays Harbor"
+ $ gh_effort_areas                     : chr [1:7] "Westport Docks Float 20" "Westport Docks Float 17-21" "Westport Boat Launch" "Westport Marina" "Westport Jetty" "Ocean Shores Boat Launch" "Damon Point"
+ $ shore_dock_float20                  : chr "Westport Docks Float 20"
+ $ shore_dock_float17                  : chr "Westport Docks Float 17-21"
+ $ shore_f17_fill                      : chr "ratio"
+ $ shore_f17_ratio_min_pairs           : num 5
+ $ boat_launch_areas                   : chr [1:2] "Westport Boat Launch" "Ocean Shores Boat Launch"
+ $ charter_roster_port                 : chr "Westport"
+ $ ie_shore_location                   : chr "WDF20"
+ $ ie_boat_location                    : chr "WBL"
+ $ ie_filter_by_season                 : logi FALSE
+ $ bss_chains                          : num 4
+ $ bss_cores                           : num 4
+ $ bss_seed                            : num 20260619
+ $ bss_init_r                          : num 0.5
+ $ bss_max_count_seq                   : num 3
+ $ days_wkend                          : chr [1:2] "Saturday" "Sunday"
+ $ sections                            : num 1
+ $ period_pe                           : chr "week"
+ $ shore_effort_unit                   : chr "gear-deployments"
+ $ gear_per_group_default              : num 4
+ $ ie_shore_obs_unit                   : chr "auto"
+ $ tau_shore_prior_mu                  : chr "derived"
+ $ tau_shore_prior_sigma               : chr "derived"
+ $ tau_shore_prior_sigma_floor         : num 0.1
+ $ tau_shore_prior_mu_fallback         : num 1.7
+ $ tau_shore_derive_min_days           : num 10
+ $ tau_shore_derive_window_only        : logi FALSE
+ $ tau_boat_prior_mu                   : chr "calibration"
+ $ tau_boat_prior_sigma                : num 0.5
+ $ tau_boat_calibration_metric         : chr "trailer_mean_per_visit"
+ $ tau_boat_prior_mu_fallback          : num 2.7
+ $ tau_boat_calibration_min_pairs      : num 3
+ $ shared_tau                          : logi TRUE
+ $ shared_tau_sigma                    : num 0.15
+ $ shared_tau_min_obs                  : num 15
+ $ use_osp_boat_counts                 : logi TRUE
+ $ osp_boat_counts_file                : chr "WBL_boat_counts.xlsx"
+ $ osp_boat_counts_sheet               : chr "Sheet1"
+ $ osp_dupe_resolve                    : chr "mean"
+ $ osp_match_trailer_area              : chr "Westport Boat Launch"
+ $ osp_effort_col                      : chr "WestportPrivateEffort"
+ $ osp_crab_only_col                   : chr [1:2] "crabbing_only" "WestportCrabOnlyEffort"
+ $ osp_crab_checked_col                : chr "WestportCrabClassified"
+ $ osp_sample_rate_col                 : chr "WestportPrivateSampleRate"
+ $ osp_sampling_rate_source            : chr "auto"
+ $ osp_sampling_rates_file             : chr "osp_sampling_rates.xlsx"
+ $ osp_crab_only_unit                  : chr "count"
+ $ osp_crab_only_basis                 : chr "sampled"
+ $ osp_scale_prior_mu                  : num 3
+ $ osp_scale_prior_sigma               : num 0.3
+ $ osp_scale_is_tau                    : logi TRUE
+ $ use_crab_fraction                   : logi TRUE
+ $ crab_fraction_strata                : chr "month"
+ $ crab_fraction_source                : chr "both"
+ $ crab_fraction_dynamic               : logi TRUE
+ $ crab_fraction_set                   : num 0.3
+ $ crab_fraction_prior_kappa           : num 20
+ $ crab_fraction_fixed                 : logi NA
+ $ crab_fraction_min_obs               : num 20
+ $ crab_fraction_level_sd              : num 1.5
+ $ crab_fraction_walk_sd_prior         : num 1.5
+ $ crab_fraction_walk_df               : num 4
+ $ crab_fraction_contact_kappa_prior_mu: num 20
+ $ crab_fraction_combo_share           : num 0.15
+ $ crab_fraction_combo_kappa           : num 8
+ $ crab_fraction_combo_level           : num 0.3
+ $ crab_fraction_combo_level_sd        : num 1.5
+ $ crab_fraction_combo_walk_sd_prior   : num 1.5
+ $ crab_fraction_combo_kappa_prior_mu  : num 20
+ $ crab_fraction_contact_areas         : NULL
+ $ crab_fraction_restrict_to_fit       : logi TRUE
+ $ crab_fraction_pe_prior_kappa        : num 1
+ $ crab_fraction_shift_weighting       : chr "none"
+ $ shift_coverage_ie_min_days          : num 10
+ $ ie_crab_col                         : chr "boats_crabbing"
+ $ ie_total_col                        : chr "boats_total"
+ $ use_osp_crab_lower                  : logi FALSE
+ $ crab_fraction_osp_min_obs           : num 20
+ $ crab_fraction_osp_kappa_prior_mu    : num 20
+ $ estimate_catch_zi                   : logi TRUE
+ $ catch_zi_populations                : chr "shore"
+ $ catch_zi_tracks                     : chr "pooled"
+ $ zi_catch_prior_a                    : num 1
+ $ zi_catch_prior_b                    : num 9
+ $ ar_max_resolution                   :List of 2
+  ..$ pooled       :List of 2
+  .. ..$ shore       :List of 2
+  .. .. ..$ all_gear   : chr "weekly"
+  .. .. ..$ pot_closure: chr "biweekly"
+  .. ..$ private_boat: chr "monthly"
+  ..$ gear_resolved:List of 2
+  .. ..$ shore       :List of 2
+  .. .. ..$ all_gear   : chr "monthly"
+  .. .. ..$ pot_closure: chr "biweekly"
+  .. ..$ private_boat: chr "monthly"
+ $ bss_min_interviews                  : num 15
+ $ bss_min_interviews_fitted           : NULL
+ $ pe_empty_stratum                    : chr "local"
+ $ pe_empty_effort_stratum             : chr "local_day_type"
+ $ pe_variance                         : chr "impute_aware"
+ $ pe_gear_ratio_arm                   : chr "match_bss"
+ $ min_fishing_time                    : num 0.5
+ $ drop_unfished_zero_catch            : logi TRUE
+ $ filter_incomplete_trips             : logi TRUE
+ $ census_expansion                    : chr "none"
+ $ census_uncertainty                  : chr "charter"
+ $ charter_frame                       : chr "roster"
+ $ charter_expansion                   : chr "vessel"
+ $ use_ie_day_length                   : logi TRUE
+ $ ie_min_obs_for_regression           : num 5
+ $ ie_min_obs_shore                    : num 3
+ $ ie_min_obs_boat                     : num 2
+ $ day_length_min_hours                : num 9
+ $ day_length_max_hours                : num 17
+ $ marine_hazard_mode                  : chr "manual"
+ $ marine_hazard_manual_shore          : chr(0) 
+ $ marine_hazard_manual_boat           : chr "nws_sca_any"
+ $ marine_hazard_gear_regimes          : chr "all_gear"
+ $ marine_hazard_file                  : chr "nws_marine_hazards.xlsx"
+ $ marine_hazard_sheet                 : chr "data"
+ $ marine_hazard_zones                 : Named chr [1:2] "PZZ110" "PZZ156"
+  ..- attr(*, "names")= chr [1:2] "bar" "coastal"
+ $ marine_hazard_codes                 : chr [1:8] "SC.Y" "RB.Y" "SW.Y" "SI.Y" "GL.W" "SR.W" "SE.W" "HF.W"
+ $ marine_hazard_window                : num [1:2] 4 16
+ $ marine_hazard_tz                    : chr "America/Los_Angeles"
+ $ diagnose_incomplete_trips           : logi TRUE
+ $ incomplete_trip_arms                : chr [1:4] "exclude" "gear_only" "impute_mean_cpue" "keep"
+ $ diagnose_tau_sensitivity            : logi TRUE
+ $ tau_sensitivity_grid                : num [1:5] 2 2.4 2.7 3 3.4
+ $ opener_f_flag                       : chr "ma2_halibut_open"
+ $ effort_qc_drop                      : chr "gear_count_from_interviews"
+ $ ar_rung_adequacy                    : logi TRUE
+ $ save_ppc_draws                      : logi TRUE
+ $ save_ppc_draws_max                  : NULL
+ $ run_fishery_spillover_diag          : logi TRUE
+ $ razor_nearby_beaches                : chr [1:3] "Twin Harbors" "Copalis" "Mocrocks"
+ $ fishery_opener_dates_file           : chr "fishery_opener_dates.xlsx"
+ $ fishery_opener_sheet                : chr "data"
+ $ ar_force                            : NULL
+ $ bss_sampler_override                : NULL
+ $ ar_escalate                         : logi FALSE
+ $ ar_escalate_ladder                  : chr [1:4] "daily" "weekly" "biweekly" "monthly"
+ $ ar_escalate_max_attempts            : num 4
+ $ ar_escalate_stop                    : chr "first_pass"
+ $ ar_escalate_select                  : chr "first_pass"
+ $ ar_escalate_respect_cap             : logi FALSE
+ $ opener_covariate_mode               : chr "off"
+ $ opener_candidates_shore             : chr "razor_nearby_dig"
+ $ opener_candidates_boat              : chr [1:3] "ma2_halibut_open" "ma2_salmon_open" "ma2_bottomfish_open"
+ $ opener_manual_shore                 : chr(0) 
+ $ opener_manual_boat                  : chr(0) 
+ $ opener_auto_p                       : num 0.05
+ $ opener_auto_p_adjust                : chr "BH"
+ $ opener_min_days                     : num 10
+ $ razor_dig_mode                      : chr "no"
+ $ razor_dig_auto_p                    : num 0.05
+ $ marine_hazard_candidates_shore      : chr(0) 
+ $ marine_hazard_candidates_boat       : chr [1:2] "nws_sca_any" "bar_restriction"
+ $ marine_hazard_auto_p                : num 0.05
+ $ marine_hazard_auto_p_adjust         : chr "BH"
+ $ marine_hazard_winter_months         : num [1:3] 12 1 2
+ $ bar_restriction_impute              : chr "nws"
+ $ bar_restriction_field_start         : NULL
+ $ estimate_cpue_density               : logi FALSE
+ $ collapse_mu_hier                    : logi FALSE
+ $ estimate_B1_C                       : logi TRUE
+ $ gear_resolved_G                     : logi FALSE
+ $ gear_share_dirichlet                : logi FALSE
+ $ alpha0_gear                         : num 1
+ $ gear_period_bss                     :List of 2
+  ..$ all_gear   : chr "month"
+  ..$ pot_closure: chr "biweekly"
+ $ ar_adaptive                         : logi FALSE
+ $ loo_effort_unit_comparison          : logi FALSE
+ $ use_boat_ie                         : logi TRUE
+
+sessionInfo():
+R version 4.2.2 (2022-10-31 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 26200)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_United States.utf8  LC_CTYPE=English_United States.utf8    LC_MONETARY=English_United States.utf8 LC_NUMERIC=C                          
+[5] LC_TIME=English_United States.utf8    
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] readxl_1.4.1        rstan_2.32.7        StanHeaders_2.32.10 patchwork_1.2.0     gt_1.3.0            suncalc_0.5.1       lubridate_1.9.1     forcats_1.0.0      
+ [9] stringr_1.5.0       dplyr_1.2.0         purrr_1.0.1         readr_2.1.3         tidyr_1.3.0         tibble_3.3.1        ggplot2_4.0.2       tidyverse_1.3.2    
+[17] rmarkdown_2.20      here_1.0.1         
+
+loaded via a namespace (and not attached):
+ [1] nlme_3.1-162        matrixStats_0.63.0  fs_1.6.6            RColorBrewer_1.1-3  httr_1.4.5          rprojroot_2.0.3     tools_4.2.2         backports_1.4.1    
+ [9] bslib_0.10.0        utf8_1.2.3          R6_2.6.1            otel_0.2.0          mgcv_1.8-41         DBI_1.1.3           withr_3.0.3         tidyselect_1.2.1   
+[17] gridExtra_2.3       prettyunits_1.1.1   processx_3.8.6      curl_5.0.0          compiler_4.2.2      textshaping_0.3.6   cli_3.6.5           rvest_1.0.3        
+[25] xml2_1.5.2          labeling_0.4.3      sass_0.4.10         scales_1.4.0        S7_0.2.1            callr_3.7.6         QuickJSR_1.9.0      systemfonts_1.0.4  
+[33] digest_0.6.31       dichromat_2.0-0.1   pkgconfig_2.0.3     htmltools_0.5.9     dbplyr_2.3.1        fastmap_1.2.0       rlang_1.1.7         rstudioapi_0.14    
+[41] jquerylib_0.1.4     farver_2.1.1        generics_0.1.4      jsonlite_2.0.0      googlesheets4_1.0.1 inline_0.3.21       magrittr_2.0.3      loo_2.9.0          
+[49] Matrix_1.5-3        Rcpp_1.0.10         lifecycle_1.0.5     stringi_1.7.12      yaml_2.3.7          pkgbuild_1.4.0      grid_4.2.2          parallel_4.2.2     
+[57] crayon_1.5.2        lattice_0.20-45     splines_4.2.2       haven_2.5.1         hms_1.1.2           knitr_1.51          ps_1.9.1            pillar_1.11.1      
+[65] codetools_0.2-19    stats4_4.2.2        reprex_2.0.2        glue_1.8.0          evaluate_1.0.5      V8_7.0.0            data.table_1.14.6   RcppParallel_5.1.6 
+[73] modelr_0.1.10       png_0.1-8           vctrs_0.7.1         tzdb_0.3.0          cellranger_1.1.0    gtable_0.3.6        cachem_1.1.0        xfun_0.56          
+[81] broom_1.0.3         ragg_1.2.5          googledrive_2.0.0   gargle_1.3.0        timechange_0.2.0    ellipsis_0.3.2     
