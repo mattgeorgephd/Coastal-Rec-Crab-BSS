@@ -208,7 +208,7 @@
 #   05_output/authoritative_batch_2026-09-29_logs/<stage>.log    each stage's R console
 ###############################################################################
 
-DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
+DRY_RUN <- FALSE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
 STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")
 RESUME  <- TRUE                    # reuse a stage ONLY when its AB_STAGE.txt digest matches
 if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE

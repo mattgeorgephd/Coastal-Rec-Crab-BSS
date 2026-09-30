@@ -1,0 +1,8 @@
+"stage","item","status","folders","minutes","digest","code","git"
+"A","THE AUTHORITATIVE RENDER: run_estimation.R --model both, run_config.R as shipped","FAILED","-; -",24.7,"35eb8d1f9cd8","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"D3","D3: gear track, per-population AR period (shore at the pooled caps; only shore all-gear moves)","FAILED","-",0,"8e636f510e2e","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"D6","D6: D3 + the zero-inflated shore catch on the gear track","FAILED","-",0,"932a541b347a","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"D29P","D29: pooled boat all-gear ladder weekly/biweekly/monthly (all rungs)","FAILED","-",0,"b6bc513283e0","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"D29G","D29: gear boat all-gear ladder weekly/biweekly/monthly, on D3's configuration","FAILED","-",0,"1e38190936c6","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"R2","radius: the pooled A31 model at init_r = 2","FAILED","-",0,"2b5d181f2a16","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
+"D29D","D29: pooled boat all-gear at DAILY (ar_force)","FAILED","-",0,"8fcd0ae1b1f9","stan:73a6cf27 drivers:a99d985c fns:96ac2cc0 orch:0f089295","636904e"
