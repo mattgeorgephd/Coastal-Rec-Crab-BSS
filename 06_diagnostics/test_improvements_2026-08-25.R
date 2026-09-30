@@ -7146,6 +7146,16 @@ local({
   chk("B59: bss_load_packages() asks whether a package is INSTALLED without loading it, and checks loading once, after any restore",
       grepl("installed <- function(p) vapply(p, function(x) nzchar(system.file(package = x)), logical(1))", bp, fixed = TRUE) &&
       grepl("missing <- pkgs[!installed(pkgs)]", bp, fixed = TRUE) && grepl("broken <- pkgs[!have(pkgs)]", bp, fixed = TRUE))
+  chk("B59: desk check S0 compares this session's library with renv.lock, FAILs on a Stan-toolchain difference and compares as versions, not strings",
+      grepl("this session's library holds renv.lock's versions", rt, fixed = TRUE) &&
+      grepl('tool <- intersect(off, c("rstan", "StanHeaders", "Rcpp", "RcppEigen", "BH", "RcppParallel"))', rt, fixed = TRUE) &&
+      grepl("package_version(hv[[p]]) == package_version(lk[[p]])", rt, fixed = TRUE) &&
+      isTRUE(package_version("1.84.0") == package_version("1.84.0-0")) && !isTRUE(package_version("1.4.5") == package_version("1.4-8")))
+  chk("B59: the lockfile parse the S0 check uses reads every package in renv.lock",
+      { lt <- paste(readLines("renv.lock", warn = FALSE), collapse = "\n")
+        m <- regmatches(lt, gregexpr('"Package": "[^"]+",\\s*"Version": "[^"]+"', lt))[[1]]
+        n_json <- length(gregexpr('"Package": "', lt, fixed = TRUE)[[1]])
+        length(m) == n_json && length(m) > 100 })
   chk("B59: the runner ships DRY_RUN <- TRUE again (the first attempt's edit to FALSE is reverted)",
       identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)"))
 })

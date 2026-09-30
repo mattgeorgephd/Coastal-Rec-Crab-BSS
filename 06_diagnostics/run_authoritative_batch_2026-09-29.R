@@ -519,9 +519,32 @@ stage_S0 <- function() {
                   { rv <- cl[[1]][2]; if (!is.na(rv) && nzchar(rv)) sprintf("ACTIVE (%s)", rv) else "off" }, cl[[2]][2] %||% "?"),
           sprintf("%s load; %s same version", paste(bss_required_packages, collapse = ", "), paste(CHILD_PKGS, collapse = ", ")),
           if (okk) "PASS" else "FAIL",
-          "Every stage renders in its own Rscript. If this fails, fix the library of THIS session (or run renv::restore() and restart R) before --go.")
+          "Every stage renders in its own Rscript. A package that does not load in the stage does not load in this session either: in a FRESH R session in the project, renv::restore(), restart R, and run the dry run again before --go.")
   }, error = function(e) V1row("S0", "a stage's R process could be started to check its packages", conditionMessage(e), "no error", "FAIL",
                                "Every stage is such a process."))
+  # (3c) this session's library against renv.lock (B59). The lock records the versions the
+  #      authoritative run was rendered at (its manifest's sessionInfo agrees with the lock in every
+  #      package but four patch-level utilities), so a Stan-toolchain package off the lock would make
+  #      stage A a render in another environment: FAIL. Any other difference: REVIEW, listed. The
+  #      second attempt (2026-09-30) found here 1.0.2 beside rprojroot 2.0.3 in the renv library (a
+  #      partial restore by the first attempt), so `here` loaded nowhere.
+  tryCatch({
+    lt <- paste(readLines(.here("renv.lock"), warn = FALSE), collapse = "\n")
+    m <- regmatches(lt, gregexpr('"Package": "[^"]+",\\s*"Version": "[^"]+"', lt))[[1]]
+    lk <- stats::setNames(sub('^.*"Version": "([^"]+)"$', "\\1", m), sub('^"Package": "([^"]+)".*$', "\\1", m))
+    if (!length(lk)) stop("no package versions could be read from renv.lock")
+    hv <- vapply(names(lk), function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "MISSING"), "")
+    # compared as versions, not strings ("1.84.0-0" and "1.84.0.0" are one version)
+    off <- names(lk)[vapply(names(lk), function(p) identical(hv[[p]], "MISSING") || !isTRUE(package_version(hv[[p]]) == package_version(lk[[p]])), logical(1))]
+    tool <- intersect(off, c("rstan", "StanHeaders", "Rcpp", "RcppEigen", "BH", "RcppParallel"))
+    V1row("S0", "this session's library holds renv.lock's versions (the versions the authoritative run was rendered at)",
+          if (!length(off)) sprintf("all %d lock packages at the lock's version", length(lk)) else
+            sprintf("%d of %d differ: %s", length(off), length(lk), paste(sprintf("%s %s (lock %s)", off, hv[off], lk[off]), collapse = "; ")),
+          "every lock package at its lock version; the Stan toolchain (rstan, StanHeaders, Rcpp, RcppEigen, BH, RcppParallel) without exception",
+          if (length(tool)) "FAIL" else if (length(off)) "REVIEW" else "PASS",
+          paste("Fix: in a FRESH R session in the project (renv active), renv::restore(), answer y, restart R, and run the dry run again.",
+                "A toolchain difference blocks every stage; any other difference is listed, not blocking."))
+  }, error = function(e) V1row("S0", "renv.lock could be read and compared", conditionMessage(e), "no error", "REVIEW", ""))
   # (4) D3's per-population periods, fit by fit: the shore at the pooled caps, the boat at the
   #     shipped gear periods, so exactly one fit (shore all-gear) moves against the shipped gear track
   n <- function(x) .bss_normalize_resolution(x %||% NA)
