@@ -36,10 +36,15 @@
 #   This file renders all of them overnight, reads every folder back, applies the decision
 #   rules written BELOW BEFORE THE RUN, and writes the verdicts.
 #
-# HOW TO RUN IT (Matt, tonight). From the repository root, in a terminal:
-#     Rscript 06_diagnostics/run_authoritative_batch_2026-09-29.R          # dry run: plan + desk stage
-#     Rscript 06_diagnostics/run_authoritative_batch_2026-09-29.R --go     # fits
-#   In RStudio: Sys.setenv(BSS_BATCH_GO = "1"); source("06_diagnostics/run_authoritative_batch_2026-09-29.R")
+# HOW TO RUN IT. In the RStudio CONSOLE, from the project (the route that works on Matt's
+# machine, where Rscript is not on the Terminal's PATH):
+#     source("06_diagnostics/run_authoritative_batch_2026-09-29.R")                              # dry run
+#     Sys.setenv(BSS_BATCH_GO = "1"); source("06_diagnostics/run_authoritative_batch_2026-09-29.R")  # fits
+#   Or, where Rscript and pandoc are on the PATH:
+#     Rscript 06_diagnostics/run_authoritative_batch_2026-09-29.R [--go]
+#   Every stage runs in an Rscript started by this session and loads packages from THIS
+#   session's library (B59; see CHILD_ENV below), so the session you start it from decides the
+#   package versions. Desk check S0 confirms a stage's process sees the same ones.
 #   DO NOT edit DRY_RUN in this file to start it. The authoritative stage's manifest records
 #   every TRACKED file that differs from the commit, so an edited runner would mark the
 #   authoritative render as made from a modified tree. --go (or the environment variable)
@@ -105,10 +110,12 @@
 #   the cross-check itself (a kill before the orchestrator's manifest was written leaves
 #   nothing stamped, and A starts again).
 #
-# PREREQUISITES S0 CHECKS FIRST: rmarkdown must find pandoc. RStudio sets RSTUDIO_PANDOC for its
-# own sessions and its Terminal tab; a plain cmd / PowerShell window may not have pandoc on
-# PATH, in which case every stage would fail in seconds. Run from RStudio's Terminal tab, or
-# set RSTUDIO_PANDOC to RStudio's pandoc folder, or install pandoc.
+# PREREQUISITES S0 CHECKS FIRST: rmarkdown must find pandoc (RStudio sets RSTUDIO_PANDOC in its
+# Console, and the stages inherit it; a plain cmd / PowerShell window may not have pandoc on
+# PATH), and a stage's R process must load this session's packages at the same versions (B59:
+# the first overnight attempt, 2026-09-29, failed every stage because the stages activated the
+# project's renv library, which is incomplete on Matt's machine, while the Console used the
+# library the authoritative run was rendered with).
 #
 # ============================================================================
 # THE DECISION RULES, STATED HERE BEFORE THE RUN so they cannot be fitted to the answer.
@@ -208,7 +215,7 @@
 #   05_output/authoritative_batch_2026-09-29_logs/<stage>.log    each stage's R console
 ###############################################################################
 
-DRY_RUN <- FALSE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
+DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
 STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")
 RESUME  <- TRUE                    # reuse a stage ONLY when its AB_STAGE.txt digest matches
 if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE
@@ -253,6 +260,32 @@ stopifnot(file.exists(POOLED_RMD), file.exists(GEAR_RMD), file.exists(ORCH))
 OUT_PREFIX <- "authoritative_batch_2026-09-29"
 LOG_DIR    <- .here("05_output", paste0(OUT_PREFIX, "_logs"))
 RSCRIPT    <- file.path(R.home("bin"), if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript")
+
+# EVERY STAGE'S R PROCESS USES THIS SESSION'S LIBRARY (2026-09-30, B59). A stage is a new
+# Rscript started in the project folder, so the project's .Rprofile would activate renv in it
+# and it would load packages from the renv library, whatever this session uses. On the first
+# overnight attempt that library was incomplete and not the lockfile's (no tidyverse, rstan or
+# loo; lubridate 1.9.5 against the lock's 1.9.1), while the Console that had rendered B50 and
+# B57 used another: stage A spent 24 minutes compiling packages and died, every other stage
+# died in seconds. So each stage is started with renv's autoloader off and with exactly this
+# session's .libPaths() (the user and site libraries pointed at a path that does not exist, so
+# R cannot add a library this session does not have). If this session runs under renv, the
+# stages use the renv library; if not, they use the same library it does. Desk check S0 starts
+# one such process and compares package versions before anything is fitted.
+.nolib <- file.path(tempdir(), "no-library-here")
+CHILD_ENV <- c(RENV_ACTIVATE_PROJECT = "FALSE",
+               R_LIBS = paste(normalizePath(.libPaths(), winslash = "/", mustWork = FALSE), collapse = .Platform$path.sep),
+               R_LIBS_USER = .nolib, R_LIBS_SITE = .nolib)
+.with_child_env <- function(expr) {
+  old <- Sys.getenv(names(CHILD_ENV), unset = NA)
+  do.call(Sys.setenv, as.list(CHILD_ENV))
+  on.exit(for (k in names(old)) if (is.na(old[[k]])) Sys.unsetenv(k) else do.call(Sys.setenv, stats::setNames(list(old[[k]]), k)),
+          add = TRUE)
+  force(expr)
+}
+# the packages whose versions must agree between this session and a stage's process: the
+# required list, and the ones that decide how Stan compiles and what it computes
+CHILD_PKGS <- unique(c(bss_required_packages, "StanHeaders", "Rcpp", "RcppEigen", "BH", "RcppParallel", "posterior"))
 
 # The authoritative run this batch may replace, and whose components A4 reads against.
 REF_AUTH_POOLED <- "20260928/pooled-CPUE-2024-25"
@@ -457,7 +490,38 @@ stage_S0 <- function() {
   V1row("S0", "rmarkdown finds pandoc (every stage renders an .Rmd)",
         if (isTRUE(pd)) sprintf("pandoc %s at %s", as.character(rmarkdown::pandoc_version()), rmarkdown::pandoc_exec()) else "NOT FOUND",
         "pandoc >= 1.12.3 reachable", if (isTRUE(pd)) "PASS" else "FAIL",
-        "Run from RStudio's Terminal tab (it sets RSTUDIO_PANDOC), set RSTUDIO_PANDOC to RStudio's pandoc folder, or install pandoc.")
+        "Run from the RStudio Console (it sets RSTUDIO_PANDOC and the stages inherit it), set RSTUDIO_PANDOC to RStudio's pandoc folder, or install pandoc.")
+  # (3b) a stage's R process sees THIS session's packages, loadable, at the same versions
+  #      (B59: the first overnight attempt failed here, in every stage, after S0 had passed)
+  tryCatch({
+    cs <- file.path(tempdir(), "ab_child_packages.R"); co <- file.path(tempdir(), "ab_child_packages.txt")
+    writeLines(c("a <- commandArgs(trailingOnly = TRUE); pk <- strsplit(a[1], ',', fixed = TRUE)[[1]]",
+                 "v <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) 'MISSING'), '')",
+                 "ld <- vapply(pk, function(p) isTRUE(suppressWarnings(requireNamespace(p, quietly = TRUE))), TRUE)",
+                 "writeLines(c(paste0('renv\t', Sys.getenv('RENV_PROJECT')), paste0('libs\t', paste(normalizePath(.libPaths(), winslash = '/'), collapse = ';')),",
+                 "             paste(pk, v, ld, sep = '\t')), a[2])"), cs)
+    if (file.exists(co)) file.remove(co)
+    stc <- .with_child_env(suppressWarnings(system2(RSCRIPT, c(shQuote(cs), shQuote(paste(CHILD_PKGS, collapse = ",")), shQuote(co)),
+                                                    stdout = TRUE, stderr = TRUE, timeout = 300)))
+    if (!file.exists(co)) stop("the test process wrote nothing: ", paste(utils::tail(stc, 5), collapse = " | "))
+    cl <- strsplit(readLines(co, warn = FALSE), "\t", fixed = TRUE)
+    kid <- do.call(rbind, lapply(cl[-(1:2)], function(x) data.frame(pkg = x[1], v = x[2], loads = identical(x[3], "TRUE"))))
+    par_v <- vapply(CHILD_PKGS, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "MISSING"), "")
+    need <- kid$pkg %in% bss_required_packages
+    bad_load <- kid$pkg[need & !kid$loads]
+    bad_ver  <- kid$pkg[kid$v != par_v[kid$pkg]]
+    okk <- !length(bad_load) && !length(bad_ver)
+    V1row("S0", "each stage's R process loads this session's packages at the same versions (renv autoloader off, this session's library)",
+          sprintf("%s. Stage process: renv %s; libraries %s", if (okk) sprintf("all %d agree and load", nrow(kid)) else
+                    paste(c(if (length(bad_load)) sprintf("do not load: %s", paste(bad_load, collapse = ", ")),
+                            if (length(bad_ver)) sprintf("versions differ: %s", paste(sprintf("%s %s here, %s in the stage", bad_ver, par_v[bad_ver], kid$v[match(bad_ver, kid$pkg)]), collapse = "; "))),
+                          collapse = "; "),
+                  { rv <- cl[[1]][2]; if (!is.na(rv) && nzchar(rv)) sprintf("ACTIVE (%s)", rv) else "off" }, cl[[2]][2] %||% "?"),
+          sprintf("%s load; %s same version", paste(bss_required_packages, collapse = ", "), paste(CHILD_PKGS, collapse = ", ")),
+          if (okk) "PASS" else "FAIL",
+          "Every stage renders in its own Rscript. If this fails, fix the library of THIS session (or run renv::restore() and restart R) before --go.")
+  }, error = function(e) V1row("S0", "a stage's R process could be started to check its packages", conditionMessage(e), "no error", "FAIL",
+                               "Every stage is such a process."))
   # (4) D3's per-population periods, fit by fit: the shore at the pooled caps, the boat at the
   #     shipped gear periods, so exactly one fit (shore all-gear) moves against the shipped gear track
   n <- function(x) .bss_normalize_resolution(x %||% NA)
@@ -630,7 +694,7 @@ STAGE_STATUS <- list()
 # (R's own convention for system2(timeout =)). The limit stops the stage's R process; on
 # Windows rstan's PSOCK workers exit when their master's connection closes.
 .sys <- function(args, log, hours) {
-  st <- tryCatch(suppressWarnings(system2(RSCRIPT, args, stdout = log, stderr = log, timeout = round(3600 * hours))),
+  st <- tryCatch(.with_child_env(suppressWarnings(system2(RSCRIPT, args, stdout = log, stderr = log, timeout = round(3600 * hours)))),
                  error = function(e) { cat("  system2 error:", conditionMessage(e), "\n"); -1L })
   as.integer(st %||% -1L)
 }

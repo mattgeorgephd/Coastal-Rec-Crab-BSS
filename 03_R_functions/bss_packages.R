@@ -40,9 +40,15 @@ bss_required_packages <- c("tidyverse", "lubridate", "rstan", "here", "readxl", 
                            "knitr", "loo", "digest")
 bss_attached_packages <- c("tidyverse", "lubridate", "rstan", "here", "readxl")
 
+# 2026-09-30 (B59): "is it installed?" is asked WITHOUT loading it. requireNamespace() loads
+# the namespace (and its imports: rlang, cli, ...), so when a restore then replaced one of those
+# packages the process held two versions and stopped ("namespace 'lubridate' is imported by
+# 'tidyverse' so cannot be unloaded"): the first overnight batch's stage A died that way after
+# 24 minutes of compiling. Loadability is checked once, after any restore.
 bss_load_packages <- function(pkgs = bss_required_packages, attach = bss_attached_packages) {
+  installed <- function(p) vapply(p, function(x) nzchar(system.file(package = x)), logical(1))
   have <- function(p) vapply(p, requireNamespace, logical(1), quietly = TRUE)
-  missing <- pkgs[!have(pkgs)]
+  missing <- pkgs[!installed(pkgs)]
   if (length(missing)) {
     renv_on <- nzchar(Sys.getenv("RENV_PROJECT")) && requireNamespace("renv", quietly = TRUE)
     if (renv_on) {
@@ -55,11 +61,16 @@ bss_load_packages <- function(pkgs = bss_required_packages, attach = bss_attache
               paste(missing, collapse = ", "))
       utils::install.packages(missing, repos = repos)
     }
-    still <- missing[!have(missing)]
+    still <- missing[!installed(missing)]
     if (length(still))
       stop("Required package(s) could not be installed: ", paste(still, collapse = ", "),
            ". Run renv::restore() in the project (README, 'Setting up R'), then retry.", call. = FALSE)
   }
+  broken <- pkgs[!have(pkgs)]
+  if (length(broken))
+    stop("Required package(s) are installed but do not load: ", paste(broken, collapse = ", "),
+         ". Library paths: ", paste(.libPaths(), collapse = "; "),
+         ". Run renv::restore() (or reinstall them) in a fresh R session, then retry.", call. = FALSE)
   for (p in attach) suppressPackageStartupMessages(library(p, character.only = TRUE))
   invisible(TRUE)
 }

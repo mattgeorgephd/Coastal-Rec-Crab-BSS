@@ -7059,7 +7059,8 @@ local({
   ex <- parse(rf, keep.source = FALSE)
   sb <- new.env(parent = globalenv())
   for (f in c("bss_ar_resolution.R", "bss_block_cv.R", "loo_elpd_paired.R")) sys.source(file.path("03_R_functions", f), envir = sb)
-  keep <- c("FITS", "FIT_SHORE_AG", "FIT_SHORE_PC", "FIT_BOAT_AG", "V", "REC", "D29", "D29_TABLE", "COMP", "COMP_NOTE", "%||%")
+  keep <- c("FITS", "FIT_SHORE_AG", "FIT_SHORE_PC", "FIT_BOAT_AG", "V", "REC", "D29", "D29_TABLE", "COMP", "COMP_NOTE", "%||%",
+            ".nolib", "CHILD_ENV", "RSCRIPT")
   for (e in ex) if (is.call(e) && identical(e[[1]], as.name("<-")) && is.name(e[[2]]) &&
                     (as.character(e[[2]]) %in% keep || (is.call(e[[3]]) && identical(e[[3]][[1]], as.name("function")))))
     eval(e, sb)
@@ -7117,6 +7118,36 @@ local({
   chk("B58 review: the manifest parser reads the gear line after a FAILED pooled line whose error ran over two lines",
       isTRUE(mp$pooled$failed) && identical(mp$gear_resolved$failed, FALSE) &&
       identical(basename(mp$gear_resolved$outdir %||% ""), "gear-type-CPUE-model-2024-25") && isTRUE(abs(mp$gear_resolved$minutes - 35.9) < 1e-9))
+  # B59 (2026-09-30): every stage's R process uses THIS session's library with renv's autoloader
+  # off. The first overnight attempt's stages activated the project's (incomplete) renv library
+  # through .Rprofile while the Console used another, and all seven failed.
+  chk("B59: the runner starts every stage with renv's autoloader off and this session's .libPaths()",
+      identical(unname(sb$CHILD_ENV["RENV_ACTIVATE_PROJECT"]), "FALSE") &&
+      identical(strsplit(unname(sb$CHILD_ENV["R_LIBS"]), .Platform$path.sep, fixed = TRUE)[[1]],
+                normalizePath(.libPaths(), winslash = "/", mustWork = FALSE)) &&
+      grepl("st <- tryCatch(.with_child_env(suppressWarnings(system2(RSCRIPT, args,", rt, fixed = TRUE))
+  chk("B59: .with_child_env() sets the stage environment and restores this session's afterwards (set and unset alike)",
+      { o1 <- Sys.getenv("RENV_ACTIVATE_PROJECT", unset = NA); o2 <- Sys.getenv("R_LIBS_SITE", unset = NA)
+        Sys.setenv(RENV_ACTIVATE_PROJECT = "xyz"); Sys.unsetenv("R_LIBS_SITE")
+        inside <- sb$.with_child_env(c(Sys.getenv("RENV_ACTIVATE_PROJECT"), Sys.getenv("R_LIBS_SITE")))
+        after <- c(Sys.getenv("RENV_ACTIVATE_PROJECT"), Sys.getenv("R_LIBS_SITE", unset = "UNSET"))
+        if (is.na(o1)) Sys.unsetenv("RENV_ACTIVATE_PROJECT") else Sys.setenv(RENV_ACTIVATE_PROJECT = o1)
+        if (!is.na(o2)) Sys.setenv(R_LIBS_SITE = o2)
+        identical(inside[1], "FALSE") && identical(inside[2], unname(sb$CHILD_ENV["R_LIBS_SITE"])) &&
+          identical(after, c("xyz", "UNSET")) })
+  chk("B59: a process started the way a stage is sees exactly this session's library paths",
+      { out <- sb$.with_child_env(suppressWarnings(system2(sb$RSCRIPT, c("-e", shQuote("cat(normalizePath(.libPaths(), winslash = '/'), sep = '\\n')")),
+                                                           stdout = TRUE, stderr = FALSE)))
+        identical(out, normalizePath(.libPaths(), winslash = "/")) })
+  chk("B59: desk check S0 starts such a process and compares loadability and versions before anything is fitted",
+      grepl("each stage's R process loads this session's packages at the same versions", rt, fixed = TRUE) &&
+      grepl('CHILD_PKGS <- unique(c(bss_required_packages, "StanHeaders"', rt, fixed = TRUE))
+  bp <- flat(rd("03_R_functions/bss_packages.R"))
+  chk("B59: bss_load_packages() asks whether a package is INSTALLED without loading it, and checks loading once, after any restore",
+      grepl("installed <- function(p) vapply(p, function(x) nzchar(system.file(package = x)), logical(1))", bp, fixed = TRUE) &&
+      grepl("missing <- pkgs[!installed(pkgs)]", bp, fixed = TRUE) && grepl("broken <- pkgs[!have(pkgs)]", bp, fixed = TRUE))
+  chk("B59: the runner ships DRY_RUN <- TRUE again (the first attempt's edit to FALSE is reverted)",
+      identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)"))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
