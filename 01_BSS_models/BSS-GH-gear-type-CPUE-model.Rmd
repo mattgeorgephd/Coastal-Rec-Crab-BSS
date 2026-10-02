@@ -114,8 +114,9 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # with a per-gear-type CPUE process (shared AR(1) dynamics), so gear-type catch can
 # carry posterior uncertainty. Three population components (shore, private boat, and
 # commercial/charter census) across two gear-regime sub-seasons: the pot closure
-# (Sep 16 - Nov 30, no pots, non-pot gear only, biweekly BSS periods) and all-gear (Dec 1 - Sep 15,
-# monthly BSS periods).
+# (Sep 16 - Nov 30 on 2024-25, no pots, non-pot gear only) and all-gear (Dec 1 - Sep 15), with
+# per-population periods from gear_period_bss (since A32: shore all-gear weekly, boat all-gear
+# monthly, both pot-closure fits biweekly).
 #
 # STATE AT v5.6 (v6.0 since 2026-09-12 carries it forward): both shore and boat run on the gear-DEPLOYMENT effort unit
 # (h = number_of_gear, L = tau), via the shared 03_R_functions/bss_effort_spec.R.
@@ -134,8 +135,8 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # 2026-09-12, which is the retired estimator). Framework v6.0 on the Method v2.0
 # configuration: dynamic per-stratum crabbing fraction f, derived shore turnover,
 # calibration boat turnover with a shared tau_bar. The zero-inflated catch block has been in
-# this track's Stan model since 2026-09-13 (the D6 port) and ships OFF (catch_zi_tracks =
-# "pooled"). Every chain starts with init_r = run_config$bss_init_r (0.5, B51).
+# this track's Stan model since 2026-09-13 (the D6 port) and ships ON for the shore fits since
+# 2026-10-02 (A32; catch_zi_tracks = c("pooled", "gear_resolved")). Every chain starts with init_r = run_config$bss_init_r (0.5, B51).
 #
 # FULL CHANGE LOG (framework v5.x, the F/P fix-markers, and the GR backlog):
 #   07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md
@@ -195,7 +196,7 @@ params <- list(
   # gear-time). Behavior-neutral for this track vs the pre-merge _v2 reader.
   boat_require_gear_time = FALSE,
 
-  # --- Default BSS period (overridden per sub-season: biweekly pot-closure, monthly all-gear) ---
+  # --- Default BSS period (overridden per fit by gear_period_bss: per population since A32) ---
   period_bss        = "month",
 
   # --- BSS sampler settings ---
@@ -206,8 +207,8 @@ params <- list(
   bss_max_treedepth_default = 10,
   bss_adapt_delta_default   = 0.9,
 
-  # Per-fit overrides. The shore all-gear fit has 4 gear types across 10 monthly
-  # periods with 1,600+ interviews (the most complex posterior geometry): more
+  # Per-fit overrides. The shore all-gear fit has 4 gear types across 43 weekly
+  # periods since A32 (10 monthly before) with 1,600+ interviews (the most complex posterior geometry): more
   # iterations, higher adapt_delta, and a deeper treedepth to avoid trajectory
   # truncation (93.9% saturation at max_treedepth=10). Pot-closure fits are data-sparse
   # and benefit from tighter adaptation. Boat all-gear was added 2026-09-02; see below.
@@ -325,7 +326,8 @@ catch_groups <- "Dungeness_Kept"
 # --- Derived: sub-season date ranges (03_R_functions/build_subseasons.R) --------
 # Split by the pot-closure window (params$pot_closure_start / pot_closure_end, added
 # 2026-07-13). Each sub-season carries its own BSS period type (biweekly for the pot
-# closure: fewer months, sparse data; monthly for all-gear) and the gear types excluded
+# closure: fewer months, sparse data; monthly for all-gear), and since A32 gear_period_bss's
+# per-population form overrides it per fit (shore all-gear weekly) and the gear types excluded
 # by regulation. During the closure Pot is excluded: pots are illegal Sep 16 - Nov 30,
 # and stray "Pot" mentions in that window are recording errors (crabbers naming gear
 # they own, not what they deployed); fitting a Pot CPUE process with <6 fractional
@@ -898,8 +900,8 @@ for(cg in bss_catch_groups) {
       # until now the shore all-gear fit and the boat all-gear fit were locked to the same
       # period with no way to separate them. The first D3 ladder moved both and its port
       # total was 90% boat movement; see 03_R_functions/bss_gear_period.R for the numbers.
-      # bss_gear_period() returns NULL under the shipped flat configuration, so this line
-      # is unchanged in behaviour until someone asks for the per-population form.
+      # bss_gear_period() returns NULL under the flat form; the per-population form ships
+      # since A32, so this line sets the shore all-gear fit to weekly.
       .period_ss <- bss_gear_period(params, pop, ss$gear_regime) %||% ss$period_bss
       if (!identical(.period_ss, ss$period_bss))
         message(sprintf("  AR period from gear_period_bss[[%s]][[%s]]: %s (the sub-season's own is %s)",
@@ -949,7 +951,7 @@ for(cg in bss_catch_groups) {
         }
 
         # Per-fit sampler tuning: shore all-gear is the most complex posterior
-        # (4 gear types, 10 monthly periods); pot-closure fits are data-sparse
+        # (4 gear types, 43 weekly periods since A32); pot-closure fits are data-sparse
         # and benefit from tighter adaptation. All other fits use defaults.
         if(is_shore && is_allgear) {
           fit_iter    <- params$bss_iter_shore_allgear

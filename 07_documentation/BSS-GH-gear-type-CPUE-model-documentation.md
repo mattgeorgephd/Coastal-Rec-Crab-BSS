@@ -39,7 +39,7 @@ process, so a per-gear catch estimate carries posterior uncertainty from the mod
 in the catch side, which makes their agreement informative. **On the current authoritative run
 it reads 99,294 [82,154, 123,380] against the pooled 99,822, -0.53%** (A32, 2026-10-02: the gear
 shore fits at the pooled periods with the zero-inflated catch; the figures below, through the
-component table, are the 2026-09-28 reference run's, before A32). **Under the method of record** (the
+component table, are the 2026-09-28 reference run's, before A32). **Under the 2026-09-28 reference run, before A32** (the
 re-render at B44 to B49, 2026-09-28, `run_estimation.R` with `model = "both"`) the gear track
 reads **98,588 [81,046, 123,563]** against the pooled **99,873 [82,414, 124,438]**: **-1.29%**,
 inside the pre-set 2% criterion (`05_output/20260928/cross_check_20260928_165651.csv`, PASS).
@@ -191,7 +191,7 @@ All in `run_config.R` section 5.
 | `catch_zi_tracks` | `c("pooled", "gear_resolved")` | (section 2, read by both tracks) which tracks fit the zero-inflated catch likelihood; both since A32 (`"pooled"` alone restores the gear track's plain NB2) |
 | `ar_adaptive` | `FALSE` | `FALSE` preserves the fixed period from `gear_period_bss` exactly (`period_bss` is the sub-season field it fills, and the per-population form overrides it per fit). `TRUE` hands the AR choice to the data-driven selector, which is inference-changing: validate first |
 | `loo_effort_unit_comparison` | `FALSE` | `TRUE` restricts interviews to the common valid-denominator subset so a cross-unit `elpd_loo` comparison is legitimate. The comparison is done; `FALSE` for production |
-| `use_boat_ie` | `TRUE` | use the WBL boat I/E ingress counts to identify the turnover once enough days exist. `IE_n = 0` is safe, and today there are 2 WBL days, so the stream is effectively absent |
+| `use_boat_ie` | `TRUE` | use the WBL boat I/E ingress counts to identify the turnover once enough days exist. `IE_n = 0` is safe, and there are no WBL boat I/E days in 2024-25 and one in 2025-26 (below the gear prep's minimum of 2), so the stream is effectively absent |
 
 **One caution on `ar_adaptive`.** The gear track's shipped resolutions come from the fixed
 `gear_period_bss` path, not from the pooled track's `ar_max_resolution` ladder. Do not copy the

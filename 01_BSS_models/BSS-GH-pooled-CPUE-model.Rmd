@@ -155,7 +155,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 # Crab Creel Estimation - Westport / Grays Harbor  |  Pooled CPUE Model
 # Any season, part-season or span (2024-25 is the development test season)
 # Pipeline code: last numbered tag v7.9 (2026-07-12); versioned by date since, and the
-# model of record is this code as of 2026-09-29 (B44 to B51; see the development history)
+# model of record is this code as of 2026-10-02 (B44 to B62 and A31; see the development history)
 #
 # Estimates total recreational Dungeness crab harvest at Westport / Grays Harbor
 # from a single pooled CPUE process shared across gear types. Three population
@@ -189,7 +189,7 @@ Loads packages, sources the helper functions in `03_R_functions/`, applies the r
 #
 # FULL CHANGE LOG (every version, newest first, with working notes):
 #   07_documentation/BSS-GH-pooled-CPUE-model-development-history.md
-# METHOD REFERENCE (the published method of record):
+# METHOD REFERENCE (Method v2.0, the method of record; not published):
 #   07_documentation/BSS-GH-pooled-CPUE-model-documentation.md
 ###############################################################################
 

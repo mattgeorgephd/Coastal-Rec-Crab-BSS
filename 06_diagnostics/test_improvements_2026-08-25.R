@@ -7352,8 +7352,8 @@ local({
       grepl("The cross-check passes: 99,294 [82,154, 123,380], -0.53% against the pooled total", ps, fixed = TRUE) &&
       grepl("gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi", ps, fixed = TRUE) &&
       grepl("106,380 [86,780, 131,940] at weekly (+6.6%)", ps, fixed = TRUE) && grepl("it is NOT inside the interval above", ps, fixed = TRUE))
-  chk("B62 docs: the register carries A32 (five cells), B62, three 2026-10-02 defect rows, and D3, D6, D29 CLOSED",
-      grepl("| A32 |", cr, fixed = TRUE) && grepl("| B62 |", cr, fixed = TRUE) && length(gregexpr("\n| 2026-10-02 |", cr, fixed = TRUE)[[1]]) == 3 &&
+  chk("B62 docs: the register carries A32 (five cells), B62, four 2026-10-02 defect rows (B63 added the fourth), and D3, D6, D29 CLOSED",
+      grepl("| A32 |", cr, fixed = TRUE) && grepl("| B62 |", cr, fixed = TRUE) && length(gregexpr("\n| 2026-10-02 |", cr, fixed = TRUE)[[1]]) == 4 &&
       grepl("| **CLOSED 2026-10-02: ADOPTED together with D6 (A32, B62).**", cr, fixed = TRUE) &&
       grepl("| **CLOSED 2026-10-02: ADOPTED together with D3 (A32, B62)", cr, fixed = TRUE) &&
       grepl("| **CLOSED 2026-10-02 by rule D29-4(b)", cr, fixed = TRUE))
@@ -7363,6 +7363,40 @@ local({
   chk("B62 docs: no live document still says catch_zi_tracks ships \"pooled\" as the current state",
       !any(vapply(c("07_documentation/CLAUDE.md", "07_documentation/NEW_SEASON_GUIDE.md", "01_BSS_models/README.md", "02_stan_models/README.md"),
                   function(f) grepl('ships `"pooled"`', paste(rd(f), collapse = " "), fixed = TRUE), logical(1))))
+})
+
+# ---------------------------------------------------------------------------
+# 96. B63 (2026-10-02): a refused shared BOAT turnover reaches the report, and D18 says what a
+#     2025-26 run actually does (the boat all-gear fit has no OSP day, so it is refused).
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(p) paste(readLines(p, warn = FALSE), collapse = "\n")
+  es <- new.env(); sys.source("03_R_functions/bss_run_warnings.R", envir = es); sys.source("03_R_functions/bss_effort_spec.R", envir = es)
+  es$`%||%` <- function(a, b) if (is.null(a)) b else a
+  f <- es$bss_shared_tau_data
+  if (is.function(f) && exists("bss_warn_reset", envir = es)) {
+    es$bss_warn_reset()
+    off <- tryCatch(suppressWarnings(utils::capture.output(r <- f(list(L_unit = "turnover (gear-deployments per gear slot)"), rep(3.5, 4), rep(0.5, 4),
+                    list(shared_tau = TRUE, shared_tau_min_obs = 15, tau_boat_prior_mu = 3.5), population_name = "private_boat", n_informed = 0L))),
+                    error = function(e) conditionMessage(e))
+    lg <- tryCatch(es$bss_warn_log(), error = function(e) NULL)
+    chk("B63: a refused shared turnover for a BOAT fit is written to the run warnings (source turnover)",
+        !is.null(lg) && any(lg$source == "turnover" & grepl("Shared boat turnover REFUSED", lg$message, fixed = TRUE)),
+        sprintf("(%s)", paste(utils::head(off, 2), collapse = " | ")))
+  } else {
+    t <- rd("03_R_functions/bss_effort_spec.R")
+    chk("B63: a refused shared turnover for a BOAT fit calls bss_warn(\"turnover\", ...) (static check)",
+        grepl('bss_warn("turnover", sprintf(paste0("Shared boat turnover REFUSED', t, fixed = TRUE) &&
+        grepl('identical(population_name, "private_boat")', t, fixed = TRUE))
+  }
+  cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md"); ng <- rd("07_documentation/NEW_SEASON_GUIDE.md")
+  ps <- gsub("[ \n>]+", " ", rd("07_documentation/development_notes/PIPELINE_STATUS.md"))
+  chk("B63: D18, the guide and the box say the 2025-26 boat all-gear fit has no OSP day and its shared turnover is REFUSED, not fired",
+      grepl("all 23 OSP days fall in the pot closure", cr, fixed = TRUE) && grepl("| B63 |", cr, fixed = TRUE) &&
+      grepl("the floor is applied PER FIT", ng, fixed = TRUE) && !grepl("so the shared turnover and its calibration would FIRE", ng, fixed = TRUE) &&
+      grepl("boat ALL-GEAR fit has no OSP day at all", ps, fixed = TRUE) && !grepl("shared turnover calibration would fire on autumn-only overlap (D18)", ps, fixed = TRUE))
+  chk("B63: the gear driver no longer says its zero-inflated catch ships off",
+      !grepl('ships OFF (catch_zi_tracks =', rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"), fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

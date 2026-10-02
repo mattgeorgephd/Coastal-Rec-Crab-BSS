@@ -6,7 +6,7 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29**. **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run predates B51 and A31, so a render of the shipped configuration differs from it in every draw (B51) and by up to about 0.1 posterior SD per component (A31, container refits); the first production render at the A31 code becomes the reference. The only render at `init_r = 0.5` so far, of the pre-A31 code, failed its shore pot-closure gate and is not the reference (CHANGE_REGISTER B57). The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29** (the pooled model; on 2026-10-02 the gear cross-check was matched to it, A32). **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run (`20260929/pooled-CPUE-2024-25-220449`, B61) IS the first render at the A31 code with `init_r = 0.5`; a render of the shipped configuration on the same machine reproduces it to the crab. B57's render at 0.5 of the pre-A31 code failed its shore pot-closure gate and is not a reference. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
 **The authoritative run has moved since this reference run (2026-10-02, B61):** `05_output/20260929/pooled-CPUE-2024-25-220449`, 99,822 [82,090, 124,718], the same configuration rendered at the A31 code with `init_r = 0.5`; every component is within 0.02 posterior SD of the reference run's, so the figures this document quotes from it describe the method of record as it stands. Its gear cross-check is 99,294 (-0.53%) since D3 and D6 were adopted together on the gear track (2026-10-02, A32; limitation 10), and the boat all-gear resolution span, 99,822 at monthly to 106,380 at weekly, is quoted beside the total (limitation 10a). The box at the top of `PIPELINE_STATUS.md` is the place to quote from. **Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
@@ -72,7 +72,7 @@ the Float 17-21 fill (B45, 2026-09-28)**: a Float 20 count with no Float 17-21 c
 is now filled by the month's ratio instead of read as zero, which raised the shore gear count
 9.0% and moved the shore from 38,173 to 41,811 (+9.5%) and the port from 96,118 to 99,873
 (+3.9%); the boat fits did not move (byte-identical). The gear-resolved cross-check on the same
-configuration reads 98,588, -1.29%, inside the 2% criterion. The box in
+configuration reads 98,588, -1.29%, inside the 2% criterion (the reference run's; since A32 the cross-check reads 99,294, -0.53%, against the authoritative 99,822). The box in
 `development_notes/PIPELINE_STATUS.md` says which run is authoritative and carries the current
 total; quote from there.
 
@@ -204,7 +204,9 @@ One change has moved the method since, the boat advisory-day term (2026-09-27, S
 interval still 43% of the median and the PE gap 11.5% (the term moved the BSS, not the PE).
 Then a data correction, not a method change (2026-09-28, B45): an unsampled Float 17-21 count
 filled by the month's ratio instead of read as zero, **99,873 [82,414, 124,438]**, +3,755
-(+3.9%), all of it the shore, the interval 42% of the median and the PE gap 11.1%.
+(+3.9%), all of it the shore, the interval 42% of the median and the PE gap 11.1%. Then A31,
+the single-section level collapse (2026-09-29), a model change that moved the sampler, not the
+answer: **99,822 [82,090, 124,718]**, every component within 0.02 posterior SD (B61).
 
 That is a large move and it was not accepted on faith. It was produced by an **improvement
 ladder**: a sequence of runs in which each change is switched on alone, against the same
@@ -301,9 +303,8 @@ the boat effort covariate reads (Section 21a), is committed, and its builder is 
 before a season (`NEW_SEASON_GUIDE.md`, section 0).
 
 **Runtime.** About 3 to 6 hours on 4 cores for a full pooled run: four real MCMC fits plus
-the diagnostics (the authoritative render took 154.2 min pooled and 40.4 min gear-resolved on Matt's machine; with A31 the shore fits run several times faster, CHANGE_REGISTER A31). The gear-resolved cross-check at the
-shipped monthly periods is much faster, about 35 minutes (the committed renders at that
-configuration, R5 and the gear ladder's monthly rung, log 33 to 36 minutes of sections); a finer
+the diagnostics (the 2026-09-28 render took 154.2 min pooled and 40.4 min gear-resolved on Matt's machine; the authoritative render, B61, 247.8 and 58.8 min wall clock inside a batch; A31's container refits ran the shore fits several times faster, which that wall clock does not show). The gear-resolved cross-check at its
+shipped periods (A32) is much faster, about 34 minutes of sections (the batch's stage D6); a finer
 gear AR period costs more (the daily rung took about 105 minutes).
 
 **Repository layout**, as a numbered pipeline:
@@ -313,7 +314,7 @@ gear AR period costs more (the daily rung took about 105 minutes).
 | `01_BSS_models/` | the two production driver `.Rmd` reports |
 | `02_stan_models/` | the Stan models; this method uses `crab_bss_pooled.stan` |
 | `03_R_functions/` | the shared helper library, sourced whole by every driver |
-| `04_input_files/` | the nine input workbooks, and the builders that generate six of them |
+| `04_input_files/` | the eleven input workbooks (nine model and diagnostic, the NWS archive, OSP's sampling-rate schedule), and the builders that generate seven of them (six by `build_all_inputs.R`, the NWS archive by its own) |
 | `05_output/` | one dated folder per run |
 | `06_diagnostics/` | the regression harness and the dated batch runners (the weather module that also lived there was removed 2026-09-13) |
 | `07_documentation/` | this file and the rest of the reference layer |
@@ -372,7 +373,8 @@ Rscript run_estimation.R --model gear_resolved    # the cross-check
 **As shipped, `run_config.R` is the canonical run**: the single 2024-25 season, `model = "both"`,
 Method v2.0 throughout. It differs from the reference run's configuration by B51 (`init_r = 0.5`)
 and A31 (the single-section level collapse; Sections 13 and 14.2), so a render of it agrees with
-the reference run within about 0.1 posterior SD per component, not to the crab. Since B38
+the reference run within about 0.1 posterior SD per component, not to the crab; it reproduces the
+authoritative run (B61) to the crab, and its gear track the cross-check of A32 (stage D6). Since B38
 (2026-09-26) two renders of ONE configuration on the same machine and toolchain give one port
 total, to the crab (across platforms or compilers Stan's floating point, and so the last digits,
 may differ).
@@ -504,8 +506,9 @@ divergences, the gate failed, the component fell back to its PE); a refit of the
 seed at 0.5 gave four clean chains (1.6%, R-hat 1.000) and a median within 0.4% of the render
 that passed. The radius moves where chains START, not the posterior they sample, so a
 well-mixed fit at 0.5 is the same fit in distribution as at 2, but not the same draws: **a
-render of the shipped configuration does not reproduce the authoritative run of 2026-09-28 to
-the crab**, which was rendered at 2. Expect agreement within Monte Carlo error. The same day the
+render of the shipped configuration does not reproduce the 2026-09-28 reference run to the crab**,
+which was rendered at 2 on the pre-A31 code; it does reproduce the authoritative run
+(`20260929/pooled-CPUE-2024-25-220449`, B61), rendered at 0.5 on the A31 code. Expect agreement within Monte Carlo error. The same day the
 funnel itself was removed (A31, Section 14.2), so the radius is now a precaution rather than the
 thing that keeps the shore all-gear fit inside the gate; it stays at 0.5. The radius alone was not
 enough: Matt's render at 0.5 on the pre-A31 model (CHANGE_REGISTER B57) brought the shore all-gear
@@ -1283,13 +1286,16 @@ cap finer than the data-driven pick is ignored. Shipped caps:
 | | shore pot closure | shore all gear | private boat |
 |---|---|---|---|
 | pooled | biweekly | **weekly** | monthly |
-| gear-resolved | biweekly | monthly | monthly |
+| gear-resolved (the dormant `ar_max_resolution` map) | biweekly | monthly | monthly |
+| gear-resolved, as fitted (`gear_period_bss`, A32) | biweekly | **weekly** | all gear monthly, pot closure biweekly |
 
 The gear-resolved row is the `ar_max_resolution$gear_resolved` map, and **it is dormant**: the
 gear driver runs `ar_adaptive = FALSE` and takes each fit's period from `gear_period_bss`
-(per sub-season, shipped `all_gear = "month"`, `pot_closure = "biweekly"`, or per population
-through `bss_gear_period()`, B32). So on the gear track the boat pot-closure fit runs
-biweekly, where the pooled track fits it monthly.
+(shipped since A32, 2026-10-02, in its per-population form through `bss_gear_period()`: shore
+all-gear weekly, shore pot closure biweekly, boat all-gear monthly, boat pot closure biweekly;
+the flat per-sub-season form, all-gear monthly and pot closure biweekly, is the pre-A32
+configuration). So the gear shore fits match the pooled caps, and only the boat pot-closure fit
+differs: biweekly on the gear track, monthly on the pooled.
 
 `"biweekly"` is unreachable from the data-driven branch; it arrives only from a cap or from
 `ar_force`.
@@ -1481,7 +1487,7 @@ a new season whose gear shore all-gear fit traps a chain at weekly reopens D3.
 
 **10a. The boat all-gear AR period is a resolution choice the data cannot make (D29, closed by
 rule).** Fitted at every period on both tracks (campaign Section 1z.10), the boat all-gear
-component reads 47,192 at monthly (shipped), 50,888 at biweekly and 53,546 at weekly, all three
+component reads 47,105 at monthly (shipped), 50,800 at biweekly and 53,651 at weekly (full-posterior medians; the batch's tables, on the 2,000 saved draws, read 47,192, 50,888 and 53,546), all three
 adequate and gate-passing; daily is inadequate. On held-out weeks neither finer rung interpolates
 better or worse than monthly, and the gear track rises the same way. Monthly is kept (Matt,
 2026-10-02, the batch's rule D29-4 b); the span is this component's resolution uncertainty and
@@ -1521,10 +1527,10 @@ mechanically (A14) from 2024-25 onward; D32's multi-season test is such a span, 
 D32 reads the pre-2024-25 trailer counts only as a descriptive screen, not as a model fit.
 
 **15. The single-section levels were unidentified, and the funnels they made are removed
-(D33, T2.5, closed 2026-09-29 by A31, pending the first render at this code).** Until A31 each
+(D33, T2.5, closed 2026-09-29 by A31, confirmed by the authoritative render, B61).** Until A31 each
 level was two-tier (`mu_E = mu_mu_E + eps_mu_E * sigma_mu_E`, and the same for `mu_C`), and with
 one section the spreads `sigma_mu_E`, `sigma_mu_C` had nothing to learn from: their posteriors
-followed the half-Cauchy(0, 1) prior's tail. On the authoritative run the shore all-gear fit passed the gate at 4.07% divergences
+followed the half-Cauchy(0, 1) prior's tail. On the 2026-09-28 reference run the shore all-gear fit passed the gate at 4.07% divergences (0.49% on the authoritative run, at the A31 code)
 against the 5% backstop, and a render of the same code elsewhere left a chain stuck in the
 funnel and failed the gate. The collapse removes the funnels rather than steering around them
 (Section 14.2): on container refits from the saved Stan data the shore all-gear fit is under
@@ -1535,8 +1541,8 @@ the CPUE funnel, and 4.7% divergences at the shipped radius. Neither was the ini
 alone: a full render at `init_r = 0.5` on the pre-A31 model (B57) failed the shore pot-closure fit's
 gate with a chain stuck in both level funnels, while the gear-resolved track, collapsed at both
 levels, ran clean on the same machine. What remains: the collapse was
-validated on refits of one season's data and on two to four seeds per fit, not yet on a full
-render; the short shore pot-closure fit's CPUE level mixed slowly at one of four seeds without
+validated on refits of one season's data and on two to four seeds per fit, and on one full
+render (B61); the short shore pot-closure fit's CPUE level mixed slowly at one of four seeds without
 moving its total (the gate reads the totals, so this shows in `mu_mu_C`'s R-hat, not in a gate
 failure); the 2026-06 attempt to collapse the level made a DAILY-AR shore fit hang, and every
 shore fit has been on a coarse AR since 2026-09-07, so a future window fitted at daily AR

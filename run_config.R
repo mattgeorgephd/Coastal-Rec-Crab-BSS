@@ -76,8 +76,8 @@
 # 07_documentation/development_notes/PIPELINE_STATUS.md; do not take an estimate from
 # anywhere else in the repository without checking it there.
 #
-# The two-season 2023-25 span that used to ship here is staged in
-# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is OUT OF SCOPE
+# The two-season 2023-25 span that used to ship here is kept commented out in section 1.2
+# below. It is OUT OF SCOPE
 # (Matt, 2026-09-28; CHANGE_REGISTER D8 closed): seasons before 2024-25 were exploratory and
 # not the current protocol. It was also blocked on data (no 2023-24 vessel tally or charter
 # roster).
@@ -90,7 +90,8 @@
 # DEVELOPMENT TEST SEASON; the architecture is built to run on any window the user
 # selects (full season, part of a season, or a multi-season span via a vector
 # season_filter). THE NINE PER-SEASON KEYS MUST BE REVISITED TOGETHER, and they are all
-# in section 1.2 below:
+# in section 1.2 below; change run_tag (section 1.1) with them, since a season token in it
+# that is not in season_filter stops the run (B46):
 #
 #   the window       est_date_start, est_date_end
 #   the data filter  season_filter (must match the season column of the workbooks;
@@ -108,6 +109,9 @@
 #                    ar_escalate + ar_rung_adequacy, before trusting them on new data)
 #   season-derived   every key tagged "SEASON-DERIVED": prior centres, floors, the set
 #   priors/floors    crabbing fraction. Revisit, do not assume.
+#   the gear periods gear_period_bss (section 5): the gear track's operative AR periods;
+#                    its shore entries mirror the pooled shore caps (A32), so change them
+#                    with ar_max_resolution or the cross-check is no longer like for like.
 #
 # Multi-season spans (2026-09-10, CHANGE_REGISTER A14): a span containing several pot
 # closures is expressed with `pot_closures` (one entry per season) plus `census_windows`
@@ -1004,8 +1008,9 @@ run_config <- list(
   # fails its gate, and falls back to PE; biweekly removes the funnel so it reports
   # BSS, matching the gear track's biweekly ring-net period_bss. (Until 2026-09-07 the
   # all-gear fit was left data-driven at daily.) The gear_resolved map takes
-  # the SAME per-sub-season structure; its values mirror the gear track's fixed
-  # period_bss (monthly all-gear, biweekly ring-net). NOTE the gear map is dormant
+  # the SAME per-sub-season structure; its values mirror the gear track's PRE-A32 fixed
+  # period_bss (monthly all-gear, biweekly ring-net); since A32 the gear shore all-gear fit
+  # runs weekly through gear_period_bss (section 5). NOTE the gear map is dormant
   # in production: gear-resolved runs ar_adaptive = FALSE, so fixed_resolution =
   # period_bss bypasses the cap. It is consulted only in the ar_adaptive = TRUE
   # experiment, where it now agrees with the fixed periods instead of the old
@@ -1017,7 +1022,7 @@ run_config <- list(
   # ar_rung_adequacy = TRUE) and re-derive them. See NEW_SEASON_GUIDE.md.
   ar_max_resolution = list(
     # 2026-09-07 ADOPTION: pooled shore all_gear "daily" -> "weekly". See Section 1k of
-    # PIPELINE_STATUS.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of
+    # VALIDATION_CAMPAIGN.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of
     # n_obs, 41 Pareto k above 0.7, coverage_50 0.701 at +7.1 sampling SD, miscalibration
     # flag set); at weekly those become 9.6%, 1, 0.559 (+2.3 SD) and clear. ONLY daily is
     # an outlier: weekly, biweekly and monthly sit within 0.5 sampling SD of each other and
@@ -1839,10 +1844,12 @@ run_config <- list(
   # fixed_resolution = ss$period_bss and ar_max_resolution$gear_resolved is DORMANT. Until
   # 2026-09-13 period_bss was a literal inside build_subseasons.R with no configuration
   # surface, so CHANGE_REGISTER D3 ("the gear track's shore cap is still monthly") named a
-  # key that does nothing. These are the real values, and they ship at exactly the literals
-  # they replaced, so every committed gear run is reproduced byte for byte.
+  # key that does nothing. These were the real values, and until A32 (2026-10-02) they
+  # shipped at exactly the literals they replaced, so every committed gear run before it is
+  # reproduced byte for byte by the flat form.
   #
-  # D3 IS OPEN. The pooled shore all-gear fit is at WEEKLY; this track is at MONTHLY, which
+  # (The 2026-09-13 state, kept for the record; D3 CLOSED 2026-10-02, A32, below.) D3 WAS
+  # OPEN. The pooled shore all-gear fit is at WEEKLY; this track was at MONTHLY, which
   # is most of the -1.39% cross-track gap (at a common monthly resolution the two tracks
   # agree to 0.08%, the strongest agreement the cross-check has produced). Do NOT copy the
   # pooled value across on the strength of symmetry alone, but note that the reason usually
@@ -1858,7 +1865,7 @@ run_config <- list(
   # which is GR-7 Phase 2 and a different decision. The run that settles D3 is
   # 06_diagnostics/run_gear_ar_zi_2026-09-13.R, which ladders this key and reports adequacy
   # per rung. Recognized values: "daily", "weekly", "biweekly", "month"/"monthly".
-  # TWO SHAPES, and the flat one ships. 2026-09-14: the first D3 ladder proved the flat
+  # TWO SHAPES, and since A32 the per-population one ships (the flat one until then). 2026-09-14: the first D3 ladder proved the flat
   # form cannot answer the question, because period_bss belongs to the SUB-SEASON and a
   # sub-season holds BOTH populations, so moving it moved the boat all-gear fit as well
   # (+18.1% monthly to weekly, against +3.3% for the shore). The pooled track fits shore
@@ -1884,9 +1891,9 @@ run_config <- list(
   gear_period_bss            = list(shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
                                     private_boat = list(all_gear = "month",  pot_closure = "biweekly")),
 
-  ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
-                                       #   season period_bss (biweekly ring-net, monthly all-
-                                       #   gear) EXACTLY. TRUE hands AR choice to the data-driven
+  ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed periods
+                                       #   from gear_period_bss (above, per population since
+                                       #   A32) EXACTLY. TRUE hands AR choice to the data-driven
                                        #   selector; that is inference-changing, so validate first.
   loo_effort_unit_comparison = FALSE,  # (gear-resolved) TRUE restricts interviews to the common
                                        #   valid-denominator subset for a legitimate cross-unit
