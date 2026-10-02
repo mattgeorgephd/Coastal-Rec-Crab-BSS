@@ -7005,8 +7005,12 @@ local({
   chk("B58: the batch runner ships DRY_RUN <- TRUE and starts only on --go or BSS_BATCH_GO=1 (so the tracked tree stays clean)",
       identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)") &&
       grepl('if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE', rt, fixed = TRUE))
-  chk("B58: the stages are the authoritative render, D3, D6, the two D29 ladders, the radius check and the daily rung, in that order",
-      grepl('STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")', rt, fixed = TRUE))
+  chk("B60: the stages are the authoritative render, D3, D6, the forced weekly and biweekly pooled rungs, the gear ladder, the radius check and the daily rung, in that order",
+      grepl('STAGES  <- c("S0", "A", "D3", "D6", "D29W", "D29B", "D29G", "R2", "D29D")', rt, fixed = TRUE))
+  chk("B60: the pooled D29 rungs are forced renders (ar_force), not an in-process ladder, which ran out of memory at its second rung",
+      grepl('delta = list(ar_force = list(private_boat = list(all_gear = "weekly")))', rt, fixed = TRUE) &&
+      grepl('delta = list(ar_force = list(private_boat = list(all_gear = "biweekly")))', rt, fixed = TRUE) &&
+      !grepl("D29P = list(", rt, fixed = TRUE))
   chk("B58: stage A renders through run_estimation.R --model both (the production orchestrator, manifest and cross-check), not a copy of it",
       grepl('A    = list(model = "both", fit = TRUE, tag = BASE$run_tag, orchestrator = TRUE', rt, fixed = TRUE) &&
       grepl('status <- .sys(c(shQuote(ORCH), "--model", mdl), log, hours)', rt, fixed = TRUE))
@@ -7065,24 +7069,31 @@ local({
                     (as.character(e[[2]]) %in% keep || (is.call(e[[3]]) && identical(e[[3]][[1]], as.name("function")))))
     eval(e, sb)
   sb$BASE <- list(cross_check_tolerance = 0.02)
-  mk <- function(rungs) {                     # rungs: list of list(res, gate, plf, bad, elpd) for the boat all-gear fit
-    d <- tempfile("d29_"); dir.create(d)
-    utils::write.csv(data.frame(fit = sb$FIT_BOAT_AG, attempt = seq_along(rungs), ar_resolution = vapply(rungs, `[[`, "", "res"), P_n = 10,
-      escalation_enabled = TRUE, divergences = 0, divergence_fraction = 0, pass_convergence = vapply(rungs, function(r) r$gate, logical(1)),
-      catch_median = 40000 + seq_along(rungs), catch_lo95 = 1, catch_hi95 = 2, p_loo = 1, p_loo_frac = vapply(rungs, function(r) r$plf, numeric(1)),
-      n_pareto_bad = vapply(rungs, function(r) r$bad, numeric(1)), cov50_gear = NA, cov50_catch = NA, cov50_trailer = NA, pit_mean_catch = NA,
-      selected = FALSE), file.path(d, "ar_escalation_log.csv"), row.names = FALSE)
+  # B60 (2026-10-02): every pooled rung is a render's KEPT boat all-gear fit (stage A monthly,
+  # D29W weekly, D29B biweekly, D29D daily), so each synthetic rung is a folder with the files a
+  # production render writes for its kept fit.
+  STAGE_OF <- c(monthly = "A", weekly = "D29W", biweekly = "D29B", daily = "D29D")
+  mk1 <- function(r) {                        # r: list(res, gate, plf, bad, elpd, ran = res)
+    d <- tempfile("d29_"); dir.create(d); f <- sb$FIT_BOAT_AG
+    utils::write.csv(data.frame(fit = f, ar_resolution = r$ran %||% r$res, pass_convergence = r$gate, divergence_fraction = 0,
+                                method_selected = if (isTRUE(r$gate)) "BSS" else "PE (convergence fail)"),
+                     file.path(d, "convergence_report.csv"), row.names = FALSE)
+    utils::write.csv(data.frame(fit = f, p_loo_frac = r$plf, n_pareto_bad = r$bad, p_loo_worst_stream = "osp"),
+                     file.path(d, "model_adequacy.csv"), row.names = FALSE)
     utils::write.csv(data.frame(stream = c("trailer", "osp", "catch"), n_obs = c(195, 130, 175)),
-                     file.path(d, sprintf("loo_summary_%s.csv", sb$FIT_BOAT_AG)), row.names = FALSE)
-    for (r in rungs) if (!is.null(r$elpd))
+                     file.path(d, sprintf("loo_summary_%s.csv", f)), row.names = FALSE)
+    utils::write.csv(data.frame(C_expected_sum = 40000 + stats::rnorm(200, 0, 100)), file.path(d, sprintf("bss_draws_summed_%s.csv", f)), row.names = FALSE)
+    if (!is.null(r$elpd))
       utils::write.csv(data.frame(data_type = "joint", block = sprintf("2025-W%02d", seq_along(r$elpd)), n_obs = 6, n_leaveout = 6, lpd_block = r$elpd,
                                   elpd_block = r$elpd, p_eff = 0.1, pareto_k = 0.3, reliable = TRUE, leaveout_streams = "trailer+osp"),
-                       file.path(d, sprintf("ladder_block_joint_%s_%s.csv", sb$FIT_BOAT_AG, r$res)), row.names = FALSE)
+                       file.path(d, sprintf("loo_block_joint_%s.csv", f)), row.names = FALSE)
     d
   }
   decide <- function(rungs) {
     sb$V <- list(); sb$REC <- list(); sb$D29 <- list(); sb$D29_TABLE <- NULL
-    sb$d29_rows("pooled", mk(rungs), "D29P"); sb$verdict_D29(list(A = c(pooled = NA_character_)))
+    dirs <- list(A = c(pooled = NA_character_), D29W = c(pooled = NA_character_), D29B = c(pooled = NA_character_), D29D = c(pooled = NA_character_))
+    for (r in rungs) { sid <- STAGE_OF[[r$res]]; dirs[[sid]][["pooled"]] <- mk1(r); sb$d29_forced_row(dirs[[sid]][["pooled"]], sid, r$res) }
+    sb$verdict_D29(dirs)
     sb$REC[[length(sb$REC)]]$recommendation
   }
   set.seed(58); base <- -10 + stats::rnorm(30, 0, 0.2)
@@ -7098,8 +7109,12 @@ local({
       grepl("^REVIEW", decide(list(R("weekly", plf = NA, elpd = down), R("biweekly", elpd = same), R("monthly")))))
   chk("B58 D29 rule: biweekly BETTER but weekly's block CV missing -> REVIEW (a finer rung undecided), not MOVE",
       grepl("^REVIEW", decide(list(R("weekly", elpd = NULL), R("biweekly", elpd = up), R("monthly")))))
-  chk("B58 D29 rule: an incomplete ladder (monthly only) -> REVIEW (D29-0)",
-      grepl("^REVIEW: the pooled ladder is incomplete", decide(list(R("monthly")))))
+  chk("B58 D29 rule: incomplete pooled rungs (monthly only) -> REVIEW (D29-0)",
+      grepl("^REVIEW: the pooled rungs are incomplete", decide(list(R("monthly")))))
+  chk("B60 D29 rule: a forced stage that ran at another period is not read as its rung, so the set is incomplete -> REVIEW",
+      grepl("^REVIEW: the pooled rungs are incomplete", decide(list(c(R("weekly", elpd = up), list(ran = "monthly")), R("biweekly", elpd = same), R("monthly")))))
+  chk("B60 D29 rule: the daily rung, inadequate, is decided (out), so it cannot block a BETTER weekly",
+      grepl("^MOVE the pooled boat all-gear cap to weekly", decide(list(R("daily", plf = 0.26, bad = 12, elpd = up), R("weekly", elpd = up), R("biweekly", elpd = same), R("monthly")))))
   chk("B58 D29 rule: inadequate by bad Pareto k (> 5% of all 500 LOO observations) is OUT, so a BETTER weekly with 30 bad k does not move the cap",
       grepl("^KEEP monthly", decide(list(R("weekly", bad = 30, elpd = up), R("biweekly", elpd = same), R("monthly")))))
   # the three-valued helpers and the manifest parser

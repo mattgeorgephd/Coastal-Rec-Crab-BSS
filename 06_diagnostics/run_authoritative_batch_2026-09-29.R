@@ -76,12 +76,16 @@
 #        into D3's ADOPT.)
 #   D6   D3 plus the zero-inflated shore catch on the gear track (catch_zi_tracks = both).
 #        Judged against D3, which differs from it in that one key.
-#   D29P POOLED: the escalation ladder on the boat all-gear fit ONLY (ar_escalate =
-#        list(private_boat = "all_gear"), ar_escalate_stop = "all_rungs"), rungs weekly,
-#        biweekly, monthly; the cap is ignored (ar_escalate_respect_cap = FALSE) because the
-#        cap is the thing under test. Every rung's gate, estimate, adequacy (ar_rung_adequacy)
-#        and, since this patch, its leave-one-week-out block CV (ladder_block_*.csv) are
-#        written, not only the kept rung's.
+#   D29W POOLED boat all-gear FORCED to weekly (ar_force), and
+#   D29B POOLED boat all-gear FORCED to biweekly. The monthly rung is stage A's own fit (the
+#        shipped cap). Each rung is a separate render holding four posteriors, like A.
+#        (B60, 2026-10-02: these replace D29P, the in-process escalation ladder, which ran
+#        out of memory at its second rung in every one of three attempts on Matt's machine:
+#        the ladder holds the three earlier fits, the incumbent weekly rung and the
+#        challenger at once, five posteriors with warmup, where A, R2 and D29D hold four. The
+#        forced daily rung, D29D, the LARGEST boat fit, completed as a four-posterior render.)
+#        Every rung's gate, estimate, adequacy and leave-one-week-out block CV come from that
+#        render's kept fit, the files every production render writes.
 #   D29G GEAR: the same ladder on the gear track, on D3's configuration (so the shore fits
 #        are matched and only the boat all-gear period moves). Corroboration, never the
 #        decider (rule D29-5).
@@ -89,7 +93,7 @@
 #        radius? Judged against A, which differs from it in that one key.
 #   D29D POOLED boat all-gear at DAILY (ar_force), the finest rung, last because it is the
 #        slowest and the least likely to be adopted (the gear track failed adequacy there on
-#        2026-09-14: p_loo 0.2751, 11 bad k). Its block CV is compared with the ladder's monthly rung.
+#        2026-09-14: p_loo 0.2751, 11 bad k). Its block CV is compared with A's monthly fit.
 #
 # RUNTIME, from measured renders (your machine, 2026-09-28/29) and the A31 container refits:
 #   A     pooled ~1.0-1.5 h (A31 shore fits were 5-7 min in the container, where the old
@@ -97,12 +101,13 @@
 #         machine) + gear ~0.6 h (35.9 min on 2026-09-29)                      ~1.5-2 h
 #   D3    gear, shore all-gear at weekly (P_n 43 against 10)                    ~0.7 h
 #   D6    as D3                                                                 ~0.7 h
-#   D29P  pooled, the boat all-gear fit three times (weekly and biweekly are
-#         several times its monthly P_n of 10)                                  ~2.5-3.5 h
+#   D29W  pooled with the boat all-gear fit at weekly (A: 4.1 h on 2026-09-29)  ~4 h
+#   D29B  pooled with the boat all-gear fit at biweekly                         ~4 h
 #   D29G  gear, the boat all-gear fit three times                               ~1.5 h
-#   R2    as A's pooled half                                                    ~1-1.5 h
-#   D29D  pooled with the boat all-gear fit at daily (P_n 289)                  ~2-4 h, unknown
-#   TOTAL about 10-14 h. A to D29G (the answers the register asks for) are about 7-9 h.
+#   R2    as A's pooled half                                                    ~4 h
+#   D29D  pooled with the boat all-gear fit at daily (P_n 289)                  ~5 h
+#   MEASURED on Matt's machine 2026-09-29 to 10-01: A 4.1 + 1.0 h, D3 0.5, D6 0.6, D29G 1.2,
+#   R2 3.7, D29D 5.0. The pooled renders took about three times the container estimate.
 #   Stop it any time; --go again resumes. Each stage also has a wall-clock limit (TIMEOUT_H
 #   below; generous, several times the expected time) after which it is stopped and recorded
 #   FAILED, so one hung fit cannot hold the rest of the night. If stage A is interrupted after
@@ -171,10 +176,12 @@
 #   UNDECIDED, which blocks adoption without counting against it; otherwise (D6-1 to D6-4 all
 #   PASS) -> ADOPT catch_zi_tracks = c("pooled", "gear_resolved"); D6 closes.
 #
-# D29 (the boat all-gear AR period). Rungs: weekly, biweekly, monthly on each track (D29P,
-# D29G), and daily on the pooled track (D29D).
-#   D29-0 COMPLETE: the pooled ladder log holds the boat all-gear fit at exactly weekly,
-#         biweekly and monthly with the ladder engaged; otherwise the rule does not run (c).
+# D29 (the boat all-gear AR period). Pooled rungs: weekly (D29W), biweekly (D29B), monthly
+# (A) and daily (D29D), each a forced render; gear rungs: weekly, biweekly, monthly (the D29G
+# ladder). The rule's thresholds are unchanged by B60; only where the pooled rungs come from.
+#   D29-0 COMPLETE: the pooled boat all-gear fit is present at weekly (D29W), biweekly (D29B)
+#         and monthly (A), each confirmed at the period asked for; otherwise the rule does
+#         not run (c).
 #   D29-1 ELIGIBLE: the rung passes the convergence gate (an NA gate is not a pass).
 #   D29-2 ADEQUATE: worst-stream p_loo_frac <= 0.15 and bad Pareto k <= 5% of the fit's
 #         LOO observations over every stream (trailer, OSP and catch; n_pareto_bad counts
@@ -183,8 +190,8 @@
 #   D29-3 INTERPOLATION, the test an AR period is actually about: the leave-one-week-out
 #         block CV of the boat's effort streams (trailer and OSP held out together, the
 #         "joint" table; bss_block_cv.R), each finer rung paired week by week with the
-#         LADDER'S MONTHLY rung (the daily stage too; A's monthly fit only if the ladder has
-#         none) over the weeks reliable (Pareto k <= 0.7) in both. Gain > +2 paired SE:
+#         MONTHLY rung (pooled: A's fit; gear: the D29G ladder's monthly rung) over the
+#         weeks reliable (Pareto k <= 0.7) in both. Gain > +2 paired SE:
 #         BETTER. Below -2: WORSE. Between: NO EVIDENCE. Evaluable only if at least half of
 #         the weeks both tables hold are reliable in both; otherwise NOT EVALUABLE.
 #   D29-4 THE DECISION, pooled track only:
@@ -203,8 +210,10 @@
 #             the gate or is inadequate is DECIDED (out of the running), not undecided.
 #   D29-5 NOT CRITERIA: agreement between the tracks (circular; the D3 rule's clause 5) and
 #         the port total. The gear ladder corroborates or contradicts, and is reported.
-#   D29-6 REPORTED: the ladder's own monthly rung against A's monthly boat fit, in posterior
-#         SD. Near zero is the control that the ladder machinery changes nothing but the rung.
+#   D29-6 REPORTED, the control: in each forced stage (D29W, D29B, D29D) the three fits
+#         ar_force does not touch, against A's, in posterior SD. Same data, configuration and
+#         seed, so they should agree to the crab; anything else means the stage changed more
+#         than the rung.
 #
 # WHAT IT WRITES (recomputed in full from the folders on every invocation):
 #   05_output/authoritative_batch_2026-09-29_stages.csv          stage -> folder(s), status, digest
@@ -216,7 +225,7 @@
 ###############################################################################
 
 DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
-STAGES  <- c("S0", "A", "D3", "D6", "D29P", "D29G", "R2", "D29D")
+STAGES  <- c("S0", "A", "D3", "D6", "D29W", "D29B", "D29G", "R2", "D29D")
 RESUME  <- TRUE                    # reuse a stage ONLY when its AB_STAGE.txt digest matches
 if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE
 
@@ -322,9 +331,12 @@ STAGE_DEFS <- list(
   D6   = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D6-gear-matched-zi",
               item = "D6: D3 + the zero-inflated shore catch on the gear track",
               delta = list(gear_period_bss = MATCHED, catch_zi_tracks = c("pooled", "gear_resolved"))),
-  D29P = list(model = "pooled", fit = TRUE, tag = "2024-25-AB-D29P-boat-ladder",
-              item = "D29: pooled boat all-gear ladder weekly/biweekly/monthly (all rungs)",
-              delta = LADDER),
+  D29W = list(model = "pooled", fit = TRUE, tag = "2024-25-AB-D29W-boat-weekly",
+              item = "D29: pooled boat all-gear at WEEKLY (ar_force)",
+              delta = list(ar_force = list(private_boat = list(all_gear = "weekly")))),
+  D29B = list(model = "pooled", fit = TRUE, tag = "2024-25-AB-D29B-boat-biweekly",
+              item = "D29: pooled boat all-gear at BIWEEKLY (ar_force)",
+              delta = list(ar_force = list(private_boat = list(all_gear = "biweekly")))),
   D29G = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D29G-gear-boat-ladder",
               item = "D29: gear boat all-gear ladder weekly/biweekly/monthly, on D3's configuration",
               delta = c(list(gear_period_bss = MATCHED), LADDER)),
@@ -336,10 +348,10 @@ STAGE_DEFS <- list(
 )
 # Wall-clock limit per stage, in hours (system2(timeout = )); a stage that reaches it is
 # stopped and recorded FAILED. Several times the expected time, so a slow fit is not killed.
-TIMEOUT_H <- c(A = 10, D3 = 3, D6 = 3, D29P = 9, D29G = 5, R2 = 7, D29D = 10)
+TIMEOUT_H <- c(A = 12, D3 = 3, D6 = 3, D29W = 10, D29B = 10, D29G = 5, R2 = 10, D29D = 12)
 # The stages each desk check gates. A desk FAIL stops only these (and never the whole batch
 # unless it is a prerequisite of every render: the method of record, the NWS archive, pandoc).
-DEPENDS <- list(D3 = c("D3", "D6", "D29G"), D6 = "D6", D29P = "D29P", D29G = "D29G", R2 = "R2", D29D = "D29D")
+DEPENDS <- list(D3 = c("D3", "D6", "D29G"), D6 = "D6", D29 = c("D29W", "D29B", "D29D"), D29W = "D29W", D29B = "D29B", D29G = "D29G", R2 = "R2", D29D = "D29D")
 if (!all(STAGES %in% names(STAGE_DEFS)))
   stop("STAGES names a stage that does not exist: ", paste(setdiff(STAGES, names(STAGE_DEFS)), collapse = ", "))
 # keys the driver or orchestrator ADDS at run time (data, not configuration)
@@ -564,7 +576,7 @@ stage_S0 <- function() {
         "bss_gear_period() is what the gear driver calls; D3 must move one fit, the one the register asks about.")
   # (5) the real inputs load (a prerequisite of every stage)
   inp <- tryCatch({
-    p <- modifyList(resolve_cfg("D29P"), list(bss_model_file = "crab_bss_pooled.stan", boat_require_gear_time = TRUE))
+    p <- modifyList(resolve_cfg("A"), list(bss_model_file = "crab_bss_pooled.stan", boat_require_gear_time = TRUE))
     p$ar_max_resolution <- p$ar_max_resolution$pooled
     p$crabbing_holiday_dates <- read_crabbing_holidays(p)
     list(p = p, dwg = q(fetch_crab_data(p)), sub = build_subseasons(p))
@@ -575,19 +587,30 @@ stage_S0 <- function() {
   ok <- !is.null(inp)
   if (ok) {
     p <- inp$p; dwg <- inp$dwg; sub <- inp$sub
-    # (5a) the pooled ladder
-    tryCatch({
-      lad <- list()
+    # (5a) each forced pooled stage moves the boat all-gear fit to its rung and no other fit
+    #      (bss_ar_ladder() is what the pooled driver calls, and ar_force outranks the cap)
+    .pooled_rungs <- function(pp) {
+      out <- list()
       for (ss in sub) for (pop in c("shore", "private_boat")) {
-        d_ <- q(prep_days_crab(ss$start, ss$end, p, L_eff_model = NULL))
-        lad[[sprintf("%s/%s", pop, ss$gear_regime)]] <- paste(bss_ar_ladder(d_, .eff_d(dwg, pop, ss, d_, p), pop, p, gear_regime = ss$gear_regime), collapse = ">")
+        d_ <- q(prep_days_crab(ss$start, ss$end, pp, L_eff_model = NULL))
+        out[[sprintf("%s/%s", pop, ss$gear_regime)]] <- .bss_normalize_resolution_chain(
+          paste(bss_ar_ladder(d_, .eff_d(dwg, pop, ss, d_, pp), pop, pp, gear_regime = ss$gear_regime), collapse = ">"))
       }
-      V1row("D29P", "the pooled ladder: weekly>biweekly>monthly for the boat all-gear fit, ONE rung for every other fit",
-            paste(sprintf("%s %s", names(lad), unlist(lad)), collapse = "; "), "boat all-gear weekly>biweekly>monthly; others a single rung",
-            if (identical(lad[["private_boat/all_gear"]], "weekly>biweekly>monthly") &&
-                all(!grepl(">", unlist(lad[setdiff(names(lad), "private_boat/all_gear")])))) "PASS" else "FAIL",
-            "bss_ar_ladder() on the real 2024-25 days; a scoped ar_escalate must not reach the other fits.")
-    }, error = function(e) V1row("D29P", "the pooled ladder resolves on the real inputs", conditionMessage(e), "no error", "FAIL", ""))
+      unlist(out)
+    }
+    base_r <- tryCatch(.pooled_rungs(p), error = function(e) NULL)
+    for (fs in list(c("D29W", "weekly"), c("D29B", "biweekly"), c("D29D", "daily"))) {
+      tryCatch({
+        pf <- modifyList(resolve_cfg(fs[1]), list(bss_model_file = "crab_bss_pooled.stan", boat_require_gear_time = TRUE))
+        pf$ar_max_resolution <- pf$ar_max_resolution$pooled; pf$crabbing_holiday_dates <- p$crabbing_holiday_dates
+        got <- .pooled_rungs(pf)
+        want <- base_r; want[["private_boat/all_gear"]] <- fs[2]
+        V1row(fs[1], sprintf("the pooled fits under %s: boat all-gear at %s, every other fit as in stage A", fs[1], fs[2]),
+              paste(sprintf("%s %s", names(got), got), collapse = "; "), paste(sprintf("%s %s", names(want), want), collapse = "; "),
+              if (!is.null(base_r) && identical(got[names(want)], want)) "PASS" else "FAIL",
+              "ar_force must reach the boat all-gear fit and nothing else; base_r is stage A's resolution of the same fits.")
+      }, error = function(e) V1row(fs[1], sprintf("the pooled fits under %s resolve on the real inputs", fs[1]), conditionMessage(e), "no error", "FAIL", ""))
+    }
     # (5b) the gear ladder on D29G's configuration
     tryCatch({
       pg <- resolve_cfg("D29G"); pg$crabbing_holiday_dates <- p$crabbing_holiday_dates
@@ -647,14 +670,16 @@ stage_S0 <- function() {
   for (r in c(REF_AUTH_POOLED, REF_AUTH_GEAR))
     V1row("S0", sprintf("the reference render %s is present", r), if (dir.exists(.here("05_output", r))) "present" else "MISSING",
           "present", if (dir.exists(.here("05_output", r))) "PASS" else "REVIEW", "A4 and D3-4 read it; without it they report NA.")
-  # (7) the per-rung block CV the D29 rule reads is wired into each driver (gates that track's ladder)
-  for (f in c(POOLED_RMD, GEAR_RMD)) {
-    src <- paste(readLines(f, warn = FALSE), collapse = "\n")
-    w <- grepl('prefix = "ladder_block"', src, fixed = TRUE) && grepl("cov50_trailer", src, fixed = TRUE)
-    V1row(if (identical(f, POOLED_RMD)) "D29P" else "D29G", sprintf("%s writes every ladder rung's block CV (ladder_block_*) and trailer coverage", basename(f)),
-          if (w) "yes" else "NO", "both present", if (w) "PASS" else "FAIL",
-          "Without it the D29 rule's interpolation clause has nothing to read for the rungs the ladder did not keep.")
-  }
+  # (7) the block CV the D29 rule reads: the pooled driver's kept-fit table (loo_block_joint, the
+  #     forced stages and A), and the gear driver's per-rung ladder tables (ladder_block_*, D29G)
+  srcp <- paste(readLines(POOLED_RMD, warn = FALSE), collapse = "\n"); srcg <- paste(readLines(GEAR_RMD, warn = FALSE), collapse = "\n")
+  wp <- grepl("write_block_cv_diagnostics(b$fit, b$bss_data, b$days_ss, label, output_dir)", srcp, fixed = TRUE)
+  wg <- grepl('prefix = "ladder_block"', srcg, fixed = TRUE) && grepl("cov50_trailer", srcg, fixed = TRUE)
+  V1row("D29", "BSS-GH-pooled-CPUE-model.Rmd writes the kept fit's block CV (loo_block_joint_*), which every pooled D29 rung is read from",
+        if (wp) "yes" else "NO", "present", if (wp) "PASS" else "FAIL", "Without it the D29 rule's interpolation clause has nothing to read.")
+  V1row("D29G", "BSS-GH-gear-type-CPUE-model.Rmd writes every ladder rung's block CV (ladder_block_*) and trailer coverage",
+        if (wg) "yes" else "NO", "both present", if (wg) "PASS" else "FAIL",
+        "Without it the gear ladder's interpolation clause has nothing to read for the rungs the ladder did not keep.")
   # (8) git: the commit, and whether the tracked tree is clean (the authoritative manifest records it)
   dirty <- .git(c("status", "--porcelain", "--untracked-files=no"))
   V1row("S0", "the tracked tree is clean (stage A's manifest records any tracked file that differs)",
@@ -867,7 +892,8 @@ COMP <- list()
 COMP_NOTE <- c(A = "the render of run_config.R as shipped (candidate authoritative run)",
                D3 = "gear track, per-population periods (the D3 candidate)",
                D6 = "D3 + zero-inflated shore catch on the gear track",
-               D29P = "ladder stage: the boat all-gear fit is the rung the ladder KEPT (finest passing), not a reference; every rung is in the d29_rungs table",
+               D29W = "boat all-gear forced to weekly (D29), not a candidate estimate",
+               D29B = "boat all-gear forced to biweekly (D29), not a candidate estimate",
                D29G = "ladder stage on D3's configuration: the boat all-gear fit is the KEPT rung, not a reference",
                R2 = "init_r = 2 (radius test), not a candidate estimate",
                D29D = "boat all-gear forced to daily (D29), not a candidate estimate")
@@ -1090,16 +1116,21 @@ d29_rows <- function(track, dir, stage) {
       block_file = file.path(dir, sprintf("ladder_block_joint_%s_%s.csv", FIT_BOAT_AG, res)), stringsAsFactors = FALSE)
   }
 }
-d29_daily_row <- function(dir) {
+# A pooled rung read from a render's KEPT boat all-gear fit: stage A (monthly, the shipped cap)
+# or a forced stage (D29W weekly, D29B biweekly, D29D daily). Gate, estimate, adequacy and the
+# block CV are the files every production render writes for its kept fit.
+d29_forced_row <- function(dir, stage, want) {
   if (is.na(dir %||% NA)) return(invisible(NULL))
   g <- .gate(dir); if (is.null(g) || !any(g$fit == FIT_BOAT_AG)) return(invisible(NULL))
   aq <- .adq(dir, FIT_BOAT_AG); c1 <- .comp(dir, FIT_BOAT_AG)
   rung <- .bss_normalize_resolution(g$ar_resolution[g$fit == FIT_BOAT_AG][1])
-  # ar_force must have reached the fit; a D29D fit at any other period is not the daily rung
-  V1row("D29D", "the boat all-gear fit ran at daily (ar_force)", rung %||% "NA", "daily", .tri(if (is.na(rung)) NA else rung == "daily"),
-        "A forced period that did not take would be read as the wrong rung.")
-  if (!identical(rung, "daily")) return(invisible(NULL))
-  D29[[length(D29) + 1]] <<- data.frame(track = "pooled", stage = "D29D", rung = rung,
+  # the period must be the one asked for (ar_force, or the cap for A); another period would be
+  # read as the wrong rung
+  V1row(stage, sprintf("the boat all-gear fit ran at %s (%s)", want, if (stage == "A") "the shipped cap" else "ar_force"),
+        rung %||% "NA", want, .tri(if (is.na(rung)) NA else rung == want),
+        "A period that did not take would be read as the wrong rung.")
+  if (!identical(rung, want)) return(invisible(NULL))
+  D29[[length(D29) + 1]] <<- data.frame(track = "pooled", stage = stage, rung = rung,
     P_n = NA_real_, ladder = FALSE, selected = TRUE,
     pass_gate = as.logical(g$pass_convergence[g$fit == FIT_BOAT_AG][1]), divergence_fraction = g$divergence_fraction[g$fit == FIT_BOAT_AG][1],
     catch_median = round(c1$median), catch_lo95 = round(c1$lo), catch_hi95 = round(c1$hi),
@@ -1108,7 +1139,7 @@ d29_daily_row <- function(dir) {
     block_file = file.path(dir, sprintf("loo_block_joint_%s.csv", FIT_BOAT_AG)), stringsAsFactors = FALSE)
 }
 verdict_D29 <- function(dirs) {
-  if (!length(D29)) { rec_row("D29", "NOT RENDERED", "D29-0..4", "no ladder folder"); return(invisible(NULL)) }
+  if (!length(D29)) { rec_row("D29", "NOT RENDERED", "D29-0..4", "no rung rendered"); return(invisible(NULL)) }
   R <- do.call(rbind, D29)
   # D29-2, three-valued: NA (not computed) is UNKNOWN, not inadequate
   R$adequate <- ifelse(!is.finite(R$p_loo_frac) | !is.finite(R$n_pareto_bad) | !is.finite(R$n_obs_loo) | R$n_obs_loo <= 0, NA,
@@ -1116,12 +1147,10 @@ verdict_D29 <- function(dirs) {
   R$block_vs_monthly <- NA_character_; R$block_diff <- NA_real_; R$block_se <- NA_real_; R$block_weeks <- NA_integer_
   R$block_class <- ifelse(R$rung == "monthly", "reference", NA_character_)
   for (tr in unique(R$track)) {
-    mref <- R[R$track == tr & R$rung == "monthly" & R$stage != "D29D", , drop = FALSE]
-    # the partner of every finer rung, the daily stage's included, is the LADDER's monthly rung
-    # (same fit, same seed); A's kept monthly fit stands in only if the ladder has none
+    # the partner of every finer rung: pooled, stage A's monthly fit; gear, the D29G ladder's
+    # monthly rung (same fit and seed as the ladder's other rungs)
+    mref <- R[R$track == tr & R$rung == "monthly" & R$stage == (if (tr == "pooled") "A" else "D29G"), , drop = FALSE]
     tab_m <- if (nrow(mref)) .block(dirname(mref$block_file[1]), basename(mref$block_file[1])) else NULL
-    if (is.null(tab_m) && tr == "pooled" && !is.na(dirs$A[["pooled"]] %||% NA))
-      tab_m <- .block(dirs$A[["pooled"]], sprintf("loo_block_joint_%s.csv", FIT_BOAT_AG))
     for (i in which(R$track == tr & R$rung != "monthly")) {
       tab_r <- .block(dirname(R$block_file[i]), basename(R$block_file[i]))
       if (is.null(tab_m) || is.null(tab_r)) { R$block_class[i] <- "NOT EVALUABLE (block file missing)"; next }
@@ -1153,21 +1182,27 @@ verdict_D29 <- function(dirs) {
           "D29-1 pass; D29-2 p_loo_frac <= 0.15 and bad k <= 5% of the LOO observations; D29-3 > +2 paired SE",
           if (R$pass_gate[i] %in% FALSE || R$adequate[i] %in% FALSE) "FAIL" else if (is.na(R$pass_gate[i]) || is.na(R$adequate[i])) "REVIEW" else "INFO",
           "Per rung, per track. FAIL here means the rung is out of the running, not that the batch failed. The decision (D29-4) reads the pooled rows only.")
-  # D29-6: the ladder's monthly rung against A's monthly boat all-gear fit, the control (pooled
-  # only: A's gear boat fit is on the shipped gear configuration and D29G's base is D3)
-  m <- R[R$track == "pooled" & R$rung == "monthly" & R$stage == "D29P", , drop = FALSE]; a <- dirs$A[["pooled"]]
-  if (nrow(m) && !is.na(a %||% NA)) { ca <- .comp(a, FIT_BOAT_AG)
-    V1row("D29P", "D29-6 REPORTED: the ladder's monthly rung against A's monthly boat all-gear fit",
-          sprintf("%s vs %s (%s SD)", fmt(m$catch_median[1], 0), fmt(ca$median, 0), fmt((m$catch_median[1] - ca$median) / ca$sd, 2)),
-          "near 0", "INFO", "The control that the ladder changes nothing but the rung.") }
-  # D29-0: the pooled ladder is complete
-  P <- R[R$track == "pooled", , drop = FALSE]; PL <- P[P$stage == "D29P", , drop = FALSE]
-  complete <- nrow(PL) == 3 && setequal(PL$rung, c("weekly", "biweekly", "monthly")) && all(PL$ladder %in% TRUE)
-  V1row("D29P", "D29-0 the pooled ladder is complete (weekly, biweekly, monthly, ladder engaged)",
-        if (nrow(PL)) paste(sprintf("%s (ladder %s)", PL$rung, PL$ladder), collapse = "; ") else "no ladder rows",
-        "exactly weekly, biweekly, monthly, each with escalation_enabled TRUE", .tri(complete), "An incomplete ladder cannot be read by D29-4.")
+  # D29-6, the control: each forced stage's three untouched fits against A's, in posterior SD
+  a <- dirs$A[["pooled"]]
+  if (!is.na(a %||% NA)) for (sid in c("D29W", "D29B", "D29D")) {
+    d <- dirs[[sid]][["pooled"]]; if (is.na(d %||% NA)) next
+    others <- setdiff(FITS, FIT_BOAT_AG)
+    mv <- vapply(others, function(f) .sd_units(.comp(d, f), .comp(a, f)), numeric(1))
+    V1row(sid, "D29-6 REPORTED: the fits ar_force does not touch, against stage A (the control)",
+          paste(sprintf("%s %s SD", sub("_Dungeness_Kept", "", others), fmt(mv, 3)), collapse = "; "),
+          "0 (same data, configuration and seed)", if (all(is.finite(mv)) && all(abs(mv) < 0.01)) "INFO" else "REVIEW",
+          "Anything but zero means the stage changed more than the boat all-gear rung.")
+  }
+  # D29-0: the pooled rungs are complete (weekly D29W, biweekly D29B, monthly A)
+  P <- R[R$track == "pooled", , drop = FALSE]
+  need <- c(D29W = "weekly", D29B = "biweekly", A = "monthly")
+  have <- vapply(names(need), function(sid) any(P$stage == sid & P$rung == need[[sid]]), logical(1))
+  complete <- all(have)
+  V1row("D29", "D29-0 the pooled rungs are complete (weekly D29W, biweekly D29B, monthly A)",
+        paste(sprintf("%s %s %s", names(need), need, ifelse(have, "present", "MISSING")), collapse = "; "),
+        "all three present at the period asked for", .tri(complete), "An incomplete set cannot be read by D29-4.")
   rank <- c(daily = 4, weekly = 3, biweekly = 2, monthly = 1)
-  mon <- P[P$rung == "monthly" & P$stage == "D29P", , drop = FALSE]
+  mon <- P[P$rung == "monthly" & P$stage == "A", , drop = FALSE]
   finer <- P[P$rung != "monthly", , drop = FALSE]
   finer <- finer[order(-rank[finer$rung]), , drop = FALSE]
   decided <- function(s) grepl("^(out:|BETTER|WORSE|NO EVIDENCE)", s)
@@ -1180,7 +1215,7 @@ verdict_D29 <- function(dirs) {
   # rule decided on; the recommendation says so rather than implying daily was weighed
   scope <- if ("daily" %in% P$rung) "" else " [scope: weekly to monthly; the daily rung was not rendered]"
   if (!complete) {
-    rec_row("D29", "REVIEW: the pooled ladder is incomplete, so the rule does not run", "D29-0 / D29-4(c)", standing)
+    rec_row("D29", "REVIEW: the pooled rungs are incomplete, so the rule does not run", "D29-0 / D29-4(c)", standing)
   } else if (nrow(better)) {
     b <- better[1, ]
     undecided_finer <- finer[rank[finer$rung] > rank[b$rung] & !decided(finer$standing), , drop = FALSE]
@@ -1239,8 +1274,9 @@ tryCatch(verdict_A(DIRS$A), error = function(e) V1row("A", "verdicts computed", 
 tryCatch(verdict_R2(DIRS$R2[["pooled"]], DIRS$A[["pooled"]]), error = function(e) V1row("R2", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
 tryCatch(verdict_D3(DIRS$D3[["gear_resolved"]], DIRS$A[["pooled"]], DIRS$A[["gear_resolved"]]), error = function(e) V1row("D3", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
 tryCatch(verdict_D6(DIRS$D6[["gear_resolved"]], DIRS$D3[["gear_resolved"]]), error = function(e) V1row("D6", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
-tryCatch({ d29_rows("pooled", DIRS$D29P[["pooled"]], "D29P"); d29_rows("gear_resolved", DIRS$D29G[["gear_resolved"]], "D29G")
-           d29_daily_row(DIRS$D29D[["pooled"]]); verdict_D29(DIRS) },
+tryCatch({ d29_forced_row(DIRS$A[["pooled"]], "A", "monthly"); d29_forced_row(DIRS$D29W[["pooled"]], "D29W", "weekly")
+           d29_forced_row(DIRS$D29B[["pooled"]], "D29B", "biweekly"); d29_rows("gear_resolved", DIRS$D29G[["gear_resolved"]], "D29G")
+           d29_forced_row(DIRS$D29D[["pooled"]], "D29D", "daily"); verdict_D29(DIRS) },
          error = function(e) V1row("D29", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
 
 VV <- if (length(V)) do.call(rbind, V) else NULL
