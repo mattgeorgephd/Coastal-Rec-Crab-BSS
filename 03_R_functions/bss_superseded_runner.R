@@ -77,12 +77,12 @@ bss_superseded_runner <- function(runner, question, settled_by, what_would_happe
     "\n TO RUN IT ANYWAY, having read the above:\n",
     "   I_KNOW_THIS_IS_SUPERSEDED <- TRUE\n",
     "   source(\"", runner, "\")\n",
-    "\n THE LIVE LADDERS are 06_diagnostics/run_marine_hazard_batch_2026-09-25.R (the most\n",
-    " recent: the method of record's marine term), run_improvements_2026-09-08.R (pooled and\n",
-    " the gear cross-check, pinned to the 2026-09-12 method) and run_gear_ar_zi_2026-09-13.R\n",
-    " (D3 and D6). Each carries a WINDOW pin and a preflight that FAILS on any undeclared\n",
-    " difference between rungs, which is the thing this runner lacks. For the current\n",
-    " production pair, run run_estimation.R with model = \"both\".\n",
+    "\n THE LIVE RUNNERS are 06_diagnostics/run_marine_hazard_batch_2026-09-25.R (the method\n",
+    " of record's marine term) and run_improvements_2026-09-08.R (pinned to the 2026-09-12\n",
+    " method), each with a WINDOW pin and a preflight that FAILS on any undeclared difference\n",
+    " between rungs; run_marine_block_cv_2026-09-26.R, which rescores saved rungs and fits\n",
+    " nothing; and run_rg_sweep.R, whose R_G rungs are run_config.R as shipped plus one prior.\n",
+    " For the current production pair, run run_estimation.R with model = \"both\".\n",
     strrep("=", 78), "\n")
   if (isTRUE(ovr)) {
     # 2026-09-28 (B46): the override is CONSUMED. It stayed TRUE in the global environment, so

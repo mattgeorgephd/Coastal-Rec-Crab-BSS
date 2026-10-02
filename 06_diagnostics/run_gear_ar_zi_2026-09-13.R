@@ -150,6 +150,26 @@
 # SHIPS DRY_RUN <- TRUE. Set it FALSE and source again to fit.
 ###############################################################################
 
+# --- SETTLED (2026-10-02, B62). This runner refuses to FIT; it is kept to be READ. ------------
+# Its question, D3 and D6, was settled by the authoritative batch (06_diagnostics/
+# run_authoritative_batch_2026-09-29.R, stages D3, D6, D3R and D6R) and both were adopted
+# together on 2026-10-02 (CHANGE_REGISTER B62). This ladder pins the flat gear_period_bss and
+# catch_zi_tracks = "pooled", so it still fits what it says, but every rung is now a
+# configuration the method of record has left.
+if (!exists("bss_superseded_runner")) {
+  .sr <- here::here("03_R_functions", "bss_superseded_runner.R")
+  if (!file.exists(.sr)) stop("The superseded-runner guard was not found at ", .sr, "; refusing to run.", call. = FALSE)
+  source(.sr)
+}
+bss_superseded_runner(
+    runner   = "06_diagnostics/run_gear_ar_zi_2026-09-13.R",
+    question = "the gear track's AR period (D3) and its zero-inflated shore catch (D6)",
+    settled_by = paste("run_config.R as shipped from B62: gear_period_bss per population (shore at the pooled caps,",
+                       "boat as before) with catch_zi_tracks = c(\"pooled\", \"gear_resolved\"); evidence in",
+                       "05_output/authoritative_batch_2026-09-29_verdicts.csv"),
+    what_would_happen = paste("Six gear-resolved rungs at the PRE-B62 gear configuration, with the 2026-09-13 window pins;",
+                              "none of them is the cross-check the method of record now produces."))
+
 DRY_RUN <- TRUE                    # TRUE prints the plan and the desk stage; fits nothing
 STAGES  <- c("G0", "G1", "G3", "G2", "G4", "G5")   # G1 first after G0: it is the control
 RESUME  <- TRUE                    # reuse a rung ONLY when its GEAR_STAGE.txt digest matches

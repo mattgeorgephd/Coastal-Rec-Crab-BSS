@@ -1,0 +1,13 @@
+- One or more packages recorded in the lockfile are not installed.
+- Use `renv::status()` for more details.
+
+
+processing file: BSS-GH-gear-type-CPUE-model.Rmd
+  |                                            |                                    |   0%  |                                            |.                                   |   2%                                    |                                            |.                                   |   4% [setup]                            |                                            |..                                  |   6%                                    |                                            |...                                 |   7% [unnamed-chunk-1]                
+
+Error:
+! Package 'here' is missing: run renv::restore() first.
+
+Quitting from BSS-GH-gear-type-CPUE-model.Rmd:108-586 [unnamed-chunk-1]
+                                                                                                                            
+Execution halted

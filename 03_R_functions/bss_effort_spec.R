@@ -291,10 +291,21 @@ bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list()
   # loses the boat pot closure; that sensitivity is worth checking once.
   floor_n <- as.integer(.bss_per_pop(params$shared_tau_min_obs, population_name, 15L))
   if (!is.na(n_informed) && n_informed < floor_n) {
-    if (!isTRUE(quiet))
+    if (!isTRUE(quiet)) {
       cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below ",
                          "shared_tau_min_obs = %d. Falling back to per-day draws.\n"),
                   population_name, n_informed, floor_n))
+      # 2026-10-02: a refusal changes the boat turnover's structure (per-day draws instead of one
+      # tau_bar), and it only reached a console the report hides. On 2025-26 as delivered it
+      # refuses the boat ALL-GEAR fit, which has no OSP day (all 23 are in the pot closure), so
+      # it must be in the report's warnings section. The shore is refused by design (4 and 0
+      # informed days on 2024-25), so only a boat refusal is a run warning.
+      if (identical(population_name, "private_boat") && exists("bss_warn", mode = "function"))
+        bss_warn("turnover", sprintf(paste0("Shared boat turnover REFUSED for this fit: %d day(s) can inform L (OSP + boat I/E), ",
+                                            "below shared_tau_min_obs = %d, so L falls back to independent per-day draws ",
+                                            "around the prior centre (the structure shared_tau was adopted to remove). ",
+                                            "Expected only when the fit has (almost) no OSP days."), n_informed, floor_n))
+    }
     return(off)
   }
 

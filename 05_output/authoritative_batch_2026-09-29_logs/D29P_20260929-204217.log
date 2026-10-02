@@ -1,0 +1,13 @@
+- One or more packages recorded in the lockfile are not installed.
+- Use `renv::status()` for more details.
+
+
+processing file: BSS-GH-pooled-CPUE-model.Rmd
+  |                                                |                                        |   0%  |                                                |                                        |   1%                                |                                                |.                                       |   1% [setup]                        |                                                |.                                       |   2%                                |                                                |.                                       |   3% [config]                     
+
+Error:
+! Package 'here' is missing: run renv::restore() first.
+
+Quitting from BSS-GH-pooled-CPUE-model.Rmd:153-415 [config]
+                                                                                                                        
+Execution halted
