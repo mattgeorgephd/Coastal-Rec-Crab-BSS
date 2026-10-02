@@ -86,7 +86,9 @@ Two levers, used in sequence:
 
 ## 5. The production run and the cross-check
 
-With the ladder off and the caps set, `source("run_estimation.R")` is the production run. Then run the gear-resolved track once (`Rscript run_estimation.R --model gear_resolved`; about 35 minutes at its shipped monthly periods, measured on the committed renders), or do both in one call with `Rscript run_estimation.R --model both`, which also writes `cross_check_<timestamp>.csv` against the 2% criterion, and read the two tracks together, with the lesson the 2026-09-07 cross-check taught: **compare the tracks at the same resolution before calling a gap a disagreement.** The two tracks agreed on the shore component to 0.08% at a common resolution while sitting 3.4% apart as configured, because the resolution difference dominates. Also note the gear track's shore catch is plain NB2 as shipped, a small (~0.3%) structural asymmetry: its Stan model has carried the zero-inflation block since 2026-09-13 (D6), but `catch_zi_tracks` ships `"pooled"`, so the block is off on the gear track. Adding `"gear_resolved"` to `catch_zi_tracks` turns it on there (D6 says adopt, pending one render).
+With the ladder off and the caps set, `source("run_estimation.R")` is the production run. Then run the gear-resolved track once (`Rscript run_estimation.R --model gear_resolved`; about 35 minutes, measured on the committed renders at its shipped periods), or do both in one call with `Rscript run_estimation.R --model both`, which also writes `cross_check_<timestamp>.csv` against the 2% criterion, and read the two tracks together, with the lesson the 2026-09-07 cross-check taught: **compare the tracks at the same resolution before calling a gap a disagreement.** The two tracks agreed on the shore component to 0.08% at a common resolution while sitting 3.4% apart as configured, because the resolution difference dominates. Since 2026-10-02 (CHANGE_REGISTER A32) the gear track ships at the pooled track's shore periods (`gear_period_bss` per population) and with the zero-inflated shore catch (`catch_zi_tracks = c("pooled", "gear_resolved")`), so the two tracks differ only in how CPUE is modelled, plus the boat pot-closure period (biweekly on the gear track, monthly on the pooled; about 1,300 crab in 2024-25). **On a new window, check the gear shore all-gear fit's chains** (`sampler_diagnostics_shore_all_gear_*.csv`): on 2024-25 the weekly fit without the zero inflation trapped a chain at the shipped seed, and with it passed at both seeds tried. A trapped chain there is D3 reopening, not bad luck; report the cross-check as not like-for-like and say so, rather than changing `bss_seed` until it passes.
+
+**Report the boat all-gear resolution span beside the total (D29).** On 2024-25 the boat all-gear fit was adequate and gate-passing at monthly, biweekly and weekly, the held-out weeks could not choose between them, and the component rose from 47,192 to 53,546 (+6.6% at the port) as the period got finer. Monthly ships; the span is resolution uncertainty outside the posterior interval. On a new season the span needs the ladder in its full-diagnostic mode for the boat all-gear fit (section 2: `ar_escalate = list(private_boat = "all_gear")`, `ar_escalate_stop = "all_rungs"`; one full fit per rung). `"first_pass"` stops at the finest rung that passes the gate and gives no span. On 2024-25 the pooled ladder holding every rung in one process ran out of memory (CHANGE_REGISTER B60); forced renders, one rung per run through `ar_force`, are the reliable route.
 
 ## 6. Part-season windows
 
@@ -118,8 +120,8 @@ set; change one, change them all.
 
 **The canonical run (shipped; no edit needed).** The window of the authoritative run,
 `05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718], with its gear
-cross-check `05_output/20260930/gear-type-CPUE-model-2024-25` (98,382, -1.44%), which were rendered
-from `run_config.R` exactly as shipped, `model <- "both"` (B61; and of the runs before it, 99,873 on
+cross-check `05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi` (99,294, -0.53%; A32), which
+are the renders of `run_config.R` exactly as shipped, `model <- "both"` (B61, A32; and of the runs before it, 99,873 on
 2026-09-28, 96,118 on 2026-09-27 and R4, 94,376). The window keys below are unchanged:
 
 ```r

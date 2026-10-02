@@ -237,6 +237,28 @@
 #   05_output/authoritative_batch_2026-09-29_logs/<stage>.log    each stage's R console
 ###############################################################################
 
+# --- SETTLED (2026-10-02, B62). This runner refuses to FIT; it is kept to be READ. ------------
+# Every stage it was built for has rendered and every verdict is written (05_output/
+# authoritative_batch_2026-09-29_{stages,components,verdicts,recommendation,d29_rungs}.csv;
+# CHANGE_REGISTER B58 to B62, VALIDATION_CAMPAIGN 1z.9 and 1z.10). Its stages are defined as
+# deltas from run_config.R AS SHIPPED, and run_config.R moved after the batch (D3 and D6
+# adopted, B62), so every digest now differs: run with --go it would re-render all eleven
+# stages (about 25 hours) against a base it was not written for, and its S0 check of "the
+# method of record" would fail. The verdict functions stay readable, and the harness runs them.
+if (!exists("bss_superseded_runner")) {
+  .sr <- here::here("03_R_functions", "bss_superseded_runner.R")
+  if (!file.exists(.sr)) stop("The superseded-runner guard was not found at ", .sr, "; refusing to run.", call. = FALSE)
+  source(.sr)
+}
+bss_superseded_runner(
+    runner   = "06_diagnostics/run_authoritative_batch_2026-09-29.R",
+    question = "the A31 authoritative render, and whether D29, D3 and D6 move the method",
+    settled_by = paste("A became the authoritative run (B61); R2 found init_r = 0.5 a precaution; D3 and D6 were adopted",
+                       "together (B62) because D3 alone trapped a chain at the shipped seed; D29 keeps the boat all-gear",
+                       "fit monthly with the 47,192 to 53,546 rung span reported as resolution uncertainty"),
+    what_would_happen = paste("Eleven renders, about 25 hours, every stage judged against a base that is no longer",
+                              "run_config.R as it shipped when the rules were written."))
+
 DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
 STAGES  <- c("S0", "A", "D3", "D6", "D3R", "D6R", "D29W", "D29B", "D29G", "R2", "D29D")
 RESUME  <- TRUE                    # reuse a stage ONLY when its AB_STAGE.txt digest matches
@@ -536,7 +558,7 @@ stage_S0 <- function() {
     writeLines(c("a <- commandArgs(trailingOnly = TRUE); pk <- strsplit(a[1], ',', fixed = TRUE)[[1]]",
                  "v <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) 'MISSING'), '')",
                  "ld <- vapply(pk, function(p) isTRUE(suppressWarnings(requireNamespace(p, quietly = TRUE))), TRUE)",
-                 "writeLines(c(paste0('renv\t', Sys.getenv('RENV_PROJECT')), paste0('libs\t', paste(normalizePath(.libPaths(), winslash = '/'), collapse = ';')),",
+                 "writeLines(c(paste0('renv\t', isNamespaceLoaded('renv'), '\t', Sys.getenv('RENV_PROJECT')), paste0('libs\t', paste(normalizePath(.libPaths(), winslash = '/'), collapse = ';')),",
                  "             paste(pk, v, ld, sep = '\t')), a[2])"), cs)
     if (file.exists(co)) file.remove(co)
     stc <- .with_child_env(suppressWarnings(system2(RSCRIPT, c(shQuote(cs), shQuote(paste(CHILD_PKGS, collapse = ",")), shQuote(co)),
@@ -554,7 +576,8 @@ stage_S0 <- function() {
                     paste(c(if (length(bad_load)) sprintf("do not load: %s", paste(bad_load, collapse = ", ")),
                             if (length(bad_ver)) sprintf("versions differ: %s", paste(sprintf("%s %s here, %s in the stage", bad_ver, par_v[bad_ver], kid$v[match(bad_ver, kid$pkg)]), collapse = "; "))),
                           collapse = "; "),
-                  { rv <- cl[[1]][2]; if (!is.na(rv) && nzchar(rv)) sprintf("ACTIVE (%s)", rv) else "off" }, cl[[2]][2] %||% "?"),
+                  { rl <- identical(cl[[1]][2], "TRUE"); rv <- cl[[1]][3] %||% ""
+                    if (rl) sprintf("ACTIVE (%s)", rv) else if (!is.na(rv) && nzchar(rv)) "not loaded (RENV_PROJECT inherited from this session)" else "not loaded" }, cl[[2]][2] %||% "?"),
           sprintf("%s load; %s same version", paste(bss_required_packages, collapse = ", "), paste(CHILD_PKGS, collapse = ", ")),
           if (okk) "PASS" else "FAIL",
           "Every stage renders in its own Rscript. A package that does not load in the stage does not load in this session either: in a FRESH R session in the project, renv::restore(), restart R, and run the dry run again before --go.")

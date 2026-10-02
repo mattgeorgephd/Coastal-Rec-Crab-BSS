@@ -19,6 +19,25 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-02, D3 AND D6 ADOPTED TOGETHER: THE CROSS-CHECK -0.53% (CHANGE_REGISTER A32)
+
+The authoritative batch (`06_diagnostics/run_authoritative_batch_2026-09-29.R`, campaign Sections
+1z.9 and 1z.10) rendered this track at the per-population periods (D3: the shore at the pooled
+track's weekly all-gear and biweekly pot closure, the boat unchanged) and with the zero-inflated
+shore catch (D6), each at two seeds. D3 alone trapped a chain in the shore all-gear fit at the
+shipped seed (1,546 of 2,000 draws divergent; R-hat 2.2 on `mu_mu_C` and the weekly `omega_C`,
+the divergent draws at high `phi_C`) and passed at the second; D3 with D6 passed at both. D6
+against a converged D3: +10.1 nats at 2.14 paired SE. Matt adopted the two together:
+`gear_period_bss` ships per population and `catch_zi_tracks` ships `c("pooled",
+"gear_resolved")`. No code moved on this track, so the framework number stays 6.0. **The
+cross-check is now `05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi`,
+99,294 [82,154, 123,380], -0.53% against the pooled 99,822** (stage D6, which is this
+track's render of the shipped file; it was -1.44% at stage A's own gear render). By component
+the remaining gap: shore all-gear 32,437 against the pooled 32,246 (+0.6%), shore pot closure
+9,543 against 9,534, boat all-gear 46,849 against 47,192 (-0.7%), boat pot closure 1,307
+against 1,361 at this track's biweekly against the pooled monthly, the one period still
+unmatched.
+
 ### 2026-09-29 (second entry), WHAT THE POOLED FIXES CHANGED ON THIS TRACK
 
 The gear-resolved Stan program is unchanged: its single-section level collapse (P2, since v6.0)
@@ -514,7 +533,7 @@ The 20260710 run is the first in which all three fitted components report on the
 > is centred on the OSP/trailer calibration, 3.03 on 2024-25, and the shared `tau_bar` is fitted
 > to the OSP counts; GR-12), and `private_boat_ring_net` does fit and reports BSS (four of four
 > fits pass the gate in the 2026-09-11 reference run R5; GR-15). The zero-inflation block was
-> ported 2026-09-13 and ships off (`catch_zi_tracks = "pooled"`). For the authoritative numbers,
+> ported 2026-09-13 and shipped off until 2026-10-02 (A32: on since). For the authoritative numbers,
 > the box at the top of `development_notes/PIPELINE_STATUS.md`.
 
 For a reader running the model at framework v5.6 (2026-07-12), the production state was:

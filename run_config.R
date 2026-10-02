@@ -44,17 +44,26 @@
 # THE CANONICAL RUN. As shipped, this file IS the configuration of the authoritative run: the
 # single 2024-25 season, both models (the pooled headline and its gear-resolved cross-check),
 # Method v2.0, the boat all-gear advisory-day term (section 2.10, A30), the collapsed
-# single-section level hierarchies (A31, mu_hier_collapse_single = "both", section 4.5) and
-# every chain started within init_r = 0.5 (B51, section 1.5).
+# single-section level hierarchies (A31, mu_hier_collapse_single = "both", section 4.5),
+# every chain started within init_r = 0.5 (B51, section 1.5), and, on the gear track only,
+# the per-population AR periods and the zero-inflated shore catch (D3 and D6, adopted
+# together 2026-10-02, A32 and B62; section 5 and section 2).
 #
 #   05_output/20260929/pooled-CPUE-2024-25-220449
 #   port total 99,822  [82,090, 124,718]      4 of 4 components fitted, all BSS
-#   05_output/20260930/gear-type-CPUE-model-2024-25: 98,382, -1.44%, the cross-check PASSES
+#   05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi:
+#                       99,294, -0.53%, the cross-check PASSES
 #
-# Those folders are stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this file,
-# exactly as shipped at 2523e8e, rendered by run_estimation.R with model = "both" on a clean
-# tree (Matt, 2026-09-29 to 30, committed d30161a; CHANGE_REGISTER B61). On the same machine a
-# render of this file reproduces them to the crab (B38). They superseded
+# The pooled folder is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this
+# file as shipped at 2523e8e, rendered by run_estimation.R with model = "both" on a clean tree
+# (Matt, 2026-09-29 to 30, committed d30161a; CHANGE_REGISTER B61). D3 and D6 touch only the
+# gear driver, so the pooled render is unchanged by them. The gear folder is the same batch's
+# stage D6: this file's configuration as shipped now, at the same code, the same inputs and
+# the same bss_seed, so it IS the render of this file's gear track (only run_tag differs, and
+# run_tag names the folder and nothing else). On the same machine a render of this file
+# reproduces both to the crab (B38). The gear cross-check it replaced was
+# 05_output/20260930/gear-type-CPUE-model-2024-25 (98,382, -1.44%: monthly shore all-gear,
+# plain NB2 catch). The pooled run superseded
 # 05_output/20260928/pooled-CPUE-2024-25 (99,873 [82,414, 124,438], B50; every component within
 # 0.02 posterior SD of this run, before A31 and init_r = 0.5), which had superseded
 # 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
@@ -911,15 +920,20 @@ run_config <- list(
   # zi_catch, so the gear track read this flag and IGNORED it, fitting plain NB2 and making
   # the two-track cross-check compare UNLIKE shore catch likelihoods (about -0.3% of the
   # pooled shore component). The port removed the asymmetry from the MODEL but NOT from the
-  # shipped configuration, deliberately: catch_zi_tracks ships as "pooled", so the gear
-  # track still fits plain NB2 and the committed 20260911 R5 cross-check stays exactly
-  # reproducible. Flipping it is the D6 decision, and
-  # 06_diagnostics/run_gear_ar_zi_2026-09-13.R is the run that settles it. Do not flip it
-  # here on the strength of symmetry alone: a feature that earns its parameter on the
-  # pooled shore likelihood need not earn it on a per-gear one, which is thinner.
+  # shipped configuration until 2026-10-02, deliberately: it was not flipped on the strength
+  # of symmetry alone, because a feature that earns its parameter on the pooled shore
+  # likelihood need not earn it on the gear track's.
+  # 2026-10-02: ADOPTED on the gear track (D6, with D3; CHANGE_REGISTER A32). It earned it
+  # on its own test, against a converged baseline: the authoritative batch's D6R against D3R
+  # (both at seed 20260620) gave +10.1 nats at 2.14 paired SE on the shore all-gear catch,
+  # both count bins improved (zero z 3.58 -> 2.07, one z -6.10 -> -3.47), theta_C 0.165
+  # against the pooled track's 0.170. The gain is NET: zeros +20.4 and counts 3 to 16 +33.7,
+  # single-crab trips -37.7 (-17.5 SE). The first D6 pair (seed 20260619, 1.99 SE) was
+  # judged against a D3 fit with a trapped chain and is not a test; the 2026-09-14 rung
+  # measured +11.3 at 2.29 SE. It also steadied the weekly gear fit (see gear_period_bss).
   estimate_catch_zi     = TRUE,
   catch_zi_populations  = c("shore"),
-  catch_zi_tracks       = c("pooled"),      # "pooled", "gear_resolved", or both
+  catch_zi_tracks       = c("pooled", "gear_resolved"),   # "pooled", "gear_resolved", or both
   # SEASON-DERIVED prior shape (chosen from the 2024-25 zero bin; weakly informative):
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
@@ -1793,8 +1807,10 @@ run_config <- list(
   # ----------------------------------------------------------------------------
   # Read by crab_bss_gear_resolved.stan and its driver; the pooled model ignores every
   # key in this section. The gear-resolved track is the CROSS-CHECK, not the headline
-  # estimator: it was rendered with the authoritative pooled run (model = "both",
-  # 2026-09-28) and agreed to -1.29% at the port (B50).
+  # estimator. Its render of this file as shipped is the authoritative batch's stage D6
+  # (05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi), -0.53% against
+  # the authoritative pooled run at the port since D3 and D6 were adopted (A32, 2026-10-02);
+  # before that -1.44% (stage A's gear render) and -1.29% (B50, 2026-09-28).
   # ============================================================================
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).
@@ -1848,17 +1864,25 @@ run_config <- list(
   # (+18.1% monthly to weekly, against +3.3% for the shore). The pooled track fits shore
   # all-gear at WEEKLY and boat all-gear at MONTHLY via its per-population cap; the gear
   # track had no way to express that. Per-population form, resolved by
-  # 03_R_functions/bss_gear_period.R in the gear driver:
+  # 03_R_functions/bss_gear_period.R in the gear driver.
   #
-  #   gear_period_bss = list(
-  #     shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
-  #     private_boat = list(all_gear = "month",  pot_closure = "biweekly"))
-  #
-  # That is the D3 adoption, and it is measured to bring the two tracks to +0.28% at the
-  # PORT (VALIDATION_CAMPAIGN 1w) against -0.35% for the shipped flat form. It is NOT
-  # adopted here because the measurement is a reconstruction from two rungs' draws rather
-  # than a rendered run; one ~35 min render makes it citable.
-  gear_period_bss            = list(all_gear = "month", pot_closure = "biweekly"),
+  # 2026-10-02: ADOPTED (D3, with D6; CHANGE_REGISTER A32, VALIDATION_CAMPAIGN 1z.10). The
+  # shore at the pooled caps, the boat at the periods the flat form gave it, so exactly one
+  # fit moves against the old gear track (shore all-gear, monthly to weekly). The evidence is
+  # the authoritative batch (06_diagnostics/run_authoritative_batch_2026-09-29.R):
+  #   * ALONE, at the shipped bss_seed (20260619), it TRAPPED a chain in the shore all-gear
+  #     fit (chain 1: 1,546 of 2,000 draws divergent, R-hat 2.2 on mu_mu_C and the weekly
+  #     omega_C, divergences at high phi_C), so that fit fell back to its PE. At seed
+  #     20260620 (D3R) every gate passed. Renders are reproducible (B38), so adopting it
+  #     alone would have reproduced the failure in every cross-check.
+  #   * WITH the gear-track zero-inflated catch (catch_zi_tracks, section 2, D6) it passed
+  #     at BOTH seeds: 4 and 10 divergent draws of 8,000, R-hat <= 1.0002, no stuck chain.
+  #   * Two seeds per configuration is thin evidence. If a new season's gear shore all-gear
+  #     fit traps a chain at weekly, that is this item reopening, not bad luck.
+  # The flat form (list(all_gear = "month", pot_closure = "biweekly")) is the gear track
+  # before 2026-10-02 and reproduces 05_output/20260930/gear-type-CPUE-model-2024-25.
+  gear_period_bss            = list(shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
+                                    private_boat = list(all_gear = "month",  pot_closure = "biweekly")),
 
   ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
                                        #   season period_bss (biweekly ring-net, monthly all-

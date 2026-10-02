@@ -64,10 +64,10 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
     iso_year = as.numeric(format(event_date,"%G")),
     month = as.numeric(format(event_date,"%m")),
     year = as.numeric(format(event_date,"%Y")),
-    period = case_when(
-      period_pe == "month" ~ year * 100 + month,
-      TRUE                 ~ iso_year * 100 + week
-    ),
+    # 2026-10-02: an if/else, not case_when(). period_pe is ONE value for the whole window, and
+    # dplyr 1.2.0 (the renv.lock version) soft-deprecates a case_when() whose conditions are
+    # all scalars while its outcomes are columns. The result is identical (harness section 95).
+    period = if (isTRUE(period_pe == "month")) year * 100 + month else iso_year * 100 + week,
     day_index = as.integer(seq_along(event_date)),
     week_index = as.integer(factor(
       paste(iso_year, sprintf("%02d", week)),

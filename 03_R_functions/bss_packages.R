@@ -50,7 +50,18 @@ bss_load_packages <- function(pkgs = bss_required_packages, attach = bss_attache
   have <- function(p) vapply(p, requireNamespace, logical(1), quietly = TRUE)
   missing <- pkgs[!installed(pkgs)]
   if (length(missing)) {
-    renv_on <- nzchar(Sys.getenv("RENV_PROJECT")) && requireNamespace("renv", quietly = TRUE)
+    # 2026-10-02: "renv is active" means active IN THIS PROCESS. A batch stage is started with
+    # renv's autoloader off and its parent's library (B59), but it inherits the parent's
+    # RENV_PROJECT, so testing that variable alone sent a stage into renv::restore(), the very
+    # thing that killed the first overnight batch. In such a process nothing is installed:
+    # the parent session owns the library, and the fix belongs there.
+    renv_env <- nzchar(Sys.getenv("RENV_PROJECT"))
+    if (renv_env && !isNamespaceLoaded("renv"))
+      stop("Required package(s) missing: ", paste(missing, collapse = ", "),
+           ". This R process inherited RENV_PROJECT without renv active in it (a batch stage started",
+           " from an renv session), so it installs nothing. In a FRESH R session in the project run",
+           " renv::restore(), restart R, then start the batch again.", call. = FALSE)
+    renv_on <- renv_env && requireNamespace("renv", quietly = TRUE)
     if (renv_on) {
       message("Restoring from renv.lock: ", paste(missing, collapse = ", "))
       renv::restore(packages = missing, prompt = FALSE)
