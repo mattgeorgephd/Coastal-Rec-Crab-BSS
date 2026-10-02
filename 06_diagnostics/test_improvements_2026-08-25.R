@@ -6623,12 +6623,19 @@ local({
         !is.null(c2) && identical(as.numeric(c2$osp_crab_only), c(round(8 * .8), 6, round(10 * .25), 5)))
   }
   wbl <- NULL; utils::capture.output(wbl <- fetch_osp_boat_counts(list()))
-  chk("B48 inert: the committed WBL workbook has no crab-only column, so no crab rows and the effort series unchanged",
-      nrow(attr(wbl, "osp_crab_rows")) == 0 && nrow(wbl) > 0 && all(wbl$count_type == "OSP Boat Count"))
+  # 2026-10-02 (B64): OSP delivered the crab-only column, so the committed workbook now HAS one.
+  # What must hold instead: it is OSP's WPTPrivateCrabOnly, the notes-derived WPTPrivateCrabAlso
+  # is NOT in the workbook, the reader finds the column, and the effort series is untouched.
+  wraw <- readxl::read_excel("04_input_files/WBL_boat_counts.xlsx", sheet = "Sheet1")
+  chk("B64: the committed WBL workbook carries OSP's WPTPrivateCrabOnly and NOT the notes-derived WPTPrivateCrabAlso; the reader finds it; the effort series is unchanged",
+      "WPTPrivateCrabOnly" %in% names(wraw) && !any(grepl("CrabAlso", names(wraw), fixed = TRUE)) &&
+      sum(!is.na(wraw$WPTPrivateCrabOnly)) == 253 && nrow(wraw) == 306 &&
+      nrow(attr(wbl, "osp_crab_rows")) > 0 && nrow(wbl) > 0 && all(wbl$count_type == "OSP Boat Count") &&
+      all(wraw$WPTPrivateCrabOnly <= wraw$WestportPrivateEffort, na.rm = TRUE))
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
   chk("B48 config: the sampling keys are on the control surface, 'crabbing_only' is a crab-only column name, and the bound ships off",
       all(c("osp_sample_rate_col", "osp_sampling_rate_source", "osp_sampling_rates_file", "osp_crab_only_basis") %in% names(rc)) &&
-      "crabbing_only" %in% rc$osp_crab_only_col && identical(rc$osp_sampling_rate_source, "auto") && isFALSE(rc$use_osp_crab_lower))
+      identical(rc$osp_crab_only_col[1], "WPTPrivateCrabOnly") && "crabbing_only" %in% rc$osp_crab_only_col && identical(rc$osp_sampling_rate_source, "auto") && isFALSE(rc$use_osp_crab_lower))
   for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
     chk(sprintf("B48 %s writes osp_crab_only_daily.csv (the per-day n, rate and its source) when crab rows exist", basename(drv)),
         any(grepl('file.path(output_dir, "osp_crab_only_daily.csv")', readLines(drv, warn = FALSE), fixed = TRUE)))

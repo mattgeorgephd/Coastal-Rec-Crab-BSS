@@ -69,7 +69,7 @@
 #   osp_boat_counts_file  = "WBL_boat_counts.xlsx"
 #   osp_boat_counts_sheet = "Sheet1"
 #   osp_effort_col        = "WestportPrivateEffort"
-#   osp_crab_only_col     = c("crabbing_only", "WestportCrabOnlyEffort")   # optional; first present wins
+#   osp_crab_only_col     = c("WPTPrivateCrabOnly", "crabbing_only", "WestportCrabOnlyEffort")   # optional; first present wins
 #   osp_crab_checked_col  = "WestportCrabClassified"      # optional; private boats SAMPLED that day
 #   osp_sample_rate_col   = "WestportPrivateSampleRate"   # optional; the day's sampling rate (0.5 or 50)
 #   osp_sampling_rate_source = "auto"    # auto | column | schedule | none (osp_sampling_rates.R)
@@ -107,7 +107,7 @@ fetch_osp_boat_counts <- function(params) {
   # B48 (2026-09-28): the crab-only column may be named by any of several candidates, the first
   # present wins. OSP will deliver it as "crabbing_only" (Matt, 2026-09-28); the older
   # placeholder name stays accepted.
-  crab_cands <- params$osp_crab_only_col %||% c("crabbing_only", "WestportCrabOnlyEffort")
+  crab_cands <- params$osp_crab_only_col %||% c("WPTPrivateCrabOnly", "crabbing_only", "WestportCrabOnlyEffort")
   crab_col <- intersect(crab_cands, names(raw))[1]
   if (is.na(crab_col)) crab_col <- crab_cands[1]
 

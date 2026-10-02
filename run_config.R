@@ -699,11 +699,17 @@ run_config <- list(
   osp_effort_col        = "WestportPrivateEffort",  # OSP daily ALL-boat total column
   # OSP CRAB-ONLY column (improvement 8, 2026-08-25). Optional extra column in
   # WBL_boat_counts.xlsx holding the count of SAMPLED boats OSP labelled as crabbing ONLY.
-  # OSP will deliver it as "crabbing_only" (Matt, 2026-09-28); the first name present wins.
-  # Absent today -> every OSP feature below is inert and f behaves exactly as it does now.
-  # See the use_osp_crab_lower block for the combo-trip problem this column does and does
-  # not solve.
-  osp_crab_only_col     = c("crabbing_only", "WestportCrabOnlyEffort"),
+  # The first name present wins. OSP DELIVERED it on 2026-10-02 as "WPTPrivateCrabOnly" (sheet
+  # "crabbing trips" of 04_input_files/raw/OSP_WPT_boat_counts_crab_trips_2026-10-02.xlsx; 253
+  # classified days, 2024-03-09 to 2025-10-17), carried into WBL_boat_counts.xlsx under that
+  # name; "crabbing_only" was the name expected before delivery and stays accepted. The same
+  # sheet's "WPTPrivateCrabAlso" is NOT carried and must not be: it is counted from the free-text
+  # NOTES field of OSP's sampling form, not a menu item, so it is opportunistic and was not
+  # consistently sampled (Matt, from OSP, 2026-10-02). Reading the column changes no fit while
+  # use_osp_crab_lower = FALSE (below): the crab-only rows then feed only the run's
+  # osp_crab_only_daily.csv. See the use_osp_crab_lower block for the combo-trip problem this
+  # column does and does not solve.
+  osp_crab_only_col     = c("WPTPrivateCrabOnly", "crabbing_only", "WestportCrabOnlyEffort"),
   # OSP'S SAMPLING (2026-09-28, B48; Erica, OSP). OSP samples every k-th private boat at a rate
   # fixed for the day from the anticipated effort and the staff on the docks, so the crab-only
   # count is out of the boats SAMPLED, and the floor on f is crabbing_only / (rate x total).

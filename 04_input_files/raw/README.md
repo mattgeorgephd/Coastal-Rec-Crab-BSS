@@ -25,6 +25,15 @@ What each sheet is, and which builder reads it:
 
 Known blemishes in the sources, all handled by the builders without editing the files: one 2023-24 Dungeness-kept cell holds a formula fragment ("3+N6847:N13622"); one 2023-24 completed-trip value is 24; one 2023-24 red-rock-returned value is "unknown"; a stray fifth column of notes in the 2025-26 harvest sheet; dates and clock times stored as Excel cells in some rows and as text in others; a duplicated survey id (1677) in 2023-24; eight check-outs typed on a 12-hour clock.
 
+## The OSP crab-only delivery (2026-10-02)
+
+`OSP_WPT_boat_counts_crab_trips_2026-10-02.xlsx`, as received from OSP (renamed with underscores and the date; content untouched). Two sheets:
+
+- **`Effort`**: `Year, Month, Day, WestportPrivateEffort`, 306 days, 2024-03-09 to 2025-10-18. Identical, day for day, to the committed `../WBL_boat_counts.xlsx`, so it changed nothing there.
+- **`crabbing trips`**: `Year, Month, Day, WPTPrivateCrabOnly, WPTPrivateCrabAlso`, 253 days, 2024-03-09 to 2025-10-17. Every day is an `Effort` day, none is duplicated, and the crab-only count never exceeds the day's total. `WPTPrivateCrabOnly` was carried into `../WBL_boat_counts.xlsx` under that name, absent on the 53 effort days OSP did not classify. **`WPTPrivateCrabAlso` was NOT carried and must not be**: it is counted from the free-text notes field of OSP's sampling form, not a preset menu item, so it is opportunistic and was not consistently sampled (Matt, from OSP, 2026-10-02). It is filled on 11 days.
+
+The delivery carries no daily sampling rate and no count of boats sampled, so each day's binomial n comes from OSP's minimum-rate schedule (`../osp_sampling_rates.xlsx`, B48): a lower bound on n wherever OSP sampled above the minimum.
+
 ## The NWS marine hazard transcription (2026-09-25; superseded the same day by a live pull)
 
 `nws_marine_hazards_iem_transcription_2026-09-25.csv` (617 rows: 147 for PZZ110 Grays Harbor Bar, 470 for PZZ156 the coastal waters off Westport) is the row export of the Iowa Environmental Mesonet's NWS VTEC archive for the two zones, 2023-01-01 to 2026-09-26, as served by `https://mesonet.agron.iastate.edu/json/vtec_events_byugc.py` on 2026-09-25. It exists because the environment that built `../nws_marine_hazards.xlsx` could not reach that service directly: the service's pages were read and the rows transcribed twice, independently, and the two transcriptions agree row for row on every field (`ugc, phenomena, significance, eventid, issue, expire, product_id`). **Superseded:** the committed workbook is now a live pull (2026-09-25, 2008-01-01 to the pull day, 4,387 rows), which agrees with this file on 615 of 617 rows; the two differences are a product id on one gale segment (same start and end) and a gale still in progress on the transcription day that later ended early. The file is kept as the record that the live archive was checked against an independent copy, and `../build_nws_marine_hazards.R --from-csv` can still rebuild a workbook from it (with an explicit `--start` / `--end`). Nothing in the pipeline reads it directly.
