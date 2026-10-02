@@ -7,7 +7,7 @@
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the **CROSS-CHECK** to the pooled model, not the headline estimator, and that is a design decision rather than a ranking of quality (Section 2).
 **Framework version:** 6.0, adopted 2026-09-12, when the method of record moved to Method v2.0 and this track was brought onto the same configuration. Framework v5.6, frozen against the same era as Method v1.0, is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
-**Reference run:** `05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same `run_estimation.R` call as the pooled reference run (`model = "both"`, 2026-09-28, committed `ff750c4`): 98,588 [81,046, 123,563], **-1.29%** against the pooled 99,873, inside the 2% criterion. It superseded ladder rung R5 (`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, 93,274, at R4's configuration and on the predictive catch).
+**The cross-check of the current authoritative run (2026-10-02, B61):** `05_output/20260930/gear-type-CPUE-model-2024-25`, 98,382 [81,145, 122,466], -1.44% against the pooled 99,822 (PASS). **Reference run:** `05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same `run_estimation.R` call as the pooled reference run (`model = "both"`, 2026-09-28, committed `ff750c4`): 98,588 [81,046, 123,563], **-1.29%** against the pooled 99,873, inside the 2% criterion. It superseded ladder rung R5 (`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, 93,274, at R4's configuration and on the predictive catch).
 **Convention:** no em dashes.
 
 > ### READ THE POOLED DOCUMENT FIRST

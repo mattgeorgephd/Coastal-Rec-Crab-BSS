@@ -76,6 +76,11 @@
 #        into D3's ADOPT.)
 #   D6   D3 plus the zero-inflated shore catch on the gear track (catch_zi_tracks = both).
 #        Judged against D3, which differs from it in that one key.
+#   D3R, D6R  (added 2026-10-02, B61, BEFORE they ran) D3 and D6 again at bss_seed + 1. The
+#        first D3 render failed D3-1 on ONE stuck chain in the gear shore all-gear fit (1,546 of
+#        2,000 draws divergent, acceptance 0.27; the other three chains clean), and D6, judged
+#        against that fit, had an unconverged baseline. One re-render each, decided by the rules
+#        below as amended here; no further re-renders.
 #   D29W POOLED boat all-gear FORCED to weekly (ar_force), and
 #   D29B POOLED boat all-gear FORCED to biweekly. The monthly rung is stage A's own fit (the
 #        shipped cap). Each rung is a separate render holding four posteriors, like A.
@@ -101,6 +106,7 @@
 #         machine) + gear ~0.6 h (35.9 min on 2026-09-29)                      ~1.5-2 h
 #   D3    gear, shore all-gear at weekly (P_n 43 against 10)                    ~0.7 h
 #   D6    as D3                                                                 ~0.7 h
+#   D3R, D6R  as D3 and D6 (B61)                                                ~0.5 h each
 #   D29W  pooled with the boat all-gear fit at weekly (A: 4.1 h on 2026-09-29)  ~4 h
 #   D29B  pooled with the boat all-gear fit at biweekly                         ~4 h
 #   D29G  gear, the boat all-gear fit three times                               ~1.5 h
@@ -108,6 +114,7 @@
 #   D29D  pooled with the boat all-gear fit at daily (P_n 289)                  ~5 h
 #   MEASURED on Matt's machine 2026-09-29 to 10-01: A 4.1 + 1.0 h, D3 0.5, D6 0.6, D29G 1.2,
 #   R2 3.7, D29D 5.0. The pooled renders took about three times the container estimate.
+#   LEFT after 2026-10-01: D3R + D6R (~1.1 h) and D29W + D29B (~8 h): about 9 to 10 hours.
 #   Stop it any time; --go again resumes. Each stage also has a wall-clock limit (TIMEOUT_H
 #   below; generous, several times the expected time) after which it is stopped and recorded
 #   FAILED, so one hung fit cannot hold the rest of the night. If stage A is interrupted after
@@ -160,9 +167,15 @@
 #   RESULT: D3-1 to D3-3 PASS -> ADOPT gear_period_bss in the per-population form above; D3
 #   closes, and the shore half of the cross-check becomes like-for-like. Otherwise the
 #   failing clause stands.
+#   B61 (2026-10-02, stated before D3R ran): D3's verdict is D3R's, by D3-1 to D3-3 unchanged.
+#   The first render (seed 20260619) is reported beside it, and an ADOPT records that one of
+#   the two seeds trapped a chain in the gear shore all-gear fit at weekly.
 #
 # D6 (the gear-track zero-inflated shore catch), as the 2026-09-13 runner stated them,
-# D6 against D3:
+# D6 against D3 (B61: D6R against D3R decides; D6 against D3 is reported):
+#   D6-0 (B61, stated before D6R ran) the BASELINE is valid: the D3 render's shore all-gear
+#        fit passes its convergence gate. If not, D6-2 to D6-4 compare against an unconverged
+#        posterior and the result is UNDECIDED, whatever they read.
 #   D6-1 every fit in D6 passes the gate.
 #   D6-2 the PAIRED elpd gain on the shore all-gear catch stream exceeds 2 paired SE
 #        (loo_elpd_paired(); Vehtari et al. 2017, s3.3).
@@ -225,7 +238,7 @@
 ###############################################################################
 
 DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)
-STAGES  <- c("S0", "A", "D3", "D6", "D29W", "D29B", "D29G", "R2", "D29D")
+STAGES  <- c("S0", "A", "D3", "D6", "D3R", "D6R", "D29W", "D29B", "D29G", "R2", "D29D")
 RESUME  <- TRUE                    # reuse a stage ONLY when its AB_STAGE.txt digest matches
 if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE
 
@@ -331,6 +344,12 @@ STAGE_DEFS <- list(
   D6   = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D6-gear-matched-zi",
               item = "D6: D3 + the zero-inflated shore catch on the gear track",
               delta = list(gear_period_bss = MATCHED, catch_zi_tracks = c("pooled", "gear_resolved"))),
+  D3R  = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D3R-gear-matched-seed2",
+              item = "D3 re-rendered at bss_seed + 1 (B61, decides D3)",
+              delta = list(gear_period_bss = MATCHED, bss_seed = BASE$bss_seed + 1)),
+  D6R  = list(model = "gear_resolved", fit = TRUE, tag = "2024-25-AB-D6R-gear-matched-zi-seed2",
+              item = "D6 re-rendered at bss_seed + 1 (B61, decides D6 against D3R)",
+              delta = list(gear_period_bss = MATCHED, catch_zi_tracks = c("pooled", "gear_resolved"), bss_seed = BASE$bss_seed + 1)),
   D29W = list(model = "pooled", fit = TRUE, tag = "2024-25-AB-D29W-boat-weekly",
               item = "D29: pooled boat all-gear at WEEKLY (ar_force)",
               delta = list(ar_force = list(private_boat = list(all_gear = "weekly")))),
@@ -348,10 +367,10 @@ STAGE_DEFS <- list(
 )
 # Wall-clock limit per stage, in hours (system2(timeout = )); a stage that reaches it is
 # stopped and recorded FAILED. Several times the expected time, so a slow fit is not killed.
-TIMEOUT_H <- c(A = 12, D3 = 3, D6 = 3, D29W = 10, D29B = 10, D29G = 5, R2 = 10, D29D = 12)
+TIMEOUT_H <- c(A = 12, D3 = 3, D6 = 3, D3R = 3, D6R = 3, D29W = 10, D29B = 10, D29G = 5, R2 = 10, D29D = 12)
 # The stages each desk check gates. A desk FAIL stops only these (and never the whole batch
 # unless it is a prerequisite of every render: the method of record, the NWS archive, pandoc).
-DEPENDS <- list(D3 = c("D3", "D6", "D29G"), D6 = "D6", D29 = c("D29W", "D29B", "D29D"), D29W = "D29W", D29B = "D29B", D29G = "D29G", R2 = "R2", D29D = "D29D")
+DEPENDS <- list(D3 = c("D3", "D6", "D29G", "D3R", "D6R"), D6 = c("D6", "D6R"), D3R = c("D3R", "D6R"), D6R = "D6R", D29 = c("D29W", "D29B", "D29D"), D29W = "D29W", D29B = "D29B", D29G = "D29G", R2 = "R2", D29D = "D29D")
 if (!all(STAGES %in% names(STAGE_DEFS)))
   stop("STAGES names a stage that does not exist: ", paste(setdiff(STAGES, names(STAGE_DEFS)), collapse = ", "))
 # keys the driver or orchestrator ADDS at run time (data, not configuration)
@@ -495,6 +514,13 @@ stage_S0 <- function() {
         "catch_zi_tracks", { a <- resolve_cfg("D3"); b <- resolve_cfg("D6"); ks <- setdiff(union(names(a), names(b)), RUNTIME_KEYS)
           if (identical(ks[!vapply(ks, function(k) identical(a[[k]], b[[k]]), logical(1))], "catch_zi_tracks")) "PASS" else "FAIL" },
         "D6 is judged against D3; any second difference would be measured as ZI.")
+  .only <- function(a_sid, b_sid) { a <- resolve_cfg(a_sid); b <- resolve_cfg(b_sid); ks <- setdiff(union(names(a), names(b)), RUNTIME_KEYS)
+    ks[!vapply(ks, function(k) identical(a[[k]], b[[k]]), logical(1))] }
+  for (pr in list(c("D3", "D3R", "bss_seed"), c("D6", "D6R", "bss_seed"), c("D3R", "D6R", "catch_zi_tracks"))) {
+    dk <- .only(pr[1], pr[2])
+    V1row(pr[2], sprintf("differs from %s in %s ONLY", pr[1], pr[3]), paste(dk, collapse = ", "), pr[3],
+          if (identical(dk, pr[3])) "PASS" else "FAIL", "B61: the re-renders change the seed and nothing else; D6R is judged against D3R.")
+  }
   V1row("R2", "differs from A in bss_init_r ONLY", paste(names(STAGE_DEFS$R2$delta), collapse = ", "), "bss_init_r",
         if (identical(names(STAGE_DEFS$R2$delta), "bss_init_r")) "PASS" else "FAIL", "R2 is judged against A.")
   # (3) pandoc: every stage renders an .Rmd, and rmarkdown stops at once without it
@@ -892,6 +918,7 @@ COMP <- list()
 COMP_NOTE <- c(A = "the render of run_config.R as shipped (candidate authoritative run)",
                D3 = "gear track, per-population periods (the D3 candidate)",
                D6 = "D3 + zero-inflated shore catch on the gear track",
+               D3R = "D3 at bss_seed + 1 (B61): decides D3", D6R = "D6 at bss_seed + 1 (B61): decides D6 against D3R",
                D29W = "boat all-gear forced to weekly (D29), not a candidate estimate",
                D29B = "boat all-gear forced to biweekly (D29), not a candidate estimate",
                D29G = "ladder stage on D3's configuration: the boat all-gear fit is the KEPT rung, not a reference",
@@ -1018,15 +1045,15 @@ verdict_R2 <- function(dir_r2, dir_a) {
           sprintf("%s; shore all-gear %s%% divergent; moves %s SD", paste(sprintf("%s %s", names(vs), vs), collapse = ", "), fmt(100 * dv, 2), paste(fmt(mv, 2), collapse = "/")))
 }
 
-verdict_D3 <- function(dir_d3, dir_a_pooled, dir_a_gear) {
-  if (is.na(dir_d3 %||% NA)) { rec_row("D3", "NOT RENDERED", "D3-1..3", "no folder"); return(invisible(NULL)) }
+verdict_D3 <- function(dir_d3, dir_a_pooled, dir_a_gear, sid = "D3", item = "D3", adopt_note = "") {
+  if (is.na(dir_d3 %||% NA)) { rec_row(item, "NOT RENDERED", "D3-1..3", "no folder"); return(invisible(NULL)) }
   g <- .gate(dir_d3)
   c1 <- .tri(.gate_all(g))
-  V1row("D3", "D3-1 every fit passes the gate", .gate_str(g), "4 of 4 BSS", c1, "")
+  V1row(sid, "D3-1 every fit passes the gate", .gate_str(g), "4 of 4 BSS", c1, "")
   aq <- .adq(dir_d3, FIT_SHORE_AG); n_c <- .nobs(dir_d3, FIT_SHORE_AG, "catch")
   pl <- .num1(aq$p_loo_frac); nb <- .num1(aq$n_pareto_bad)
   c2 <- .tri(if (is.null(aq) || !is.finite(pl) || !is.finite(nb) || !is.finite(n_c) || n_c <= 0) NA else pl <= 0.15 && nb <= 0.05 * n_c)
-  V1row("D3", "D3-2 the gear shore all-gear fit at weekly is adequate",
+  V1row(sid, "D3-2 the gear shore all-gear fit at weekly is adequate",
         if (is.null(aq)) "model_adequacy.csv missing" else sprintf("p_loo_frac %s (%s); bad k %s of %s catch obs", fmt(pl, 4), aq$p_loo_worst_stream, fmt(nb, 0), fmt(n_c, 0)),
         "p_loo_frac <= 0.15; bad k <= 5% of catch n_obs", c2,
         "The 2026-09-14 gear ladder: 0.0938 and 0 bad k at weekly; the pooled daily fit that was rejected: 0.352, 41.")
@@ -1037,66 +1064,74 @@ verdict_D3 <- function(dir_d3, dir_a_pooled, dir_a_gear) {
             private_boat_all_gear_Dungeness_Kept = n(BASE$gear_period_bss$all_gear))
   got <- if (is.null(g)) rep(NA_character_, 4) else vapply(names(want), function(f) { r <- g$ar_resolution[g$fit == f]; if (length(r)) n(r[1]) else NA_character_ }, character(1))
   c3 <- .tri(if (any(is.na(got))) NA else identical(unname(got), unname(want)))
-  V1row("D3", "D3-3 every fit ran at the period asked for", paste(sprintf("%s %s", sub("_Dungeness_Kept", "", names(want)), got), collapse = "; "),
+  V1row(sid, "D3-3 every fit ran at the period asked for", paste(sprintf("%s %s", sub("_Dungeness_Kept", "", names(want)), got), collapse = "; "),
         paste(sprintf("%s %s", sub("_Dungeness_Kept", "", names(want)), want), collapse = "; "), c3,
         "A fit that silently used another period would make the comparison meaningless (the 2026-09-14 lesson).")
   pd3 <- .num1(.port(dir_d3)$BSS_median); pa <- .num1(.port(dir_a_pooled)$BSS_median); pag <- .num1(.port(dir_a_gear)$BSS_median)
-  V1row("D3", "D3-4 REPORTED, NOT A CRITERION: the cross-track gap at the matched periods",
+  V1row(sid, "D3-4 REPORTED, NOT A CRITERION: the cross-track gap at the matched periods",
         sprintf("gear matched %s vs pooled %s (%s%%); the shipped gear track %s (%s%%)", fmt(pd3, 0), fmt(pa, 0), fmt(100 * (pd3 - pa) / pa, 2), fmt(pag, 0), fmt(100 * (pag - pa) / pa, 2)),
         "no threshold", "INFO", "Choosing the gear period to shrink the gap would tune one estimate to another (rule 5, 2026-09-13).")
   for (f in FITS) {
     a <- .comp(dir_a_gear, f); b <- .comp(dir_d3, f)
-    V1row("D3", sprintf("D3-4 REPORTED: %s, shipped gear track (A) -> D3%s", sub("_Dungeness_Kept", "", f),
+    V1row(sid, sprintf("D3-4 REPORTED: %s, shipped gear track (A) -> D3%s", sub("_Dungeness_Kept", "", f),
                         if (f == FIT_SHORE_AG) " (the one fit whose period moves)" else " (period unchanged: a control)"),
           sprintf("%s -> %s (%s SD)", fmt(a$median, 0), fmt(b$median, 0), fmt(.sd_units(b, a), 2)), "no threshold", "INFO", "")
   }
   vs <- c(`D3-1` = c1, `D3-2` = c2, `D3-3` = c3); res <- .worst(vs)
-  rec_row("D3", switch(res, PASS = sprintf("ADOPT: gear_period_bss per population (shore all-gear %s, shore pot closure %s; boat all-gear %s, boat pot closure %s, as shipped); D3 closes and the shore half of the cross-check becomes like-for-like",
-                                           want[[2]], want[[1]], want[[4]], want[[3]]),
+  rec_row(item, switch(res, PASS = paste0(sprintf("ADOPT: gear_period_bss per population (shore all-gear %s, shore pot closure %s; boat all-gear %s, boat pot closure %s, as shipped); D3 closes and the shore half of the cross-check becomes like-for-like",
+                                           want[[2]], want[[1]], want[[4]], want[[3]]), adopt_note),
                        FAIL = "DO NOT ADOPT: a clause failed", REVIEW = "UNDECIDED: a clause could not be read"),
           "D3-1, D3-2, D3-3 PASS",
           sprintf("%s; port %s; shore all-gear p_loo_frac %s", paste(sprintf("%s %s", names(vs), vs), collapse = ", "), fmt(pd3, 0), fmt(pl, 4)))
 }
 
-verdict_D6 <- function(dir_d6, dir_d3) {
-  if (is.na(dir_d6 %||% NA) || is.na(dir_d3 %||% NA)) { rec_row("D6", "NOT RENDERED (needs D3 and D6)", "D6-1..4", "no folder"); return(invisible(NULL)) }
+verdict_D6 <- function(dir_d6, dir_d3, sid = "D6", item = "D6") {
+  if (is.na(dir_d6 %||% NA) || is.na(dir_d3 %||% NA)) { rec_row(item, "NOT RENDERED (needs D3 and D6)", "D6-1..4", "no folder"); return(invisible(NULL)) }
+  # D6-0 (B61): the baseline must be a converged fit, or the paired comparison is against noise
+  gb <- .gate(dir_d3)
+  b_ok <- if (is.null(gb)) NA else isTRUE(as.logical(gb$pass_convergence[gb$fit == FIT_SHORE_AG][1]))
+  c0 <- .tri(b_ok)
+  V1row(sid, "D6-0 the baseline (the D3 render's shore all-gear fit) passes its convergence gate",
+        if (is.null(gb)) "convergence_report.csv missing" else sprintf("%s (%s)", gb$method_selected[gb$fit == FIT_SHORE_AG][1], basename(dir_d3)),
+        "BSS", c0, "B61: against an unconverged baseline D6-2 to D6-4 are not a test in either direction; the result is UNDECIDED.")
   g <- .gate(dir_d6)
   c1 <- .tri(.gate_all(g))
-  V1row("D6", "D6-1 every fit passes the gate", .gate_str(g), "4 of 4 BSS", c1, "")
+  V1row(sid, "D6-1 every fit passes the gate", .gate_str(g), "4 of 4 BSS", c1, "")
   pr <- function(fit) loo_elpd_paired(file.path(dir_d3, sprintf("loo_pointwise_catch_%s.csv", fit)),
                                       file.path(dir_d6, sprintf("loo_pointwise_catch_%s.csv", fit)), label = sprintf("D3 -> D6 %s", fit))
   el <- tryCatch(pr(FIT_SHORE_AG), error = function(e) NULL)
   ratio <- if (is.null(el)) NA_real_ else .num1(el$ratio)
   c2 <- .tri(if (!is.finite(ratio)) NA else ratio > 2)
-  V1row("D6", "D6-2 the paired catch elpd gain (shore all-gear, D6 minus D3) exceeds 2 paired SE",
+  V1row(sid, "D6-2 the paired catch elpd gain (shore all-gear, D6 minus D3) exceeds 2 paired SE",
         if (is.null(el)) "NOT COMPUTABLE" else loo_elpd_paired_str(el), "> 2 paired SE", c2,
         "The 2026-09-14 rung G5: +11.3 nats at 2.29 SE; the pooled adoption +11.6 at 2.30.")
-  if (!is.null(el)) V1row("D6", "REPORTED: the elpd difference by observed count", loo_elpd_by_count_str(el), "no threshold", "INFO",
+  if (!is.null(el)) V1row(sid, "REPORTED: the elpd difference by observed count", loo_elpd_by_count_str(el), "no threshold", "INFO",
                           "Where the loss sits matters more than its sign.")
   z0a <- .bin(dir_d3, FIT_SHORE_AG, 0L); z0b <- .bin(dir_d6, FIT_SHORE_AG, 0L); z1a <- .bin(dir_d3, FIT_SHORE_AG, 1L); z1b <- .bin(dir_d6, FIT_SHORE_AG, 1L)
   imp0 <- abs(z0b) < abs(z0a); imp1 <- abs(z1b) < abs(z1a)
   c3 <- if (any(!is.finite(c(z0a, z0b, z1a, z1b)))) "REVIEW" else if (imp0 && imp1) "PASS" else if (imp0 || imp1) "REVIEW" else "FAIL"
-  V1row("D6", "D6-3 both count bins improve", sprintf("zero z %s -> %s; one z %s -> %s", fmt(z0a, 2), fmt(z0b, 2), fmt(z1a, 2), fmt(z1b, 2)),
+  V1row(sid, "D6-3 both count bins improve", sprintf("zero z %s -> %s; one z %s -> %s", fmt(z0a, 2), fmt(z0b, 2), fmt(z1a, 2), fmt(z1b, 2)),
         "|z| falls in BOTH bins (one bin only: REVIEW; neither: FAIL)", c3, "The 2026-09-14 rung: zero 3.69 -> 2.03, one -6.13 -> -3.33.")
   zz <- el$zeros; pp <- el$positives
   c4 <- .tri(if (is.null(zz) || is.null(pp) || !is.finite(zz[["diff"]]) || !is.finite(pp[["diff"]])) NA
              else (pp[["diff"]] >= 0 || abs(pp[["diff"]]) < zz[["diff"]]))
-  V1row("D6", "D6-4 the gain is not bought entirely at the zeros",
+  V1row(sid, "D6-4 the gain is not bought entirely at the zeros",
         if (c4 == "REVIEW") "NOT COMPUTABLE" else sprintf("zeros %s nats (n %s), positives %s (n %s)", fmt(zz[["diff"]], 1), fmt(zz[["n"]], 0), fmt(pp[["diff"]], 1), fmt(pp[["n"]], 0)),
         "positive-count loss < zero-count gain", c4, "")
   th <- .theta(dir_d6, FIT_SHORE_AG)
-  V1row("D6", "D6-5 REPORTED: theta_C (shore all-gear) against its Beta(1, 9) prior mean 0.10", fmt(th, 4), "no threshold", "INFO",
+  V1row(sid, "D6-5 REPORTED: theta_C (shore all-gear) against its Beta(1, 9) prior mean 0.10", fmt(th, 4), "no threshold", "INFO",
         "2026-09-14: 0.170.")
   elp <- tryCatch(pr(FIT_SHORE_PC), error = function(e) NULL)
-  V1row("D6", "D6-5 REPORTED: the shore pot-closure fit's pair", if (is.null(elp)) "NOT COMPUTABLE" else loo_elpd_paired_str(elp), "no threshold", "INFO", "")
+  V1row(sid, "D6-5 REPORTED: the shore pot-closure fit's pair", if (is.null(elp)) "NOT COMPUTABLE" else loo_elpd_paired_str(elp), "no threshold", "INFO", "")
   pa <- .num1(.port(dir_d3)$BSS_median); pb <- .num1(.port(dir_d6)$BSS_median)
-  V1row("D6", "D6-5 REPORTED, NOT A CRITERION: the port total", sprintf("%s -> %s (%s%%)", fmt(pa, 0), fmt(pb, 0), fmt(100 * (pb - pa) / pa, 2)),
+  V1row(sid, "D6-5 REPORTED, NOT A CRITERION: the port total", sprintf("%s -> %s (%s%%)", fmt(pa, 0), fmt(pb, 0), fmt(100 * (pb - pa) / pa, 2)),
         "no threshold", "INFO", "The total is scaled by (1 - theta_C) by design.")
-  vs <- c(`D6-1` = c1, `D6-2` = c2, `D6-3` = c3, `D6-4` = c4); res <- .worst(vs)
-  rec_row("D6", switch(res, PASS = "ADOPT: catch_zi_tracks = c(\"pooled\", \"gear_resolved\"); D6 closes",
+  vs <- c(`D6-0` = c0, `D6-1` = c1, `D6-2` = c2, `D6-3` = c3, `D6-4` = c4)
+  res <- if (c0 != "PASS") "REVIEW" else .worst(vs[-1])
+  rec_row(item, switch(res, PASS = "ADOPT: catch_zi_tracks = c(\"pooled\", \"gear_resolved\"); D6 closes",
                        FAIL = "DO NOT ADOPT: a clause failed",
-                       REVIEW = "UNDECIDED: a clause could not be computed or only one count bin improved (blocks adoption without counting against it)"),
-          "D6-1 to D6-4 all PASS; any FAIL -> DO NOT ADOPT; otherwise any REVIEW -> UNDECIDED",
+                       REVIEW = if (c0 != "PASS") "UNDECIDED: the D3 baseline's shore all-gear fit did not converge (D6-0), so the comparison is not a test" else "UNDECIDED: a clause could not be computed or only one count bin improved (blocks adoption without counting against it)"),
+          "D6-0 PASS (else UNDECIDED), then D6-1 to D6-4 all PASS; any FAIL -> DO NOT ADOPT; otherwise any REVIEW -> UNDECIDED",
           sprintf("%s; %s", paste(sprintf("%s %s", names(vs), vs), collapse = ", "), if (is.null(el)) "no paired elpd" else loo_elpd_paired_str(el)))
 }
 
@@ -1272,8 +1307,18 @@ banner("EVALUATION")
 for (sid in setdiff(names(STAGE_DEFS), "S0")) for (pt in PARTS(sid)) record_components(sid, DIRS[[sid]][[pt]], pt)
 tryCatch(verdict_A(DIRS$A), error = function(e) V1row("A", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
 tryCatch(verdict_R2(DIRS$R2[["pooled"]], DIRS$A[["pooled"]]), error = function(e) V1row("R2", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
-tryCatch(verdict_D3(DIRS$D3[["gear_resolved"]], DIRS$A[["pooled"]], DIRS$A[["gear_resolved"]]), error = function(e) V1row("D3", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
-tryCatch(verdict_D6(DIRS$D6[["gear_resolved"]], DIRS$D3[["gear_resolved"]]), error = function(e) V1row("D6", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
+# B61: D3R decides D3 and D6R (against D3R) decides D6; the first renders are reported beside them
+.seed1 <- format(BASE$bss_seed, scientific = FALSE)
+.d3_first_trapped <- { g1 <- .gate(DIRS$D3[["gear_resolved"]] %||% NA); !is.null(g1) && !all(as.logical(g1$pass_convergence)) }
+tryCatch(verdict_D3(DIRS$D3R[["gear_resolved"]], DIRS$A[["pooled"]], DIRS$A[["gear_resolved"]], sid = "D3R", item = "D3",
+                    adopt_note = if (.d3_first_trapped) sprintf(". NOTE: the first render (seed %s) failed D3-1 on one stuck chain, so one of the two seeds trapped a chain at weekly", .seed1) else ""),
+         error = function(e) V1row("D3R", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
+tryCatch(verdict_D3(DIRS$D3[["gear_resolved"]], DIRS$A[["pooled"]], DIRS$A[["gear_resolved"]], sid = "D3", item = sprintf("D3 (first render, seed %s; reported, D3R decides)", .seed1)),
+         error = function(e) V1row("D3", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
+tryCatch(verdict_D6(DIRS$D6R[["gear_resolved"]], DIRS$D3R[["gear_resolved"]], sid = "D6R", item = "D6"),
+         error = function(e) V1row("D6R", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
+tryCatch(verdict_D6(DIRS$D6[["gear_resolved"]], DIRS$D3[["gear_resolved"]], sid = "D6", item = sprintf("D6 (first render, seed %s; reported, D6R decides)", .seed1)),
+         error = function(e) V1row("D6", "verdicts computed", conditionMessage(e), "no error", "REVIEW", ""))
 tryCatch({ d29_forced_row(DIRS$A[["pooled"]], "A", "monthly"); d29_forced_row(DIRS$D29W[["pooled"]], "D29W", "weekly")
            d29_forced_row(DIRS$D29B[["pooled"]], "D29B", "biweekly"); d29_rows("gear_resolved", DIRS$D29G[["gear_resolved"]], "D29G")
            d29_forced_row(DIRS$D29D[["pooled"]], "D29D", "daily"); verdict_D29(DIRS) },

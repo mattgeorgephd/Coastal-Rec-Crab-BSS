@@ -41,28 +41,22 @@
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
-# THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative run
-# PLUS two changes made after it and not yet rendered in production: every chain starts
-# within init_r = 0.5 (B51, section 1.5) and the single-section level hierarchies are
-# collapsed (A31, mu_hier_collapse_single = "both", section 4.5). The single 2024-25 season,
-# both models (the pooled headline and its gear-resolved cross-check), Method v2.0 and the
-# boat all-gear advisory-day term (section 2.10, A30). The render that makes this file the
-# authoritative run again is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R
-# (B58), which renders it exactly as shipped through run_estimation.R.
+# THE CANONICAL RUN. As shipped, this file IS the configuration of the authoritative run: the
+# single 2024-25 season, both models (the pooled headline and its gear-resolved cross-check),
+# Method v2.0, the boat all-gear advisory-day term (section 2.10, A30), the collapsed
+# single-section level hierarchies (A31, mu_hier_collapse_single = "both", section 4.5) and
+# every chain started within init_r = 0.5 (B51, section 1.5).
 #
-#   05_output/20260928/pooled-CPUE-2024-25
-#   port total 99,873  [82,414, 124,438]      4 of 4 components fitted, all BSS
-#   05_output/20260928/gear-type-CPUE-model-2024-25: 98,588, -1.29%, the cross-check PASSES
+#   05_output/20260929/pooled-CPUE-2024-25-220449
+#   port total 99,822  [82,090, 124,718]      4 of 4 components fitted, all BSS
+#   05_output/20260930/gear-type-CPUE-model-2024-25: 98,382, -1.44%, the cross-check PASSES
 #
-# Those folders were rendered from this file as it stood at 4828b76 by run_estimation.R with
-# model = "both" (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not
-# ladder rungs with a window pin. B51 and A31 have shipped since, so a render of the file as
-# shipped today is the first at the A31 code: it changes every fit's draws, the container
-# refits put each component within about 0.1 posterior SD of these, and it will NOT
-# reproduce 99,873 to the crab. (Two renders of ONE configuration on one machine do agree
-# to the crab, B38.) The only render at init_r = 0.5 so far, of the pre-A31 code
-# (05_output/20260928/pooled-CPUE-2024-25-222347, B57), failed its shore pot-closure gate and
-# is NOT the authoritative run. They superseded
+# Those folders are stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this file,
+# exactly as shipped at 2523e8e, rendered by run_estimation.R with model = "both" on a clean
+# tree (Matt, 2026-09-29 to 30, committed d30161a; CHANGE_REGISTER B61). On the same machine a
+# render of this file reproduces them to the crab (B38). They superseded
+# 05_output/20260928/pooled-CPUE-2024-25 (99,873 [82,414, 124,438], B50; every component within
+# 0.02 posterior SD of this run, before A31 and init_r = 0.5), which had superseded
 # 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
 # Float 17-21 fill, B45), which had superseded ladder rung R4
 # (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits were the
@@ -258,8 +252,9 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260928/pooled-CPUE-2024-25, 99,873 [82,414, 124,438] (and of the runs before
-  # it: 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118, and R4, 94,376).
+  # 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822 [82,090, 124,718] (and of the runs
+  # before it: 05_output/20260928/pooled-CPUE-2024-25, 99,873; the 2026-09-27 render, 96,118;
+  # and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on

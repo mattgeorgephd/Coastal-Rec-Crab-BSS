@@ -3568,7 +3568,7 @@ local({
   # of historical sentences, so a blacklist would be brittle; what must never happen is a
   # line that CLAIMS a run is the authoritative / current one naming a superseded total or
   # folder without marking it so. Add a total here when the box moves.
-  stale_runs <- c("72,027", "94,376", "96,118", "pooled-CPUE-canonical-2024-25", "pooled-CPUE-IMP-R4")
+  stale_runs <- c("72,027", "94,376", "96,118", "99,873", "pooled-CPUE-canonical-2024-25", "pooled-CPUE-IMP-R4")
   claim_re <- "authoritative|method of record|current reference|reference run|the current run"
   label_re <- paste0("supersed|SUPERSED|historical|HISTORICAL|previous|used to|replaced|replaces|was the|until |",
                      "before |against|first render|rendered 2026-09-27|R4|what this replaced|the run it|moves|moved|from 9|ladder")
@@ -5915,7 +5915,7 @@ local({
       !grepl("Production ships `marine_hazard_mode = \"off\"`", md, fixed = TRUE))
   # 2026-09-28: the render the box predicted exists, so the box is the render (section 80 pins its numbers)
   chk("A30 docs: the box is the render the adoption predicted (no longer R4 with a pending render), names the adopted boat fit, and the stale span paragraph is gone",
-      grepl("THE AUTHORITATIVE RUN: THE METHOD OF RECORD, RENDERED", ps, fixed = TRUE) && grepl("**private boat all-gear 47,319**", ps, fixed = TRUE) &&
+      grepl("THE AUTHORITATIVE RUN: THE METHOD OF RECORD, RENDERED", ps, fixed = TRUE) && grepl("**private boat all-gear 47,105**", ps, fixed = TRUE) &&
       !grepl("IT PREDATES THE METHOD OF RECORD BY ONE TERM", ps, fixed = TRUE) && !grepl("render pending", ps, fixed = TRUE) &&
       !grepl("WHAT R4 DOES NOT MATCH IS THE SHIPPED WINDOW", ps, fixed = TRUE) &&
       grepl("[FOUND AND FIXED 2026-09-27] The improvement ladder's five stage digests had drifted from their folders, by a label.", ps, fixed = TRUE) &&
@@ -6151,10 +6151,11 @@ local({
   # 2026-09-29 (B50): the 2026-09-27 render was superseded by the re-render at B44 to B49 (section 85);
   # the documents must now record it as what the authoritative run REPLACED, with its own total.
   chk("80 docs: the box records the 2026-09-27 render as what the authoritative run replaced, with its total and interval",
-      grepl("**What this replaced.** `05_output/20260927/pooled-CPUE-canonical-2024-25`, 96,118 [79,418, 120,558]", flat(ps), fixed = TRUE) &&
+      # 2026-10-02 (B61): the box moved again, so the 2026-09-27 render is now two runs back in "What this replaced"
+      grepl("`05_output/20260927/pooled-CPUE-canonical-2024-25`, 96,118 [79,418, 120,558]", flat(ps), fixed = TRUE) && grepl("**What this replaced.**", ps, fixed = TRUE) &&
       grepl("Section 1z.5", ps, fixed = TRUE))
   chk("80 docs: the register moves its authoritative run, marks A30 RENDERED, carries B43 and six 2026-09-28 defect rows",
-      grepl("the run it superseded, `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558]", cr, fixed = TRUE) &&
+      grepl("`05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118", cr, fixed = TRUE) &&
       # 2026-09-29: A30's run is no longer the authoritative one (B50 superseded it), so the row
       # says so; the pin follows the row rather than holding it to a stale claim.
       grepl("**RENDERED 2026-09-28 (`1d3409d`, Section 1z.5), the first render of the method of record (superseded as the authoritative run", cr, fixed = TRUE) &&
@@ -6677,11 +6678,13 @@ local({
   ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rd("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
   gd <- rd("07_documentation/BSS-GH-gear-type-CPUE-model-documentation.md")
-  chk("85 docs: the box names the new run with its total and interval, the cross-check and D33",
-      grepl("**`05_output/20260928/pooled-CPUE-2024-25`, port total 99,873 [82,414, 124,438]**", ps, fixed = TRUE) &&
-      grepl("-1.29% against the pooled total", flat(ps), fixed = TRUE) && grepl("D33", ps, fixed = TRUE))
-  chk("85 docs: the register's authoritative run, B50 and D33",
-      grepl("**Authoritative run:** `05_output/20260928/pooled-CPUE-2024-25`, port total **99,873 [82,414, 124,438]**", cr, fixed = TRUE) &&
+  # 2026-10-02 (B61): this run is no longer the authoritative one; the box and the register record it
+  # as what the A31 render replaced, with its total, its cross-check and D33.
+  chk("85 docs: the box records the 2026-09-28 run as what the authoritative run replaced, with its total, the cross-check and D33",
+      grepl("`05_output/20260928/pooled-CPUE-2024-25`, 99,873 [82,414, 124,438]", flat(ps), fixed = TRUE) &&
+      grepl("cross-check at -1.29%", flat(ps), fixed = TRUE) && grepl("D33", ps, fixed = TRUE))
+  chk("85 docs: the register records the 2026-09-28 run as superseded, with B50 and D33",
+      grepl("`05_output/20260928/pooled-CPUE-2024-25` (99,873 [82,414, 124,438], B50)", cr, fixed = TRUE) &&
       grepl("| B50 |", cr, fixed = TRUE) && grepl("| D33 |", cr, fixed = TRUE))
   chk("85 docs: the campaign has 1z.6 and the 1z anchor names ff750c4; the method document's Section 1 table carries the new run; the gear document its reference run",
       grepl("### 1z.6 The method of record re-rendered at B44 to B49", vc, fixed = TRUE) && grepl("`ff750c4` (the re-render at B44 to B49, 1z.6)", vc, fixed = TRUE) &&
@@ -6817,9 +6820,12 @@ local({
     gr <- utils::read.csv("05_output/20260929/gear-type-CPUE-model-2024-25/convergence_report.csv", stringsAsFactors = FALSE)
     chk("B57: the gear track (both levels collapsed since v6.0) passed every fit on the same render", all(gr$pass_convergence))
     st <- rd("07_documentation/development_notes/PIPELINE_STATUS.md")
-    chk("B57: the status box keeps 2026-09-28's run as authoritative and names the B51 render as NOT its successor",
-        grepl("**`05_output/20260928/pooled-CPUE-2024-25`, port total 99,873", st, fixed = TRUE) &&
-        grepl("A later render exists and is NOT this run's", st, fixed = TRUE))
+    # 2026-10-02 (B61): the authoritative run is now the A31 render; the B51 render stays recorded
+    # as never authoritative, in the register and the box
+    crg <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
+    chk("B57: the B51 render is never the authoritative run: the box names the A31 render and records B57's failure; the register's B57 row says not authoritative",
+        grepl("**`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822", st, fixed = TRUE) &&
+        grepl("which failed its gate in B57", gsub("[ \n>]+", " ", st), fixed = TRUE) && grepl("| B57 |", crg, fixed = TRUE))
   }
 })
 
@@ -7006,7 +7012,7 @@ local({
       identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)") &&
       grepl('if ("--go" %in% commandArgs(trailingOnly = TRUE) || identical(Sys.getenv("BSS_BATCH_GO"), "1")) DRY_RUN <- FALSE', rt, fixed = TRUE))
   chk("B60: the stages are the authoritative render, D3, D6, the forced weekly and biweekly pooled rungs, the gear ladder, the radius check and the daily rung, in that order",
-      grepl('STAGES  <- c("S0", "A", "D3", "D6", "D29W", "D29B", "D29G", "R2", "D29D")', rt, fixed = TRUE))
+      grepl('STAGES  <- c("S0", "A", "D3", "D6", "D3R", "D6R", "D29W", "D29B", "D29G", "R2", "D29D")', rt, fixed = TRUE))
   chk("B60: the pooled D29 rungs are forced renders (ar_force), not an in-process ladder, which ran out of memory at its second rung",
       grepl('delta = list(ar_force = list(private_boat = list(all_gear = "weekly")))', rt, fixed = TRUE) &&
       grepl('delta = list(ar_force = list(private_boat = list(all_gear = "biweekly")))', rt, fixed = TRUE) &&
@@ -7173,6 +7179,74 @@ local({
         length(m) == n_json && length(m) > 100 })
   chk("B59: the runner ships DRY_RUN <- TRUE again (the first attempt's edit to FALSE is reverted)",
       identical(grep("^DRY_RUN <-", r, value = TRUE)[1], "DRY_RUN <- TRUE                    # ships TRUE; start with --go or BSS_BATCH_GO=1 (see above)"))
+  # B61 (2026-10-02): D3 and D6 re-rendered once at bss_seed + 1, with the rule stated first; D6
+  # gains D6-0 (a converged baseline). Functional: the D6 verdict on synthetic folders whose
+  # baseline gate failed reads UNDECIDED, whatever D6-2 says.
+  chk("B61: D3R and D6R are D3 and D6 at bss_seed + 1, and D3R / D6R decide D3 / D6",
+      grepl("delta = list(gear_period_bss = MATCHED, bss_seed = BASE$bss_seed + 1)),", rt, fixed = TRUE) &&
+      grepl('delta = list(gear_period_bss = MATCHED, catch_zi_tracks = c("pooled", "gear_resolved"), bss_seed = BASE$bss_seed + 1)),', rt, fixed = TRUE) &&
+      grepl('verdict_D3(DIRS$D3R[["gear_resolved"]], DIRS$A[["pooled"]], DIRS$A[["gear_resolved"]], sid = "D3R", item = "D3",', rt, fixed = TRUE) &&
+      grepl('verdict_D6(DIRS$D6R[["gear_resolved"]], DIRS$D3R[["gear_resolved"]], sid = "D6R", item = "D6")', rt, fixed = TRUE) &&
+      grepl("#   D6-0 (B61, stated before D6R ran) the BASELINE is valid", rt, fixed = TRUE))
+  chk("B61 D6 rule: an unconverged D3 baseline makes D6 UNDECIDED, however D6-2 reads (D6-0)",
+      { sb$V <- list(); sb$REC <- list(); f <- sb$FIT_SHORE_AG
+        mkd <- function(pass) { d <- tempfile("d6_"); dir.create(d)
+          utils::write.csv(data.frame(fit = sb$FITS, pass_convergence = c(TRUE, pass, TRUE, TRUE), method_selected = "BSS", divergence_fraction = 0),
+                           file.path(d, "convergence_report.csv"), row.names = FALSE); d }
+        sb$verdict_D6(mkd(TRUE), mkd(FALSE), sid = "D6R", item = "D6")
+        r1 <- sb$REC[[length(sb$REC)]]$recommendation
+        any(vapply(sb$V, function(v) identical(v$verdict, "FAIL") && startsWith(v$criterion, "D6-0"), logical(1))) &&
+          startsWith(r1, "UNDECIDED: the D3 baseline") })
+})
+
+# ---------------------------------------------------------------------------
+# 94. B61 (2026-10-02): THE AUTHORITATIVE RUN MOVES TO THE BATCH'S STAGE A, the first render at the
+#     A31 code with init_r = 0.5, judged by rule A written before it ran. Its own files, its
+#     cross-check, its manifest, and the documents that name it.
+# ---------------------------------------------------------------------------
+local({
+  rd <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  N <- "05_output/20260929/pooled-CPUE-2024-25-220449"; G <- "05_output/20260930/gear-type-CPUE-model-2024-25"
+  if (!dir.exists(N) || !dir.exists(G)) chk("B61 render: the committed stage-A folders are present (the documents cite them)", FALSE,
+                                           "missing; they are committed, so their absence is a checkout problem") else {
+    row <- function(dir) { d <- utils::read.csv(file.path(dir, "port_total_Dungeness_Kept.csv"), stringsAsFactors = FALSE); d[d[[2]] == "Expected_Catch", ] }
+    e <- row(N); g <- row(G)
+    chk("B61 render: pooled 99,822 [82,090, 124,718], PE 88,758, gear 98,382 [81,145, 122,466], from the folders' own CSVs",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95, e$PE)), c(99822, 82090, 124718, 88758)) &&
+        identical(as.numeric(c(g$BSS_median, g$BSS_lo95, g$BSS_hi95)), c(98382, 81145, 122466)))
+    cc <- utils::read.csv("05_output/20260929/cross_check_20260929_220448.csv", stringsAsFactors = FALSE)
+    chk("B61 render: the cross-check names these two folders and reads -1.44%, PASS",
+        identical(cc$verdict, "PASS") && isTRUE(abs(cc$gear_minus_pooled_pct - (-1.44)) < 1e-9) &&
+        identical(cc$pooled_folder, basename(N)) && identical(cc$gear_folder, basename(G)))
+    cv <- utils::read.csv(file.path(N, "convergence_report.csv"), stringsAsFactors = FALSE)
+    cg <- utils::read.csv(file.path(G, "convergence_report.csv"), stringsAsFactors = FALSE)
+    chk("B61 render: every fit on both tracks passes the gate; the shore all-gear fit is 0.49% divergent (A31: 4.07% before)",
+        all(cv$pass_convergence) && all(cg$pass_convergence) &&
+        isTRUE(abs(cv$divergence_fraction[cv$fit == "shore_all_gear_Dungeness_Kept"] - 0.0049) < 1e-9))
+    mf <- readLines("05_output/20260929/run_manifest_20260929_220448.txt", warn = FALSE)
+    chk("B61 render: the manifest records code 2523e8e on a clean tree, both models, R 4.2.2 / rstan 2.32.7",
+        any(grepl("^git sha\\s*: 2523e8e", mf)) && any(grepl("^git tree\\s*: clean", mf)) &&
+        any(grepl("pooled-CPUE-2024-25-220449", mf, fixed = TRUE)) && any(grepl("rstan_2.32.7", mf, fixed = TRUE)))
+    st <- function(d, k) { l <- grep(paste0("^", k, ":"), readLines(file.path(d, "AB_STAGE.txt"), warn = FALSE), value = TRUE); trimws(sub("^[^:]*:", "", l[1])) }
+    chk("B61 render: both folders carry the batch's stage-A stamp with one digest",
+        identical(st(N, "stage"), "A") && identical(st(G, "stage"), "A") && identical(st(N, "digest"), st(G, "digest")))
+    B57g <- "05_output/20260929/gear-type-CPUE-model-2024-25"
+    same <- function(f) identical(unname(tools::md5sum(file.path(G, f))), unname(tools::md5sum(file.path(B57g, f))))
+    chk("B61 render (B38 in the field): the four gear fits' draws are byte-identical to the B57 gear render (same gear code, seed and radius)",
+        dir.exists(B57g) && all(vapply(sprintf("bss_draws_summed_%s.csv", c("shore_ring_net_only_Dungeness_Kept", "shore_all_gear_Dungeness_Kept",
+                                                                         "private_boat_ring_net_only_Dungeness_Kept", "private_boat_all_gear_Dungeness_Kept")),
+                                       same, logical(1))))
+  }
+  ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
+  vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rd("07_documentation/CLAUDE.md"); rc <- rd("run_config.R")
+  chk("B61 docs: the box, the register, CLAUDE.md and run_config.R's header name the new run with its total and interval",
+      grepl("**`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718]**", ps, fixed = TRUE) &&
+      grepl("**Authoritative run:** `05_output/20260929/pooled-CPUE-2024-25-220449`, port total **99,822 [82,090, 124,718]**", cr, fixed = TRUE) &&
+      grepl("`05_output/20260929/pooled-CPUE-2024-25-220449`, port **99,822 [82,090, 124,718]**", cl, fixed = TRUE) &&
+      grepl("#   port total 99,822  [82,090, 124,718]", rc, fixed = TRUE))
+  chk("B61 docs: the register carries B61, the campaign 1z.9 with its anchor, and the box the cross-check and R2",
+      grepl("| B61 |", cr, fixed = TRUE) && grepl("### 1z.9 The overnight batch read", vc, fixed = TRUE) && grepl("`d30161a` (the overnight batch's renders, 1z.9)", vc, fixed = TRUE) &&
+      grepl("-1.44% against the pooled total", gsub("[ \n>]+", " ", ps), fixed = TRUE) && grepl("The radius is a precaution, not a crutch", ps, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
