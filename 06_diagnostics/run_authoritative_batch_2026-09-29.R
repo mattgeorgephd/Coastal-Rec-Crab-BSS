@@ -760,6 +760,13 @@ run_stage <- function(sid) {
   log <- file.path(LOG_DIR, sprintf("%s_%s.log", sid, format(Sys.time(), "%Y%m%d-%H%M%S")))
   hours <- unname(TIMEOUT_H[sid]) %||% 12
   t0 <- Sys.time()
+  # The Console prints NOTHING while a stage renders (its output goes to the log), so say so,
+  # with where to look: on 2026-09-30 a healthy stage A looked stuck and was restarted.
+  cat(sprintf("  RENDERING since %s (limit %s h). The Console stays silent until this stage ends;
+  progress is in %s
+",
+              format(t0, "%H:%M"), hours, normalizePath(log, winslash = "/", mustWork = FALSE)))
+  utils::flush.console()
   dirs <- if (isTRUE(RESUME)) have else stats::setNames(rep(NA_character_, length(have)), names(have))
   man <- NA_character_; note <- character(0)
   if (isTRUE(st$orchestrator)) {
