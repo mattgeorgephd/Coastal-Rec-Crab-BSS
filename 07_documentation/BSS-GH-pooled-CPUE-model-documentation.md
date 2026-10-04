@@ -852,9 +852,11 @@ to 0.267), December to February within 0.10 posterior SD. Taking n as every retu
 instead (`osp_sampling_rate_source = "none"`, a bound, not an option) gives 43,006: the most
 that OSP sampling above its minimum rate could move this fit. Rule A33, written before the
 render: the render of `run_config.R` as shipped (`--model both`) is adopted if every fit on
-both tracks passes the convergence gate with no stuck chain, the gear cross-check is within 2%,
-and December to February `f` moves by less than 0.25 posterior SD from the 2026-09-29 run; the
-boat total's movement is reported, not judged.
+both tracks passes the convergence gate with no stuck chain and the gear cross-check is within 2%;
+since D40's fix (A34, the same day, before any render) also if `beta_fvol`'s 95% interval excludes
+zero on both tracks' boat all-gear fits. A33's first clause on the winter `f` (less than 0.25
+posterior SD from the 2026-09-29 run) was retired with D40, which changes `f` in every month by
+design; the winter `f` and the boat total are reported, not judged.
 
 ### 14.4 The turnovers
 

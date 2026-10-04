@@ -7488,6 +7488,11 @@ local({
                      "osp_f_x                = cf_data$osp_f_x"), function(x) grepl(x, pt, fixed = TRUE), logical(1))))
   }
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  cr_ <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); rcs <- rdf("run_config.R")
+  chk("D40/A34 docs: the register has the A34 row, D40 reads FIXED IN CODE, and the rule's winter clause is retired for the beta_fvol clause in run_config and the register",
+      grepl("| A34 |", cr_, fixed = TRUE) && grepl("FIXED IN CODE 2026-10-04 (A34", cr_, fixed = TRUE) &&
+      grepl("beta_fvol's 95% interval excludes", rcs, fixed = TRUE) && grepl("was RETIRED with D40", rcs, fixed = TRUE) &&
+      grepl("clause (4) is RETIRED", cr_, fixed = TRUE))
   chk("D40 shipped: crab_fraction_volume = TRUE with a N(0, 1) slope prior, alongside the dynamic f and the OSP stream",
       isTRUE(rc$crab_fraction_volume) && identical(rc$crab_fraction_volume_beta_sd, 1) && isTRUE(rc$crab_fraction_dynamic) && isTRUE(rc$use_osp_crab_lower))
 })

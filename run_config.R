@@ -896,13 +896,18 @@ run_config <- list(
   # every returning boat (osp_sampling_rate_source = "none", a bound, not an option) the same
   # fit reads 43,006: that 7.6% is the most that OSP sampling above its minimum rate could
   # move this fit, and is why the day's actual rate is still worth asking OSP for (D2).
-  # THE RULE (A33, written before the render): the authoritative render of this file
-  # (Rscript run_estimation.R --model both) is adopted if every fit on both tracks passes the
-  # convergence gate with no stuck chain, the gear cross-check is within
-  # cross_check_tolerance (2%), and December to February f (no OSP rows) moves by less than
-  # 0.25 posterior SD from the 2026-09-29 run (the container refit moved them 0.05 to 0.10 SD,
-  # carried back by the walk, so 0.10 would fail on Monte Carlo noise alone); the boat total's
-  # movement is reported, not judged.
+  # THE RULE (A33 with A34, written before the render, revised 2026-10-04 before any render):
+  # the authoritative render of this file (Rscript run_estimation.R --model both) is adopted if
+  # (1) every fit on both tracks passes the convergence gate, (2) no chain is stuck, (3) the gear
+  # cross-check is within cross_check_tolerance (2%), and (4) beta_fvol's 95% interval excludes
+  # zero on both tracks' boat all-gear fits (else crab_fraction_volume goes back to FALSE). The
+  # boat totals, the December to February f and each OSP month's boat-weighted crab-only share
+  # beside OSP's own expansion are REPORTED, not judged. A33's first clause (4), "December to
+  # February f moves by less than 0.25 posterior SD", was RETIRED with D40: it was written to
+  # catch OSP information leaking into the winter months, and the volume term changes f in every
+  # month by design (one slope per fit, and f_crab_out is now the share at central volume), so
+  # it no longer tests what it was written for; the container refit moves February's
+  # boat-weighted f +0.6 SD.
   # Requires use_osp_boat_counts = TRUE. FALSE restores the 2026-09-29 model exactly.
   use_osp_crab_lower        = TRUE,
   # D40 (2026-10-04): THE CRABBING SHARE VARIES WITH THE DAY'S BOAT VOLUME, within a month.
