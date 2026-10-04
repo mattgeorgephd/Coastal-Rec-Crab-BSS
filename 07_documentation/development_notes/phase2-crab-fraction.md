@@ -1,5 +1,7 @@
 # Phase 2: directed-crabbing fraction f (both tracks)
 
+> **STATUS: HISTORICAL (banner added 2026-10-02).** The scalar `f = 0.3` this note ships was replaced by the dynamic monthly crabbing fraction (A18, 2026-09-08); `crab_fraction_set = 0.3` survives only as its first-month prior mean and thin-data fallback. For the current model see `../BSS-GH-pooled-CPUE-model-documentation.md` and, for the authoritative run, the box at the top of `PIPELINE_STATUS.md`.
+
 **Applies after:** the Phase 1b patch. **Scope:** both production models. **Status:** ships ON (`use_crab_fraction = TRUE`, `crab_fraction_set = 0.3`) per Matt's choice. `use_crab_fraction = FALSE` reproduces the pre-Phase-2 boat exactly. R/Stan not executed in the authoring environment; validate by run.
 
 ## What f is and why it matters

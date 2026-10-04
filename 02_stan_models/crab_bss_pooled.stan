@@ -454,6 +454,25 @@ data {
   // records is against the RETIRED 1.2 centre; the calibration centre is ~2.98, and the
   // note that the conflict was being absorbed by r_OSP rather than by L still stands.
   int<lower=0,upper=1> osp_scale_is_tau;
+
+  // D40 (2026-10-04): THE CRABBING SHARE VARIES WITH THE DAY'S BOAT VOLUME, WITHIN A MONTH.
+  // f_volume = 1 (only with the dynamic f) gives each day its own share,
+  //     logit f_d = eta_f[k] + beta_fvol * x_d,   x_d = log(day's boat volume) - fvol_centre[k],
+  // so eta_f[k] is the share at the stratum's central volume. The classification streams
+  // use OBSERVED volumes (OSP's daily total, else the day's mean trailer count times its
+  // turnover centre: the R side builds cfi_x and osp_f_x), so f stays out of the effort and
+  // CPUE likelihoods. The totals use the model's own daily volume on every day,
+  // (lambda_E / R_G_boat) * L, which is the OSP stream's mean, so a month's share as the
+  // totals apply it is BOAT-WEIGHTED, which is what multiplying each day's effort by f
+  // requires. Without the term the per-day beta-binomial caps a busy day's weight near
+  // kappa and fits close to the AVERAGE day's share, and OSP's share falls on busy days
+  // (CHANGE_REGISTER D40: the likelihood's share 1.4x to 1.6x the boat-weighted one in
+  // June to September 2025). f_volume = 0 leaves every quantity below bit-identical.
+  int<lower=0,upper=1> f_volume;
+  real<lower=0> fvol_beta_prior_sd;          // normal(0, sd) on beta_fvol (logit per log unit)
+  vector[n_f_strata] fvol_centre;            // per-stratum centre of log daily boat volume
+  vector[CFI_n] cfi_x;                       // contact day's log volume minus its centre (0 if unknown)
+  vector[OSPF_n] osp_f_x;                    // OSP day's log total minus its centre
 }
 
 transformed data {
@@ -464,6 +483,7 @@ transformed data {
   int n_f_dyn = crab_fraction_estimate * crab_fraction_dynamic;
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
   int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
+  int n_fvol = n_f_dyn * f_volume;         // D40: the day-level volume term is live
   // T2.5 (2026-09-29, D33): the single-cell level hierarchy is COLLAPSED whenever there is
   // one section. With S == 1, mu_E[g,1] = mu_mu_E[g] + eps_mu_E[g,1] * sigma_mu_E has one
   // element per level, so only the SUM enters the likelihood: mu_mu_E and
@@ -555,6 +575,8 @@ parameters {
   // patch is behaviour-neutral where it claims to be, and it is worth more than the
   // symmetry with the older parameters.
   vector<lower=0>[osp_crab_lower] osp_f_kappa;
+  // D40: the within-stratum slope of logit f on log daily boat volume. Zero-size when off.
+  vector[n_fvol] beta_fvol;
 
   real<lower=0> sigma_IE;
 
@@ -792,10 +814,14 @@ model {
     // One observation per contact day. With a handful of boats per day the beta-binomial
     // is close to binomial and kappa_I rests near its prior; it matters on the busy days
     // (20+ contacts), where one weather-driven fleet is not 20 independent trials.
-    for (i in 1:CFI_n)
-      cfi_crab[i] ~ beta_binomial(cfi_total[i],
-                                  f_crab[cfi_stratum[i]] * cfi_kappa[1],
-                                  (1 - f_crab[cfi_stratum[i]]) * cfi_kappa[1]);
+    // D40: under the volume term each contact day observes its own day's share.
+    if (n_fvol == 1) beta_fvol[1] ~ normal(0, fvol_beta_prior_sd);
+    for (i in 1:CFI_n) {
+      real p_cfi = f_crab[cfi_stratum[i]];
+      if (n_fvol == 1)
+        p_cfi = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[cfi_stratum[i]] + beta_fvol[1] * cfi_x[i]);
+      cfi_crab[i] ~ beta_binomial(cfi_total[i], p_cfi * cfi_kappa[1], (1 - p_cfi) * cfi_kappa[1]);
+    }
   }
   // 2026-09-09: the combo share's walk and its per-day observation (combo of the typed
   // crabbing boats). Proper priors unconditionally within the branch: a stratum with no
@@ -824,7 +850,12 @@ model {
       // contacts in the stratum c is data, otherwise the OSP share is a soft lower bound
       // on f whose width is c's walk prior.
       for (i in 1:OSPF_n) {
-        real p_osp = f_crab[osp_f_stratum[i]] * (1 - combo_c[osp_f_stratum[i]]);
+        // D40: the day's own share under the volume term (x from OSP's own daily total)
+        real f_osp = f_crab[osp_f_stratum[i]];
+        real p_osp;
+        if (n_fvol == 1)
+          f_osp = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[osp_f_stratum[i]] + beta_fvol[1] * osp_f_x[i]);
+        p_osp = f_osp * (1 - combo_c[osp_f_stratum[i]]);
         osp_f_crab[i] ~ beta_binomial(osp_f_total[i], p_osp * osp_f_kappa[1],
                                       (1 - p_osp) * osp_f_kappa[1]);
       }
@@ -965,6 +996,10 @@ generated quantities {
   vector[n_f_strata] f_crab_out;   // Phase 3: per-stratum crabbing fraction
   vector[n_f_strata] f_lower_out;  // improvement 8: OSP crab-only lower bound on f (item 1B: the implied crab-only share f(1-c))
   real osp_f_kappa_out;        // improvement 8: daily-share overdispersion of the OSP bound
+  // D40: the volume slope, and each stratum's share as the totals apply it (boat-weighted:
+  // sum_d V_d f_d / sum_d V_d). Zero-size when the term is off.
+  vector[n_fvol] beta_fvol_out;
+  vector[n_f_strata * n_fvol] f_crab_bw_out;
   real sigma_f_out;            // review item 1B: step SD of the logit-f walk (0 when the dynamic f is off)
   real cfi_kappa_out;          // review item 1B: contact-stream concentration (0 when off)
   vector[n_f_strata] combo_c_out;   // 2026-09-09: the combo-trip share per stratum (0 when its walk is off)
@@ -1000,6 +1035,22 @@ generated quantities {
   f_crab_out = f_crab;         // Phase 2
   f_lower_out = f_lower;
   osp_f_kappa_out = (osp_crab_lower == 1) ? osp_f_kappa[1] : 0.0;       // improvement 8
+  if (n_fvol == 1) {
+    vector[n_f_strata] bw_num = rep_vector(0.0, n_f_strata);
+    vector[n_f_strata] bw_den = rep_vector(0.0, n_f_strata);
+    beta_fvol_out[1] = beta_fvol[1];
+    for (d in 1:D) {
+      real vd = 0;
+      real fd;
+      for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
+      vd = fmax(vd * L[d], 1e-9);
+      fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
+      bw_num[f_stratum[d]] += vd * fd;
+      bw_den[f_stratum[d]] += vd;
+    }
+    for (k in 1:n_f_strata)
+      f_crab_bw_out[k] = (bw_den[k] > 0) ? bw_num[k] / bw_den[k] : f_crab[k];
+  }
   sigma_f_out   = (n_f_dyn == 1) ? sigma_f[1]   : 0.0;                  // review item 1B
   cfi_kappa_out = (n_f_dyn == 1) ? cfi_kappa[1] : 0.0;
   combo_c_out   = combo_c;                                                // 2026-09-09 (zeros when off)
@@ -1055,6 +1106,15 @@ generated quantities {
 
   for (g in 1:G) {
     for (d in 1:D) {
+      // D40: the day's own share under the volume term, from the model's daily boat volume
+      // (the OSP stream's mean); the stratum's share otherwise, bit-identical to before.
+      real fd = f_crab[f_stratum[d]];
+      if (n_fvol == 1) {
+        real vd = 0;
+        for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
+        vd = fmax(vd * L[d], 1e-9);
+        fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
+      }
       for (s in 1:S) {
         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
         // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently
@@ -1065,7 +1125,7 @@ generated quantities {
         // lambda_C * effort unscaled would hand back a season total inflated by
         // 1 / (1 - theta_C) purely as an artefact of turning the feature on. zi_scale is
         // exactly 1.0 when the feature is off, so this is a no-op there.
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]] * zi_scale;
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale;
         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
         C_expected_sum = C_expected_sum + C_expected[s][d,g];
 
@@ -1076,7 +1136,7 @@ generated quantities {
         }
         C_sum = C_sum + C[s][d,g];
 
-        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * f_crab[f_stratum[d]];
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd;
         E_sum = E_sum + E[s][d,g];
       }
     }

@@ -1,0 +1,5 @@
+"fit","weekend_effort_mult","holiday_effort_mult","weekend_cpue_mult","B1_C_median","B1_C_lo95","B1_C_hi95"
+"shore_ring_net_only_Dungeness_Kept","2.16x (1.54-3.09)","2.08x (0.82-6.36)","0.85x (0.73-0.98)",-0.168,-0.315,-0.021
+"shore_all_gear_Dungeness_Kept","2.77x (2.44-3.14)","2.99x (2.15-4.23)","0.69x (0.60-0.80)",-0.368,-0.51,-0.224
+"private_boat_ring_net_only_Dungeness_Kept","2.64x (1.59-4.36)","2.61x (0.36-19.56)","1.10x (0.35-3.78)",0.093,-1.056,1.331
+"private_boat_all_gear_Dungeness_Kept","1.83x (1.48-2.29)","2.61x (1.65-4.33)","0.90x (0.63-1.30)",-0.108,-0.462,0.263

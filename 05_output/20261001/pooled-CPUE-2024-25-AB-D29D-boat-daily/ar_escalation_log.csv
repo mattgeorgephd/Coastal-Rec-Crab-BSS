@@ -1,0 +1,5 @@
+"fit","attempt","n_attempts_planned","ar_resolution","P_n","escalation_enabled","divergences","divergence_fraction","impact_C_sd","pass_convergence","catch_median","catch_lo95","catch_hi95","pi_width","pi_width_rel","effort_median","p_loo","p_loo_frac","n_pareto_bad","cov50_gear","cov50_catch","cov50_trailer","pit_mean_catch","selected"
+"shore_ring_net_only_Dungeness_Kept",1,1,"biweekly",6,FALSE,12,0.002,8e-04,TRUE,9505.27421231293,7274.15213704526,12523.2039860163,5249.05184897107,0.552225189060991,7547.18751417313,NA,NA,NA,NA,NA,NA,NA,TRUE
+"shore_all_gear_Dungeness_Kept",1,1,"weekly",43,FALSE,49,0.0049,5e-04,TRUE,32454.5129845004,26187.6400927681,40525.7839205743,14338.1438278062,0.441791988518015,38809.5337699584,NA,NA,NA,NA,NA,NA,NA,TRUE
+"private_boat_ring_net_only_Dungeness_Kept",1,1,"monthly",3,FALSE,13,0.0022,3e-04,TRUE,1378.10927673396,529.328666014077,5148.73626581195,4619.40759979787,3.35198933624885,541.391955296615,NA,NA,NA,NA,NA,NA,NA,TRUE
+"private_boat_all_gear_Dungeness_Kept",1,1,"daily",289,FALSE,0,0,0,TRUE,57472.5258953586,40835.4509883796,79717.320190646,38881.8692022664,0.676529673901221,16939.1806757726,NA,NA,NA,NA,NA,NA,NA,TRUE
