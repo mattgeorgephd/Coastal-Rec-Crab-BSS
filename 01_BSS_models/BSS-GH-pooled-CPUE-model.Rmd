@@ -1615,6 +1615,9 @@ for(cg in bss_catch_groups) {
         bss_pars <- c(bss_pars, "sigma_f_out", "cfi_kappa_out")
         # 2026-09-09: the combo-trip share walk, when typed contacts or an OSP stream feed it.
         if (isTRUE(bss_data$combo_dynamic == 1L)) bss_pars <- c(bss_pars, "combo_c_out", "sigma_c_out", "cfc_kappa_out")
+        # D40 (2026-10-04): the volume slope and each stratum's boat-weighted share, which is
+        # the share the totals apply when the day-level volume term is on.
+        if (isTRUE(bss_data$f_volume == 1L)) bss_pars <- c(bss_pars, "beta_fvol_out", "f_crab_bw_out")
       }
       if(isTRUE(params$estimate_cpue_density)) bss_pars <- c(bss_pars, "gamma_C_out")           # item 6b
       bss_summ <- summary(fit, pars=bss_pars)$summary
@@ -1636,6 +1639,20 @@ for(cg in bss_catch_groups) {
           .cq <- summary(fit, pars = "combo_c_out")$summary; .lq <- summary(fit, pars = "f_lower_out")$summary
           .fs_out <- cbind(.fs_out, c_median = .cq[, "50%"], c_lo95 = .cq[, "2.5%"], c_hi95 = .cq[, "97.5%"],
                            crab_only_share_median = .lq[, "50%"], crab_only_share_lo95 = .lq[, "2.5%"], crab_only_share_hi95 = .lq[, "97.5%"])
+        }
+        # D40: under the volume term f_median is the share at the stratum's CENTRAL volume;
+        # f_bw is the boat-weighted share the totals apply, and crab_only_share_bw = f_bw x (1 - c)
+        # is the figure to set beside OSP's own expansion of its crab-only counts.
+        if (isTRUE(bss_data$f_volume == 1L) && isTRUE(bss_data$crab_fraction_estimate == 1L) && isTRUE(bss_data$crab_fraction_dynamic == 1L)) {
+          .bq <- summary(fit, pars = "f_crab_bw_out")$summary
+          .fs_out <- cbind(.fs_out, f_bw_median = .bq[, "50%"], f_bw_lo95 = .bq[, "2.5%"], f_bw_hi95 = .bq[, "97.5%"],
+                           volume_centre = exp(as.numeric(bss_data$fvol_centre)))
+          if (isTRUE(bss_data$combo_dynamic == 1L)) {
+            .bd <- rstan::extract(fit, "f_crab_bw_out")[[1]] * (1 - rstan::extract(fit, "combo_c_out")[[1]])
+            .fs_out <- cbind(.fs_out, crab_only_share_bw_median = apply(.bd, 2, stats::median),
+                             crab_only_share_bw_lo95 = apply(.bd, 2, stats::quantile, 0.025),
+                             crab_only_share_bw_hi95 = apply(.bd, 2, stats::quantile, 0.975))
+          }
         }
         write.csv(.fs_out, file.path(output_dir, paste0("crab_fraction_strata_", label, ".csv")), row.names = FALSE)
       }

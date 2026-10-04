@@ -905,6 +905,21 @@ run_config <- list(
   # movement is reported, not judged.
   # Requires use_osp_boat_counts = TRUE. FALSE restores the 2026-09-29 model exactly.
   use_osp_crab_lower        = TRUE,
+  # D40 (2026-10-04): THE CRABBING SHARE VARIES WITH THE DAY'S BOAT VOLUME, within a month.
+  # TRUE (needs crab_fraction_dynamic = TRUE) gives each day its own share,
+  #     logit f_d = eta_f[month] + beta * (log V_d - the month's central log volume),
+  # in both classification streams (V_d observed: OSP's daily total, else the day's mean
+  # trailer count x its turnover centre) and in the totals (V_d the model's own daily boat
+  # volume, (lambda_E / R_G_boat) x L, on every day), so the month's share the totals apply
+  # is BOAT-WEIGHTED. Without it the per-day beta-binomial fits close to the AVERAGE day's
+  # share, and OSP's crab-only share falls on busy days: in June to September 2025 the
+  # likelihood's share was 1.41x to 1.59x the boat-weighted one (CHANGE_REGISTER D40). On
+  # OSP's own 2024-25 days a quasi-binomial fit of the same form gives beta = -0.88 (SE
+  # 0.105) and reproduces OSP's monthly expansion estimate (July 0.082 against 0.081).
+  # FALSE leaves every fit bit-identical to the model without the term. Changing it does
+  # not force a recompile (Stan data only).
+  crab_fraction_volume      = TRUE,
+  crab_fraction_volume_beta_sd = 1,   # normal(0, sd) prior on beta, logit per log unit of volume
   crab_fraction_osp_min_obs = 20,     # min OSP-classified boats in a stratum before the bound binds
   # Beta-binomial concentration for the DAILY OSP crab-only shares. The bound is fitted
   # one observation PER DAY, not on the stratum sum: summing ~150 operating days at ~50

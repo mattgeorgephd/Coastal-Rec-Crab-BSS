@@ -37,7 +37,8 @@
 > boat (a question to OSP), and D40, the per-day likelihood fits a day-averaged share where the
 > harvest needs the boat-weighted one, about 1.5x too high in June to September, the months that
 > carry most of the boat catch (a model change). Settle them, or decide to accept them, before the
-> render.**
+> render.** Since 2026-10-04 D40's fix is CODED and ships on (`crab_fraction_volume = TRUE`), its
+> container validation running; D39 is a question sent to OSP. Do not render until both are in.
 >
 > **`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718]**, 4 of 4
 > components fitted, every one reporting BSS. It is stage A of

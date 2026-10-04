@@ -173,7 +173,10 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
                 OSP_n, params$osp_scale_prior_mu %||% 3.0))
 
   # --- Phase 2/3: crabbing-fraction f Stan data (boat only, per stratum; see crab_fraction.R) ---
-  cf_data <- crab_fraction_stan_data(is_shore, days, params)
+  # D40: each day's observed boat volume (OSP total, else trailers x turnover centre),
+  # for the crabbing share's volume term; unused on shore and when the term is off.
+  f_day_volume <- if (!is_shore) crab_fraction_day_volume(days, eff_d, osp_match, L_data_vec) else NULL
+  cf_data <- crab_fraction_stan_data(is_shore, days, params, day_volume = f_day_volume)
 
   # --- I/E observations (shore only) ---
   # improvement 1/2 fix: the OBSERVED quantity now follows the effort unit, via
@@ -462,6 +465,13 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     cfc_crab               = cf_data$cfc_crab,
     cfc_combo              = cf_data$cfc_combo,
     cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
+    # D40 (2026-10-04): the crabbing share's day-level volume term (inert unless
+    # crab_fraction_volume = TRUE under the dynamic f; see crab_fraction.R)
+    f_volume               = cf_data$f_volume,
+    fvol_beta_prior_sd     = cf_data$fvol_beta_prior_sd,
+    fvol_centre            = cf_data$fvol_centre,
+    cfi_x                  = cf_data$cfi_x,
+    osp_f_x                = cf_data$osp_f_x,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))
     # POOL-1: R_T_alpha / R_T_beta removed. R_G_boat carries a fixed lognormal prior
     # in the Stan model (log(4), 0.5), matching crab_bss_gear_resolved.stan.

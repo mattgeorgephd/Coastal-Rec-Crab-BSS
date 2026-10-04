@@ -917,8 +917,9 @@ to the non-inflated component and rises to absorb the structural zeros, so repor
 | interview catch | NB2, or a two-component ZINB mixture | `lambda_C[day,gear] * h[a]` | `r_C` | `theta_C`, shore only |
 | gear per crabber | Poisson | `A_A_gear[a] * R_G` | - | none |
 | gear per boat group | Poisson | `R_G_boat` | - | none |
-| sampler contacts | beta-binomial | `f_crab[k]`, concentration `cfi_kappa` | - | none |
+| sampler contacts | beta-binomial | `f_crab[k]`, concentration `cfi_kappa`; under the volume term (D40) the day's own share `f_d` | - | none |
 | typed combo contacts | beta-binomial | `combo_c[k]`, concentration `cfc_kappa` | - | none |
+| OSP crab-only count (A33; boat fits) | beta-binomial on the boats OSP sampled | `f_crab[k] * (1 - combo_c[k])`, under the volume term `f_d * (1 - combo_c[k])`; concentration `osp_f_kappa` | - | none |
 
 **The zero-inflated catch block, exactly.**
 
@@ -969,6 +970,8 @@ stream, the two gear-ratio interview streams, or any crabbing-fraction stream.
 | `z_f`, `z_c` | `student_t(4, 0, 1)` | `f_walk_df = 4` |
 | `sigma_f`, `sigma_c` | half-normal(0, 1.5) | - |
 | `cfi_kappa`, `cfc_kappa` | `lognormal(log(20), 0.75)` | log-SD hard-coded |
+| `osp_f_kappa` | `lognormal(log(20), 0.75)` | `crab_fraction_osp_kappa_prior_mu`; log-SD hard-coded; only with the OSP crab-only stream |
+| `beta_fvol` (D40) | `normal(0, 1)` | `crab_fraction_volume_beta_sd`; only with the volume term |
 
 **Two naming traps in the data block.** The five `value_cauchyDF_*` names read as degrees of
 freedom and are used as the **scale** of a Cauchy centred at zero; combined with the
@@ -984,11 +987,12 @@ source.
 
 | quantity | what it is |
 |---|---|
-| `E`, `E_sum` | crab-directed effort per day and its total: `lambda_E * E_scale * L * f` |
+| `E`, `E_sum` | crab-directed effort per day and its total: `lambda_E * E_scale * L * f`, with `f` the day's own share `f_d` under the volume term (D40) |
 | `lambda_Ctot_S`, `C_expected`, `C_expected_sum` | expected catch per day and its total: `E * lambda_C * zi_scale` |
 | `C`, `C_sum` | Poisson predictive catch draws and their total (not reported since B46; see the box) |
 | `L_out`, `tau_bar_out` | the fitted daily turnover and its shared level |
-| `f_crab_out`, `f_lower_out`, `combo_c_out` | the per-stratum crabbing fraction, the implied crab-only share, the combo share |
+| `f_crab_out`, `f_lower_out`, `combo_c_out` | the per-stratum crabbing fraction, the implied crab-only share, the combo share. Under the volume term (D40) `f_crab_out` is the share at the stratum's CENTRAL volume, not the share the totals apply |
+| `beta_fvol_out`, `f_crab_bw_out` (D40) | the volume slope, and each stratum's boat-weighted share `sum_d V_d f_d / sum_d V_d`, the share the totals apply; zero-size without the volume term |
 | `sigma_f_out`, `cfi_kappa_out`, `sigma_c_out`, `cfc_kappa_out` | the walk and contact-model hyperparameters |
 | `theta_C_out`, `zi_scale` | the zero-inflation probability and the reporting multiplier |
 | `R_G_out`, `R_G_boat_out`, `kappa_OSP_out`, `sigma_IE_out` | the expansion ratios and scales |

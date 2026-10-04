@@ -487,7 +487,10 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   # --- Phase 2/3 + improvement 8: crabbing-fraction f Stan data (boat only, per stratum;
   # see 03_R_functions/crab_fraction.R). The OSP crab-only lower bound enters here.
-  cf_data <- crab_fraction_stan_data(is_shore, days, params)
+  # D40: each day's observed boat volume (OSP total, else trailers x turnover centre),
+  # for the crabbing share's volume term; unused on shore and when the term is off.
+  f_day_volume <- if (!is_shore) crab_fraction_day_volume(days, eff_d, osp_match, eff_spec$L_data) else NULL
+  cf_data <- crab_fraction_stan_data(is_shore, days, params, day_volume = f_day_volume)
 
   # --- improvement 4: opener effort covariates for THIS fit --------------------
   # The driver ran the screen and stored the selection in params$opener_selected and the
@@ -702,6 +705,13 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     cfc_crab               = cf_data$cfc_crab,
     cfc_combo              = cf_data$cfc_combo,
     cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
+    # D40 (2026-10-04): the crabbing share's day-level volume term (inert unless
+    # crab_fraction_volume = TRUE under the dynamic f; see crab_fraction.R)
+    f_volume               = cf_data$f_volume,
+    fvol_beta_prior_sd     = cf_data$fvol_beta_prior_sd,
+    fvol_centre            = cf_data$fvol_centre,
+    cfi_x                  = cf_data$cfi_x,
+    osp_f_x                = cf_data$osp_f_x,
     osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
 
     # --- D6 (2026-09-13): zero-inflated interview catch, ported from the pooled model ----

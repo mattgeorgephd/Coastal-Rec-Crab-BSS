@@ -1219,7 +1219,8 @@ local({
             t, fixed = TRUE))
   # The correctness point that would otherwise silently inflate the headline.
   chk("zinb: the season total is scaled by (1 - theta_C)",
-      grepl("* f_crab[f_stratum[d]] * zi_scale;", t, fixed = TRUE) &&
+      # D40 (2026-10-04): the day's share is fd (f_crab[f_stratum[d]] when the volume term is off)
+      grepl("* fd * zi_scale;", t, fixed = TRUE) && grepl("real fd = f_crab[f_stratum[d]];", t, fixed = TRUE) &&
       grepl("zi_scale = 1 - theta_C[1];", t, fixed = TRUE) &&
       grepl("zi_scale = 1.0;", t, fixed = TRUE))
   chk("zinb: theta_C_out is reported unconditionally so the parameter set keeps its shape",
@@ -2612,7 +2613,9 @@ local({
   for (m in c("02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan")) {
     src <- paste(readLines(m, warn = FALSE), collapse = "\n")
     chk(sprintf("%s: the OSP stream reads f x (1 - c[k]) and the combo rows are beta-binomial on the typed crabbing boats", basename(m)),
-        grepl("f_crab[osp_f_stratum[i]] * (1 - combo_c[osp_f_stratum[i]])", src, fixed = TRUE) &&
+        # D40: the OSP day's share is f_osp (f_crab[k] when the volume term is off)
+        grepl("real f_osp = f_crab[osp_f_stratum[i]];", src, fixed = TRUE) &&
+          grepl("p_osp = f_osp * (1 - combo_c[osp_f_stratum[i]]);", src, fixed = TRUE) &&
           grepl("cfc_combo[i] ~ beta_binomial(cfc_crab[i]", src, fixed = TRUE) && !grepl("combo_a", src, fixed = TRUE))
   }
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
@@ -4501,7 +4504,7 @@ local({
       any(grepl("log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C))", g, fixed = TRUE)) &&
       any(grepl("theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b)", g, fixed = TRUE)))
   chk("D6: the gear season total is scaled by zi_scale exactly once",
-      sum(grepl("f_crab[f_stratum[d]] * zi_scale;", g, fixed = TRUE)) == 1,
+      sum(grepl("* fd * zi_scale;", g, fixed = TRUE)) == 1,   # D40: fd is the day's share
       paste("Without it, turning ZI on inflates the total by 1/(1 - theta_C) as an artefact,",
             "because lambda_C rises to absorb the zeros theta_C removed."))
   chk("D6: theta_C_out and zi_scale are declared unconditionally, so every run has the columns",
@@ -7414,6 +7417,79 @@ local({
       grepl("boat ALL-GEAR fit has no OSP day at all", ps, fixed = TRUE) && !grepl("shared turnover calibration would fire on autumn-only overlap (D18)", ps, fixed = TRUE))
   chk("B63: the gear driver no longer says its zero-inflated catch ships off",
       !grepl('ships OFF (catch_zi_tracks =', rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"), fixed = TRUE))
+})
+
+# ---------- D40 (2026-10-04): the crabbing share's day-level volume term ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  # (1) the observed daily volume: OSP's total first, else trailers x turnover centre, else NA
+  dd <- mkdays("2025-06-01", 6)
+  effd <- tibble(event_date = dd$event_date[c(1, 1, 2, 4)], count_quantity = c(10, 20, 8, 0))
+  ospm <- tibble(event_date = dd$event_date[c(2, 3)], count_quantity = c(120, 40))
+  v <- crab_fraction_day_volume(dd, effd, ospm, L_data = rep(3, 6))
+  chk("D40 volume: OSP's total wins, else mean trailer x turnover centre, else NA (a zero count is not a volume)",
+      isTRUE(all.equal(v[1:3], c(45, 120, 40))) && all(is.na(v[4:6])) &&
+      identical(attr(v, "source")[1:3], c("trailer x turnover", "OSP total", "OSP total")))
+  # (2) the Stan fields: inert unless asked, with lengths that always match their streams
+  Pv <- modifyList(P, list(crab_fraction_strata = "month", crab_fraction_dynamic = TRUE, use_osp_crab_lower = TRUE))
+  Pv$crab_fraction_rows <- tibble(event_date = days289$event_date[c(1, 2, 40, 41, 100)], boats_total = c(3, 2, 5, 1, 4), boats_crabbing = c(3, 1, 4, 0, 1))
+  Pv$osp_crab_rows <- dplyr::mutate(osp_rows, osp_boat_total = rep(c(20, 80), 100))
+  vol <- rep(NA_real_, 289); vol[c(1, 2, 40, 100)] <- c(10, 40, 5, 20); vol[1:200][is.na(vol[1:200])] <- 30; vol[41] <- NA
+  cf_off <- crab_fraction_stan_data(FALSE, days289, Pv, quiet = TRUE, day_volume = vol)
+  chk("D40 inert by default: f_volume 0, zero x of the right lengths, the centres 0",
+      cf_off$f_volume == 0L && length(cf_off$cfi_x) == cf_off$CFI_n && all(cf_off$cfi_x == 0) &&
+      length(cf_off$osp_f_x) == cf_off$OSPF_n && all(cf_off$osp_f_x == 0) && all(cf_off$fvol_centre == 0))
+  Pv1 <- Pv; Pv1$crab_fraction_volume <- TRUE
+  cf_on <- crab_fraction_stan_data(FALSE, days289, Pv1, quiet = TRUE, day_volume = vol)
+  st <- cf_on$f_stratum; lv <- log(vol)
+  cen <- vapply(seq_len(cf_on$n_f_strata), function(k) mean(lv[st == k], na.rm = TRUE), numeric(1))
+  chk("D40 on: f_volume 1, each stratum's centre is the mean log volume of its days that have one",
+      cf_on$f_volume == 1L && isTRUE(all.equal(as.numeric(cf_on$fvol_centre)[is.finite(cen)], cen[is.finite(cen)])))
+  chk("D40 on: a contact day's x is its log volume minus its stratum's centre",
+      isTRUE(all.equal(cf_on$cfi_x[1], log(10) - cen[st[1]])) && isTRUE(all.equal(cf_on$cfi_x[3], log(5) - cen[st[40]])))
+  chk("D40 on: a contact day with no observed volume is read at the centre (x = 0) and counted",
+      cf_on$cfi_x[4] == 0 && identical(attr(cf_on, "f_volume_missing_contacts"), 1L))
+  chk("D40 on: an OSP day's x is from OSP's OWN daily total, not the day-volume vector",
+      isTRUE(all.equal(cf_on$osp_f_x[1:2], c(log(20), log(80)) - cen[st[1:2]])))
+  chk("D40 on: nothing but the five volume fields moves",
+      identical(cf_off[setdiff(names(cf_off), c("f_volume", "fvol_centre", "cfi_x", "osp_f_x"))],
+                cf_on[setdiff(names(cf_on), c("f_volume", "fvol_centre", "cfi_x", "osp_f_x"))]))
+  chk("D40: the term needs the dynamic f (legacy -> off) and a volume vector (none -> off)",
+      crab_fraction_stan_data(FALSE, days289, modifyList(Pv1, list(crab_fraction_dynamic = FALSE)), quiet = TRUE, day_volume = vol)$f_volume == 0L &&
+      crab_fraction_stan_data(FALSE, days289, Pv1, quiet = TRUE)$f_volume == 0L)
+  chk("D40: the shore never carries it", crab_fraction_stan_data(TRUE, days289, Pv1, quiet = TRUE, day_volume = vol)$f_volume == 0L)
+  # (3) the Stan programs: same term on both tracks, zero-size when off, one share per day in the totals
+  for (sf in c("02_stan_models/crab_bss_pooled.stan", "02_stan_models/crab_bss_gear_resolved.stan")) {
+    st_ <- rdf(sf)
+    chk(sprintf("D40 %s: declares the five data fields, n_fvol and a ZERO-SIZE beta_fvol", basename(sf)),
+        all(vapply(c("int<lower=0,upper=1> f_volume;", "real<lower=0> fvol_beta_prior_sd;", "vector[n_f_strata] fvol_centre;",
+                     "vector[CFI_n] cfi_x;", "vector[OSPF_n] osp_f_x;", "int n_fvol = n_f_dyn * f_volume;", "vector[n_fvol] beta_fvol;"),
+                   function(x) grepl(x, st_, fixed = TRUE), logical(1))))
+    chk(sprintf("D40 %s: the totals use the day's share fd (from the model's own volume), and fall back to the stratum's share bit for bit", basename(sf)),
+        grepl("real fd = f_crab[f_stratum[d]];", st_, fixed = TRUE) && grepl("lambda_C_S[s][d,g] * fd * zi_scale;", st_, fixed = TRUE) &&
+        grepl("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd;", st_, fixed = TRUE) &&
+        !grepl("f_crab[f_stratum[d]] * zi_scale", st_, fixed = TRUE) && grepl("vd = fmax(vd * L[d], 1e-9);", st_, fixed = TRUE))
+    chk(sprintf("D40 %s: both classification streams see the day's share when the term is on", basename(sf)),
+        grepl("eta_f[cfi_stratum[i]] + beta_fvol[1] * cfi_x[i]", st_, fixed = TRUE) &&
+        grepl("eta_f[osp_f_stratum[i]] + beta_fvol[1] * osp_f_x[i]", st_, fixed = TRUE) &&
+        grepl("p_osp = f_osp * (1 - combo_c[osp_f_stratum[i]]);", st_, fixed = TRUE))
+  }
+  chk("D40: the pooled volume is the OSP stream's own mean (lambda_E[, G] / R_G_boat x L); the gear track sums its gears as its OSP mean does",
+      grepl("vd += lambda_E_S[s2][d, G] / R_G_boat;", rdf("02_stan_models/crab_bss_pooled.stan"), fixed = TRUE) &&
+      grepl("vd += sum(lambda_E_S[s2][d, ]) / R_G_boat;", rdf("02_stan_models/crab_bss_gear_resolved.stan"), fixed = TRUE))
+  # (4) the preps build the volume and forward the fields
+  for (pf in c("03_R_functions/prep_bss_crab_pooled.R", "03_R_functions/prep_bss_crab_gear.R")) {
+    pt <- rdf(pf)
+    chk(sprintf("D40 %s: builds the day volume for boat fits and forwards the five fields", basename(pf)),
+        grepl("crab_fraction_day_volume(days, eff_d, osp_match,", pt, fixed = TRUE) &&
+        grepl("day_volume = f_day_volume)", pt, fixed = TRUE) &&
+        all(vapply(c("f_volume               = cf_data$f_volume", "fvol_beta_prior_sd     = cf_data$fvol_beta_prior_sd",
+                     "fvol_centre            = cf_data$fvol_centre", "cfi_x                  = cf_data$cfi_x",
+                     "osp_f_x                = cf_data$osp_f_x"), function(x) grepl(x, pt, fixed = TRUE), logical(1))))
+  }
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
+  chk("D40 shipped: crab_fraction_volume = TRUE with a N(0, 1) slope prior, alongside the dynamic f and the OSP stream",
+      isTRUE(rc$crab_fraction_volume) && identical(rc$crab_fraction_volume_beta_sd, 1) && isTRUE(rc$crab_fraction_dynamic) && isTRUE(rc$use_osp_crab_lower))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
