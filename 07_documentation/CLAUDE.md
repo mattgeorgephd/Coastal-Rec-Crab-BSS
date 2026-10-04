@@ -52,7 +52,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > four changes that between them moved the port total **+31%** in the 2026-09-11 ladder: a
 > **dynamic monthly crabbing fraction `f`** (a per-stratum logit random walk observed by the
 > sampler boat contacts, replacing a flat 0.30 that was wrong by roughly 3x in the winter
-> months that carry most of the boat catch), the **boat turnover recentred on the OSP/trailer
+> months, December to February; the claim that those months carry most of the boat catch was
+> wrong: they are about 4,700 of about 47,000, May to August about 36,000), the **boat turnover recentred on the OSP/trailer
 > calibration**, the **shore turnover derived from the I/E `time` column**, and the census
 > split into a **commercial CENSUS plus a charter EXPANSION**; and, since 2026-09-27, the **NWS
 > Small-Craft-Advisory day flag on the private-boat all-gear effort process** (A30, one

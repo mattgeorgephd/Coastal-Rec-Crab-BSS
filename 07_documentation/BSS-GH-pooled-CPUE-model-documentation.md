@@ -226,7 +226,9 @@ data, so its effect is measured rather than argued. The four movers sum to the w
 | the census split: a commercial census plus a charter expansion | **-3,283** | one day-type census expansion |
 
 **The crabbing fraction is the largest mover and the best supported.** The retired flat 0.30
-was wrong by roughly 3x in the winter months that carry most of the boat catch. Fitted
+was wrong by roughly 3x in the winter months (December to February; they carry about 4,700 of
+the boat's 47,000 on the authoritative run, and May to August about 36,000: an earlier version
+of this sentence said the winter months carry most of the boat catch, which is wrong). Fitted
 monthly, with the sampler contacts observing it:
 
 | month | contacts | raw share | fitted `f` | | month | contacts | raw share | fitted `f` |

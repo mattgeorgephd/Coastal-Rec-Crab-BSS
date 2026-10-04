@@ -32,7 +32,12 @@
 > boat movement is reported, not judged. What to expect, from container refits of the boat
 > all-gear fit (not renders): 46,947 off and 46,538 on (-0.9%, interval 6% narrower), and 43,006
 > if every returning boat had been sampled (the bound on what OSP's above-minimum sampling could
-> do). CHANGE_REGISTER A33.
+> do). CHANGE_REGISTER A33. **Two defects in the stream were found the same day, after the switch,
+> and rule A33 tests neither: D39, OSP's crab-only sheet appears to omit the days with no crab-only
+> boat (a question to OSP), and D40, the per-day likelihood fits a day-averaged share where the
+> harvest needs the boat-weighted one, about 1.5x too high in June to September, the months that
+> carry most of the boat catch (a model change). Settle them, or decide to accept them, before the
+> render.**
 >
 > **`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718]**, 4 of 4
 > components fitted, every one reporting BSS. It is stage A of
