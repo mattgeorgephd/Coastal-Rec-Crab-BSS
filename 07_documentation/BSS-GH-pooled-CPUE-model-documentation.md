@@ -774,6 +774,43 @@ construction of `f`:
   genuine hard bound: `f = f_lower + (1 - f_lower) * theta`, so `f` can never fall below the
   crab-only share OSP observed directly.
 
+**The crabbing share varies with the day's boat volume (D40, A34; 2026-10-04, pending the
+same render as A33).** `f` is one value per month, and the totals multiply every day's effort by
+it, so the share they need is the month's BOAT-WEIGHTED share, `sum_d V_d p_d / sum_d V_d`. A
+per-day beta-binomial caps each day's weight near its concentration once the day holds more
+boats than that, so it fits close to the AVERAGE day's share; and OSP's own data show the share
+FALLS on busy days (the correlation of the daily total with the crab-only share is -0.47 to
+-0.72 in every summer month of 2025). Measured on OSP's days at the container refit's
+concentration, the likelihood's share was 1.41x to 1.59x the boat-weighted one in June to
+September, the months that carry most of the boat catch. `crab_fraction_volume = TRUE` gives
+each day its own share:
+
+```
+logit f_d = eta_f[k] + beta_fvol * (log V_d - fvol_centre[k]),   beta_fvol ~ normal(0, 1)
+```
+
+with `eta_f[k]` the walk above (now the share at the stratum's central volume) and
+`fvol_centre[k]` the mean log volume over the stratum's days that have one. **Both classification
+streams use OBSERVED volumes** (`crab_fraction_day_volume()`: OSP's daily total where OSP counted,
+else the day's mean trailer count times its turnover centre, which puts both on the scale of
+`(lambda_E / R_G_boat) * L`), so `f` still enters no effort or CPUE likelihood. **The totals use
+the model's own daily volume**, `(lambda_E[d] / R_G_boat) * L[d]`, the OSP stream's mean, on every
+day, so the share they apply is boat-weighted by construction; `f_crab_bw_out` reports it per
+stratum and `beta_fvol_out` the slope. With the key FALSE every quantity is bit-identical to the
+model without it (`beta_fvol` and `f_crab_bw_out` are zero-size). On OSP's days alone a
+quasi-binomial fit of the same form gives `beta = -0.88` (SE 0.105) and reproduces OSP's monthly
+expansion estimate (July 0.082 against 0.081). **Container refits of the pooled boat fits at
+production settings (not renders):** all-gear 35,519 [25,613, 50,023], against 46,538 with the OSP
+stream alone and 46,947 with neither, 0 divergences, `beta_fvol` -0.76 [-1.00, -0.52],
+`osp_f_kappa` 20.7 [12.7, 35.4] (10.6 without the term: the term explains much of what the
+concentration had absorbed as day-to-day spread); boat-weighted `f` June 0.272, July 0.282, August
+0.217, against 0.408, 0.386 and 0.315; pot closure 1,381 [563, 4,695] (1,378 on the authoritative
+run). **What it does not settle:** the model's boat-weighted crab-only share `f_bw (1 - c)` still
+sits above OSP's own expansion in June and July (0.127 and 0.124 against 0.083 and 0.081), because
+the sampler contacts hold `f` up where `c` is thin (D11); and the slope is one per fit, so the
+winter months, which have no OSP day, take the slope the summer teaches through the contacts and
+the walk (February's boat-weighted `f` 0.907 against 0.858).
+
 **What `osp_f_total` is: the boats OSP SAMPLED, not the boats that returned (B48, 2026-09-28).**
 OSP does not interview every boat. Per its sampling manual (Erica, OSP, 2026-09-28), a sampler
 samples every k-th returning private boat past a fixed landmark, all day, at a rate set in the
