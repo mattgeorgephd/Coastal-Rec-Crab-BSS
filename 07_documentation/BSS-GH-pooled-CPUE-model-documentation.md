@@ -6,7 +6,7 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-09-29** (the pooled model; on 2026-10-02 the gear cross-check was matched to it, A32). **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run (`20260929/pooled-CPUE-2024-25-220449`, B61) IS the first render at the A31 code with `init_r = 0.5`; a render of the shipped configuration on the same machine reproduces it to the crab. B57's render at 0.5 of the pre-A31 code failed its shore pot-closure gate and is not a reference. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-10-04: A33, OSP's crab-only count switched on as an observation of the crabbing fraction on both tracks (`use_osp_crab_lower = TRUE`), adopted by Matt and PENDING ITS CONFIRMING RENDER under rule A33 (Section 14.3); until that render passes, the figures below are the 2026-09-29 model's.** Before that it last moved 2026-09-29 (the pooled model; on 2026-10-02 the gear cross-check was matched to it, A32). **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run (`20260929/pooled-CPUE-2024-25-220449`, B61) IS the first render at the A31 code with `init_r = 0.5`; a render of the shipped configuration on the same machine reproduces it to the crab. B57's render at 0.5 of the pre-A31 code failed its shore pot-closure gate and is not a reference. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
 **The authoritative run has moved since this reference run (2026-10-02, B61):** `05_output/20260929/pooled-CPUE-2024-25-220449`, 99,822 [82,090, 124,718], the same configuration rendered at the A31 code with `init_r = 0.5`; every component is within 0.02 posterior SD of the reference run's, so the figures this document quotes from it describe the method of record as it stands. Its gear cross-check is 99,294 (-0.53%) since D3 and D6 were adopted together on the gear track (2026-10-02, A32; limitation 10), and the boat all-gear resolution span, 99,822 at monthly to 106,380 at weekly, is quoted beside the total (limitation 10a). The box at the top of `PIPELINE_STATUS.md` is the place to quote from. **Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
@@ -126,14 +126,19 @@ the National Weather Service's own hazard decision for the waters the boats cros
 | **Charter trip roster** | every charter trip, marked interviewed / missed / cancelled | the frame the charter component is expanded over |
 | **NWS marine hazard archive** (covariate, not a stream) | every Small Craft Advisory, gale, storm, hazardous-seas and hurricane-force product issued for the Grays Harbor Bar (PZZ110) and the coastal waters off Westport (PZZ156), from the archived VTEC record (`04_input_files/nws_marine_hazards.xlsx`), reduced to a flag per day: an advisory or higher in effect at any moment of 04:00 to 16:00 local | which days of the boat all-gear window were advisory days, sampled or not; the term on the boat effort process (Section 14.2) |
 
-**The OSP stream is the reason Method v2.0 exists, and it is half-delivered.** OSP will
-provide, per day, (a) the total number of vessels returning and (b) the fraction of those
-that were **crabbing only**. **(a) is in hand** and is what the boat effort model now runs
-on. **(b) is still outstanding.** As of 2026-09-28 it is awaited from OSP for 2024-25, together with the day's sampling rate or number of boats sampled (OSP's minimum-rate schedule is in hand, `osp_sampling_rates.xlsx`, B48). Note carefully what (b) is when it arrives: it
+**The OSP stream is the reason Method v2.0 exists, and both halves are now delivered.** OSP
+provides, per day, (a) the total number of vessels returning and (b) the number of the boats it
+sampled that were **crabbing only**. **(a) is in hand** and is what the boat effort model runs
+on. **(b) was delivered on 2026-10-02** (`WPTPrivateCrabOnly`, 253 classified days; B64) and is
+**on since 2026-10-04** (A33, pending its confirming render). It came without the day's sampling
+rate, so its binomial n is OSP's minimum-rate schedule on every day (`osp_sampling_rates.xlsx`,
+B48); the day's actual rate is still worth asking for (D2). The same delivery's
+`WPTPrivateCrabAlso` is NOT used: it is counted from the free-text notes of OSP's sampling form,
+not a menu item, so it was not consistently sampled. Note carefully what (b) is: it
 deliberately excludes combo trips that crabbed alongside another fishery, so it is a **lower
-bound** on the vessels that did any crabbing, not the crabbing fraction itself. The machinery
-that would use it is built, tested and inert (Section 14.3); do not wire the crab-only column
-in as if it were `f`. (a) is itself partial for 2025-26: `WBL_boat_counts.xlsx` holds 23 OSP
+bound** on the vessels that did any crabbing, not the crabbing fraction itself. The model
+reads it as an observation of `f(1 - c)`, never of `f` (Section 14.3); do not wire the
+crab-only column in as if it were `f`. (a) is itself partial for 2025-26: `WBL_boat_counts.xlsx` holds 23 OSP
 days, 17 Sep to 18 Oct 2025 (14 paired with trailer counts), and the rest of that season is
 awaited, so until it arrives a 2025-26 run's shared turnover calibration rests on autumn-only
 overlap.
@@ -746,11 +751,13 @@ It appears nowhere in `lambda_E_S` or `lambda_C_S`. Therefore **the boat total i
 linear in `f`, and the model's CPUE is invariant to it** - which is the property the R2-vs-R2f
 control rung measured rather than assumed (Section 6).
 
-**The OSP crabbing-only stream: built, tested, and inert.** The R side switches it on
-(`osp_crab_lower = 1`) only when `use_osp_crab_lower = TRUE` and `use_osp_boat_counts = TRUE`,
-the workbook carries the crab-only column, and at least one stratum clears
-`crab_fraction_osp_min_obs` (`crab_fraction.R`). Today none of those holds (the column has not
-been delivered and the key ships FALSE). When it is on, what it does depends on the
+**The OSP crabbing-only stream: ON since 2026-10-04 (A33), pending its confirming render.** The
+R side switches it on (`osp_crab_lower = 1`) only when `use_osp_crab_lower = TRUE` and
+`use_osp_boat_counts = TRUE`, the workbook carries the crab-only column, and at least one stratum
+clears `crab_fraction_osp_min_obs` (`crab_fraction.R`). Since A33 all four hold on 2024-25 for
+the two private-boat fits only (the shore fits carry no `f`): the all-gear fit takes 115 OSP
+days (March to September 2025) and the pot-closure fit 8; December to February have no OSP
+rows, and their `f` moves only through the walk. What the stream does depends on the
 construction of `f`:
 
 - **Under the dynamic `f` (production).** `osp_f_kappa` is sized by `osp_crab_lower` alone,
@@ -792,9 +799,23 @@ approximation, and the beta-binomial's `osp_f_kappa` absorbs extra day-to-day sp
 > the dynamic construction, which is production, it is **not a bound at all**: it is the
 > derived quantity `f * (1 - c)`, the model's prediction of what OSP's crabbing-only column
 > should read, and it is pinned to 0 when the `c` walk is off. Any comparison of
-> `f_lower_out` across runs must first establish which construction was live. This is also
-> the column that will be the direct check on the shift-time contacts when OSP delivers the
-> crab-only data.
+> `f_lower_out` across runs must first establish which construction was live. Before A33 it
+> was an out-of-sample check on the shift-time contacts: OSP's monthly crab-only share at the
+> schedule n fell inside the 2026-09-29 run's `f(1 - c)` 95% interval in all seven OSP months
+> of 2025 (CHANGE_REGISTER D2). Since A33 OSP's column is fitted, so `f_lower_out` is a
+> posterior predictive quantity of that column, not an independent check.
+
+**The A33 evidence and its rule.** Container refits of the private-boat all-gear fit at
+production sampler settings (not a render): off 46,947 [31,769, 69,621]; on 46,538 [32,451,
+67,969] (-0.9%, the interval 6% narrower, no divergences, `osp_f_kappa` 10.6 [7.3, 15.7]);
+`f` moved only where OSP has days (April 0.625 to 0.572, July 0.417 to 0.386, September 0.198
+to 0.267), December to February within 0.10 posterior SD. Taking n as every returning boat
+instead (`osp_sampling_rate_source = "none"`, a bound, not an option) gives 43,006: the most
+that OSP sampling above its minimum rate could move this fit. Rule A33, written before the
+render: the render of `run_config.R` as shipped (`--model both`) is adopted if every fit on
+both tracks passes the convergence gate with no stuck chain, the gear cross-check is within 2%,
+and December to February `f` moves by less than 0.25 posterior SD from the 2026-09-29 run; the
+boat total's movement is reported, not judged.
 
 ### 14.4 The turnovers
 
@@ -1027,8 +1048,9 @@ vector unchanged and a fixed-seed rerun reproduces byte for byte: `theta_C`, `f_
 fit under `mu_hier_collapse_single = "both"`.
 
 **Unreachable under the shipped configuration.** The entire legacy scalar-`f` construction
-(`crab_fraction_dynamic = TRUE` makes it zero-size); the whole OSP crab-only block
-(`use_osp_crab_lower = FALSE`); the `kappa_OSP` arm of the OSP mean
+(`crab_fraction_dynamic = TRUE` makes it zero-size), including the hard OSP lower bound
+`f_lower_param` (the OSP crab-only beta-binomial itself is live since A33, on the boat fits);
+the `kappa_OSP` arm of the OSP mean
 (`osp_scale_is_tau = TRUE`); and the `estimate_L = 0` branch, which the prep never selects.
 
 **Dead code, kept and named so nobody re-derives it by accident.** The `Crab_*` census stream
@@ -1471,8 +1493,10 @@ headline is the BSS posterior; both affect what the PE column can be asked to su
 of a day's boat returns, and the trip-type mix does not drift with the hour inside them on
 2024-25, which is measured rather than assumed. The roughly 15% of returns after the last
 check-out are unclassified. **Only OSP's all-day crabbing-only count can say whether their
-mix differs**, and when it arrives the comparison is direct: `f_lower_out` is the model's
-prediction of that column. Tracked as D11.
+mix differs.** It arrived on 2026-10-02 and, compared out of sample at the schedule n, it sat
+inside the model's `f(1 - c)` interval in every OSP month of 2025, below the median in April,
+June and July. That is consistent with no shift-time bias but not a test with much power, and
+since A33 fits the column the comparison is no longer independent. Tracked as D11.
 
 **10. The gear-resolved cross-check now differs only in how CPUE is modelled, and its weekly
 shore fit is fragile without the zero inflation.** Until 2026-10-02 it differed in two more ways:
@@ -1664,6 +1688,10 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
+- **2026-10-04.** A33: OSP's crab-only count (delivered 2026-10-02, B64) switched on as an
+  observation of `f(1 - c)` on both tracks (`use_osp_crab_lower = TRUE`; Section 14.3), on
+  Matt's instruction, with its rule written before the render. Pending that render; the box at
+  the top of `PIPELINE_STATUS.md` keeps 99,822 until it passes.
 - **2026-10-02.** The authoritative batch finished. Stage A, the first render at the A31 code,
   became the authoritative run (99,822 [82,090, 124,718], every component within 0.02 posterior SD
   of the 2026-09-28 run; B61). D3 and D6 adopted together on the gear track (A32), the cross-check

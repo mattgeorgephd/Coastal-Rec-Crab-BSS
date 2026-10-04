@@ -150,13 +150,14 @@
 # WHAT THE OSP DATA IS, and why the boat model is built the way it is. OSP will
 # provide, per day: (a) the TOTAL number of vessels returning, and (b) the
 # fraction of those that were CRABBING ONLY. (a) IS IN HAND and is what the boat
-# effort stream now runs on. (b) IS STILL OUTSTANDING. (b) deliberately EXCLUDES combo
+# effort stream now runs on. (b) WAS DELIVERED 2026-10-02 (WPTPrivateCrabOnly, B64) AND IS
+# ON SINCE 2026-10-04 (A33, section 2.4b). (b) deliberately EXCLUDES combo
 # trips that included crabbing alongside another fishery, so it is a LOWER BOUND
 # on the vessels that did any crabbing, not the crabbing fraction itself. That
-# is exactly what `osp_crab_lower` / `f_lower` exist for: the crab-only count
-# bounds f from below while the combo-trip share stays on a prior. Do not wire
-# the crab-only column in as if it were f. Until it arrives the machinery in section
-# 2.4b is built, tested and inert, and `f` rests on the sampler interview contacts alone.
+# is exactly what `osp_crab_lower` / `f_lower` exist for: under the shipped dynamic f the
+# crab-only share observes f x (1 - c), c the combo-trip share (its own walk, observed by the
+# sampler's typed contacts). Do not wire the crab-only column in as if it were f. Before
+# A33, `f` rested on the sampler interview contacts alone.
 #
 # WHAT THE OSP DATA IS FOR. Two things, in order: improve the ACCURACY of the
 # boat harvest estimate, and reduce its UNCERTAINTY. Before the OSP stream the
@@ -705,10 +706,10 @@ run_config <- list(
   # name; "crabbing_only" was the name expected before delivery and stays accepted. The same
   # sheet's "WPTPrivateCrabAlso" is NOT carried and must not be: it is counted from the free-text
   # NOTES field of OSP's sampling form, not a menu item, so it is opportunistic and was not
-  # consistently sampled (Matt, from OSP, 2026-10-02). Reading the column changes no fit while
-  # use_osp_crab_lower = FALSE (below): the crab-only rows then feed only the run's
-  # osp_crab_only_daily.csv. See the use_osp_crab_lower block for the combo-trip problem this
-  # column does and does not solve.
+  # consistently sampled (Matt, from OSP, 2026-10-02). Since A33 (2026-10-04,
+  # use_osp_crab_lower = TRUE, below) the column observes f x (1 - c) on the boat fits; with the
+  # key FALSE it would feed only the run's osp_crab_only_daily.csv. See the use_osp_crab_lower
+  # block for the combo-trip problem this column does and does not solve.
   osp_crab_only_col     = c("WPTPrivateCrabOnly", "crabbing_only", "WestportCrabOnlyEffort"),
   # OSP'S SAMPLING (2026-09-28, B48; Erica, OSP). OSP samples every k-th private boat at a rate
   # fixed for the day from the anticipated effort and the staff on the docks, so the crab-only
@@ -780,12 +781,13 @@ run_config <- list(
   # WPT/WBL egress classification columns (blank until the pilot delivers), "both".
   # CAVEAT carried, not hidden: contacts happen during sampler shifts, so boats returning
   # outside the shift are not classified; if finfish boats return later than crab boats
-  # the contact share overstates f, most in summer. OSP's all-day crabbing-only column,
-  # when it arrives, is the check (crab_fraction_source_rows in crab_fraction.R).
+  # the contact share overstates f, most in summer. OSP's all-day crabbing-only column was the
+  # out-of-sample check (crab_fraction_source_rows in crab_fraction.R; inside the model's
+  # f(1 - c) interval in all seven OSP months of 2025, D2) until A33 fitted it.
   crab_fraction_source      = "both",
   # TRUE replaces the per-stratum Beta/Binomial f above with a random walk on the log-odds
   # of f across the month strata in chronological order, observed PER DAY by the sampler
-  # boat contacts (crab_fraction_source) and, when OSP's crabbing-only column arrives, by
+  # boat contacts (crab_fraction_source) and, since A33 (use_osp_crab_lower = TRUE), by
   # the OSP counts through f x (1 - c), c the combo-trip share among crabbing boats:
   #     logit f[k] = logit f[k-1] + sigma_f * z[k],   sigma_f learned,  z ~ Student-t
   # A month with five contacts borrows from its neighbours instead of falling back to the
@@ -864,39 +866,45 @@ run_config <- list(
   ie_crab_col               = "boats_crabbing",  # ingress_egress column: crab-classified boats
   ie_total_col              = "boats_total",     # ingress_egress column: total classified boats
 
-  # --- 2.4b BUILT AND WAITING ON DATA: the OSP crabbing-only lower bound on f ---
-  # THE PROBLEM. OSP can report, per day, the number of boats that were ONLY crabbing.
-  # It does not record combo trips: a boat that crabs AND fishes another fishery is
-  # labelled by the non-crab fishery. So the OSP crab-only share is a LOWER BOUND on the
-  # true crabbing fraction f, not an estimate of it, and OSP alone cannot separate
-  # "few boats, all crabbing" from "many boats, some also crabbing".
+  # --- 2.4b ADOPTED 2026-10-04 (A33), PENDING ITS CONFIRMING RENDER: the OSP crab-only stream ---
+  # THE PROBLEM. OSP reports, per day, the number of SAMPLED private boats that were ONLY
+  # crabbing (WPTPrivateCrabOnly, delivered 2026-10-02, B64). It does not count combo trips:
+  # a boat that crabs AND fishes another fishery is labelled by the other fishery. So the
+  # OSP crab-only share is a LOWER BOUND on the crabbing fraction f, not f.
   #
-  # THE PARAMETERIZATION (hard lower bound). Per f stratum k:
-  #     f_lower[k] ~ Beta(1,1)   updated by  osp_crab_only[k] ~ Binomial(osp_total[k], f_lower[k])
-  #     f[k]       = f_lower[k] + (1 - f_lower[k]) * theta[k]
-  # theta[k] in [0,1] is the share of the NOT-crab-labelled boats that were also crabbing
-  # (the combo trips OSP cannot see). f can therefore never fall below what OSP directly
-  # observed, which is the whole point of the bound.
+  # HOW IT ENTERS (the shipped dynamic f, crab_fraction_dynamic = TRUE). Per OSP day j in a
+  # month stratum k:
+  #     osp_crab_j ~ BetaBinomial(n_j, f[k] * (1 - c[k]), kappa_O)
+  # where n_j is the boats OSP SAMPLED that day (osp_sampling_rate_source above; the minimum-
+  # rate schedule on every 2024-25 day, since no daily rate came with the data), c[k] is the
+  # combo-trip share among crabbing boats (its own walk, observed by the sampler's typed
+  # contacts) and kappa_O ~ lognormal(log(crab_fraction_osp_kappa_prior_mu), 0.75) is
+  # estimated from the spread of the daily shares. A stratum with fewer than
+  # crab_fraction_osp_min_obs sampled boats sends no OSP rows. f still enters generated
+  # quantities only, so the boat total stays linear in f and the model CPUE is untouched.
+  # (The legacy construction, crab_fraction_dynamic = FALSE, uses a hard bound instead,
+  # f = f_lower + (1 - f_lower) * theta; see 03_R_functions/crab_fraction.R. It is not shipped.)
   #
-  # HOW IT DEGRADES (this is the "defaults back to interview data" behaviour):
-  #   OSP + egress classification in a stratum -> f_lower from OSP, theta pinned by the
-  #       egress Binomial n_crab ~ Binomial(n_total, f); both identified.
-  #   OSP only                                 -> f_lower from OSP, theta on its combo
-  #       prior; f is bounded below by data and the rest rests on the prior.
-  #   Egress only / neither (winter, OSP dark) -> f_lower is PINNED TO 0 and theta's prior
-  #       is set to the ordinary f prior Beta(set*kappa, (1-set)*kappa), so f reduces
-  #       EXACTLY to today's Phase 2/3 behaviour. Backward compatibility is exact.
-  # f still enters generated quantities only, so the boat stays exactly linear in f and
-  # the model CPUE stays invariant (the validated Phase 2/3 property is preserved).
-  # SHIPS OFF, deliberately. Every other behaviour-changing feature in the 2026-08-25
-  # batch is opt-in, and this one has to be too: the moment WBL_boat_counts.xlsx gains a
-  # crab-only column, flipping this to TRUE would change the boat harvest on the SAME run
-  # that first reads the new data, with no baseline to compare against. Worse, at
-  # crab_fraction_strata = "none" the whole window collapses to one stratum and f becomes
-  # p_osp + (1 - p_osp) * crab_fraction_combo_share, so a large part of the move would come
-  # from the combo-share PLACEHOLDER rather than from OSP's data. Turn it on deliberately,
-  # in its own run, against a run with it off. Requires use_osp_boat_counts = TRUE.
-  use_osp_crab_lower        = FALSE,
+  # WHY ON (Matt, 2026-10-03: "Set the use osp crab lower to on"). The column it was built to
+  # read is now delivered and uncontaminated (the notes-derived WPTPrivateCrabAlso is not
+  # carried). Out of sample, OSP's monthly share at the schedule n fell inside the
+  # authoritative run's own f(1 - c) 95% interval in all seven OSP months of 2025. Container
+  # refits of the boat all-gear fit at production settings (B64 follow-up, scratch, not a
+  # render): off 46,947 [31,769, 69,621]; on 46,538 [32,451, 67,969] (-0.9%, interval 6%
+  # narrower, 0 divergences); f moves only in March to September (Apr 0.625 -> 0.572,
+  # Jul 0.417 -> 0.386, Sep 0.198 -> 0.267), December to February within 0.007. With n =
+  # every returning boat (osp_sampling_rate_source = "none", a bound, not an option) the same
+  # fit reads 43,006: that 7.6% is the most that OSP sampling above its minimum rate could
+  # move this fit, and is why the day's actual rate is still worth asking OSP for (D2).
+  # THE RULE (A33, written before the render): the authoritative render of this file
+  # (Rscript run_estimation.R --model both) is adopted if every fit on both tracks passes the
+  # convergence gate with no stuck chain, the gear cross-check is within
+  # cross_check_tolerance (2%), and December to February f (no OSP rows) moves by less than
+  # 0.25 posterior SD from the 2026-09-29 run (the container refit moved them 0.05 to 0.10 SD,
+  # carried back by the walk, so 0.10 would fail on Monte Carlo noise alone); the boat total's
+  # movement is reported, not judged.
+  # Requires use_osp_boat_counts = TRUE. FALSE restores the 2026-09-29 model exactly.
+  use_osp_crab_lower        = TRUE,
   crab_fraction_osp_min_obs = 20,     # min OSP-classified boats in a stratum before the bound binds
   # Beta-binomial concentration for the DAILY OSP crab-only shares. The bound is fitted
   # one observation PER DAY, not on the stratum sum: summing ~150 operating days at ~50

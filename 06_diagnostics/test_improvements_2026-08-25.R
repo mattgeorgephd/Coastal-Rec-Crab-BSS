@@ -275,7 +275,10 @@ local({
   chk("shipped: ar_escalate OFF", identical(rc$ar_escalate, FALSE))
   chk("shipped: opener_covariate_mode OFF", identical(rc$opener_covariate_mode, "off"))
   chk("shipped: razor_dig_mode no", identical(rc$razor_dig_mode, "no"))
-  chk("shipped: use_osp_crab_lower OFF", identical(rc$use_osp_crab_lower, FALSE))
+  # 2026-10-04 (A33): ON, now that OSP delivered the crab-only column (B64); it needs the OSP
+  # stream, the dynamic f and the combo walk (the Stan rejects osp_crab_lower without dynamic c)
+  chk("shipped: use_osp_crab_lower ON (A33), with use_osp_boat_counts and the dynamic f it needs",
+      identical(rc$use_osp_crab_lower, TRUE) && identical(rc$use_osp_boat_counts, TRUE) && identical(rc$crab_fraction_dynamic, TRUE))
   # 2026-09-10: the three unsampled-cell levers ship at their new values. "zero" is no
   # longer a neutral default; it is an assumption that 15.6% of the shore's days and 16.6%
   # of the boat's had no fishing, and its error is a bias no SE can carry.
@@ -3797,7 +3800,9 @@ local({
   chk("canonical: the box records the desk check that the shipped config reproduces the run's inputs",
       { ps <- paste(readLines("07_documentation/development_notes/PIPELINE_STATUS.md", warn = FALSE), collapse = "\n")
         f <- gsub("[ \n>]+", " ", ps)
-        grepl("The shipped configuration IS this run, so its resolved inputs are the shipped ones", f, fixed = TRUE) &&
+        # 2026-10-04 (A33): the shipped file differs from the run in use_osp_crab_lower alone, and the box says so
+        grepl("Apart from A33's one key, the shipped configuration IS this run, so its resolved inputs are the shipped ones", f, fixed = TRUE) &&
+        grepl("`run_config.R` as shipped now differs from this run in ONE key, `use_osp_crab_lower = TRUE`", f, fixed = TRUE) &&
         grepl("2.4771", f, fixed = TRUE) && grepl("3.0300", f, fixed = TRUE) &&
         grepl("commercial 6,405 plus charter 2,133 = 8,538", f, fixed = TRUE) &&
         grepl("none of them a missing frame", f, fixed = TRUE) })
@@ -3934,13 +3939,17 @@ local({
   # the OSP crabbing-only column: the one piece of the method that is built and waiting on
   # data, and the one a reader could most easily mis-wire. Assert all four facts separately.
   .flat <- gsub("[ \n]+", " ", ps)
-  chk("method v2.0: it records that the OSP crabbing-only column is STILL OUTSTANDING, is a lower bound, and must not be wired in as f",
-      identical(rc$use_osp_crab_lower, FALSE) &&
+  # 2026-10-04 (A33): the column was delivered (B64) and is ON; the document must say so, keep
+  # the lower-bound warning, and carry the A33 rule.
+  chk("method v2.0: it records that the OSP crabbing-only column is DELIVERED and ON (A33), is a lower bound read as f(1 - c), and must not be wired in as f",
+      identical(rc$use_osp_crab_lower, TRUE) &&
       grepl("**(a) is in hand**", .flat, fixed = TRUE) &&
-      grepl("**(b) is still outstanding.**", .flat, fixed = TRUE) &&
+      grepl("**(b) was delivered on 2026-10-02**", .flat, fixed = TRUE) &&
       grepl("lower bound** on the vessels that did any crabbing, not the crabbing fraction itself", .flat, fixed = TRUE) &&
       grepl("do not wire the crab-only column in as if it were `f`", .flat, fixed = TRUE) &&
-      grepl("built, tested and inert", .flat, fixed = TRUE))
+      grepl("The OSP crabbing-only stream: ON since 2026-10-04 (A33)", .flat, fixed = TRUE) &&
+      grepl("Rule A33, written before the render", .flat, fixed = TRUE) &&
+      !grepl("built, tested and inert (Section 14.3)", .flat, fixed = TRUE))
   chk("method v2.0: the gate thresholds in the document are the gate's actual defaults",
       { g <- paste(readLines("03_R_functions/bss_convergence_gate.R", warn = FALSE), collapse = "\n")
         grepl("max_impact_sd    = 0.10", g, fixed = TRUE) && grepl("`< 0.10`", ps, fixed = TRUE) &&
@@ -5914,7 +5923,8 @@ local({
   ng <- rd("07_documentation/NEW_SEASON_GUIDE.md"); cl <- rd("07_documentation/CLAUDE.md")
   chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
       # 2026-09-29: the header moved again (B44 to B51); it must still name A30 among what it carries
-      grepl("**last moved 2026-09-2", md, fixed = TRUE) &&
+      # 2026-10-04: and again (A33)
+      grepl("**last moved 2026-10-04: A33", md, fixed = TRUE) &&
       grepl("the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27)", md, fixed = TRUE) &&
       grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
       grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
@@ -6633,9 +6643,9 @@ local({
       nrow(attr(wbl, "osp_crab_rows")) > 0 && nrow(wbl) > 0 && all(wbl$count_type == "OSP Boat Count") &&
       all(wraw$WPTPrivateCrabOnly <= wraw$WestportPrivateEffort, na.rm = TRUE))
   e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config
-  chk("B48 config: the sampling keys are on the control surface, 'crabbing_only' is a crab-only column name, and the bound ships off",
+  chk("B48 config: the sampling keys are on the control surface, 'crabbing_only' is a crab-only column name, and (A33) the stream ships on",
       all(c("osp_sample_rate_col", "osp_sampling_rate_source", "osp_sampling_rates_file", "osp_crab_only_basis") %in% names(rc)) &&
-      identical(rc$osp_crab_only_col[1], "WPTPrivateCrabOnly") && "crabbing_only" %in% rc$osp_crab_only_col && identical(rc$osp_sampling_rate_source, "auto") && isFALSE(rc$use_osp_crab_lower))
+      identical(rc$osp_crab_only_col[1], "WPTPrivateCrabOnly") && "crabbing_only" %in% rc$osp_crab_only_col && identical(rc$osp_sampling_rate_source, "auto") && isTRUE(rc$use_osp_crab_lower))
   for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
     chk(sprintf("B48 %s writes osp_crab_only_daily.csv (the per-day n, rate and its source) when crab rows exist", basename(drv)),
         any(grepl('file.path(output_dir, "osp_crab_only_daily.csv")', readLines(drv, warn = FALSE), fixed = TRUE)))
