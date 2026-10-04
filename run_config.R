@@ -49,19 +49,27 @@
 # the per-population AR periods and the zero-inflated shore catch (D3 and D6, adopted
 # together 2026-10-02, A32 and B62; section 5 and section 2).
 #
-#   05_output/20260929/pooled-CPUE-2024-25-220449
-#   port total 99,822  [82,090, 124,718]      4 of 4 components fitted, all BSS
-#   05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi:
-#                       99,294, -0.53%, the cross-check PASSES
+# and, since 2026-10-04, OSP's crab-only count (A33) and the day-level crabbing share (A34):
 #
-# The pooled folder is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this
+#   05_output/20261003/pooled-CPUE-2024-25
+#   port total 87,932  [75,193, 105,271]      4 of 4 components fitted, all BSS
+#   05_output/20261004/gear-type-CPUE-model-2024-25:
+#                       87,903, -0.03%, the cross-check PASSES
+#
+# Matt's render of this file as shipped at 4490fbe on a clean tree (committed c2cb6af;
+# CHANGE_REGISTER B65), judged by the A33/A34 rule written before it ran. It replaced:
+#
+#   05_output/20260929/pooled-CPUE-2024-25-220449
+#   port total 99,822  [82,090, 124,718]      (cross-check 99,294, -0.53%)
+#
+# That pooled folder is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this
 # file as shipped at 2523e8e, rendered by run_estimation.R with model = "both" on a clean tree
 # (Matt, 2026-09-29 to 30, committed d30161a; CHANGE_REGISTER B61). D3 and D6 touch only the
 # gear driver, so the pooled render is unchanged by them. The gear folder is the same batch's
 # stage D6: this file's configuration as shipped now, at the same code, the same inputs and
 # the same bss_seed, so it IS the render of this file's gear track (only run_tag differs, and
 # run_tag names the folder and nothing else). On the same machine a render of this file
-# reproduces both to the crab (B38). The gear cross-check it replaced was
+# reproduced both to the crab (B38) until A33 and A34 moved it. The gear cross-check it replaced was
 # 05_output/20260930/gear-type-CPUE-model-2024-25 (98,382, -1.44%: monthly shore all-gear,
 # plain NB2 catch). The pooled run superseded
 # 05_output/20260928/pooled-CPUE-2024-25 (99,873 [82,414, 124,438], B50; every component within
@@ -266,9 +274,9 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822 [82,090, 124,718] (and of the runs
-  # before it: 05_output/20260928/pooled-CPUE-2024-25, 99,873; the 2026-09-27 render, 96,118;
-  # and R4, 94,376).
+  # 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271] (and of the runs before it:
+  # 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822; 05_output/20260928/pooled-CPUE-2024-25,
+  # 99,873; the 2026-09-27 render, 96,118; and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on
