@@ -3830,7 +3830,8 @@ local({
                  "ar_max_resolution", "pe_empty_stratum", "pe_empty_effort_stratum",
                  "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length",
                  "marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_gear_regimes", "marine_hazard_codes",   # 2026-09-27: A30 ADOPTED, section 2.10
-                 "sunday_split", "sunday_prior_sd", "holiday_prior_sd", "use_boat_ie")   # 2026-10-16: A35, A36 (section 2.1) and A37 (use_boat_ie to 2.9, both tracks)
+                 "sunday_split", "sunday_prior_sd", "holiday_prior_sd", "use_boat_ie",   # 2026-10-16: A35, A36 (section 2.1) and A37 (use_boat_ie to 2.9, both tracks)
+                 "port_tau_coupling", "port_tau_coupling_populations")   # 2026-10-16: A38 (beside census_uncertainty)
   in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
@@ -7623,6 +7624,94 @@ local({
       grepl("**The Saturday/Sunday split (A36, 2026-10-16; pending its render).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
       grepl("| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` |", md, fixed = TRUE) && grepl("on the boat (A37, 2026-10-16, `ie_group_scale = 1`)", md, fixed = TRUE) &&
       grepl("`holiday_prior_sd` (A35, 2026-10-16:", cl, fixed = TRUE) && grepl("`sunday_split` / `sunday_prior_sd` (A36, 2026-10-16:", cl, fixed = TRUE))
+})
+
+# ---------- A38 (2026-10-16): the comonotone turnover pairing of one population's fits in the port total (closes D44, Matt's option (i)) ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  chk("A38 helper: 03_R_functions/bss_port_tau_coupling.R defines bss_couple_component_draws()",
+      file.exists("03_R_functions/bss_port_tau_coupling.R") && exists("bss_couple_component_draws", mode = "function"))
+  mk <- function(pop, ss, C, tau, pe = FALSE) list(C_draws = C, C_exp_draws = C, C_pred_draws = C + 1, E_draws = C * 2, tau_draws = tau,
+                                                   pe_fallback = pe, use_bss = !pe, population = pop, subseason = ss, catch_group = "Dungeness_Kept",
+                                                   C_sum = stats::quantile(C, c(0.025, 0.5, 0.975)))
+  set.seed(20261016)
+  n1 <- 400L; n2 <- 240L
+  tau1 <- rnorm(n1, 2.4, 0.2); C1 <- 30000 + 10000 * (tau1 - 2.4) + rnorm(n1, 0, 500)
+  tau2 <- rnorm(n2, 2.5, 0.25); C2 <- 9000 + 3000 * (tau2 - 2.5) + rnorm(n2, 0, 200)
+  ba <- list(shore_all_gear_Dungeness_Kept = mk("shore", "all_gear", C1, tau1),
+             shore_ring_net_only_Dungeness_Kept = mk("shore", "ring_net_only", C2, tau2),
+             private_boat_all_gear_Dungeness_Kept = mk("private_boat", "all_gear", C1 * 1.1, rev(tau1)),
+             private_boat_ring_net_only_Dungeness_Kept = mk("private_boat", "ring_net_only", C2, tau2, pe = TRUE))
+  off <- bss_couple_component_draws(ba, list(port_tau_coupling = "none"))
+  chk("A38 none: the input comes back identical, bit for bit, with no coupling attribute (the pre-2026-10-16 pairing)",
+      identical(off, ba) && is.null(attr(off, "tau_coupling")))
+  chk("A38: an unknown port_tau_coupling stops the run",
+      inherits(tryCatch(bss_couple_component_draws(ba, list(port_tau_coupling = "shared")), error = function(e) e), "error"))
+  on <- bss_couple_component_draws(ba, list(port_tau_coupling = "comonotone", port_tau_coupling_populations = "shore"), quiet = TRUE)
+  ag <- on$shore_all_gear_Dungeness_Kept; pc <- on$shore_ring_net_only_Dungeness_Kept; tc <- attr(on, "tau_coupling")
+  chk("A38 comonotone: the larger shore component is the reference and keeps its draws; the smaller is re-indexed to the reference's length with indices into its own draws",
+      identical(ag, ba$shore_all_gear_Dungeness_Kept) && length(pc$C_exp_draws) == n1 && length(pc$tau_draws) == n1 &&
+      length(pc$draw_perm) == n1 && all(pc$draw_perm %in% seq_len(n2)) && identical(pc$C_exp_draws_indep, C2))
+  chk("A38 comonotone: sorted by the reference's tau_bar, the re-indexed component's tau_bar never decreases, and every draw vector moved with the same index",
+      all(diff(pc$tau_draws[order(ag$tau_draws)]) >= 0) && identical(pc$C_exp_draws, C2[pc$draw_perm]) &&
+      identical(pc$E_draws, (C2 * 2)[pc$draw_perm]) && identical(pc$C_pred_draws, (C2 + 1)[pc$draw_perm]) && identical(pc$tau_draws, tau2[pc$draw_perm]))
+  chk("A38 comonotone: the unlisted population and a PE component are untouched; the attribute names the roles",
+      identical(on$private_boat_all_gear_Dungeness_Kept, ba$private_boat_all_gear_Dungeness_Kept) &&
+      identical(on$private_boat_ring_net_only_Dungeness_Kept, ba$private_boat_ring_net_only_Dungeness_Kept) &&
+      is.data.frame(tc) && nrow(tc) == 2 && any(grepl("^reference", tc$role)) && any(grepl("^re-indexed", tc$role)) &&
+      all(tc$reference == "shore_all_gear_Dungeness_Kept"))
+  chk("A38 comonotone: a listed population with one BSS component (the other PE) is left alone and recorded as such",
+      { on2 <- bss_couple_component_draws(ba, list(port_tau_coupling = "comonotone", port_tau_coupling_populations = c("shore", "private_boat")), quiet = TRUE)
+        tc2 <- attr(on2, "tau_coupling")
+        identical(on2$private_boat_all_gear_Dungeness_Kept, ba$private_boat_all_gear_Dungeness_Kept) &&
+        any(grepl("no coupling: 1 eligible", tc2$role[tc2$population == "private_boat"])) })
+  # equal draw counts: the ranks match exactly, the mean of the sum is unchanged, and the spread widens
+  ba3 <- ba; ba3$shore_ring_net_only_Dungeness_Kept <- mk("shore", "ring_net_only", C2[rep_len(seq_len(n2), n1)] + rnorm(n1, 0, 1), rnorm(n1, 2.5, 0.25))
+  on3 <- bss_couple_component_draws(ba3, list(port_tau_coupling = "comonotone", port_tau_coupling_populations = "shore"), quiet = TRUE)
+  s_off <- ba3$shore_all_gear_Dungeness_Kept$C_exp_draws + ba3$shore_ring_net_only_Dungeness_Kept$C_exp_draws
+  s_on <- on3$shore_all_gear_Dungeness_Kept$C_exp_draws + on3$shore_ring_net_only_Dungeness_Kept$C_exp_draws
+  chk("A38 comonotone, equal draw counts: tau_bar ranks match row for row, the sum's mean is unchanged to 1e-9 and its SD widens (a positive tau-catch dependence in both)",
+      identical(rank(on3$shore_ring_net_only_Dungeness_Kept$tau_draws), rank(on3$shore_all_gear_Dungeness_Kept$tau_draws)) &&
+      abs(mean(s_on) - mean(s_off)) < 1e-9 * abs(mean(s_off)) && stats::sd(s_on) > stats::sd(s_off) &&
+      identical(sort(on3$shore_ring_net_only_Dungeness_Kept$C_exp_draws), sort(ba3$shore_ring_net_only_Dungeness_Kept$C_exp_draws)))
+  # the drivers, the config, the runners
+  pd <- rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"); gd <- rdf("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")
+  for (nm in c("pooled", "gear")) {
+    d <- if (nm == "pooled") pd else gd
+    chk(sprintf("A38 %s driver: keeps tau_draws on the component, pairs before n_draws_max, applies draw_perm in the monthly block, and writes port_tau_coupling.csv under both pairings", nm),
+        grepl('tau_draws <- tryCatch(as.numeric(rstan::extract(fit, "tau_bar")$tau_bar[, 1]), error = function(e) NULL)', d, fixed = TRUE) &&
+        grepl("E_draws = E_draws, tau_draws = tau_draws,", d, fixed = TRUE) &&
+        grepl("bss_all <- bss_couple_component_draws(bss_all, params)\nn_draws_max <- max(sapply(bss_all, function(b) {", d, fixed = TRUE) &&
+        grepl("rep_len(b$draw_perm %||% seq_len(n_fit_draws), n_draws_max)", d, fixed = TRUE) &&
+        grepl('"port_tau_coupling.csv"', d, fixed = TRUE) && grepl('.tc_row("PORT TOTAL", "independent"', d, fixed = TRUE) &&
+        grepl("b$C_exp_draws_indep %||% b$C_exp_draws", d, fixed = TRUE))
+    .i0 <- regexpr("\nparams <- list(", d, fixed = TRUE); .i1 <- regexpr("params <- modifyList(run_config, params)", d, fixed = TRUE)
+    pm <- if (.i0 > 0 && .i1 > .i0) substr(d, .i0, .i1) else ""   # the driver's own list (the "params_model" of CLAUDE.md), which the merge lets win
+    chk(sprintf("A38 %s driver: port_tau_coupling is not in the driver's own params list (run_config.R owns it; the merge direction would silently win)", nm),
+        nchar(pm) > 200 && !grepl("port_tau_coupling", pm, fixed = TRUE))
+  }
+  chk("A38 pooled driver: the component table's caption says the shore draws are paired comonotonically when the coupling ran",
+      grepl('Written to component_totals.csv.", .tc_caption))', pd, fixed = TRUE) && grepl(".tc_caption <- if (is.null(.tc_tab))", pd, fixed = TRUE))
+  rcs <- rdf("run_config.R")
+  chk("A38 config: run_config.R ships port_tau_coupling = \"comonotone\" and port_tau_coupling_populations = \"shore\", beside census_uncertainty, with its comment",
+      grepl('  port_tau_coupling             = "comonotone",\n  port_tau_coupling_populations = "shore",\n', rcs, fixed = TRUE) &&
+      grepl("closes D44 by Matt's option (i)", rcs, fixed = TRUE) &&
+      regexpr('census_uncertainty = "charter",', rcs, fixed = TRUE) < regexpr('port_tau_coupling             = "comonotone"', rcs, fixed = TRUE))
+  for (rn in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
+    chk(sprintf("A38 runners: %s pins port_tau_coupling = \"none\" in resolve_cfg() (its rungs were built on the independent pairing)", basename(rn)),
+        grepl('cfg$sunday_split <- FALSE\n  # 2026-10-16 (A38)', rdf(rn), fixed = TRUE) && grepl('cfg$port_tau_coupling <- "none"', rdf(rn), fixed = TRUE))
+  # the documents
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md")
+  md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  chk("A38 docs: the register has the A38 row, D44 reads CLOSED by A38, D48 reads CLOSED with the attribution dropped, and the A35/A36 rule carries the A38 note",
+      grepl("| A38 |", cr, fixed = TRUE) && grepl("CLOSED 2026-10-16 by A38", cr, fixed = TRUE) &&
+      grepl("CLOSED 2026-10-16 (Matt): the attribution is dropped", cr, fixed = TRUE) && grepl("**A38 note (2026-10-16):**", cr, fixed = TRUE))
+  chk("A38 docs: the status box names port_tau_coupling among the keys pending the render, and the two Pollock attributions are gone",
+      grepl("port_tau_coupling", ps, fixed = TRUE) && grepl("in four keys", ps, fixed = TRUE) &&
+      !grepl("against the ~40 a season Pollock", ps, fixed = TRUE) && !grepl("against Pollock et al. (1997)'s implied ~40", ps, fixed = TRUE))
+  chk("A38 docs: the method document has the pairing paragraph and CLAUDE.md names the keys",
+      grepl("**How the port total pairs the fits (A38, 2026-10-16).**", md, fixed = TRUE) &&
+      grepl("`port_tau_coupling` / `port_tau_coupling_populations` (A38, 2026-10-16", cl, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

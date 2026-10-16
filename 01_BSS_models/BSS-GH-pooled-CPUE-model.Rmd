@@ -1672,6 +1672,9 @@ for(cg in bss_catch_groups) {
       C_draws <- rstan::extract(fit, "C_sum")$C_sum           # Stan's Poisson predictive (reconciliation only)
       C_exp_draws <- rstan::extract(fit, "C_expected_sum")$C_expected_sum  # expected (no noise)
       E_draws <- rstan::extract(fit, "E_sum")$E_sum
+      # A38 (2026-10-16, D44): the fit's turnover draws, kept beside the totals so the port total can
+      # pair this population's components comonotonically in tau_bar (bss_port_tau_coupling.R).
+      tau_draws <- tryCatch(as.numeric(rstan::extract(fit, "tau_bar")$tau_bar[, 1]), error = function(e) NULL)
       # B46 (2026-09-28): the predictive total from the fitted observation model (party-level
       # ZINB, bss_predictive_catch.R); the Stan C_sum is Poisson and under-dispersed.
       C_pred_draws <- tryCatch(bss_predictive_catch(fit, bss_data, bss_predictive_seed(params$bss_seed, label)),
@@ -1681,7 +1684,7 @@ for(cg in bss_catch_groups) {
         C_sum = quantile(C_draws, c(0.025,0.5,0.975)),
         C_expected_sum = quantile(C_exp_draws, c(0.025,0.5,0.975)),
         E_sum = quantile(E_draws, c(0.025,0.5,0.975)),
-        C_draws = C_draws, C_exp_draws = C_exp_draws, C_pred_draws = C_pred_draws, E_draws = E_draws,
+        C_draws = C_draws, C_exp_draws = C_exp_draws, C_pred_draws = C_pred_draws, E_draws = E_draws, tau_draws = tau_draws,
         fit = fit, pe_fallback = FALSE, bss_data = bss_data, days_ss = days_ss,
         population = pop, subseason = ss$name, catch_group = cg
       )
@@ -1974,6 +1977,11 @@ The harvest estimate: the sum of the components, reported as expected catch with
 timer_start("6_outputs")
 cat("\n", strrep("=",60), "\n COMBINED RESULTS\n", strrep("=",60), "\n")
 
+# A38 (2026-10-16, closes D44): pair each listed population's components comonotonically in tau_bar
+# before anything sums draws across components, so the shared prior centre of their turnover is
+# carried as shared (bss_port_tau_coupling.R; port_tau_coupling = "none" leaves the pairing as it
+# was, bit for bit). The re-indexed components carry draw_perm, which the monthly block applies.
+bss_all <- bss_couple_component_draws(bss_all, params)
 n_draws_max <- max(sapply(bss_all, function(b) {
   if(bss_use_pe_for(b)) return(0)   # B1.8: a gate-failed fit contributes no BSS draws
   length(b$C_exp_draws)
@@ -2084,6 +2092,46 @@ for(cg in bss_catch_groups) {
 # census_start_date, and the table says so. Written to season_totals.csv always;
 # rendered in the HTML when the run spans more than one season.
 # ============================================================================
+# A38 (2026-10-16, D44): THE PORT INTERVAL UNDER BOTH PAIRINGS. bss_couple_component_draws() (top of
+# the port-total chunk) re-paired the listed populations' components comonotonically in tau_bar and
+# kept each re-indexed component's original draws as C_exp_draws_indep; this block writes the headline
+# catch group's population sums and the port total under the shipped pairing and under the independent
+# pairing every run before 2026-10-16 used, so the coupling's effect is in every run's outputs
+# (port_tau_coupling.csv; the components' roles in port_tau_coupling_components.csv). The census
+# draws are the port block's own. The mean of a sum is the same under any pairing; the SD and the
+# interval are what move.
+.tc_tab <- attr(bss_all, "tau_coupling")
+.tc_sum_of <- function(pop_set, indep) {
+  tot <- rep(0, n_draws_max)
+  for (pop in pop_set) for (ss in subseasons) {
+    b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
+    if (bss_use_pe_for(b)) { tot <- tot + (pe_all[[paste0(pop, "_", ss$name)]]$Dungeness_Kept %||% 0); next }
+    d <- if (indep) (b$C_exp_draws_indep %||% b$C_exp_draws) else b$C_exp_draws
+    tot <- tot + d[rep_len(seq_along(d), n_draws_max)]
+  }
+  tot
+}
+.tc_cc <- .cc_draws_by_cg[["Dungeness_Kept"]] %||% 0
+.tc_row <- function(q, pairing, x) tibble(quantity = q, pairing = pairing, median = stats::median(x), lo95 = as.numeric(stats::quantile(x, 0.025)),
+                                         hi95 = as.numeric(stats::quantile(x, 0.975)), sd = stats::sd(x), mean = mean(x))
+port_tau_coupling_table <- dplyr::bind_rows(
+  .tc_row("shore sum", "independent", .tc_sum_of("shore", TRUE)), .tc_row("shore sum", "as shipped", .tc_sum_of("shore", FALSE)),
+  .tc_row("private_boat sum", "independent", .tc_sum_of("private_boat", TRUE)), .tc_row("private_boat sum", "as shipped", .tc_sum_of("private_boat", FALSE)),
+  .tc_row("PORT TOTAL", "independent", .tc_sum_of(c("shore", "private_boat"), TRUE) + .tc_cc),
+  .tc_row("PORT TOTAL", "as shipped", .tc_sum_of(c("shore", "private_boat"), FALSE) + .tc_cc))
+port_tau_coupling_table$port_tau_coupling <- params$port_tau_coupling %||% "none"
+port_tau_coupling_table$populations <- paste(params$port_tau_coupling_populations %||% "shore", collapse = "+")
+utils::write.csv(port_tau_coupling_table, file.path(output_dir, "port_tau_coupling.csv"), row.names = FALSE)
+utils::write.csv(if (is.null(.tc_tab)) data.frame(note = "port_tau_coupling = none, or no population had two BSS components with tau_bar draws")
+                 else .tc_tab, file.path(output_dir, "port_tau_coupling_components.csv"), row.names = FALSE)
+.tc_pi <- port_tau_coupling_table[port_tau_coupling_table$quantity == "PORT TOTAL" & port_tau_coupling_table$pairing == "independent", ]
+.tc_ps <- port_tau_coupling_table[port_tau_coupling_table$quantity == "PORT TOTAL" & port_tau_coupling_table$pairing == "as shipped", ]
+cat(sprintf("  Port interval under the shipped pairing (port_tau_coupling = %s): %s [%s, %s], SD %s; under the independent pairing: %s [%s, %s], SD %s.\n",
+            port_tau_coupling_table$port_tau_coupling[1], format(round(.tc_ps$median), big.mark = ","), format(round(.tc_ps$lo95), big.mark = ","),
+            format(round(.tc_ps$hi95), big.mark = ","), format(round(.tc_ps$sd), big.mark = ","), format(round(.tc_pi$median), big.mark = ","),
+            format(round(.tc_pi$lo95), big.mark = ","), format(round(.tc_pi$hi95), big.mark = ","), format(round(.tc_pi$sd), big.mark = ",")))
+.tc_caption <- if (is.null(.tc_tab)) "" else paste("Since A38 (2026-10-16) the shore components' draws are paired comonotonically in tau_bar before the sum",
+                                                   "(port_tau_coupling), so their shared turnover centre is carried as shared; port_tau_coupling.csv gives the port interval under both pairings.")
 .seasons <- unique(na.omit(vapply(subseasons, function(x) x$season %||% NA_character_, character(1))))
 # 2026-09-28 (B43): THE CENSUS ENTERS A SEASON TOTAL THE WAY IT ENTERS THE PORT TOTAL. It entered
 # as a constant, so a season total lacked the charter expansion's uncertainty and, on a single
@@ -2219,7 +2267,7 @@ utils::write.csv(component_table, file.path(output_dir, "component_totals.csv"),
 report_table(dplyr::transmute(component_table, Component, Method, Median = round(Median), `95% interval` = fmt_ci(Median, lo, hi),
                               PE = round(PE), `Share of port median` = Share),
              digits = 0, caption = paste("The components of the port total. Component medians do not add to the port median (medians of sums",
-                                         "are not sums of medians); the port interval comes from summing the draws. Written to component_totals.csv."))
+                                         "are not sums of medians); the port interval comes from summing the draws. Written to component_totals.csv.", .tc_caption))
 ```
 
 ## 8. Monthly estimates
@@ -2281,7 +2329,7 @@ for(cg in bss_catch_groups) {
           if(length(day_idx) == 0) next
           month_C <- if(length(day_idx)==1) C_daily_mat[, day_idx] else rowSums(C_daily_mat[, day_idx])
           month_E <- if(length(day_idx)==1) E_daily_mat[, day_idx] else rowSums(E_daily_mat[, day_idx])
-          idx <- rep_len(1:n_fit_draws, n_draws_max)
+          idx <- rep_len(b$draw_perm %||% seq_len(n_fit_draws), n_draws_max)   # A38 (2026-10-16): the port total's pairing (bss_port_tau_coupling.R)
           if(m %in% all_months) {
             monthly_C_draws[, m] <- monthly_C_draws[, m] + month_C[idx]
             monthly_E_draws[, m] <- monthly_E_draws[, m] + month_E[idx]
@@ -2428,7 +2476,7 @@ for(cg in bss_catch_groups) {
           day_idx <- which(days_ss$month_label == m)
           if(length(day_idx) == 0 || !(m %in% all_months)) next
           month_C <- if(length(day_idx)==1) C_daily_mat[, day_idx] else rowSums(C_daily_mat[, day_idx])
-          idx <- rep_len(1:n_fit_draws, n_draws_max)
+          idx <- rep_len(b$draw_perm %||% seq_len(n_fit_draws), n_draws_max)   # A38 (2026-10-16): the port total's pairing (bss_port_tau_coupling.R)
           bymode_C[[mode_nm]][, m] <- bymode_C[[mode_nm]][, m] + month_C[idx]
         }
       }

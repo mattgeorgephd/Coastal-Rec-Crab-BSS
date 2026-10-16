@@ -1330,6 +1330,20 @@ run_config <- list(
   #              day-type imputation when census_expansion = "day_type" ("imputed_days" is
   #              still accepted as the 2026-09-08 name)
   census_uncertainty = "charter",
+  # 2026-10-16 (A38, closes D44 by Matt's option (i)): HOW THE PORT TOTAL PAIRS ONE POPULATION'S FITS.
+  # The pot-closure and all-gear fits of a population draw their turnover tau_bar around ONE prior
+  # centre (the shore's derived I/E centre, 2.477 on 2024-25, log-SD floored at 0.10), so the
+  # uncertainty they carry in it is one number; summing the two fits' draws paired at random treats
+  # it as two independent ones and understates the port interval (D44: about +5% on the port SD on
+  # the authoritative run; the mean of the sum is unchanged exactly). "comonotone" re-pairs each
+  # listed population's components so that row j of every fit carries the same tau_bar quantile
+  # (the largest component keeps its order, the others are re-indexed; bss_port_tau_coupling.R),
+  # which is the bound a fully shared centre implies. "none" is the pairing every run before
+  # 2026-10-16 used, bit for bit. Every run writes the port interval under both pairings to
+  # port_tau_coupling.csv. The boat's two fits share the OSP/trailer calibration centre the same
+  # way; add "private_boat" to the populations to pair them too (its pot-closure fit is small).
+  port_tau_coupling             = "comonotone",
+  port_tau_coupling_populations = "shore",
   # The charter trip roster (charter_trips.xlsx, 2024-25 on): the TRIP FRAME the charter
   # expansion runs on. charter_frame = "roster" (default) takes, per day, the larger of the
   # roster's sailed trips and the tally's charter column (the roster does not depend on a
