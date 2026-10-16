@@ -37,7 +37,13 @@
 > 2%; `B1_sun` is sampled cleanly on all eight fits (R-hat below 1.01, n_eff above 400). Reported,
 > not judged: each fit's `B1_sun` and `B2`, each component's movement against this run, and the
 > Sunday-to-Saturday effort ratio beside OSP's raw 0.87. If the first three fail, the keys go back;
-> if only the fourth, the split alone. What to expect: the container refits (every pooled fit under each change alone and both) are running on 2026-10-16 and their results will be written here. CHANGE_REGISTER A35 to A37.
+> if only the fourth, the split alone. What to expect, from the
+> container refits of 2026-10-16 (17 arms, every one clean; CHANGE_REGISTER A35 and A36): the holiday
+> prior moves nothing (-0.2% on the port, seed noise); the Sunday split moves the shore all-gear fit about
+> -5% (the four sampled Sundays carry about 0.71 of a Saturday's gear; the boat's Sunday is 0.89 of a
+> Saturday, OSP's raw 0.87) and the port about -2.2%, to about 86,100 from the container base 87,973;
+> `B1_sun` sampled cleanly on all eight fits; the gear boat all-gear arm agrees with the pooled to -0.7%.
+> A38 widens the interval on top of that. CHANGE_REGISTER A35 to A38.
 >
 > **`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**, 4 of 4
 > components fitted, every one reporting BSS, with its gear-resolved cross-check
