@@ -1506,9 +1506,9 @@ quantity, and both candidates sit far above it. But the MAGNITUDE is not resolva
 I/E data that exists: with a between-day log-SD of 0.344, the gap between a 6-day subset and
 the pooled 40 is about **0.83 standard errors**, and the window value sits **1.07 prior SDs**
 from the shipped centre, so the shipped prior already covers it, which is why the fitted
-posterior landed at 2.373 between the two on the authoritative run (2.394 on R4). `tau_shore_derive_window_only = TRUE` prices the
+posterior landed between the two on every render (2.381 on the authoritative run, B65; 2.373 on B61; 2.394 on R4). `tau_shore_derive_window_only = TRUE` prices the
 alternative, and the field fix that would actually settle it is a paired gear count on every
-I/E day. Tracked as CHANGE_REGISTER D24.
+I/E day. Tracked as CHANGE_REGISTER D24. Two related limitations, registered 2026-10-16: the two shore fits each draw their turnover around this one centre with no shared term, so the port total sums two draws of one uncertainty as if they were independent, and the bound on the port SD is about +5% (D44); and the three counts Float 20 takes on most two-sampler days enter the effort likelihood as three independent observations of the day's level when an intraclass correlation of 0.83 says they are nearly one, which narrows the interval and does not move the point (D45).
 
 **4. The PE's unsampled-cell CPUE fill is not settled, and it moves the validation rather
 than the estimate.** The boat PE sits 21.9% below the boat BSS under the shipped

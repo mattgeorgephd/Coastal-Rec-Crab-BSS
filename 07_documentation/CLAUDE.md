@@ -13,7 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > That branch merged into `main` on 2026-09-28 (pull request #5, merge commit `a878a87`), and
 > pull requests #6 (2026-09-28) and #7 (2026-09-29, merge `3a55a2e`) followed, so
 > `main` now carries Method v2.0; the merge description is archived at
-> `07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md`. **There is no
+> `07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md`. Since 2026-09-29 the work has
+> continued on `OSP-boat-count-incorporation` again (pull request #8, open against `main`): A31 to A37,
+> B50 to B65 and the authoritative run below are on that branch, and `main` (tip `3a55a2e`) quotes the
+> superseded 99,873 until it merges. **There is no
 > published figure that a change has to stay consistent with**, so continuity with an
 > earlier internal run is not on its own a reason to prefer one modelling choice over
 > another. Judge changes on the evidence, and record what moved.
