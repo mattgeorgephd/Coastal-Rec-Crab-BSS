@@ -406,6 +406,16 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$B1_C <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_C),
                              mean = 0, sd = sd_p$value_normal_sigma_B1_C)
     }
+    # 2026-10-16: the holiday CPUE increment (pooled only; it was missing from this table) and,
+    # under the Saturday/Sunday split (A36), the Sunday effort increment.
+    if (!is.null(sd_p$value_normal_sigma_B2_C)) {
+      prior_tbl$B2_C <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B2_C),
+                             mean = 0, sd = sd_p$value_normal_sigma_B2_C)
+    }
+    if (isTRUE(sd_p$sunday_split == 1L) && !is.null(sd_p$value_normal_sigma_B1_sun)) {
+      prior_tbl$`B1_sun[1]` <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_sun),
+                                    mean = 0, sd = sd_p$value_normal_sigma_B1_sun)
+    }
     # Gear-resolved: R_G_boat ~ lognormal(log(4), 0.5), hardcoded in the Stan model.
     if (has_par("R_G_boat")) {
       prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",

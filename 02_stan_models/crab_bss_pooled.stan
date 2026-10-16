@@ -121,6 +121,20 @@ data {
   int<lower=1> period[D];               // Day-to-period mapping
   vector<lower=0,upper=1>[D] w;          // Weekend indicator
   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
+  // A36 (2026-10-16): THE SATURDAY/SUNDAY SPLIT OF THE WEEKEND EFFORT EFFECT. sunday_split = 1
+  // adds a Sunday increment B1_sun to the EFFORT process, so the day-type multiplier is 1 on a
+  // weekday, exp(B1) on a Saturday, exp(B1 + B1_sun) on a Sunday, and exp(B2) more on a holiday
+  // on top of whichever day it fell on. sun[d] is the CALENDAR Sunday (the R prep's
+  // day_type_num_sunday): a Sunday holiday carries w, sun and holiday, and days_wkend does not
+  // move it. The CPUE process keeps its pooled weekend effect (B1_C on w). The reason it exists:
+  // Sunday is sampled on 10 of 196 boat days and 4 of 145 shore days in the 2024-25 all-gear
+  // window, so a pooled weekend effect is Saturday's effect applied to every Sunday with
+  // Saturday's precision; the increment lets the Sundays that were counted (the OSP totals on
+  // 27 of them for the boat) say how far Sunday sits from Saturday, and carries the uncertainty
+  // where they were not. sunday_split = 0 is bit-identical to the model without it (B1_sun is
+  // zero-size, so the unconstrained parameter vector is unchanged).
+  int<lower=0,upper=1> sunday_split;
+  vector<lower=0,upper=1>[D] sun;
   // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES.
   // Generalizes the single razor-dig indicator into a K_open-column design matrix on
   // the EFFORT process, so any opener (razor dig, MA2 halibut / salmon / bottomfish)
@@ -295,6 +309,13 @@ data {
   int<lower=1> day_IE[IE_n];
   int<lower=1> section_IE[IE_n];
   vector<lower=0>[IE_n] IE_crabber_hours;
+  // A37 (2026-10-16, D35): which population the I/E stream belongs to, as in
+  // crab_bss_gear_resolved.stan. 0 (shore): IE_crabber_hours holds the observation the effort
+  // unit names (crabber arrivals under gear-deployments), predicted lambda_E * L. 1 (boat): it
+  // holds WBL boat trips, predicted (lambda_E / R_G_boat) * L, lambda_E being gear in the
+  // water, lambda_E / R_G_boat the boat groups present and L = tau the deployment turnover.
+  // IE_n = 0 (every 2024-25 boat fit) leaves the fit exactly as before.
+  int<lower=0,upper=1> ie_group_scale;
 
   // --- Hyperparameters ---
   real value_cauchyDF_sigma_eps_E;
@@ -307,6 +328,7 @@ data {
   real value_normal_sigma_B2;
   real value_normal_sigma_B1_C;
   real value_normal_sigma_B2_C;   // item 6a: holiday CPUE effect (B2_C) prior scale
+  real value_normal_sigma_B1_sun; // A36: the Sunday increment's prior scale (sunday_prior_sd)
   real value_normal_sigma_B_open; // improvement 4: opener effort-covariate prior scale
   // item 6b: same-day-effort CPUE density-dependence (OFF by default). estimate_cpue_density
   // toggles the gamma_C term; log_E_ref centers the log-effort covariate (per fit, = the
@@ -523,6 +545,7 @@ parameters {
   real B2;
   real B1_C;
   real B2_C;      // item 6a: holiday CPUE effect (symmetric to B2 on effort)
+  vector[sunday_split] B1_sun;   // A36: the Sunday increment on the weekend EFFORT effect; zero-size when off
   vector[K_open] B_open;   // improvement 4: opener effort covariates (length 0 when unused)
   real gamma_C;   // item 6b: same-day-effort CPUE density effect (inert when estimate_cpue_density = 0)
 
@@ -733,6 +756,7 @@ transformed parameters {
         //   is byte-identical to the pre-2026-08-25 effort process.
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d] +
+          (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0) +   // A36: the Sunday increment
           (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0)) * O[d,s,g];
         // CPUE: AR deviation + weekend + holiday (B2_C, item 6a) + optional same-day-effort
         //   density-dependence (gamma_C, item 6b; only when estimate_cpue_density = 1). The
@@ -762,6 +786,7 @@ model {
   B2 ~ normal(0, value_normal_sigma_B2);
   B1_C ~ normal(0, value_normal_sigma_B1_C);
   B2_C ~ normal(0, value_normal_sigma_B2_C);   // item 6a: holiday CPUE effect
+  if (sunday_split == 1) B1_sun[1] ~ normal(0, value_normal_sigma_B1_sun);   // A36
   B_open ~ normal(0, value_normal_sigma_B_open);  // improvement 4: opener effort covariates
   gamma_C ~ normal(0, 1);   // item 6b: proper prior; enters the likelihood only when estimate_cpue_density = 1
 
@@ -961,10 +986,11 @@ model {
   sigma_IE ~ exponential(5);
   if (IE_n > 0) {
     for (i in 1:IE_n) {
-      IE_crabber_hours[i] ~ lognormal(
-        log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
-        sigma_IE
-      );
+      real ie_pred = lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]];
+      // A37 (D35): a boat I/E observation is boat TRIPS, so lambda_E (gear) is divided by the
+      // gear per boat group before the turnover multiplies it, as crab_bss_gear_resolved.stan does.
+      if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;
+      IE_crabber_hours[i] ~ lognormal(log(ie_pred), sigma_IE);
     }
   }
 }
@@ -1008,6 +1034,7 @@ generated quantities {
   real sigma_IE_out;
   real B1_C_out;
   real B2_C_out;       // item 6a
+  vector[sunday_split] B1_sun_out;   // A36: the Sunday increment, zero-size when the split is off
   vector[K_open] B_open_out;   // improvement 4 (labels travel out of band, see the driver)
   real gamma_C_out;    // item 6b
   vector[D] L_out;
@@ -1059,6 +1086,7 @@ generated quantities {
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
   B2_C_out = B2_C;
+  if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];   // A36
   B_open_out = B_open;
   gamma_C_out = gamma_C;
   L_out = L;

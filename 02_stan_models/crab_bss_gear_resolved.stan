@@ -143,6 +143,11 @@ data {
   int<lower=1> period[D];
   vector<lower=0,upper=1>[D] w;
   vector<lower=0,upper=1>[D] holiday;
+  // A36 (2026-10-16): the Saturday/Sunday split of the weekend EFFORT effect, mirroring
+  // crab_bss_pooled.stan (the comment there). sunday_split = 1 adds the Sunday increment B1_sun
+  // to the shared effort level; sun[d] is the calendar Sunday. sunday_split = 0 is bit-identical.
+  int<lower=0,upper=1> sunday_split;
+  vector<lower=0,upper=1>[D] sun;
 
   // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES, mirroring
   // crab_bss_pooled.stan. K_open = 0 reproduces the pre-2026-08-25 effort process
@@ -341,6 +346,7 @@ data {
   real value_normal_sigma_B1;
   real value_normal_sigma_B2;
   real value_normal_sigma_B1_C;
+  real value_normal_sigma_B1_sun; // A36: the Sunday increment's prior scale (sunday_prior_sd)
   real value_normal_sigma_B_open; // improvement 4: opener effort-covariate prior scale
   // B1.9 parity: switch the weekend CPUE effect on (1) or off (0). When 0, B1_C
   // is still sampled from its prior but drops out of the likelihood, so
@@ -527,6 +533,7 @@ parameters {
   vector<lower=0, upper=1>[zi_catch] theta_C;
   real B1;
   real B2;
+  vector[sunday_split] B1_sun;   // A36: the Sunday increment on the weekend EFFORT effect; zero-size when off
   vector[K_open] B_open;   // improvement 4: opener effort covariates (length 0 when unused)
   real B1_C;   // B1.9 parity: weekend/holiday effect on CPUE (pooled model L244)
 
@@ -764,6 +771,7 @@ transformed parameters {
         // improvement 4: opener effort covariates on the shared effort level. K_open = 0
         // drops the term entirely, so the default path is byte-identical.
         real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d]
+          + (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0)   // A36: the Sunday increment
           + (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0);
         for (g in 1:G) {
           // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).
@@ -796,6 +804,7 @@ model {
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
   B1 ~ normal(0, value_normal_sigma_B1);
   B2 ~ normal(0, value_normal_sigma_B2);
+  if (sunday_split == 1) B1_sun[1] ~ normal(0, value_normal_sigma_B1_sun);   // A36
   B_open ~ normal(0, value_normal_sigma_B_open);  // improvement 4: opener effort covariates
   // Proper prior regardless of use_B1_C. When use_B1_C = 0 this parameter does
   // not enter the likelihood, so it simply samples its prior.
@@ -1038,6 +1047,7 @@ generated quantities {
   real cfc_kappa_out;               // 2026-09-09: combo-stream concentration (0 when off)
   vector[K_open] B_open_out;       // improvement 4 (labels travel out of band; see the driver)
   real sigma_IE_out;      // 5b: exposed for diagnostics (pooled parity)
+  vector[sunday_split] B1_sun_out;   // A36: the Sunday increment, zero-size when the split is off
   vector<lower=0>[D] L_out;   // 5b: realized day length per day
   real tau_bar_out;   // improvement 2.1: the shared turnover, or 0 when shared_tau = 0
   // D6: zero-inflation reporting, matching the pooled model. theta_C_out is 0.0 and
@@ -1104,6 +1114,7 @@ generated quantities {
   cfc_kappa_out = (n_c_dyn == 1) ? cfc_kappa[1] : 0.0;
   B_open_out = B_open;         // improvement 4
   sigma_IE_out = sigma_IE;
+  if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];   // A36
   L_out = L;
   if (shared_tau == 1) tau_bar_out = tau_bar[1];
   else                 tau_bar_out = 0.0;

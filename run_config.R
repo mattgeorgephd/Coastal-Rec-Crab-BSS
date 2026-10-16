@@ -512,12 +512,40 @@ run_config <- list(
   # 2.34x to 1.74x (shore) and 1.81x to 1.42x (boat), and regressing log effort on
   # month + day-type shows moving Friday to the weekday stratum cuts the residual
   # variance the AR(1) must absorb by 15% (shore) / 5% (boat).
-  # KNOWN RESIDUAL (documented, not fixed here): Sunday is sampled on only 6 of 50
-  # shore days and 5 of 50 boat days, and the boat Sunday mean (3.4) sits BELOW the
-  # weekday mean (6.9), so grouping Sunday with Saturday is not obviously right for
-  # the boat stream. Splitting Sunday out needs a shift change in the field plan, not
-  # a config edit; see PIPELINE_STATUS Section 6.
   days_wkend        = c("Saturday", "Sunday"),
+  # THE SATURDAY/SUNDAY SPLIT (2026-10-16, A36; Matt). Sunday is sampled on 10 of 196 boat
+  # days and 4 of 145 shore days in the 2024-25 all-gear window (the pot closure adds none
+  # for the shore), so the pooled weekend effect B1 is Saturday's effect applied to every
+  # Sunday with Saturday's precision. TRUE adds a Sunday increment to the BSS weekend EFFORT
+  # effect on both tracks, B1_sun ~ normal(0, sunday_prior_sd), so a Sunday is
+  # exp(B1 + B1_sun) against a Saturday's exp(B1) (and a holiday exp(B2) more on top of
+  # whichever day it fell on; the indicator is the calendar Sunday, prep_days_crab's
+  # day_type_num_sunday, so days_wkend does not move it). What informs it: the Sundays that
+  # WERE counted. For the boat all-gear fit that is OSP's totals on 27 Sundays and 28
+  # Saturdays (means 77.6 and 88.8 boats, so about -13% on Sunday) and the 10 trailer-count
+  # Sundays (8.5 against Saturday's 9.2); for the shore, 4 gear-count Sundays (39.9 against
+  # 57.0). Where Sundays were not counted the prior holds the increment near zero, which is
+  # the pooled model's assumption carried honestly rather than asserted. The CPUE process
+  # keeps its pooled weekend effect (B1_C on w): there is no finding about Sunday CPUE and
+  # the Sunday interviews are few. The PE's (week x day-type) strata are unchanged (a Sunday
+  # stratum would be empty in 46 of 52 weeks). FALSE is bit-identical to the model without the
+  # split (B1_sun is zero-size). Stan data, no recompile. Its field-plan partner, sampling
+  # more Sundays, stays in PIPELINE_STATUS Section 6.
+  # THE RULE (A35/A36, written before the render; the full text is CHANGE_REGISTER A36): the
+  # render of this file as shipped (--model both) is adopted if every fit on both tracks passes
+  # the gate, no chain is stuck, the cross-check is within cross_check_tolerance, and B1_sun is
+  # sampled cleanly on all eight fits (R-hat < 1.01, n_eff > 400); each fit's B1_sun and B2, the
+  # components' movement and exp(B1_sun) beside OSP's raw 0.87 are reported, not judged.
+  sunday_split      = TRUE,
+  sunday_prior_sd   = 0.5,            # normal(0, sd) on the Sunday increment, log scale
+  # THE HOLIDAY PRIOR (2026-10-16, A35; Matt). The holiday increments B2 (effort) and B2_C
+  # (CPUE, pooled track) had a hard-coded normal(0, 1) prior. A holiday is one of 13 days
+  # in 2024-25 and 2 of them fall in the pot closure, where B2 sat on its prior
+  # (0.0 [-2.0, 2.0] on both pot-closure fits, B65); on the boat all-gear fit it read
+  # 0.35 [-0.13, 0.87]. normal(0, 0.5) says a holiday is within about a factor of 2.7 of
+  # the weekend it sits on at 95%, which the sampled holidays do not contradict, and it
+  # stops a thin fit's holidays from wandering. Set 1 to restore the former prior exactly.
+  holiday_prior_sd  = 0.5,
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 
@@ -1333,7 +1361,14 @@ run_config <- list(
   # tightening it would push the shore all-gear sigma_IE (~1.07) down and force
   # possibly-unrepresentative I/E days to bind harder (see the shore-I/E diagnostic).
   ie_min_obs_shore = 3,   # shore components (both models)
-  ie_min_obs_boat  = 2,   # boat components (gear-resolved; boat I/E identifies tau)
+  ie_min_obs_boat  = 2,   # boat components (both models since A37; boat I/E identifies tau)
+  # A37 (2026-10-16, D35): the WBL boat I/E ingress counts (boat trips) as a turnover
+  # observation on the boat fits, predicted (lambda_E / R_G_boat) * tau. The gear track has
+  # read them since GR-7 Phase 1; the pooled track reads them since A37, so both tracks
+  # follow this one key. IE_n = 0 is safe: 2024-25 has no WBL boat I/E day in the window and
+  # 2025-26 one (2025-12-19), below ie_min_obs_boat, so on both seasons the fits are what
+  # they were. It activates on its own as WBL boat I/E days accumulate.
+  use_boat_ie      = TRUE,
   # Civil-twilight clamp. Binds only on the fallback rung and on the
   # day_length_civil_twilight diagnostic column.
   day_length_min_hours = 9.0,
@@ -1937,12 +1972,11 @@ run_config <- list(
                                        #   from gear_period_bss (above, per population since
                                        #   A32) EXACTLY. TRUE hands AR choice to the data-driven
                                        #   selector; that is inference-changing, so validate first.
-  loo_effort_unit_comparison = FALSE,  # (gear-resolved) TRUE restricts interviews to the common
+  loo_effort_unit_comparison = FALSE   # (gear-resolved) TRUE restricts interviews to the common
                                        #   valid-denominator subset for a legitimate cross-unit
                                        #   elpd_loo comparison. FALSE for a production run of the
                                        #   chosen unit (the comparison is done).
-  use_boat_ie                = TRUE    # (gear-resolved) use WBL boat I/E ingress counts to
-                                       #   identify tau once enough days exist. IE_n = 0 is safe.
+  # (use_boat_ie moved to section 2.9 on 2026-10-16, A37: both tracks read it now.)
 )
 
 # =========================================================================== #

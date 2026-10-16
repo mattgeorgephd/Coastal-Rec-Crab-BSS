@@ -53,6 +53,10 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
       day_type == "holiday" ~ 3L),
     day_type_num_weekend = as.integer(day_type %in% c("weekend","holiday")),
     day_type_num_holiday = as.integer(day_type == "holiday"),
+    # 2026-10-16 (A36): the CALENDAR Sunday, for the Saturday/Sunday split of the BSS weekend
+    # effort effect (run_config sunday_split). It is the weekday alone: a holiday that falls on
+    # a Sunday carries w, holiday AND sun, and days_wkend does not move it.
+    day_type_num_sunday = as.integer(day == "Sunday"),
     # 2026-09-28 (B46): weeks are ISO 8601 weeks keyed WITH their ISO year (%G-%V, Monday
     # start, as %W was). %W restarts at 0 every 1 January, so (a) the PE's (week x day_type)
     # strata pooled week N of one year with week N of the next whenever a window spans both

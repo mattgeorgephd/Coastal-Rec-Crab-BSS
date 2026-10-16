@@ -6,7 +6,7 @@
 **Contact:** matthew.george@dfw.wa.gov
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the internal method of record for estimating recreational Dungeness crab harvest at Westport / Grays Harbor. WDFW has released no estimate from this pipeline; "method of record" means the method the working model implements, and there is no external figure that a change here has to stay consistent with.
-**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-10-04: A33, OSP's crab-only count switched on as an observation of the crabbing fraction on both tracks (`use_osp_crab_lower = TRUE`), and A34, the crabbing share varying with the day's boat volume so that the share the totals apply is boat-weighted (`crab_fraction_volume = TRUE`, D40; Section 14.3); RENDERED 2026-10-04 (B65): the authoritative run is now 87,932 [75,193, 105,271], cross-check -0.03%. Figures elsewhere in this document that predate it are the 2026-09-28/29 model's, which carried neither.** Before that it last moved 2026-09-29 (the pooled model; on 2026-10-02 the gear cross-check was matched to it, A32). **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run (`20260929/pooled-CPUE-2024-25-220449`, B61) IS the first render at the A31 code with `init_r = 0.5`; a render of the shipped configuration on the same machine reproduces it to the crab. B57's render at 0.5 of the pre-A31 code failed its shore pot-closure gate and is not a reference. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
+**Method version:** 2.0, adopted 2026-09-12; **last moved 2026-10-16: A35 (the holiday prior at normal(0, 0.5)), A36 (the Saturday/Sunday split of the weekend effort effect) and A37 (the pooled boat I/E path, inert on 2024-25), ADOPTED in `run_config.R` and PENDING ONE RENDER under the A35/A36 rule (CHANGE_REGISTER A36); until it passes, the figures below are B65's.** Before that, 2026-10-04: A33, OSP's crab-only count switched on as an observation of the crabbing fraction on both tracks (`use_osp_crab_lower = TRUE`), and A34, the crabbing share varying with the day's boat volume so that the share the totals apply is boat-weighted (`crab_fraction_volume = TRUE`, D40; Section 14.3); RENDERED 2026-10-04 (B65): the authoritative run is now 87,932 [75,193, 105,271], cross-check -0.03%. Figures elsewhere in this document that predate it are the 2026-09-28/29 model's, which carried neither.** Before that it last moved 2026-09-29 (the pooled model; on 2026-10-02 the gear cross-check was matched to it, A32). **The method of record is the pooled model as of 2026-09-29**: Method v2.0, the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27), and the 2026-09-28/29 changes (B44 to B51: unique interview ids, the Float 17-21 fill of unsampled shore counts, ISO-week strata, the gear track's data-driven `R_G` prior, the predictive catch from the fitted zero-inflated NB, OSP's sampled-boat n for the crab-only share (inert until the column arrives), and the initial-value radius `init_r = 0.5`), then **A31: the single-section level hierarchies collapsed** (T2.5, closing D33; Section 14.2, limitation 15) with B52 to B56 (the census clipped to the window, the turnover fallbacks, housekeeping, the day length only under a time unit, the report). The authoritative run (`20260929/pooled-CPUE-2024-25-220449`, B61) IS the first render at the A31 code with `init_r = 0.5`; a render of the shipped configuration on the same machine reproduces it to the crab. B57's render at 0.5 of the pre-A31 code failed its shore pot-closure gate and is not a reference. The code is versioned by date since 2026-07 (the development history); the driver still carries its last numbered tag, v7.9. Method v1.0 (frozen against pooled code v7.4) is archived at `archive/method-v1.0-pooled-CPUE.md`, with a table of the nine places the two methods differ.
 **Reference season:** 2024-25, the development test season. The pipeline runs on any window: a full season, part of one, or a multi-season span.
 **The authoritative run has moved twice since this reference run.** **Since 2026-10-04 (B65)** it is `05_output/20261003/pooled-CPUE-2024-25`, **87,932 [75,193, 105,271]**, with A33 and A34: the shore and the census are unchanged and the boat all-gear fit falls 47,105 to 35,211 (-25.2%), so every shore figure here still holds and every boat all-gear figure here is the earlier model's; its gear cross-check is 87,903 (-0.03%). **Before that (2026-10-02, B61):** `05_output/20260929/pooled-CPUE-2024-25-220449`, 99,822 [82,090, 124,718], the same configuration rendered at the A31 code with `init_r = 0.5`; every component is within 0.02 posterior SD of the reference run's, so the figures this document quotes from it describe the method of record as it stands. Its gear cross-check is 99,294 (-0.53%) since D3 and D6 were adopted together on the gear track (2026-10-02, A32; limitation 10), and the boat all-gear resolution span, 99,822 at monthly to 106,380 at weekly, is quoted beside the total (limitation 10a). The box at the top of `PIPELINE_STATUS.md` is the place to quote from. **Reference run:** `05_output/20260928/pooled-CPUE-2024-25`, the method of record re-rendered at the current code (B44 to B49) by `run_estimation.R` with `model = "both"` on `run_config.R` as shipped (rendered and committed 2026-09-28 as `ff750c4`), port total 99,873 [82,414, 124,438], with its gear-resolved cross-check at 98,588 (-1.29%). It superseded `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118 [79,418, 120,558], committed `1d3409d`): the two share both boat fits byte for byte and differ in the shore fits (B45's Float 17-21 fill, +9.5% on the shore). **Section 1 carries the new run's figures. Sections deeper in this document that quote 96,118, or shore figures of 8,963 and 29,210, are the 2026-09-27 render's and say so where it matters; the boat figures are both runs'.** The box in `development_notes/PIPELINE_STATUS.md` says which run is authoritative.
 **Convention:** no em dashes.
@@ -130,7 +130,7 @@ the National Weather Service's own hazard decision for the waters the boats cros
 provides, per day, (a) the total number of vessels returning and (b) the number of the boats it
 sampled that were **crabbing only**. **(a) is in hand** and is what the boat effort model runs
 on. **(b) was delivered on 2026-10-02** (`WPTPrivateCrabOnly`, 253 classified days; B64) and is
-**on since 2026-10-04** (A33, pending its confirming render). It came without the day's sampling
+**on since 2026-10-04** (A33, rendered in the authoritative run, B65). It came without the day's sampling
 rate, so its binomial n is OSP's minimum-rate schedule on every day (`osp_sampling_rates.xlsx`,
 B48); the day's actual rate is still worth asking for (D2). The same delivery's
 `WPTPrivateCrabAlso` is NOT used: it is counted from the free-text notes of OSP's sampling form,
@@ -641,6 +641,27 @@ and `exp(B1 + B2)` on a holiday: **`B2` is an increment on top of the weekend ef
 separate level.** The same nesting applies to `B1_C` and `B2_C` on CPUE. This follows from
 `prep_days_crab.R`, not from anything in the Stan file.
 
+**The Saturday/Sunday split (A36, 2026-10-16; pending its render).** Under `sunday_split = TRUE`
+the effort process gains a Sunday increment, on both tracks:
+
+```
+lambda_E_S[s][d,g] = exp( ... + B1 * w[d] + B1_sun * sun[d] + B2 * holiday[d] + ... )
+```
+
+`sun[d]` is the CALENDAR Sunday (`day_type_num_sunday`), so the day-type multiplier is 1 on a
+weekday, `exp(B1)` on a Saturday, `exp(B1 + B1_sun)` on a Sunday, and a holiday is `exp(B2)` more
+on top of whichever day it fell on (a Sunday holiday carries `w`, `sun` and `holiday`; two of
+2024-25's thirteen do). `B1_sun ~ normal(0, sunday_prior_sd)`, 0.5 as shipped. The CPUE process
+keeps its pooled weekend effect `B1_C`, and the PE's (week x day-type) strata are unchanged. Why
+it exists: Sunday is sampled on 10 of 196 boat days and 4 of 145 shore days in the 2024-25
+all-gear window, so a pooled `B1` is Saturday's effect applied to every Sunday with Saturday's
+precision. The Sundays that WERE counted (OSP's totals on 27 of them for the boat, against 28
+Saturdays: 77.6 against 88.8 boats, a raw ratio of 0.87) inform the increment; where they were
+not, the prior holds it near zero, which is the pooled model's assumption carried with its
+uncertainty rather than asserted. `sunday_split = FALSE` is bit-identical to the model without it
+(`B1_sun` is zero-size). The holiday increments' prior scale is `holiday_prior_sd` since A35 (the
+same day; 0.5 as shipped, 1 before, hard-coded).
+
 **Expected effort**, the quantity that becomes the estimate:
 
 ```
@@ -952,7 +973,7 @@ to the non-inflated component and rises to absorb the structural zeros, so repor
 | shore gear count | NB2 | `lambda_E[day,1] * R_G` | `r_E` | none |
 | boat trailer count | NB2 | `lambda_E[day,G] / R_G_boat` | `r_E` | none |
 | OSP port count | NB2 | `(lambda_E[day,G] / R_G_boat) * L[day]` | `r_OSP` | none |
-| I/E effort | lognormal | location `log(lambda_E[day,1] * L[day])` | `sigma_IE` | n/a (continuous) |
+| I/E effort | lognormal | location `log(lambda_E[day,1] * L[day])` on the shore; on the boat (A37, 2026-10-16, `ie_group_scale = 1`) `log((lambda_E[day,1] / R_G_boat) * L[day])`, boat trips, read when `use_boat_ie = TRUE` and at least `ie_min_obs_boat` WBL days fall in the window (none in 2024-25) | `sigma_IE` | n/a (continuous) |
 | interview catch | NB2, or a two-component ZINB mixture | `lambda_C[day,gear] * h[a]` | `r_C` | `theta_C`, shore only |
 | gear per crabber | Poisson | `A_A_gear[a] * R_G` | - | none |
 | gear per boat group | Poisson | `R_G_boat` | - | none |
@@ -998,7 +1019,9 @@ stream, the two gear-ratio interview streams, or any crabbing-fraction stream.
 | `sigma_eps_E`, `sigma_eps_C` | half-Cauchy(0, 1) | - |
 | `sigma_r_E`, `sigma_r_C`, `sigma_r_OSP` | half-Cauchy(0, 1) | `sigma_r_OSP` reuses the effort hyperparameter |
 | `eps_E`, `eps_C`, `omega_*_0_raw`, `L_raw` | `std_normal()` | - |
-| `B1`, `B2`, `B1_C`, `B2_C`, `B_open` | `normal(0, 1)` | - |
+| `B1`, `B1_C`, `B_open` | `normal(0, 1)` | - |
+| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` | `holiday_prior_sd`, 0.5 as shipped (A35, 2026-10-16; 1 before, hard-coded) |
+| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` | `sunday_prior_sd`, 0.5 as shipped; only under `sunday_split = TRUE` |
 | `gamma_C` | `normal(0, 1)` | hard-coded; off in production |
 | `R_G` | `lognormal(log(mu), 0.3)` | `mu` = the run's empirical gear-per-crabber ratio |
 | `R_G_boat` | `lognormal(log(4), 0.5)` | hard-coded |
@@ -1078,6 +1101,7 @@ dimension whose posterior IS its prior, reported in the output as if it were an 
 | `sigma_IE` | every boat fit, and any shore fit below the I/E day floor | `sigma_IE_out` |
 | `gamma_C` | `estimate_cpue_density = 0` (**production**) | `gamma_C_out` |
 | `B2`, `B2_C` | a window containing no holiday | `B2_C_out` |
+| `B1_sun` (A36) | a window containing no Sunday; zero-size when `sunday_split = FALSE` | `B1_sun_out` |
 | `Lcorr_E`, `Lcorr_C` | always, at `G*S = 1` | `Omega_E`, `Omega_C` (the constant 1) |
 | `sigma_mu_E`, `sigma_mu_C` | every single-section fit under `mu_hier_collapse_single = "both"` (**production**, A31) | `sigma_mu_E`, `sigma_mu_C` (flagged prior-only) |
 
@@ -1733,6 +1757,11 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
+- **2026-10-16.** A35: the holiday prior at normal(0, 0.5) from `holiday_prior_sd` (Section 14.7);
+  A36: the Saturday/Sunday split of the weekend effort effect on both tracks (Section 14.2);
+  A37: the pooled prep reads the WBL boat I/E stream as the gear prep has (Section 14.6; D35
+  closed; inert on 2024-25). The first two pending one render under the A35/A36 rule, written
+  before it (CHANGE_REGISTER A36).
 - **2026-10-04.** A33: OSP's crab-only count (delivered 2026-10-02, B64) switched on as an
   observation of `f(1 - c)` on both tracks (`use_osp_crab_lower = TRUE`; Section 14.3), on
   Matt's instruction, with its rule written before the render. A34 (D40) the same day: the

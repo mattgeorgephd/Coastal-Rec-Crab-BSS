@@ -1107,6 +1107,8 @@ for(cg in bss_catch_groups) {
       # machinery described in older comments is not present in the Stan model.
       .gear_pars <- c("C_sum","C_expected_sum","E_sum","C_sum_gear","B1","B2",
                       "r_C_gear_out","sigma_eps_C_gear_out")
+      # A36 (2026-10-16): the Sunday increment on the weekend effort effect, when the split is on.
+      if (isTRUE(bss_data$sunday_split == 1L)) .gear_pars <- c(.gear_pars, "B1_sun_out")
       # improvement 4: opener effort covariates (labels in bss_data$.opener_labels).
       if (bss_data$K_open > 0) .gear_pars <- c(.gear_pars, "B_open_out")
       # improvement 8: the OSP crab-only lower bound alongside f itself.

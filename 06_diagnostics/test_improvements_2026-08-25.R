@@ -3829,13 +3829,14 @@ local({
                  "crab_fraction_strata", "use_osp_crab_lower", "estimate_catch_zi",
                  "ar_max_resolution", "pe_empty_stratum", "pe_empty_effort_stratum",
                  "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length",
-                 "marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_gear_regimes", "marine_hazard_codes")   # 2026-09-27: A30 ADOPTED, section 2.10
+                 "marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_gear_regimes", "marine_hazard_codes",   # 2026-09-27: A30 ADOPTED, section 2.10
+                 "sunday_split", "sunday_prior_sd", "holiday_prior_sd", "use_boat_ie")   # 2026-10-16: A35, A36 (section 2.1) and A37 (use_boat_ie to 2.9, both tracks)
   in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
                 "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C",
                 "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months")   # 2026-09-25: A30, section 4.4b (the experiment surface)
-  in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive", "use_boat_ie")
+  in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive")   # use_boat_ie left for section 2.9 on 2026-10-16 (A37)
   chk("ordered: every method-of-record key sits in section 2",
       all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
       sprintf("(stray: %s)", paste(Filter(function(k) { l <- keyline(k); !(is.finite(l) && l > b2 && l < b3) }, in_method), collapse = ", ")))
@@ -5927,8 +5928,8 @@ local({
   ng <- rd("07_documentation/NEW_SEASON_GUIDE.md"); cl <- rd("07_documentation/CLAUDE.md")
   chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
       # 2026-09-29: the header moved again (B44 to B51); it must still name A30 among what it carries
-      # 2026-10-04: and again (A33)
-      grepl("**last moved 2026-10-04: A33", md, fixed = TRUE) &&
+      # 2026-10-04: and again (A33); 2026-10-16: and again (A35 to A37)
+      grepl("**last moved 2026-10-16: A35", md, fixed = TRUE) &&
       grepl("the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27)", md, fixed = TRUE) &&
       grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
       grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
@@ -7540,6 +7541,88 @@ local({
       grepl("| B65 |", cr, fixed = TRUE) && grepl("| **ADOPTED; RENDERED 2026-10-04 (B65), with A33** |", cr, fixed = TRUE) &&
       grepl("**ADOPTED; RENDERED 2026-10-04 (B65), with A34: the rule met on every clause**", cr, fixed = TRUE) &&
       grepl("### 1z.11 The OSP crab-only count and the day-level crabbing share, rendered", vc, fixed = TRUE) && grepl("`c2cb6af` (the A33/A34 render, 1z.11)", vc, fixed = TRUE))
+})
+
+# ---------- A35, A36, A37 (2026-10-16): the holiday prior, the Saturday/Sunday split, the pooled boat I/E ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  # (1) the calendar-Sunday indicator: the weekday alone, whatever days_wkend says, and a Sunday holiday carries all three
+  pr <- list(days_wkend = c("Friday", "Saturday", "Sunday"), crabbing_holiday_dates = as.Date("2025-06-15"), sections = 1, period_pe = "week")
+  dd <- prep_days_crab("2025-06-09", "2025-06-22", pr)
+  chk("A36 days: day_type_num_sunday is the calendar Sunday (2 of 14), not days_wkend (Fridays are w = 1 but sun = 0)",
+      sum(dd$day_type_num_sunday) == 2 && all(dd$event_date[dd$day_type_num_sunday == 1] == as.Date(c("2025-06-15", "2025-06-22"))) &&
+      all(dd$day_type_num_weekend[bss_weekday(dd$event_date) == "Friday"] == 1) && all(dd$day_type_num_sunday[bss_weekday(dd$event_date) == "Friday"] == 0))
+  chk("A36 days: a Sunday holiday carries w, holiday and sun",
+      { r <- dd[dd$event_date == as.Date("2025-06-15"), ]; r$day_type_num_weekend == 1 && r$day_type_num_holiday == 1 && r$day_type_num_sunday == 1 })
+  # (2) the Stan programs: the split on both tracks' EFFORT process only, zero-size when off; the pooled boat I/E form
+  ps_ <- rdf("02_stan_models/crab_bss_pooled.stan"); gs_ <- rdf("02_stan_models/crab_bss_gear_resolved.stan")
+  for (nm in c("pooled", "gear")) {
+    st_ <- if (nm == "pooled") ps_ else gs_
+    chk(sprintf("A36 %s Stan: sunday_split, sun and value_normal_sigma_B1_sun are data, B1_sun and B1_sun_out are zero-size vectors, the prior and the effort term are gated", nm),
+        all(vapply(c("int<lower=0,upper=1> sunday_split;", "vector<lower=0,upper=1>[D] sun;", "real value_normal_sigma_B1_sun;",
+                     "vector[sunday_split] B1_sun;", "vector[sunday_split] B1_sun_out;",
+                     "if (sunday_split == 1) B1_sun[1] ~ normal(0, value_normal_sigma_B1_sun);",
+                     "(sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0)", "if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];"),
+                   function(x) grepl(x, st_, fixed = TRUE), logical(1))) &&
+        sum(gregexpr("B1_sun[1] * sun[d]", st_, fixed = TRUE)[[1]] > 0) == 1)
+  }
+  chk("A36 pooled Stan: the Sunday term sits in the EFFORT level, not the CPUE level",
+      grepl("B2 * holiday[d] +\n          (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0) +", ps_, fixed = TRUE) &&
+      !grepl("B1_C_sun", ps_, fixed = TRUE) && grepl("B1_C * w[d] + B2_C * holiday[d] +", ps_, fixed = TRUE))
+  chk("A35: the holiday prior scales stay Stan DATA (value_normal_sigma_B2 on both tracks, _B2_C on the pooled), no literal in the Stan prior",
+      grepl("B2 ~ normal(0, value_normal_sigma_B2);", ps_, fixed = TRUE) && grepl("B2_C ~ normal(0, value_normal_sigma_B2_C);", ps_, fixed = TRUE) &&
+      grepl("B2 ~ normal(0, value_normal_sigma_B2);", gs_, fixed = TRUE))
+  chk("A37 pooled Stan: ie_group_scale is data and the boat I/E prediction divides by R_G_boat, as the gear Stan's does",
+      grepl("int<lower=0,upper=1> ie_group_scale;", ps_, fixed = TRUE) && grepl("if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;", ps_, fixed = TRUE) &&
+      grepl("IE_crabber_hours[i] ~ lognormal(log(ie_pred), sigma_IE);", ps_, fixed = TRUE) &&
+      grepl("if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;", gs_, fixed = TRUE))
+  # (3) the preps: the scales from the keys with the former values as defaults; the fields forwarded; the pooled boat I/E path
+  pp <- rdf("03_R_functions/prep_bss_crab_pooled.R"); gp <- rdf("03_R_functions/prep_bss_crab_gear.R")
+  for (nm in c("pooled", "gear")) {
+    t_ <- if (nm == "pooled") pp else gp
+    chk(sprintf("A35/A36 %s prep: holiday_prior_sd (default 1) and sunday_prior_sd (default 0.5) reach the Stan scales; sunday_split and sun are forwarded", nm),
+        grepl(".hol_sd <- as.numeric(params$holiday_prior_sd %||% 1)", t_, fixed = TRUE) && grepl(".sun_sd <- as.numeric(params$sunday_prior_sd %||% 0.5)", t_, fixed = TRUE) &&
+        grepl("value_normal_sigma_B2=.hol_sd", t_, fixed = TRUE) && grepl("value_normal_sigma_B1_sun=.sun_sd", t_, fixed = TRUE) &&
+        grepl("sunday_split=.sun_split, sun=.sun", t_, fixed = TRUE) && grepl(".sun_split <- as.integer(isTRUE(params$sunday_split))", t_, fixed = TRUE))
+  }
+  chk("A35 pooled prep: B2_C's scale reads holiday_prior_sd too", grepl("value_normal_sigma_B2_C=.hol_sd", pp, fixed = TRUE))
+  chk("A37 pooled prep: the boat I/E path mirrors the gear prep (population private_boat, ie_trips, use_boat_ie, the ie_min_obs_boat floor with a bss_warn note, ie_group_scale forwarded)",
+      grepl('filter(population == if (is_shore) "shore" else "private_boat")', pp, fixed = TRUE) &&
+      grepl('ie_obs_col  <- if (is_shore) (eff_spec$ie_obs_col  %||% "ie_crabber_hours") else "ie_trips"', pp, fixed = TRUE) &&
+      grepl("ie_want <- is_shore || isTRUE(params$use_boat_ie)", pp, fixed = TRUE) &&
+      grepl("if (!is_shore && IE_n > 0 && IE_n < ie_min_obs_boat) {", pp, fixed = TRUE) && grepl("ie_group_scale = ie_group_scale,", pp, fixed = TRUE) &&
+      grepl("ie_group_scale <- as.integer(!is_shore)", pp, fixed = TRUE) && grepl("if (is_shore && IE_n > 0 && IE_n < ie_min_obs_shore) {", pp, fixed = TRUE))
+  # (4) the reporting layer
+  md_ <- rdf("03_R_functions/model_diagnostics.R"); sr_ <- rdf("03_R_functions/save_run_diagnostics.R")
+  chk("A36 reporting: B1_sun is in the structural table's list; a window with no Sunday flags it decoupled; its prior and B2_C's reach prior_table",
+      grepl('"B1_sun",', md_, fixed = TRUE) && grepl('set(base %in% c("B1_sun", "B1_sun_out"), "no Sunday in this fit\'s window")', md_, fixed = TRUE) &&
+      grepl("prior_tbl$`B1_sun[1]`", sr_, fixed = TRUE) && grepl("prior_tbl$B2_C <- list", sr_, fixed = TRUE))
+  chk("A36 reporting: bss_decoupled_reasons() flags B1_sun with no Sunday and leaves it alone with one",
+      identical(bss_decoupled_reasons(c("B1_sun[1]", "B2"), list(sun = c(0, 0), holiday = c(1, 0), w = c(1, 0)))[1], "no Sunday in this fit's window") &&
+      is.na(bss_decoupled_reasons(c("B1_sun[1]"), list(sun = c(1, 0), holiday = c(1, 0), w = c(1, 0)))[1]))
+  for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
+    chk(sprintf("A36 %s: B1_sun_out is summarised when the split is on", basename(drv)),
+        grepl('if (isTRUE(bss_data$sunday_split == 1L))', rdf(drv), fixed = TRUE) && grepl('"B1_sun_out")', rdf(drv), fixed = TRUE))
+  # (5) the control surface and the runners
+  e <- new.env(); sys.source("run_config.R", envir = e); rc <- e$run_config; rcs <- rdf("run_config.R")
+  chk("A35/A36/A37 shipped: holiday_prior_sd 0.5, sunday_split TRUE at sunday_prior_sd 0.5, use_boat_ie TRUE in section 2.9 (not section 5), ie_min_obs_boat 2",
+      identical(rc$holiday_prior_sd, 0.5) && isTRUE(rc$sunday_split) && identical(rc$sunday_prior_sd, 0.5) && isTRUE(rc$use_boat_ie) && identical(rc$ie_min_obs_boat, 2) &&
+      grepl("  use_boat_ie      = TRUE,\n", rcs, fixed = TRUE) && !grepl("  use_boat_ie                = TRUE", rcs, fixed = TRUE))
+  for (rn in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
+    chk(sprintf("A35/A36 runners: %s pins holiday_prior_sd = 1 and sunday_split = FALSE in resolve_cfg()", basename(rn)),
+        grepl("cfg$holiday_prior_sd <- 1; cfg$sunday_split <- FALSE", rdf(rn), fixed = TRUE))
+  # (6) the documents
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md")
+  md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  chk("A35/A36/A37 docs: the register has the three rows, D35 reads CLOSED, the rule is written, and the stale 'pending render' text after B65 is gone",
+      all(vapply(c("| A35 |", "| A36 |", "| A37 |", "**The A35/A36 rule, written before the render (2026-10-16):**", "CLOSED 2026-10-16 by A37"), function(x) grepl(x, cr, fixed = TRUE), logical(1))) &&
+      !grepl("USED SINCE 2026-10-04 (A33, pending its confirming render)", cr, fixed = TRUE) && !grepl("the rendered effect waits on the A33/A34 render", cr, fixed = TRUE) &&
+      !grepl("(A33, pending its confirming render). It came without", md, fixed = TRUE))
+  chk("A35/A36/A37 docs: the box says the shipped file differs in three keys pending one render; the method document has the split, the priors and the boat I/E form; CLAUDE.md lists the keys",
+      grepl("A35, A36 AND A37 ARE PENDING (2026-10-16)", ps, fixed = TRUE) &&
+      grepl("**The Saturday/Sunday split (A36, 2026-10-16; pending its render).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
+      grepl("| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` |", md, fixed = TRUE) && grepl("on the boat (A37, 2026-10-16, `ie_group_scale = 1`)", md, fixed = TRUE) &&
+      grepl("`holiday_prior_sd` (A35, 2026-10-16:", cl, fixed = TRUE) && grepl("`sunday_split` / `sunday_prior_sd` (A36, 2026-10-16:", cl, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

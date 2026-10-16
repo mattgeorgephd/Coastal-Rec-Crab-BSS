@@ -534,9 +534,21 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
                                     params, population_name = population_name,
                                     n_informed = .n_L_informed)
 
+  # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
+  # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
+  # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
+  # fields and B1_sun stays zero-size.
+  .sun <- if (!is.null(days$day_type_num_sunday)) as.integer(days$day_type_num_sunday) else as.integer(bss_weekday(days$event_date) == "Sunday")
+  .sun_split <- as.integer(isTRUE(params$sunday_split))
+  # A35 (2026-10-16): the holiday increments' prior scale, from run_config (holiday_prior_sd;
+  # 1, the former hard-coded value, when the key is absent); A36: the Sunday increment's.
+  .hol_sd <- as.numeric(params$holiday_prior_sd %||% 1)
+  .sun_sd <- as.numeric(params$sunday_prior_sd %||% 0.5)
+
   stan_data <- list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    sunday_split=.sun_split, sun=.sun,   # A36
     # improvement 4: opener effort covariates (K_open = 0 reproduces the prior model)
     K_open = as.integer(open_spec$K_open),
     X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
@@ -639,8 +651,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     value_cauchyDF_sigma_eps_C=2, value_cauchyDF_sigma_r_C=2,
     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
     value_normal_sigma_B1=1,
-    value_normal_sigma_B2=1,
+    value_normal_sigma_B2=.hol_sd,   # A35: holiday_prior_sd
     value_normal_sigma_B1_C=1,
+    value_normal_sigma_B1_sun=.sun_sd,   # A36: sunday_prior_sd
     value_normal_sigma_B_open=1,   # improvement 4 (opener effort covariates)
     use_B1_C = as.integer(isTRUE(params$estimate_B1_C)),
     value_normal_mu_mu_C=log(0.5), value_normal_sigma_mu_C=2,

@@ -178,32 +178,33 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   f_day_volume <- if (!is_shore) crab_fraction_day_volume(days, eff_d, osp_match, L_data_vec) else NULL
   cf_data <- crab_fraction_stan_data(is_shore, days, params, day_volume = f_day_volume)
 
-  # --- I/E observations (shore only) ---
-  # improvement 1/2 fix: the OBSERVED quantity now follows the effort unit, via
+  # --- I/E observations (population-aware since A37, 2026-10-16; D35) ---
+  # improvement 1/2 fix: the shore OBSERVED quantity follows the effort unit, via
   # eff_spec$ie_obs_col. Under gear-deployments the Stan predicted mean is
   # lambda_E * tau_shore = crabber TRIPS, so the observation is the crabber ARRIVAL count
   # (ie_trips); under a time unit it stays crabber-hours. Before this fix the deployment
   # path compared crabber-hours against crabber-trips (a ~4x scale mismatch; see
   # bss_effort_spec.R). Set params$ie_shore_obs_unit = "crabber_hours" to reproduce it.
-  ie_obs_col  <- eff_spec$ie_obs_col  %||% "ie_crabber_hours"
-  ie_obs_unit <- eff_spec$ie_obs_unit %||% "crabber-hours"
+  # A37 (D35): the BOAT stream, as prep_bss_crab_gear() has fed it since GR-7 Phase 1: the WBL
+  # boat I/E days' trips (ie_trips), predicted (lambda_E / R_G_boat) * tau (ie_group_scale = 1
+  # in Stan), read when use_boat_ie = TRUE and at least ie_min_obs_boat days fall in the
+  # window. It is what identifies tau_boat directly. Until A37 this track never fed it, so on
+  # a season with boat I/E days the two tracks' boat turnovers were informed differently (D35).
+  # 2024-25 has no WBL boat I/E day in the window and 2025-26 one (below the floor), so on both
+  # the Stan data are what they were.
+  ie_obs_col  <- if (is_shore) (eff_spec$ie_obs_col  %||% "ie_crabber_hours") else "ie_trips"
+  ie_obs_unit <- if (is_shore) (eff_spec$ie_obs_unit %||% "crabber-hours") else "boat trips"
   ie_match <- tibble(event_date = Date(), ie_obs = numeric())
-  # The I/E stream is fed for SHORE only (predicted mean lambda_E * L, in the unit
-  # ie_obs_unit names: crabber trips under gear-deployments). With POOL-1/POOL-3 the boat
-  # is on the gear-deployment scale, so a boat I/E observation would be boat TRIPS with
-  # predicted mean (lambda_E / R_G_boat) * tau (see gear-resolved's ie_group_scale).
-  # KNOWN ASYMMETRY (2026-09-29 sweep): the GEAR track does feed boat I/E when
-  # use_boat_ie = TRUE and ie_min_obs_boat days fall in the window; this track never
-  # does. 2024-25 has no WBL boat I/E day in the window and 2025-26 one, so the tracks
-  # agree today; on a season with two or more they would not.
-  if(!is.null(ie_data) && nrow(ie_data) > 0 && is_shore) {
+  ie_group_scale <- as.integer(!is_shore)
+  ie_want <- is_shore || isTRUE(params$use_boat_ie)
+  if(!is.null(ie_data) && nrow(ie_data) > 0 && ie_want) {
     if (!ie_obs_col %in% names(ie_data))
       stop("prep_bss_crab_pooled(): the I/E observation column '", ie_obs_col,
            "' required by effort unit '", eff_spec$unit, "' is missing from ie_data. ",
            "fetch_ie_data() should emit it; check 03_R_functions/bss_day_length.R.",
            call. = FALSE)
     ie_match <- ie_data |>
-      filter(population == "shore") |>
+      filter(population == if (is_shore) "shore" else "private_boat") |>
       inner_join(days |> select(event_date, day_index), by = "event_date") |>
       mutate(ie_obs = suppressWarnings(as.numeric(.data[[ie_obs_col]]))) |>
       filter(!is.na(day_index), is.finite(ie_obs), ie_obs > 0)
@@ -228,8 +229,18 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # as exponential(5) ON PURPOSE: tightening it (e.g. lognormal(log(0.3), 0.5)) would
   # push the shore all-gear sigma_IE (~1.07) down and force possibly-unrepresentative
   # I/E days to bind harder; see the shore-I/E representativeness diagnostic (GR-9 / item 4).
+  # A37 (D35): the boat floor, as in prep_bss_crab_gear(): fewer than ie_min_obs_boat WBL days
+  # do not inform tau (2025-26 as delivered has one, 2025-12-19).
+  ie_min_obs_boat <- params$ie_min_obs_boat %||% 2L
+  if (!is_shore && IE_n > 0 && IE_n < ie_min_obs_boat) {
+    .msg <- sprintf("Boat I/E stream dropped for %s/%s: %d in-window WBL day(s) < ie_min_obs_boat = %d; tau stays prior- and OSP-driven.",
+                    population_name, gear_regime %||% "?", IE_n, ie_min_obs_boat)
+    cat("  ", .msg, "\n", sep = "")
+    if (exists("bss_warn", mode = "function")) bss_warn("I/E", .msg, severity = "note")
+    IE_n <- 0L
+  }
   ie_min_obs_shore <- params$ie_min_obs_shore %||% 3L
-  if (IE_n > 0 && IE_n < ie_min_obs_shore) {
+  if (is_shore && IE_n > 0 && IE_n < ie_min_obs_shore) {
     .msg <- sprintf("I/E stream dropped for %s/%s: %d in-window obs < ie_min_obs_shore = %d; sigma_IE left decoupled (GR-8 guard).",
                     population_name, gear_regime %||% "?", IE_n, ie_min_obs_shore)
     cat("  ", .msg, "\n", sep = "")
@@ -310,10 +321,22 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
                                     population_name = population_name,
                                     n_informed = .n_L_informed)
 
+  # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
+  # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
+  # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
+  # fields and B1_sun stays zero-size.
+  .sun <- if (!is.null(days$day_type_num_sunday)) as.integer(days$day_type_num_sunday) else as.integer(bss_weekday(days$event_date) == "Sunday")
+  .sun_split <- as.integer(isTRUE(params$sunday_split))
+  # A35 (2026-10-16): the holiday increments' prior scale, from run_config (holiday_prior_sd;
+  # 1, the former hard-coded value, when the key is absent); A36: the Sunday increment's.
+  .hol_sd <- as.numeric(params$holiday_prior_sd %||% 1)
+  .sun_sd <- as.numeric(params$sunday_prior_sd %||% 0.5)
+
   stan_data <- list(
     D=D, G=G, S=S,
     P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    sunday_split=.sun_split, sun=.sun,   # A36
     K_open = as.integer(open_spec$K_open),
     X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
     O=array(1.0, dim=c(D,S,G)),
@@ -395,14 +418,16 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     day_IE = if(IE_n > 0) ie_match$day_index else integer(0),
     section_IE = if(IE_n > 0) rep(1L, IE_n) else integer(0),
     IE_crabber_hours = if(IE_n > 0) ie_match$ie_obs else numeric(0),   # unit per eff_spec$ie_obs_unit
+    ie_group_scale = ie_group_scale,   # A37 (D35): 1 on the boat, where the observation is trips
 
     # Tightened Cauchy scales
     value_cauchyDF_sigma_eps_E=1, value_cauchyDF_sigma_r_E=1,
     value_cauchyDF_sigma_eps_C=1, value_cauchyDF_sigma_r_C=1,
     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
-    value_normal_sigma_B1=1, value_normal_sigma_B2=1,
+    value_normal_sigma_B1=1, value_normal_sigma_B2=.hol_sd,   # A35: holiday_prior_sd
     value_normal_sigma_B1_C=1,
-    value_normal_sigma_B2_C=1,   # item 6a (holiday CPUE effect)
+    value_normal_sigma_B2_C=.hol_sd,   # item 6a (holiday CPUE effect); A35: holiday_prior_sd
+    value_normal_sigma_B1_sun=.sun_sd,   # A36: sunday_prior_sd
     value_normal_sigma_B_open=1,   # improvement 4 (opener effort covariates)
     estimate_cpue_density=as.integer(isTRUE(params$estimate_cpue_density)),  # item 6b (off by default)
     log_E_ref=mu_E_prior,        # item 6b: center the density covariate at the effort level prior
@@ -505,9 +530,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # gear-deployments and hours under a time unit. Kept separate so the L output CSV can
   # label the column correctly instead of borrowing the effort unit.
   stan_data[[".L_unit"]]      <- eff_spec$L_unit %||% NA_character_
-  stan_data[[".ie_obs_unit"]] <- ie_obs_unit
+  stan_data[[".ie_obs_unit"]] <- ie_obs_unit   # A37: "boat trips" on the boat
   # 2026-08-27: the machine-readable partner of .ie_obs_unit (ie_trips vs ie_crabber_hours).
-  stan_data[[".ie_obs_col"]]  <- eff_spec$ie_obs_col %||% NA_character_
+  stan_data[[".ie_obs_col"]]  <- ie_obs_col   # A37: ie_trips on the boat
   # 2026-08-30: the count the shared-turnover floor gates on, reported so a reader can see
   # WHY a fit did or did not get a shared level.
   stan_data[[".n_L_informed"]] <- .n_L_informed
