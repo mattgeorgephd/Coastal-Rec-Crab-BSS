@@ -29,8 +29,9 @@
 > `exp(B1 + B1_sun)` against a Saturday's `exp(B1)`), and `use_boat_ie` read by both tracks (A37,
 > inert here: no WBL boat I/E day in the window), and `port_tau_coupling = "comonotone"` (A38, Matt's
 > option (i) for D44: the two shore fits' draws are paired comonotonically in `tau_bar` before the
-> port sum, which widens the port interval by up to about 5% of its SD and moves no fit and no
-> median; `port_tau_coupling.csv` will show both pairings). A render of the shipped file therefore no
+> port sum; measured on the container refit at +4.8% on the port SD, 7,679 to 8,048, the 95% interval
+> 73,411 to 102,623 becoming 72,377 to 103,516, the median +0.06%; no fit moves, and
+> `port_tau_coupling.csv` shows both pairings on every run). A render of the shipped file therefore no
 > longer reproduces this run. This run stays authoritative until Matt's render of the shipped
 > file (`Rscript run_estimation.R --model both`) passes **the A35/A36 rule, written before it
 > runs**: every fit on both tracks passes the gate; no chain is stuck; the cross-check is within
@@ -43,7 +44,7 @@
 > -5% (the four sampled Sundays carry about 0.71 of a Saturday's gear; the boat's Sunday is 0.89 of a
 > Saturday, OSP's raw 0.87) and the port about -2.2%, to about 86,100 from the container base 87,973;
 > `B1_sun` sampled cleanly on all eight fits; the gear boat all-gear arm agrees with the pooled to -0.7%.
-> A38 widens the interval on top of that. CHANGE_REGISTER A35 to A38.
+> A38 widens the interval on top of that (+4.8% on the port SD). CHANGE_REGISTER A35 to A38.
 >
 > **`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**, 4 of 4
 > components fitted, every one reporting BSS, with its gear-resolved cross-check
