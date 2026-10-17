@@ -7714,5 +7714,45 @@ local({
       grepl("`port_tau_coupling` / `port_tau_coupling_populations` (A38, 2026-10-16", cl, fixed = TRUE))
 })
 
+# ---------- B66 (2026-10-17): a render checkpointed per fit through BSS_FIT_CACHE_DIR ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  fsrc <- readLines("03_R_functions/bss_stan_fit.R", warn = FALSE)
+  chk("B66 wrapper: bss_stan_fit() checks the cache before sampling and saves after the B38 permutation, around the unchanged sampling body",
+      any(grepl("^bss_stan_fit <- function", fsrc)) && any(grepl("^.bss_stan_fit_sample <- function", fsrc)) &&
+      any(grepl("hit <- bss_fit_cache_load(cache_path, label, log_file)", fsrc, fixed = TRUE)) &&
+      any(grepl("if (!is.null(cache_path)) bss_fit_cache_save(fit, cache_path, label)", fsrc, fixed = TRUE)))
+  old <- Sys.getenv("BSS_FIT_CACHE_DIR", unset = NA)
+  on.exit(if (is.na(old)) Sys.unsetenv("BSS_FIT_CACHE_DIR") else Sys.setenv(BSS_FIT_CACHE_DIR = old), add = TRUE)
+  Sys.unsetenv("BSS_FIT_CACHE_DIR")
+  chk("B66 off: with BSS_FIT_CACHE_DIR unset the cache directory is NULL (nothing is read or written)", is.null(bss_fit_cache_dir()))
+  td <- file.path(tempdir(), "b66"); Sys.setenv(BSS_FIT_CACHE_DIR = td)
+  chk("B66 on: the directory is read from the environment", identical(bss_fit_cache_dir(), td))
+  sf <- tempfile(fileext = ".stan"); writeLines(c("data { int N; }", "parameters { real mu; }", "model { mu ~ normal(0, 1); }"), sf)
+  d1 <- list(N = 5L, x = c(1, 2, 3))
+  a1 <- list(chains = 4, iter = 3000, warmup = 1500, control = list(adapt_delta = 0.95, max_treedepth = 12), seed = 20260619, cores = 4, init_r = 0.5)
+  k1 <- bss_fit_cache_key(sf, d1, a1)
+  chk("B66 key: stable for the same program, data, settings and seed, blind to cores and the log path, and an md5",
+      identical(k1, bss_fit_cache_key(sf, d1, a1)) && identical(k1, bss_fit_cache_key(sf, d1, modifyList(a1, list(cores = 1)))) &&
+      identical(k1, bss_fit_cache_key(sf, d1, c(a1, list(log_file = "x")))) && grepl("^[0-9a-f]{32}$", k1))
+  chk("B66 key: a different seed, iteration count, control, init radius, data value or Stan program gives a different key",
+      !identical(k1, bss_fit_cache_key(sf, d1, modifyList(a1, list(seed = 1)))) &&
+      !identical(k1, bss_fit_cache_key(sf, d1, modifyList(a1, list(iter = 3001)))) &&
+      !identical(k1, bss_fit_cache_key(sf, d1, modifyList(a1, list(control = list(adapt_delta = 0.99, max_treedepth = 12))))) &&
+      !identical(k1, bss_fit_cache_key(sf, d1, modifyList(a1, list(init_r = 2)))) &&
+      !identical(k1, bss_fit_cache_key(sf, list(N = 5L, x = c(1, 2, 4)), a1)) &&
+      { writeLines(c("data { int N; }", "parameters { real mu; }", "model { mu ~ normal(0, 2); }"), sf); !identical(k1, bss_fit_cache_key(sf, d1, a1)) })
+  chk("B66 path: the label is sanitised and the file sits in the directory as label_key.rds",
+      identical(bss_fit_cache_path(td, "shore_all_gear_Dungeness_Kept att1", k1), file.path(td, sprintf("shore_all_gear_Dungeness_Kept_att1_%s.rds", k1))) &&
+      identical(basename(bss_fit_cache_path(td, NULL, k1)), sprintf("fit_%s.rds", k1)))
+  chk("B66 load: a missing file is a miss (NULL), and a file that is not a stanfit is a miss, not an error",
+      is.null(bss_fit_cache_load(file.path(td, "nothing.rds"), "x", NULL)) &&
+      { dir.create(td, showWarnings = FALSE, recursive = TRUE); p <- file.path(td, "junk.rds"); saveRDS(list(not = "a fit"), p); is.null(bss_fit_cache_load(p, "x", NULL)) })
+  chk("B66 manifest: run_estimation.R records the cache directory, or that none was set",
+      grepl('paste("fit cache   :"', rdf("run_estimation.R"), fixed = TRUE) && grepl("BSS_FIT_CACHE_DIR unset; every fit sampled", rdf("run_estimation.R"), fixed = TRUE))
+  chk("B66 docs: CLAUDE.md names BSS_FIT_CACHE_DIR and the register has the B66 row",
+      grepl("`BSS_FIT_CACHE_DIR=<dir>`", rdf("07_documentation/CLAUDE.md"), fixed = TRUE) && grepl("| B66 |", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE))
+})
+
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
 if (bad > 0) quit(status = 1)
