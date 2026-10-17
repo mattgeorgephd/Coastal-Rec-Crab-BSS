@@ -7620,7 +7620,7 @@ local({
       !grepl("USED SINCE 2026-10-04 (A33, pending its confirming render)", cr, fixed = TRUE) && !grepl("the rendered effect waits on the A33/A34 render", cr, fixed = TRUE) &&
       !grepl("(A33, pending its confirming render). It came without", md, fixed = TRUE))
   chk("A35/A36/A37 docs: the box says the shipped file differs in three keys pending one render; the method document has the split, the priors and the boat I/E form; CLAUDE.md lists the keys",
-      grepl("A35, A36 AND A37 ARE PENDING (2026-10-16)", ps, fixed = TRUE) &&
+      grepl("A35 TO A38 RENDERED 2026-10-17 ON THE CONTAINER (B67)", ps, fixed = TRUE) &&
       grepl("**The Saturday/Sunday split (A36, 2026-10-16; pending its render).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
       grepl("| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` |", md, fixed = TRUE) && grepl("on the boat (A37, 2026-10-16, `ie_group_scale = 1`)", md, fixed = TRUE) &&
       grepl("`holiday_prior_sd` (A35, 2026-10-16:", cl, fixed = TRUE) && grepl("`sunday_split` / `sunday_prior_sd` (A36, 2026-10-16:", cl, fixed = TRUE))

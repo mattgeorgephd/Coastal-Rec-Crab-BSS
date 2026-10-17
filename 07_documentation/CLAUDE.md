@@ -70,7 +70,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > A33/A34 rule written before it ran. It is 11.9% below the run it replaced, all of it the boat
 > all-gear fit (47,105 to 35,211), the shore byte-identical; the BSS now sits 0.9% below the PE.
 > D29's resolution span (below) was measured before A33 and A34 and is STALE. **Since 2026-10-16
-> `run_config.R` as shipped differs from that run in four keys, PENDING one render**: the holiday
+> `run_config.R` as shipped differs from that run in four keys, RENDERED on the container 2026-10-17 (B67: every clause of the rule met; whether that render is the authoritative run is Matt's call)**: the holiday
 > prior at 0.5 (A35), the Saturday/Sunday split (A36), the pooled boat I/E path (A37, inert
 > on 2024-25) and the comonotone pairing of the shore fits' draws in the port total (A38, the interval
 > only); the rule is CHANGE_REGISTER A36 and the box has the expected movement. **The run it
