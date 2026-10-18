@@ -1,0 +1,6 @@
+"component","PE_effort","BSS_effort","bss_vs_pe_effort_pct","PE_catch","BSS_catch","bss_vs_pe_catch_pct","method_selected","bss_reported"
+"shore (Pot closure)",7328,7361,0.5,9126,9327,2.2,"BSS",TRUE
+"shore (All gear)",39165,36683,-6.3,32960,31075,-5.7,"BSS",TRUE
+"private_boat (Pot closure)",457,505,10.4,1192,1272,6.7,"BSS",TRUE
+"private_boat (All gear)",13951,12012,-13.9,36941,35350,-4.3,"BSS",TRUE
+"comm_charter (census)",198,NA,NA,8538,NA,NA,"Commercial CENSUS (exact over the tally days) (6,405 crab) + Charter EXPANSION (roster frame, vessel; 34 trips, 20 interviewed, 2,133 crab, SE 73); carried SE 73 ('charter')",FALSE

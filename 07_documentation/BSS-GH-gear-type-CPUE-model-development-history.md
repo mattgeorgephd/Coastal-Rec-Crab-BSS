@@ -28,7 +28,7 @@ sampled day shared by its repeat counts, `sigma_uE ~ half-normal(0, effort_day_e
 totals carry the shore's fitted deviation on sampled days (`eday_of_day` from the gear counts only;
 the boat keeps the level OSP pins). Zero-size and the literal 1.0 when `effort_day_effect = FALSE`,
 checked draw for draw on the boat pot-closure fit (campaign 1z.15). The driver extracts
-`sigma_uE_out` when the effect is on. Pending the render under the A39 rule (CHANGE_REGISTER A39).
+`sigma_uE_out` when the effect is on. Rendered the same day (B69): the gear track met every clause itself (its shore pot-closure fit's `sigma_uE` n_eff 413, the cross-check -0.06%), the pooled track's same fit did not (301), and per the rule the key is back to FALSE pending Matt's decision (CHANGE_REGISTER A39, B69).
 
 ### 2026-10-17, THE CROSS-CHECK UNDER A35 TO A38: -0.27% (B67)
 

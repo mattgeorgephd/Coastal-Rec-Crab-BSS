@@ -7854,8 +7854,8 @@ local({
       grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) bss_pars <- c(bss_pars, "sigma_uE_out")', pd, fixed = TRUE) &&
       grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) .gear_pars <- c(.gear_pars, "sigma_uE_out")', gd, fixed = TRUE) &&
       grepl('prior_tbl$`sigma_uE[1]` <- list(fam = sprintf("half-normal(0, %.1f)", .s_uE)', rdf("03_R_functions/save_run_diagnostics.R"), fixed = TRUE))
-  chk("A39 config: effort_day_effect ships TRUE with effort_day_effect_sd 0.5 in section 2.1 under the A39 rule comment, section 4 no longer carries it, and both live batch runners pin it FALSE in resolve_cfg()",
-      any(grepl("^\\s*effort_day_effect\\s*=\\s*TRUE,", rc)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) && sum(grepl("^\\s*effort_day_effect\\s*=", rc)) == 1 &&
+  chk("A39 config: effort_day_effect ships FALSE again (B69: clause 4 of the rule failed) with effort_day_effect_sd 0.5 in section 2.1 under the A39 rule and outcome comments, section 4 no longer carries it, and both live batch runners pin it FALSE in resolve_cfg()",
+      any(grepl("^\\s*effort_day_effect\\s*=\\s*FALSE,", rc)) && any(grepl("# THE OUTCOME (B69, 2026-10-18)", rc, fixed = TRUE)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) && sum(grepl("^\\s*effort_day_effect\\s*=", rc)) == 1 &&
       any(grepl("# THE RULE (A39, written before the render; the full text is CHANGE_REGISTER A39)", rc, fixed = TRUE)) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE))) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE))))
@@ -7895,6 +7895,36 @@ local({
       grepl("D29's span, re-measured 2026-10-18 (1z.14)", ps, fixed = TRUE) &&
       grepl("was re-measured on 2026-10-18 under the current model (campaign 1z.14): the boat all-gear fit", cl, fixed = TRUE) && !grepl("is STALE", cl, fixed = TRUE) &&
       grepl("35,403 at monthly, 37,947 at biweekly (+7.2%) and 38,767 at weekly", md, fixed = TRUE) && grepl("the window-only centre 2.225 prices at -9.5% on the shore all-gear fit (27,866 against 30,804)", md, fixed = TRUE))
+})
+
+# ---------- B69 (2026-10-18): the A39 render; clause (4) of the rule failed on one fit, the key back to FALSE ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  N <- "05_output/20261018/pooled-CPUE-2024-25"; G <- "05_output/20261018/gear-type-CPUE-model-2024-25"
+  if (dir.exists(N) && dir.exists(G)) {
+    e <- utils::read.csv(file.path(N, "port_total_Dungeness_Kept.csv")); e <- e[e$Estimate == "Expected_Catch", ]
+    g <- utils::read.csv(file.path(G, "port_total_Dungeness_Kept.csv")); g <- g[g$Estimate == "Expected_Catch", ]
+    chk("B69 render: pooled 86,456 [72,750, 104,679], gear 86,405 [72,596, 104,659], from the folders' own CSVs",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95)), c(86456, 72750, 104679)) && identical(as.numeric(c(g$BSS_median, g$BSS_lo95, g$BSS_hi95)), c(86405, 72596, 104659)))
+    cv <- utils::read.csv(file.path(N, "convergence_report.csv")); cg <- utils::read.csv(file.path(G, "convergence_report.csv"))
+    chk("B69 clause (1): every fit on both tracks passes the gate", nrow(cv) == 4 && nrow(cg) == 4 && all(cv$pass_convergence) && all(cg$pass_convergence))
+    xc <- utils::read.csv(list.files("05_output/20261018", "^cross_check_.*csv$", full.names = TRUE)[1])
+    chk("B69 clause (3): the cross-check is -0.06%, PASS", identical(xc$verdict, "PASS") && isTRUE(all.equal(xc$gear_minus_pooled_pct, -0.06)))
+    su <- function(d) { f <- list.files(d, "^bss_full_summary_.*Dungeness_Kept\\.csv$", full.names = TRUE)
+                        do.call(rbind, lapply(f, function(x) { z <- utils::read.csv(x, check.names = FALSE); r <- z[z[[1]] == "sigma_uE_out[1]", c("n_eff", "Rhat")]; r$file <- basename(x); r })) }
+    s8 <- rbind(su(N), su(G))
+    chk("B69 clause (4): sigma_uE_out on all eight fits with R-hat below 1.01, and n_eff below 400 on exactly one, the pooled shore pot-closure fit (301)",
+        nrow(s8) == 8 && all(s8$Rhat < 1.01) && sum(s8$n_eff < 400) == 1 && s8$file[s8$n_eff < 400] == "bss_full_summary_shore_ring_net_only_Dungeness_Kept.csv" && round(s8$n_eff[s8$n_eff < 400]) == 301)
+    mf <- readLines(list.files("05_output/20261018", "^run_manifest_.*txt$", full.names = TRUE)[1], warn = FALSE)
+    chk("B69: the render ran on b1c1cf5 with a clean tree, under a fit cache, with effort_day_effect TRUE",
+        any(grepl("git sha     : b1c1cf5", mf, fixed = TRUE)) && any(grepl("git tree    : clean", mf, fixed = TRUE)) && any(grepl("fit cache   : /", mf, fixed = TRUE)) && any(grepl("effort_day_effect .*TRUE", mf)))
+  }
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cl <- rdf("07_documentation/CLAUDE.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  chk("B69 docs: the register has the B69 row and A39 reads RENDERED with clause (4) failed, the box and CLAUDE.md say the shipped file is B67's configuration again, the campaign anchors B69",
+      grepl("| B69 |", cr, fixed = TRUE) && grepl("RENDERED the same day (B69): clauses (1) to (3) met, clause (4) FAILED on the pooled shore pot-closure fit", cr, fixed = TRUE) &&
+      grepl("The shipped configuration IS this run again: A39's render (B69, the evening of", ps, fixed = TRUE) &&
+      grepl("**The shipped file IS the authoritative run (B67) again since the evening of 2026-10-18", cl, fixed = TRUE) &&
+      grepl("(1z.15; the A39 commit `b1c1cf5` and B69)", vc, fixed = TRUE) && grepl("- **The render (B69).**", vc, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

@@ -570,7 +570,14 @@ run_config <- list(
   # sigma_uE is sampled cleanly on all eight fits (R-hat < 1.01, n_eff > 400); each fit's
   # sigma_uE, the components' movement against B67 and the interval widening are reported,
   # not judged. If a clause fails, the key goes back to FALSE and the failure is recorded.
-  effort_day_effect    = TRUE,
+  # THE OUTCOME (B69, 2026-10-18): the render met clauses (1) to (3) (8 of 8 gates, no stuck
+  # chain, cross-check -0.06%) and FAILED (4) on the pooled shore pot-closure fit, where every
+  # sampled day has one count and sigma_uE trades off with sigma_r_E (n_eff 301; the gear
+  # track's same fit 413; the other six fits 906 to 3,661). Per the rule the key is back to
+  # FALSE, so this file is B67's configuration again, pending Matt's decision between an
+  # identification floor (the term only on fits with repeat counts), accepting B69 with an
+  # exception, more iterations on the pot-closure fits, or leaving it off (CHANGE_REGISTER B69).
+  effort_day_effect    = FALSE,
   effort_day_effect_sd = 0.5,          # half-normal scale of sigma_uE (log scale)
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum

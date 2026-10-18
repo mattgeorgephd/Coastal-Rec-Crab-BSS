@@ -27,7 +27,7 @@ correction and read the shore all-gear effort 5.8% low), now ships TRUE in secti
 pooled OFF path reproduces the A38 refits draw for draw. Priced on the container: the shore
 all-gear interval half-width +7.5% with the point +1.1%, the boat +4.0% and +0.2%, the port SD +2.5%.
 D29's span was re-measured under the current model the same day (35,403 to 38,767 on the boat
-all-gear fit, the port +3.8%). The render (B69) follows.
+all-gear fit, the port +3.8%). The render (B69, the same evening) met clauses (1) to (3) of the rule and failed clause (4) on the pooled shore pot-closure fit (`sigma_uE` n_eff 301, one count per day); per the rule the key is back to FALSE pending Matt's decision (an identification floor recommended).
 
 ### 2026-10-18, THE AUTHORITATIVE RUN MOVES TO THE CONTAINER RENDER OF A35 TO A38: 86,113 (B66, B67)
 
