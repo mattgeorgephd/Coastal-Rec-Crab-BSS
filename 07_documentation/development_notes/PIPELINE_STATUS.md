@@ -41,8 +41,7 @@
 > effect of both tracks: a Sunday at 0.71 [0.48, 1.05] of a Saturday on the shore all-gear fit, 0.89
 > [0.64, 1.25] on the boat all-gear fit beside OSP's raw 0.87), **A37** (the pooled boat I/E path,
 > inert on 2024-25) **and A38** (the two shore fits' draws paired comonotonically in `tau_bar` before
-> the port sum: port SD 7,679 to 8,048, +4.8%; `port_tau_coupling.csv` gives both pairings). A35 TO
-> A38 RENDERED 2026-10-17 ON THE CONTAINER (B67). **What moved against the run it replaced:** port
+> the port sum: port SD 7,679 to 8,048, +4.8%; `port_tau_coupling.csv` gives both pairings). A35 TO A38 RENDERED 2026-10-17 ON THE CONTAINER (B67). **What moved against the run it replaced:** port
 > 87,932 to 86,113 (-2.1%); the shore all-gear fit 32,455 to 30,804 (-5.1%, the Sunday split through
 > four sampled Sundays, D43); the boat all-gear 35,211 to 35,403 (+0.5%); the pot-closure fits 1,391
 > to 1,354 and 9,505 to 9,264; the census unchanged at 8,538; the 95% half-width 15,039 to 15,575

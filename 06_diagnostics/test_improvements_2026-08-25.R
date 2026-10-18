@@ -7271,10 +7271,11 @@ local({
   }
   ps <- rd("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rd("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rd("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rd("07_documentation/CLAUDE.md"); rc <- rd("run_config.R")
+  # 2026-10-18 (B67): two runs back now; the register says "That had replaced"
   chk("B61 docs: the box, the register, CLAUDE.md and run_config.R's header name the new run with its total and interval",
       # 2026-10-04 (B65): superseded; each document now names it as the run the A33/A34 render replaced
       grepl("**`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718]**", ps, fixed = TRUE) &&
-      grepl("That had replaced `05_output/20260929/pooled-CPUE-2024-25-220449`, port total **99,822 [82,090, 124,718]**", cr, fixed = TRUE)   # 2026-10-18 (B67): two runs back now &&
+      grepl("That had replaced `05_output/20260929/pooled-CPUE-2024-25-220449`, port total **99,822 [82,090, 124,718]**", cr, fixed = TRUE) &&
       grepl("`05_output/20260929/pooled-CPUE-2024-25-220449`, port **99,822 [82,090, 124,718]**", cl, fixed = TRUE) &&
       grepl("#   port total 99,822  [82,090, 124,718]", rc, fixed = TRUE))
   chk("B61 docs: the register carries B61, the campaign 1z.9 with its anchor, and the box the cross-check and R2",
@@ -7533,10 +7534,11 @@ local({
   }
   ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rdf("07_documentation/CLAUDE.md"); rc <- rdf("run_config.R")
+  # 2026-10-18 (B67): B65 is now the run replaced; the register says "It replaced", run_config.R names it among the runs before
   chk("B65 docs: the box, the register, CLAUDE.md and run_config.R name the new run with its total and interval, and D29's span as stale",
       grepl("**`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**", ps, fixed = TRUE) &&
-      grepl("It replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE)   # 2026-10-18 (B67): now the run replaced &&
-      grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE)   # 2026-10-18 (B67): run_config.R names it among the runs before &&
+      grepl("It replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE) &&
+      grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE) &&
       grepl("D29's span is stale", ps, fixed = TRUE) && grepl("STALE SINCE B65", cr, fixed = TRUE))
   chk("B65 docs: the register carries B65, A33 and A34 read RENDERED, and the campaign 1z.11 with its anchor",
       grepl("| B65 |", cr, fixed = TRUE) && grepl("| **ADOPTED; RENDERED 2026-10-04 (B65), with A33** |", cr, fixed = TRUE) &&
