@@ -83,9 +83,10 @@ do not add either.
 
 **Every percentage in this document is stated PE relative to BSS**, so a negative number
 means the design-based estimate sits below the Bayesian one. The output file
-`pe_vs_bss_comparison.csv` reports the opposite direction in its `effort_diff_pct` and
-`catch_diff_pct` columns, and the column names do not say so. Check the direction before
-quoting either.
+`pe_vs_bss_comparison.csv` reports the opposite direction, BSS relative to PE, and since
+2026-10-18 (D27) its columns say so: `bss_vs_pe_effort_pct` and `bss_vs_pe_catch_pct` (they
+were `effort_diff_pct` and `catch_diff_pct`, unlabelled, in every run before). Check the
+direction before quoting either.
 
 Alongside the total, a run produces: monthly estimates, catch split by gear type, a
 side-by-side design-based comparison for every component, per-fit convergence and adequacy
@@ -1102,7 +1103,7 @@ dimension whose posterior IS its prior, reported in the output as if it were an 
 | `gamma_C` | `estimate_cpue_density = 0` (**production**) | `gamma_C_out` |
 | `B2`, `B2_C` | a window containing no holiday | `B2_C_out` |
 | `B1_sun` (A36) | a window containing no Sunday; zero-size when `sunday_split = FALSE` | `B1_sun_out` |
-| `Lcorr_E`, `Lcorr_C` | always, at `G*S = 1` | `Omega_E`, `Omega_C` (the constant 1) |
+| `Lcorr_E`, `Lcorr_C` | always, at `G*S = 1`: a 1 x 1 correlation Cholesky factor is the constant 1, so nothing is sampled and the `lkj_corr_cholesky(1)` prior is a no-op (D42) | `Omega_E`, `Omega_C` (the constant 1) |
 | `sigma_mu_E`, `sigma_mu_C` | every single-section fit under `mu_hier_collapse_single = "both"` (**production**, A31) | `sigma_mu_E`, `sigma_mu_C` (flagged prior-only) |
 
 The unconditional priors on `R_G`, `R_G_boat` and `sigma_IE` are deliberate and must not be

@@ -3386,30 +3386,32 @@ for(pop in c("shore","private_boat")) {
     if(!is.null(b) && (is.null(b$pe_fallback) || !b$pe_fallback)) {
       bss_catch <- b$C_expected_sum["50%"]
       bss_effort <- b$E_sum["50%"]
-      catch_diff_pct <- round((bss_catch - pe_catch) / pe_catch * 100, 1)
-      effort_diff_pct <- round((bss_effort - pe_effort) / pe_effort * 100, 1)
+      # 2026-10-18 (D27): the columns are named for their direction, (BSS - PE) / PE; they were
+      # effort_diff_pct / catch_diff_pct, unlabelled, until then (the narrative states PE relative to BSS).
+      bss_vs_pe_catch_pct <- round((bss_catch - pe_catch) / pe_catch * 100, 1)
+      bss_vs_pe_effort_pct <- round((bss_effort - pe_effort) / pe_effort * 100, 1)
       conv <- convergence_df |> filter(fit == label_cg)
       method <- if(nrow(conv) > 0 && conv$pass_convergence[1]) "BSS" else "PE"
     } else {
       bss_catch <- NA; bss_effort <- NA
-      catch_diff_pct <- NA; effort_diff_pct <- NA
+      bss_vs_pe_catch_pct <- NA; bss_vs_pe_effort_pct <- NA
       method <- "PE"
     }
 
     comparison[[length(comparison)+1]] <- tibble(
       component = paste0(pop, " (", ss$display_name, ")"),
       PE_effort = round(pe_effort), BSS_effort = round(bss_effort),
-      effort_diff_pct = effort_diff_pct,
+      bss_vs_pe_effort_pct = bss_vs_pe_effort_pct,
       PE_catch = round(pe_catch), BSS_catch = round(bss_catch),
-      catch_diff_pct = catch_diff_pct,
+      bss_vs_pe_catch_pct = bss_vs_pe_catch_pct,
       method_selected = method
     )
   }
 }
 comparison[[length(comparison)+1]] <- tibble(
   component = "comm_charter (census)",
-  PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, effort_diff_pct = NA,
-  PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, catch_diff_pct = NA,
+  PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, bss_vs_pe_effort_pct = NA,
+  PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, bss_vs_pe_catch_pct = NA,
   # Review item 4 (2026-09-08/09): say what was observed and what the unsampled days are.
   # 2026-09-11: the two populations, two estimators, stated in the method column
   method_selected = local({ .c <- pe_all$comm_charter; sprintf(
@@ -3449,8 +3451,8 @@ write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.
 .cmp$method_short <- ifelse(grepl("census", .cmp$component), "Census + charter expansion", .cmp$method_selected)
 .cmp$Component <- sub("^comm_charter \\(census\\)$", "Commercial/charter", sub("^private_boat ", "Private boat ", sub("^shore ", "Shore ", .cmp$component)))
 print(report_table(dplyr::transmute(.cmp, Component, `PE effort` = round(PE_effort), `BSS effort` = round(BSS_effort),
-                                    `Effort BSS vs PE (%)` = round(effort_diff_pct, 1), `PE catch` = round(PE_catch), `BSS catch` = round(BSS_catch),
-                                    `Catch BSS vs PE (%)` = round(catch_diff_pct, 1), `Totals use` = method_short),
+                                    `Effort BSS vs PE (%)` = round(bss_vs_pe_effort_pct, 1), `PE catch` = round(PE_catch), `BSS catch` = round(BSS_catch),
+                                    `Catch BSS vs PE (%)` = round(bss_vs_pe_catch_pct, 1), `Totals use` = method_short),
                    digits = 1, caption = paste("Point Estimator against the Bayesian estimate by component (BSS medians). Effort is in gear deployments;",
                                                "the census row in vessel-trips. 'Totals use' is the estimate the port total carries.")))
 .cens <- .cmp$method_selected[grepl("census", .cmp$component)]

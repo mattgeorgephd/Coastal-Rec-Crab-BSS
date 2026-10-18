@@ -3836,7 +3836,8 @@ local({
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
                 "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C",
-                "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months")   # 2026-09-25: A30, section 4.4b (the experiment surface)
+                "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months",   # 2026-09-25: A30, section 4.4b (the experiment surface)
+                "effort_day_effect", "effort_day_effect_sd")   # 2026-10-18: B68 (the D45 per-day effort effect), section 4 beside ar_force
   in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive")   # use_boat_ie left for section 2.9 on 2026-10-16 (A37)
   chk("ordered: every method-of-record key sits in section 2",
       all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
@@ -7800,6 +7801,55 @@ local({
       grepl("| B66 |", cr, fixed = TRUE) && grepl("| B67 |", cr, fixed = TRUE) && grepl("THE AUTHORITATIVE RUN since 2026-10-18 (Matt)", cr, fixed = TRUE) &&
       grepl("**DONE: AUTHORITATIVE 2026-10-04 to 2026-10-18; replaced by B67**", cr, fixed = TRUE) &&
       grepl("### 1z.13 The shipped file rendered on the container", vc, fixed = TRUE) && grepl("the container render of the shipped file, committed with this section; 1z.13)", vc, fixed = TRUE))
+})
+
+# ---------- B68 (2026-10-18): the per-day effort effect (D45) as an experiment lever; D27 and D42 closed in the same commit ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  stan <- rdf("02_stan_models/crab_bss_pooled.stan"); prep <- rdf("03_R_functions/prep_bss_crab_pooled.R")
+  rc <- readLines("run_config.R", warn = FALSE)
+  pd <- rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"); gd <- rdf("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  nhit <- function(pat, x) { m <- gregexpr(pat, x)[[1]]; sum(m > 0) }
+  chk("B68 Stan: the lever is declared in data, sized in transformed data and zero-size in parameters when off",
+      grepl("int<lower=0, upper=1> effort_day_effect;", stan, fixed = TRUE) && grepl("int<lower=0> n_Eday;", stan, fixed = TRUE) &&
+      grepl("int<lower=1> Eday_Gear[Gear_n];", stan, fixed = TRUE) && grepl("int<lower=1> Eday_T[T_n];", stan, fixed = TRUE) &&
+      grepl("real<lower=0> value_normal_sigma_uE;", stan, fixed = TRUE) &&
+      grepl("int n_uE = (effort_day_effect == 1) ? n_Eday : 0;", stan, fixed = TRUE) &&
+      grepl("vector[n_uE] uE_raw;", stan, fixed = TRUE) && grepl("real<lower=0> sigma_uE[effort_day_effect];", stan, fixed = TRUE))
+  chk("B68 Stan: the gear and trailer likelihoods and their log_lik carry the day multiplier (the literal 1.0 when off); the prior and the GQ are gated on the flag",
+      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\]\\) : 1\\.0\\)", stan) == 2 &&
+      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\]\\) : 1\\.0\\)", stan) == 2 &&
+      grepl("uE_raw ~ std_normal\\(\\);", stan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", stan) &&
+      grepl("vector[effort_day_effect] sigma_uE_out;", stan, fixed = TRUE) && grepl("if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];", stan, fixed = TRUE))
+  chk("B68 prep: the pooled prep indexes each count's sampled day and passes the flag, its n and its prior scale (0.5 when unset); the gear track is untouched",
+      grepl(".eday_levels <- sort(unique(eff_d$day_index))", prep, fixed = TRUE) &&
+      grepl("effort_day_effect = as.integer(isTRUE(params$effort_day_effect))", prep, fixed = TRUE) &&
+      grepl("n_Eday = length(.eday_levels)", prep, fixed = TRUE) &&
+      grepl("Eday_Gear = if(is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
+      grepl("Eday_T = if(!is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
+      grepl("value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5)", prep, fixed = TRUE) &&
+      !grepl("effort_day_effect", rdf("03_R_functions/prep_bss_crab_gear.R"), fixed = TRUE) &&
+      !grepl("effort_day_effect", rdf("02_stan_models/crab_bss_gear_resolved.stan"), fixed = TRUE))
+  chk("B68 config: effort_day_effect ships FALSE with effort_day_effect_sd 0.5, and both live batch runners pin it FALSE in resolve_cfg()",
+      any(grepl("^\\s*effort_day_effect\\s*=\\s*FALSE,", rc)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) &&
+      any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE))) &&
+      any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE))))
+  code_lines <- function(f) { x <- readLines(f, warn = FALSE); x[!grepl("^\\s*#", x)] }
+  d27 <- regmatches(cr, regexpr("\\| D27 \\|[^\n]*", cr)); d42 <- regmatches(cr, regexpr("\\| D42 \\|[^\n]*", cr))
+  chk("D27 closed: both drivers write bss_vs_pe_effort_pct / bss_vs_pe_catch_pct, no code line keeps the old names, the method document and the register say so",
+      grepl("bss_vs_pe_effort_pct", pd, fixed = TRUE) && grepl("bss_vs_pe_catch_pct", pd, fixed = TRUE) &&
+      grepl("bss_vs_pe_effort_pct", gd, fixed = TRUE) && grepl("bss_vs_pe_catch_pct", gd, fixed = TRUE) &&
+      !any(grepl("effort_diff_pct|catch_diff_pct", code_lines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"))) &&
+      !any(grepl("effort_diff_pct|catch_diff_pct", code_lines("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))) &&
+      grepl("`bss_vs_pe_effort_pct`", md, fixed = TRUE) && length(d27) == 1 && grepl("CLOSED 2026-10-18", d27, fixed = TRUE))
+  chk("D42 closed: the combo-share comment names the legacy prior, crab_fraction_combo_level and the f(1 - c) observation; the Stan data block names the hard bound as the legacy path; the register row reads CLOSED",
+      { i <- grep("^  crab_fraction_combo_share\\s*=", rc); blk <- paste(rc[max(1, i - 12):i], collapse = "\n")
+        grepl("legacy prior", blk, fixed = TRUE) && grepl("crab_fraction_combo_level", blk, fixed = TRUE) && grepl("f(1 - c) (A33)", blk, fixed = TRUE) } &&
+      grepl("the HARD-bound construction described in this paragraph is the LEGACY", stan, fixed = TRUE) &&
+      !grepl("OSP CRAB-ONLY COUNTS AS A HARD LOWER BOUND ON f", stan, fixed = TRUE) &&
+      grepl("f_lower_param;", stan, fixed = TRUE) && grepl("zero-size under the shipped dynamic f (D42)", stan, fixed = TRUE) &&
+      length(d42) == 1 && grepl("CLOSED 2026-10-18", d42, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

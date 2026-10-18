@@ -862,12 +862,14 @@ run_config <- list(
   # 0.75). Most contact days hold 1-4 boats, where beta-binomial ~ binomial and this
   # rests on its prior; it bites on the busy days (20+ contacts).
   crab_fraction_contact_kappa_prior_mu = 20,
-  # theta's prior in an OSP-INFORMED stratum: the share of non-crab-labelled boats that
-  # were also crabbing. 0.15 is a PLACEHOLDER with the same standing f = 0.3 had before
-  # the pilot: it is a guess, not a measurement, and it is what turns the OSP lower bound
-  # into a level. It is pinned by the WPT egress classification wherever both streams
-  # cover the same stratum, which is the strongest argument for running the egress pilot
-  # on days OSP is also in port.
+  # theta's prior in an OSP-INFORMED stratum under the LEGACY f construction: the share of
+  # non-crab-labelled boats that were also crabbing. 0.15 is a PLACEHOLDER with the same
+  # standing f = 0.3 had before the pilot: a guess, not a measurement. Under the shipped
+  # dynamic f (A18) these two keys reach only the legacy prior: the live combo-share prior
+  # is crab_fraction_combo_level below, and OSP's count enters as an observation of
+  # f(1 - c) (A33), not as a bound turned into a level (D42, 2026-10-18). The WPT egress
+  # classification pins c wherever both streams cover the same stratum, which is the
+  # strongest argument for running the egress pilot on days OSP is also in port.
   crab_fraction_combo_share = 0.15,
   crab_fraction_combo_kappa = 8,      # Beta concentration (prior SD ~0.12 at mean 0.15)
   # THE COMBO-TRIP SHARE c (2026-09-09). The interview workbook now carries every contacted
@@ -1586,6 +1588,17 @@ run_config <- list(
   # data on 2026-09-07. Keep the 2026-08-28 lesson in mind: a per-population entry reaches
   # BOTH sub-seasons of that population; scope per sub-season when you mean one.
   ar_force          = NULL,
+
+  # 2026-10-18 (D45, CHANGE_REGISTER B68): THE PER-DAY EFFORT EFFECT, an experiment lever. Float 20
+  # takes three counts on most two-sampler days and they are near-replicates (intraclass
+  # correlation 0.83 on 2024-25), but the effort likelihood treats each count as an independent
+  # draw about the day's level, which over-determines the day and lets r_E be set by the
+  # within-day spread (D45). TRUE multiplies each count's expectation by exp(uE[day]), one uE per
+  # sampled day, uE ~ normal(0, sigma_uE), sigma_uE ~ half-normal(effort_day_effect_sd); the pooled
+  # track only (the gear program is unchanged). FALSE (shipped) is bit-identical to every render
+  # before it. Priced on the container 2026-10-18 (D45 / B68); not adopted.
+  effort_day_effect    = FALSE,
+  effort_day_effect_sd = 0.5,
 
   # Each driver merges its own params_model ON TOP of run_config, so params_model
   # WINS every key it sets, including all the per-fit sampler settings. Setting
