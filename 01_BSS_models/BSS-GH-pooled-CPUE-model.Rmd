@@ -1605,6 +1605,8 @@ for(cg in bss_catch_groups) {
       bss_pars <- c("C_sum","C_expected_sum","E_sum","B1","B2","B1_C_out","B2_C_out")
       # A36 (2026-10-16): the Sunday increment on the weekend effort effect, when the split is on.
       if (isTRUE(bss_data$sunday_split == 1L)) bss_pars <- c(bss_pars, "B1_sun_out")
+      # A39 (2026-10-18): the per-day effort effect's SD, when the effect is on.
+      if (isTRUE(bss_data$effort_day_effect == 1L)) bss_pars <- c(bss_pars, "sigma_uE_out")
       if(bss_data$IE_n > 0) bss_pars <- c(bss_pars, "sigma_IE_out")
       # improvement 4: B3_out (razor only) is replaced by the B_open_out vector; the
       # column labels live in attr(bss_data, "opener_labels").

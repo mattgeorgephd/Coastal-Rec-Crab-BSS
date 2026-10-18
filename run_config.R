@@ -550,6 +550,28 @@ run_config <- list(
   # the weekend it sits on at 95%, which the sampled holidays do not contradict, and it
   # stops a thin fit's holidays from wandering. Set 1 to restore the former prior exactly.
   holiday_prior_sd  = 0.5,
+  # THE PER-DAY EFFORT EFFECT (2026-10-18, A39; Matt: "adopt the D45 lever on both tracks").
+  # Float 20 takes three counts on most two-sampler days and they are near-replicates
+  # (intraclass correlation 0.83 on 2024-25); the trailer count is a snapshot of a day OSP
+  # counts in full. The effort likelihood treated each count as an independent draw about
+  # the day's level, which over-determined the day and let r_E be set by the within-day
+  # spread (D45). TRUE multiplies each count's expectation by exp(uE[day] - sigma_uE^2/2),
+  # mean ONE across days (so lambda_E keeps its meaning and an unsampled day's expected
+  # effort is the level), one uE per sampled day, uE ~ normal(0, sigma_uE),
+  # sigma_uE ~ half-normal(effort_day_effect_sd); on a shore day with gear counts the totals
+  # carry the fitted deviation, the boat keeps the level (OSP pins it). Both Stan programs;
+  # the flag is Stan data. Priced on the container 2026-10-18 as the B68 lever (campaign
+  # 1z.14): shore all-gear half-width +7.5% with the point +1.1%, boat +4.0% and +0.2%, the
+  # port SD +2.5%; sigma_uE 0.42 (shore) and 0.84 (boat). FALSE restores every render before
+  # it bit for bit (checked draw for draw on both tracks).
+  # THE RULE (A39, written before the render; the full text is CHANGE_REGISTER A39): the
+  # render of this file as shipped (--model both) is adopted if every fit on both tracks
+  # passes the gate, no chain is stuck, the cross-check is within cross_check_tolerance, and
+  # sigma_uE is sampled cleanly on all eight fits (R-hat < 1.01, n_eff > 400); each fit's
+  # sigma_uE, the components' movement against B67 and the interval widening are reported,
+  # not judged. If a clause fails, the key goes back to FALSE and the failure is recorded.
+  effort_day_effect    = TRUE,
+  effort_day_effect_sd = 0.5,          # half-normal scale of sigma_uE (log scale)
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 
@@ -1588,20 +1610,6 @@ run_config <- list(
   # data on 2026-09-07. Keep the 2026-08-28 lesson in mind: a per-population entry reaches
   # BOTH sub-seasons of that population; scope per sub-season when you mean one.
   ar_force          = NULL,
-
-  # 2026-10-18 (D45, CHANGE_REGISTER B68): THE PER-DAY EFFORT EFFECT, an experiment lever. Float 20
-  # takes three counts on most two-sampler days and they are near-replicates (intraclass
-  # correlation 0.83 on 2024-25), but the effort likelihood treats each count as an independent
-  # draw about the day's level, which over-determines the day and lets r_E be set by the
-  # within-day spread (D45). TRUE multiplies each count's expectation by exp(uE[day] - sigma_uE^2/2),
-  # mean ONE across days (so lambda_E keeps its meaning and an unsampled day's expected effort is the
-  # level; the first cut lacked the correction and read the shore all-gear effort 5.8% low), one uE
-  # per sampled day, uE ~ normal(0, sigma_uE), sigma_uE ~ half-normal(effort_day_effect_sd); the
-  # shore totals carry the fitted deviation on sampled days; the pooled track only (the gear program
-  # is unchanged). FALSE (shipped) is bit-identical to every render before it. Priced on the
-  # container 2026-10-18 (D45 / B68, campaign 1z.14); not adopted.
-  effort_day_effect    = FALSE,
-  effort_day_effect_sd = 0.5,
 
   # Each driver merges its own params_model ON TOP of run_config, so params_model
   # WINS every key it sets, including all the per-fit sampler settings. Setting

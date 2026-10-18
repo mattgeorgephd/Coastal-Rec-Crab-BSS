@@ -15,6 +15,20 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT ADOPTED ON BOTH TRACKS (PENDING ITS RENDER); D24 CLOSED BY DECISION (B68, 1z.14, 1z.15)
+
+Matt's decisions on the 1z.14 pricing batch: keep 2.477 for the derived shore turnover centre (D24
+closed; the window-only centre's price, -4.5% on the port, is quoted as the sensitivity), and adopt
+the per-day effort effect on both tracks (A39, closing D45). The term, built the same day as the B68
+lever (`effort_day_effect`; one multiplicative deviation per sampled day shared by its repeat
+counts, mean one across days, `sigma_uE ~ half-normal(0, 0.5)`; the first cut lacked the mean-one
+correction and read the shore all-gear effort 5.8% low), now ships TRUE in section 2.1 of
+`run_config.R` with the A39 rule written before its render; both drivers report `sigma_uE_out`. The
+pooled OFF path reproduces the A38 refits draw for draw. Priced on the container: the shore
+all-gear interval half-width +7.5% with the point +1.1%, the boat +4.0% and +0.2%, the port SD +2.5%.
+D29's span was re-measured under the current model the same day (35,403 to 38,767 on the boat
+all-gear fit, the port +3.8%). The render (B69) follows.
+
 ### 2026-10-18, THE AUTHORITATIVE RUN MOVES TO THE CONTAINER RENDER OF A35 TO A38: 86,113 (B66, B67)
 
 Four changes landed on 2026-10-16 (CHANGE_REGISTER A35 to A38): the holiday increments' prior at

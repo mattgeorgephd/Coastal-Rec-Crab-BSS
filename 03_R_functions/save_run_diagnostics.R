@@ -416,6 +416,13 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$`B1_sun[1]` <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_sun),
                                     mean = 0, sd = sd_p$value_normal_sigma_B1_sun)
     }
+    # A39 (2026-10-18): the per-day effort effect's SD, half-normal(0, effort_day_effect_sd) on
+    # the log scale (mean s * sqrt(2 / pi), SD s * sqrt(1 - 2 / pi)).
+    if (isTRUE(sd_p$effort_day_effect == 1L) && !is.null(sd_p$value_normal_sigma_uE)) {
+      .s_uE <- as.numeric(sd_p$value_normal_sigma_uE)
+      prior_tbl$`sigma_uE[1]` <- list(fam = sprintf("half-normal(0, %.1f)", .s_uE),
+                                      mean = .s_uE * sqrt(2 / pi), sd = .s_uE * sqrt(1 - 2 / pi))
+    }
     # Gear-resolved: R_G_boat ~ lognormal(log(4), 0.5), hardcoded in the Stan model.
     if (has_par("R_G_boat")) {
       prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",

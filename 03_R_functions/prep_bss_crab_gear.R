@@ -458,6 +458,11 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   n_gear <- if(is_shore) nrow(eff_d) else 0L
   n_trailer <- if(!is_shore) nrow(eff_d) else 0L
   n_effort_obs <- n_gear + n_trailer
+  # 2026-10-18 (A39, the per-day effort effect; D45): one index per SAMPLED day for the effort
+  # counts, so the Stan day effect (effort_day_effect = 1) can share a deviation across a day's
+  # repeat counts. The same construction as prep_bss_crab_pooled.R.
+  .eday_levels <- sort(unique(eff_d$day_index))
+  .eday <- match(eff_d$day_index, .eday_levels)
 
   cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
@@ -605,6 +610,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     day_T = if(!is_shore) eff_d$day_index else integer(0),
     section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
     T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
+    # A39 (2026-10-18): the per-sampled-day index and the day effect, zero-size effect when off
+    effort_day_effect = as.integer(isTRUE(params$effort_day_effect)),
+    n_Eday = length(.eday_levels),
+    Eday_Gear = if(is_shore) as.integer(.eday) else integer(0),
+    Eday_T = if(!is_shore) as.integer(.eday) else integer(0),
+    value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5),
 
     # Phase 1b: OSP boat-count stream (empty for shore / when toggle off)
     OSP_n = OSP_n,

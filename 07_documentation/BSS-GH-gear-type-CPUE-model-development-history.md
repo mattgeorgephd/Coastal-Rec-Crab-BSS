@@ -19,6 +19,17 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT IN THE GEAR PROGRAM (PENDING ITS RENDER)
+
+`crab_bss_gear_resolved.stan` and `prep_bss_crab_gear.R` gain the per-day effort effect the pooled
+program carries since B68 (D45; Matt: "adopt the D45 lever on both tracks"): every gear and trailer
+count's expectation is multiplied by `exp(sigma_uE * uE[day] - sigma_uE^2 / 2)`, one `uE` per
+sampled day shared by its repeat counts, `sigma_uE ~ half-normal(0, effort_day_effect_sd)`; the
+totals carry the shore's fitted deviation on sampled days (`eday_of_day` from the gear counts only;
+the boat keeps the level OSP pins). Zero-size and the literal 1.0 when `effort_day_effect = FALSE`,
+checked draw for draw on the boat pot-closure fit (campaign 1z.15). The driver extracts
+`sigma_uE_out` when the effect is on. Pending the render under the A39 rule (CHANGE_REGISTER A39).
+
 ### 2026-10-17, THE CROSS-CHECK UNDER A35 TO A38: -0.27% (B67)
 
 The Saturday/Sunday split (A36) reached this track's Stan program and prep in the same form as

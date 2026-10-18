@@ -3831,13 +3831,13 @@ local({
                  "pe_variance", "census_expansion", "charter_frame", "use_ie_day_length",
                  "marine_hazard_mode", "marine_hazard_manual_boat", "marine_hazard_gear_regimes", "marine_hazard_codes",   # 2026-09-27: A30 ADOPTED, section 2.10
                  "sunday_split", "sunday_prior_sd", "holiday_prior_sd", "use_boat_ie",   # 2026-10-16: A35, A36 (section 2.1) and A37 (use_boat_ie to 2.9, both tracks)
-                 "port_tau_coupling", "port_tau_coupling_populations")   # 2026-10-16: A38 (beside census_uncertainty)
+                 "port_tau_coupling", "port_tau_coupling_populations",   # 2026-10-16: A38 (beside census_uncertainty)
+                 "effort_day_effect", "effort_day_effect_sd")   # 2026-10-18: A39 (the per-day effort effect, section 2.1 beside the Sunday split)
   in_diag  <- c("diagnose_incomplete_trips", "diagnose_tau_sensitivity", "ar_rung_adequacy",
                 "save_ppc_draws", "run_fishery_spillover_diag")
   in_lever <- c("ar_force", "bss_sampler_override", "ar_escalate", "opener_covariate_mode",
                 "razor_dig_mode", "estimate_cpue_density", "collapse_mu_hier", "estimate_B1_C",
-                "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months",   # 2026-09-25: A30, section 4.4b (the experiment surface)
-                "effort_day_effect", "effort_day_effect_sd")   # 2026-10-18: B68 (the D45 per-day effort effect), section 4 beside ar_force
+                "bar_restriction_impute", "marine_hazard_candidates_boat", "marine_hazard_winter_months")   # 2026-09-25: A30, section 4.4b (the experiment surface); effort_day_effect left for section 2.1 on 2026-10-18 (A39)
   in_gear  <- c("gear_resolved_G", "gear_share_dirichlet", "ar_adaptive")   # use_boat_ie left for section 2.9 on 2026-10-16 (A37)
   chk("ordered: every method-of-record key sits in section 2",
       all(vapply(in_method, function(k) { l <- keyline(k); is.finite(l) && l > b2 && l < b3 }, logical(1))),
@@ -4508,7 +4508,7 @@ local({
       any(grepl("log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C))", g, fixed = TRUE)) &&
       any(grepl("theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b)", g, fixed = TRUE)))
   chk("D6: the gear season total is scaled by zi_scale exactly once",
-      sum(grepl("* fd * zi_scale;", g, fixed = TRUE)) == 1,   # D40: fd is the day's share (the gear program has no D45 day factor)
+      sum(grepl("* fd * zi_scale * df;", g, fixed = TRUE)) == 1,   # D40: fd is the day's share; A39 (2026-10-18): df the day effect's factor
       paste("Without it, turning ZI on inflates the total by 1/(1 - theta_C) as an artefact,",
             "because lambda_C rises to absorb the zeros theta_C removed."))
   chk("D6: theta_C_out and zi_scale are declared unconditionally, so every run has the columns",
@@ -5930,8 +5930,8 @@ local({
   ng <- rd("07_documentation/NEW_SEASON_GUIDE.md"); cl <- rd("07_documentation/CLAUDE.md")
   chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
       # 2026-09-29: the header moved again (B44 to B51); it must still name A30 among what it carries
-      # 2026-10-04: and again (A33); 2026-10-16: and again (A35 to A37)
-      grepl("**last moved 2026-10-16: A35", md, fixed = TRUE) &&
+      # 2026-10-04: and again (A33); 2026-10-16: and again (A35 to A37); 2026-10-18: and again (A39)
+      grepl("**last moved 2026-10-18: A39", md, fixed = TRUE) && grepl("before that 2026-10-16: A35", md, fixed = TRUE) &&
       grepl("the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27)", md, fixed = TRUE) &&
       grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
       grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
@@ -7473,7 +7473,7 @@ local({
                      "vector[CFI_n] cfi_x;", "vector[OSPF_n] osp_f_x;", "int n_fvol = n_f_dyn * f_volume;", "vector[n_fvol] beta_fvol;"),
                    function(x) grepl(x, st_, fixed = TRUE), logical(1))))
     chk(sprintf("D40 %s: the totals use the day's share fd (from the model's own volume), and fall back to the stratum's share bit for bit", basename(sf)),
-        { df_ <- if (grepl("pooled", sf, fixed = TRUE)) " * df" else ""   # B68 (2026-10-18): the pooled totals also carry the D45 day factor, the literal 1.0 when off
+        { df_ <- " * df"   # B68 / A39 (2026-10-18): the totals on both tracks also carry the day effect's factor, the literal 1.0 when off
           grepl("real fd = f_crab[f_stratum[d]];", st_, fixed = TRUE) && grepl(paste0("lambda_C_S[s][d,g] * fd * zi_scale", df_, ";"), st_, fixed = TRUE) &&
           grepl(paste0("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd", df_, ";"), st_, fixed = TRUE) } &&
         !grepl("f_crab[f_stratum[d]] * zi_scale", st_, fixed = TRUE) && grepl("vd = fmax(vd * L[d], 1e-9);", st_, fixed = TRUE))
@@ -7833,11 +7833,30 @@ local({
       grepl("n_Eday = length(.eday_levels)", prep, fixed = TRUE) &&
       grepl("Eday_Gear = if(is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
       grepl("Eday_T = if(!is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
-      grepl("value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5)", prep, fixed = TRUE) &&
-      !grepl("effort_day_effect", rdf("03_R_functions/prep_bss_crab_gear.R"), fixed = TRUE) &&
-      !grepl("effort_day_effect", rdf("02_stan_models/crab_bss_gear_resolved.stan"), fixed = TRUE))
-  chk("B68 config: effort_day_effect ships FALSE with effort_day_effect_sd 0.5, and both live batch runners pin it FALSE in resolve_cfg()",
-      any(grepl("^\\s*effort_day_effect\\s*=\\s*FALSE,", rc)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) &&
+      grepl("value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5)", prep, fixed = TRUE))
+  # A39 (2026-10-18): the gear track carries the same term (the B68 pins that required its absence are inverted here)
+  gstan <- rdf("02_stan_models/crab_bss_gear_resolved.stan"); gprep <- rdf("03_R_functions/prep_bss_crab_gear.R")
+  chk("A39 gear Stan: the day effect is declared, zero-size when off, on both effort likelihoods and their log_lik with the mean-one factor, gated in the prior and the GQ, and in the totals through df",
+      grepl("int<lower=0, upper=1> effort_day_effect;", gstan, fixed = TRUE) && grepl("int n_uE = (effort_day_effect == 1) ? n_Eday : 0;", gstan, fixed = TRUE) &&
+      grepl("vector[n_uE] uE_raw;", gstan, fixed = TRUE) && grepl("real<lower=0> sigma_uE[effort_day_effect];", gstan, fixed = TRUE) &&
+      nhit("sum\\(lambda_E_S\\[section_Gear\\[i\\]\\]\\[day_Gear\\[i\\], \\]\\) \\* R_G\\s*\\* \\(effort_day_effect == 1 \\? exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", gstan) == 2 &&
+      nhit("sum\\(lambda_E_S\\[section_T\\[i\\]\\]\\[day_T\\[i\\], \\]\\) / R_G_boat\\s*\\* \\(effort_day_effect == 1 \\? exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", gstan) == 2 &&
+      grepl("uE_raw ~ std_normal\\(\\);", gstan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", gstan) &&
+      grepl("vector[effort_day_effect] sigma_uE_out;", gstan, fixed = TRUE) && grepl("if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];", gstan, fixed = TRUE) &&
+      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", gstan, fixed = TRUE) && !grepl("eday_of_day[day_T[i]]", gstan, fixed = TRUE) &&
+      grepl("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", gstan, fixed = TRUE) &&
+      grepl("* E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;", gstan, fixed = TRUE) && grepl("* E_scale * L[d] * fd * df;", gstan, fixed = TRUE))
+  chk("A39 gear prep: the sampled-day index and the five fields, as the pooled prep builds them",
+      grepl(".eday_levels <- sort(unique(eff_d$day_index))", gprep, fixed = TRUE) && grepl("effort_day_effect = as.integer(isTRUE(params$effort_day_effect))", gprep, fixed = TRUE) &&
+      grepl("n_Eday = length(.eday_levels)", gprep, fixed = TRUE) && grepl("Eday_Gear = if(is_shore) as.integer(.eday) else integer(0)", gprep, fixed = TRUE) &&
+      grepl("Eday_T = if(!is_shore) as.integer(.eday) else integer(0)", gprep, fixed = TRUE) && grepl("value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5)", gprep, fixed = TRUE))
+  chk("A39 reporting: both drivers add sigma_uE_out to the extracted parameters when the effect is on, and the prior table carries its half-normal",
+      grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) bss_pars <- c(bss_pars, "sigma_uE_out")', pd, fixed = TRUE) &&
+      grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) .gear_pars <- c(.gear_pars, "sigma_uE_out")', gd, fixed = TRUE) &&
+      grepl('prior_tbl$`sigma_uE[1]` <- list(fam = sprintf("half-normal(0, %.1f)", .s_uE)', rdf("03_R_functions/save_run_diagnostics.R"), fixed = TRUE))
+  chk("A39 config: effort_day_effect ships TRUE with effort_day_effect_sd 0.5 in section 2.1 under the A39 rule comment, section 4 no longer carries it, and both live batch runners pin it FALSE in resolve_cfg()",
+      any(grepl("^\\s*effort_day_effect\\s*=\\s*TRUE,", rc)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) && sum(grepl("^\\s*effort_day_effect\\s*=", rc)) == 1 &&
+      any(grepl("# THE RULE (A39, written before the render; the full text is CHANGE_REGISTER A39)", rc, fixed = TRUE)) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE))) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE))))
   code_lines <- function(f) { x <- readLines(f, warn = FALSE); x[!grepl("^\\s*#", x)] }
@@ -7868,9 +7887,9 @@ local({
       grepl("| d45b_off_sag | shore all-gear, shipped, lever off (second-cut program) |", vc, fixed = TRUE) && !grepl("D45B_OFF_", vc, fixed = TRUE) &&
       grepl("| D45, the lever on both all-gear fits | 86,483 [72,870, 104,654], SD 8,251 (+0.4%; SD +2.5%) |", vc, fixed = TRUE))
   chk("1z.14: the register rows D24, D29 and D45 carry the re-measurement with the batch's figures, and B68 reads PRICED",
-      grepl("RE-MEASURED 2026-10-18 on the current shore (campaign 1z.14): the window-only centre 2.225 prices at -9.5%", row("D24"), fixed = TRUE) &&
+      grepl("CLOSED 2026-10-18 by Matt's decision: keep 2.477 (the pooled 40-day centre)", row("D24"), fixed = TRUE) && grepl("-9.5% on the shore all-gear fit (27,866 against 30,804)", row("D24"), fixed = TRUE) &&   # closed by decision later the same day (A39)
       grepl("RE-MEASURED 2026-10-18 under the current model (campaign 1z.14), no longer stale:", row("D29"), fixed = TRUE) && grepl("38,767 at weekly (+9.5%)", row("D29"), fixed = TRUE) &&
-      grepl("PRICED 2026-10-18 (B68, campaign 1z.14); OPEN for Matt's decision", row("D45"), fixed = TRUE) && grepl("the port SD +2.5%", row("B68"), fixed = TRUE))
+      grepl("CLOSED 2026-10-18 by adoption: A39", row("D45"), fixed = TRUE) && grepl("PRICED 2026-10-18 (B68, campaign 1z.14):", row("D45"), fixed = TRUE) && grepl("the port SD +2.5%", row("B68"), fixed = TRUE))
   chk("1z.14: the status document's box, CLAUDE.md's box and the method document no longer call D29's span stale and quote the re-measured span",
       grepl("D29's span was re-measured on 2026-10-18 (1z.14): the port 86,113 at", ps, fixed = TRUE) && !grepl("D29's span is stale", ps, fixed = TRUE) &&
       grepl("D29's span, re-measured 2026-10-18 (1z.14)", ps, fixed = TRUE) &&
