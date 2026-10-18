@@ -1593,10 +1593,13 @@ run_config <- list(
   # takes three counts on most two-sampler days and they are near-replicates (intraclass
   # correlation 0.83 on 2024-25), but the effort likelihood treats each count as an independent
   # draw about the day's level, which over-determines the day and lets r_E be set by the
-  # within-day spread (D45). TRUE multiplies each count's expectation by exp(uE[day]), one uE per
-  # sampled day, uE ~ normal(0, sigma_uE), sigma_uE ~ half-normal(effort_day_effect_sd); the pooled
-  # track only (the gear program is unchanged). FALSE (shipped) is bit-identical to every render
-  # before it. Priced on the container 2026-10-18 (D45 / B68); not adopted.
+  # within-day spread (D45). TRUE multiplies each count's expectation by exp(uE[day] - sigma_uE^2/2),
+  # mean ONE across days (so lambda_E keeps its meaning and an unsampled day's expected effort is the
+  # level; the first cut lacked the correction and read the shore all-gear effort 5.8% low), one uE
+  # per sampled day, uE ~ normal(0, sigma_uE), sigma_uE ~ half-normal(effort_day_effect_sd); the
+  # shore totals carry the fitted deviation on sampled days; the pooled track only (the gear program
+  # is unchanged). FALSE (shipped) is bit-identical to every render before it. Priced on the
+  # container 2026-10-18 (D45 / B68, campaign 1z.14); not adopted.
   effort_day_effect    = FALSE,
   effort_day_effect_sd = 0.5,
 

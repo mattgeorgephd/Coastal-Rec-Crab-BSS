@@ -249,11 +249,15 @@ data {
   // the day's repeat counts. Float 20 takes three counts on most two-sampler days and they are
   // near-replicates (intraclass correlation 0.83 on 2024-25), while the likelihood below treats
   // each count as an independent draw about the day's level. With effort_day_effect = 1 every
-  // count's expectation is multiplied by exp(sigma_uE * uE_raw[day]), one uE per sampled day
-  // (n_Eday of them, indexed by Eday_Gear / Eday_T), so the day-level deviation is absorbed by
-  // uE and r_E describes the within-day spread. Zero-size when off, and the OFF multiplier is
-  // the literal 1.0, so the OFF path is bit-identical (the pooled track only; the gear program
-  // is unchanged).
+  // count's expectation is multiplied by exp(sigma_uE * uE_raw[day] - sigma_uE^2 / 2), one uE per
+  // sampled day (n_Eday of them, indexed by Eday_Gear / Eday_T), so the day-level deviation is
+  // absorbed by uE and r_E describes the within-day spread. The factor has mean ONE across days,
+  // so lambda_E stays the expected count level and an unsampled day's expected effort is the
+  // level; the first cut (the same day) lacked the - sigma_uE^2 / 2 and read the shore all-gear
+  // effort 5.8% low for that reason alone (campaign 1z.14). On a day with gear counts the
+  // generated quantities carry the fitted deviation (eday_of_day, transformed data). Zero-size
+  // when off, and the OFF multiplier is the literal 1.0, so the OFF path is bit-identical (the
+  // pooled track only; the gear program is unchanged).
   int<lower=0, upper=1> effort_day_effect;
   int<lower=0> n_Eday;
   int<lower=1> Eday_Gear[Gear_n];
@@ -524,6 +528,13 @@ transformed data {
   // vector is unchanged (the fixed-seed reproduction test of behaviour-neutrality).
   int n_f_dyn = crab_fraction_estimate * crab_fraction_dynamic;
   int n_uE = (effort_day_effect == 1) ? n_Eday : 0;   // D45 lever: the day effects, zero-size when off
+  // D45 lever: the sampled-day index of each day for the GEAR counts (0 when the day has none), so the
+  // generated quantities can carry the fitted day deviation on the shore's sampled days. Built from the
+  // gear counts only: on the boat the day's level is pinned by OSP's every-boat total, so the trailer
+  // counts' shared deviation is a snapshot nuisance and the reported boat effort keeps the level.
+  int eday_of_day[D];
+  for (d in 1:D) eday_of_day[d] = 0;
+  for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
   int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
   int n_fvol = n_f_dyn * f_volume;         // D40: the day-level volume term is live
@@ -958,7 +969,7 @@ model {
   for (i in 1:Gear_n) {
     Gear_I[i] ~ neg_binomial_2(
       lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G
-        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]]) : 1.0), r_E
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
 
@@ -968,7 +979,7 @@ model {
   for (i in 1:T_n) {
     T_I[i] ~ neg_binomial_2(
       lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat
-        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]]) : 1.0), r_E
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
 
@@ -1133,13 +1144,13 @@ generated quantities {
   for (i in 1:Gear_n) {
     log_lik_gear[i] = neg_binomial_2_lpmf(
       Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G
-        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]]) : 1.0), r_E
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
   for (i in 1:T_n) {
     log_lik_trailer[i] = neg_binomial_2_lpmf(
       T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat
-        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]]) : 1.0), r_E
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
   for (i in 1:OSP_n) {   // Phase 1
@@ -1181,6 +1192,11 @@ generated quantities {
         vd = fmax(vd * L[d], 1e-9);
         fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
       }
+      // D45 lever: on a day with gear counts the reported effort and catch carry the fitted day deviation
+      // (mean one across days, so an unsampled day's expectation is the level); the literal 1.0 when off,
+      // and on every boat day (eday_of_day is built from the gear counts only).
+      real df = (effort_day_effect == 1 && eday_of_day[d] > 0)
+                ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0;
       for (s in 1:S) {
         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
         // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently
@@ -1191,7 +1207,7 @@ generated quantities {
         // lambda_C * effort unscaled would hand back a season total inflated by
         // 1 / (1 - theta_C) purely as an artefact of turning the feature on. zi_scale is
         // exactly 1.0 when the feature is off, so this is a no-op there.
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale;
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;
         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
         C_expected_sum = C_expected_sum + C_expected[s][d,g];
 
@@ -1202,7 +1218,7 @@ generated quantities {
         }
         C_sum = C_sum + C[s][d,g];
 
-        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd;
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd * df;
         E_sum = E_sum + E[s][d,g];
       }
     }

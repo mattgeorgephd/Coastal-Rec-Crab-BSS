@@ -1220,7 +1220,7 @@ local({
   # The correctness point that would otherwise silently inflate the headline.
   chk("zinb: the season total is scaled by (1 - theta_C)",
       # D40 (2026-10-04): the day's share is fd (f_crab[f_stratum[d]] when the volume term is off)
-      grepl("* fd * zi_scale;", t, fixed = TRUE) && grepl("real fd = f_crab[f_stratum[d]];", t, fixed = TRUE) &&
+      grepl("* fd * zi_scale * df;", t, fixed = TRUE) && grepl("real fd = f_crab[f_stratum[d]];", t, fixed = TRUE) &&
       grepl("zi_scale = 1 - theta_C[1];", t, fixed = TRUE) &&
       grepl("zi_scale = 1.0;", t, fixed = TRUE))
   chk("zinb: theta_C_out is reported unconditionally so the parameter set keeps its shape",
@@ -4508,7 +4508,7 @@ local({
       any(grepl("log_mix(theta_C[1], 0, neg_binomial_2_lpmf(0 | mu_c, r_C))", g, fixed = TRUE)) &&
       any(grepl("theta_C[1] ~ beta(zi_catch_prior_a, zi_catch_prior_b)", g, fixed = TRUE)))
   chk("D6: the gear season total is scaled by zi_scale exactly once",
-      sum(grepl("* fd * zi_scale;", g, fixed = TRUE)) == 1,   # D40: fd is the day's share
+      sum(grepl("* fd * zi_scale;", g, fixed = TRUE)) == 1,   # D40: fd is the day's share (the gear program has no D45 day factor)
       paste("Without it, turning ZI on inflates the total by 1/(1 - theta_C) as an artefact,",
             "because lambda_C rises to absorb the zeros theta_C removed."))
   chk("D6: theta_C_out and zi_scale are declared unconditionally, so every run has the columns",
@@ -7473,8 +7473,9 @@ local({
                      "vector[CFI_n] cfi_x;", "vector[OSPF_n] osp_f_x;", "int n_fvol = n_f_dyn * f_volume;", "vector[n_fvol] beta_fvol;"),
                    function(x) grepl(x, st_, fixed = TRUE), logical(1))))
     chk(sprintf("D40 %s: the totals use the day's share fd (from the model's own volume), and fall back to the stratum's share bit for bit", basename(sf)),
-        grepl("real fd = f_crab[f_stratum[d]];", st_, fixed = TRUE) && grepl("lambda_C_S[s][d,g] * fd * zi_scale;", st_, fixed = TRUE) &&
-        grepl("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd;", st_, fixed = TRUE) &&
+        { df_ <- if (grepl("pooled", sf, fixed = TRUE)) " * df" else ""   # B68 (2026-10-18): the pooled totals also carry the D45 day factor, the literal 1.0 when off
+          grepl("real fd = f_crab[f_stratum[d]];", st_, fixed = TRUE) && grepl(paste0("lambda_C_S[s][d,g] * fd * zi_scale", df_, ";"), st_, fixed = TRUE) &&
+          grepl(paste0("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd", df_, ";"), st_, fixed = TRUE) } &&
         !grepl("f_crab[f_stratum[d]] * zi_scale", st_, fixed = TRUE) && grepl("vd = fmax(vd * L[d], 1e-9);", st_, fixed = TRUE))
     chk(sprintf("D40 %s: both classification streams see the day's share when the term is on", basename(sf)),
         grepl("eta_f[cfi_stratum[i]] + beta_fvol[1] * cfi_x[i]", st_, fixed = TRUE) &&
@@ -7818,8 +7819,12 @@ local({
       grepl("int n_uE = (effort_day_effect == 1) ? n_Eday : 0;", stan, fixed = TRUE) &&
       grepl("vector[n_uE] uE_raw;", stan, fixed = TRUE) && grepl("real<lower=0> sigma_uE[effort_day_effect];", stan, fixed = TRUE))
   chk("B68 Stan: the gear and trailer likelihoods and their log_lik carry the day multiplier (the literal 1.0 when off); the prior and the GQ are gated on the flag",
-      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\]\\) : 1\\.0\\)", stan) == 2 &&
-      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\]\\) : 1\\.0\\)", stan) == 2 &&
+      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
+      nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
+      # the second cut (2026-10-18): the day factor has mean one across days, and the GQ carry the shore's fitted deviation
+      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", stan, fixed = TRUE) && !grepl("eday_of_day[day_T[i]]", stan, fixed = TRUE) &&
+      grepl("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", stan, fixed = TRUE) &&
+      grepl("* E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;", stan, fixed = TRUE) && grepl("* E_scale * L[d] * fd * df;", stan, fixed = TRUE) &&
       grepl("uE_raw ~ std_normal\\(\\);", stan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", stan) &&
       grepl("vector[effort_day_effect] sigma_uE_out;", stan, fixed = TRUE) && grepl("if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];", stan, fixed = TRUE))
   chk("B68 prep: the pooled prep indexes each count's sampled day and passes the flag, its n and its prior scale (0.5 when unset); the gear track is untouched",
