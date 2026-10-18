@@ -7274,7 +7274,7 @@ local({
   chk("B61 docs: the box, the register, CLAUDE.md and run_config.R's header name the new run with its total and interval",
       # 2026-10-04 (B65): superseded; each document now names it as the run the A33/A34 render replaced
       grepl("**`05_output/20260929/pooled-CPUE-2024-25-220449`, port total 99,822 [82,090, 124,718]**", ps, fixed = TRUE) &&
-      grepl("It replaced `05_output/20260929/pooled-CPUE-2024-25-220449`, port total **99,822 [82,090, 124,718]**", cr, fixed = TRUE) &&
+      grepl("That had replaced `05_output/20260929/pooled-CPUE-2024-25-220449`, port total **99,822 [82,090, 124,718]**", cr, fixed = TRUE)   # 2026-10-18 (B67): two runs back now &&
       grepl("`05_output/20260929/pooled-CPUE-2024-25-220449`, port **99,822 [82,090, 124,718]**", cl, fixed = TRUE) &&
       grepl("#   port total 99,822  [82,090, 124,718]", rc, fixed = TRUE))
   chk("B61 docs: the register carries B61, the campaign 1z.9 with its anchor, and the box the cross-check and R2",
@@ -7535,8 +7535,8 @@ local({
   vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rdf("07_documentation/CLAUDE.md"); rc <- rdf("run_config.R")
   chk("B65 docs: the box, the register, CLAUDE.md and run_config.R name the new run with its total and interval, and D29's span as stale",
       grepl("**`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**", ps, fixed = TRUE) &&
-      grepl("**Authoritative run:** `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE) &&
-      grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("#   port total 87,932  [75,193, 105,271]", rc, fixed = TRUE) &&
+      grepl("It replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE)   # 2026-10-18 (B67): now the run replaced &&
+      grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE)   # 2026-10-18 (B67): run_config.R names it among the runs before &&
       grepl("D29's span is stale", ps, fixed = TRUE) && grepl("STALE SINCE B65", cr, fixed = TRUE))
   chk("B65 docs: the register carries B65, A33 and A34 read RENDERED, and the campaign 1z.11 with its anchor",
       grepl("| B65 |", cr, fixed = TRUE) && grepl("| **ADOPTED; RENDERED 2026-10-04 (B65), with A33** |", cr, fixed = TRUE) &&
@@ -7621,7 +7621,7 @@ local({
       !grepl("(A33, pending its confirming render). It came without", md, fixed = TRUE))
   chk("A35/A36/A37 docs: the box says the shipped file differs in three keys pending one render; the method document has the split, the priors and the boat I/E form; CLAUDE.md lists the keys",
       grepl("A35 TO A38 RENDERED 2026-10-17 ON THE CONTAINER (B67)", ps, fixed = TRUE) &&
-      grepl("**The Saturday/Sunday split (A36, 2026-10-16; pending its render).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
+      grepl("**The Saturday/Sunday split (A36, 2026-10-16; rendered 2026-10-17, B67, the authoritative run since 2026-10-18).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
       grepl("| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` |", md, fixed = TRUE) && grepl("on the boat (A37, 2026-10-16, `ie_group_scale = 1`)", md, fixed = TRUE) &&
       grepl("`holiday_prior_sd` (A35, 2026-10-16:", cl, fixed = TRUE) && grepl("`sunday_split` / `sunday_prior_sd` (A36, 2026-10-16:", cl, fixed = TRUE))
 })
@@ -7752,6 +7752,52 @@ local({
       grepl('paste("fit cache   :"', rdf("run_estimation.R"), fixed = TRUE) && grepl("BSS_FIT_CACHE_DIR unset; every fit sampled", rdf("run_estimation.R"), fixed = TRUE))
   chk("B66 docs: CLAUDE.md names BSS_FIT_CACHE_DIR and the register has the B66 row",
       grepl("`BSS_FIT_CACHE_DIR=<dir>`", rdf("07_documentation/CLAUDE.md"), fixed = TRUE) && grepl("| B66 |", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE))
+})
+
+# ---------- B67 (2026-10-17, accepted 2026-10-18): the container render of A35 to A38 is the authoritative run ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  N <- "05_output/20261017/pooled-CPUE-2024-25"; G <- "05_output/20261017/gear-type-CPUE-model-2024-25"
+  if (dir.exists(N) && dir.exists(G)) {
+    e <- utils::read.csv(file.path(N, "port_total_Dungeness_Kept.csv")); e <- e[e$Estimate == "Expected_Catch", ]
+    g <- utils::read.csv(file.path(G, "port_total_Dungeness_Kept.csv")); g <- g[g$Estimate == "Expected_Catch", ]
+    chk("B67 render: pooled 86,113 [72,407, 103,557], PE 88,758, gear 85,878 [72,425, 103,666], from the folders' own CSVs",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95, e$PE)), c(86113, 72407, 103557, 88758)) &&
+        identical(as.numeric(c(g$BSS_median, g$BSS_lo95, g$BSS_hi95)), c(85878, 72425, 103666)))
+    cv <- utils::read.csv(file.path(N, "convergence_report.csv")); cg <- utils::read.csv(file.path(G, "convergence_report.csv"))
+    chk("B67 rule (1): every fit on both tracks passes the gate", nrow(cv) == 4 && nrow(cg) == 4 && all(cv$pass_convergence) && all(cg$pass_convergence))
+    sp <- function(d) { f <- list.files(d, "^sampler_diagnostics_.*csv$", full.names = TRUE)
+                        all(vapply(f, function(x) { z <- utils::read.csv(x); !any(z$ebfmi_low_flag) && max(z$mean_stepsize) / min(z$mean_stepsize) < 3 }, logical(1))) }
+    chk("B67 rule (2): no stuck chain (no E-BFMI flag; per-chain step sizes within a factor of 3 in every fit)", sp(N) && sp(G))
+    xc <- utils::read.csv(list.files("05_output/20261017", "^cross_check_.*csv$", full.names = TRUE)[1])
+    chk("B67 rule (3): the cross-check is -0.27%, PASS", identical(xc$verdict, "PASS") && abs(xc$gear_minus_pooled_pct) < 2 && isTRUE(all.equal(xc$gear_minus_pooled_pct, -0.27)))
+    bs <- function(d) { f <- list.files(d, "^bss_full_summary_.*Dungeness_Kept\\.csv$", full.names = TRUE)
+                        do.call(rbind, lapply(f, function(x) { z <- utils::read.csv(x, check.names = FALSE); z[z[[1]] == "B1_sun_out[1]", c("n_eff", "Rhat")] })) }
+    b8 <- rbind(bs(N), bs(G))
+    chk("B67 rule (4): B1_sun is sampled cleanly on all eight fits (R-hat below 1.01, n_eff above 400)", nrow(b8) == 8 && all(b8$Rhat < 1.01) && all(b8$n_eff > 400))
+    tc <- utils::read.csv(file.path(N, "port_tau_coupling.csv"))
+    chk("B67 A38: port_tau_coupling.csv carries both pairings for the port with one mean and the shipped SD the larger",
+        nrow(tc) == 6 && all(c("independent", "as shipped") %in% tc$pairing) &&
+        { p <- tc[tc$quantity == "PORT TOTAL", ]; abs(diff(p$mean)) / mean(p$mean) < 0.001 && p$sd[p$pairing == "as shipped"] > p$sd[p$pairing == "independent"] })
+    mf <- readLines(list.files("05_output/20261017", "^run_manifest_.*txt$", full.names = TRUE)[1], warn = FALSE)
+    chk("B67: the render ran on 91ab2a2 with a clean tree, under a fit cache, with the four keys on",
+        any(grepl("git sha     : 91ab2a2", mf, fixed = TRUE)) && any(grepl("git tree    : clean", mf, fixed = TRUE)) &&
+        any(grepl("fit cache   : /", mf, fixed = TRUE)) && any(grepl("sunday_split .*TRUE", mf)) && any(grepl("holiday_prior_sd .*0.5", mf)) &&
+        any(grepl("port_tau_coupling .*comonotone", mf)))
+  }
+  ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
+  vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rdf("07_documentation/CLAUDE.md"); rc <- rdf("run_config.R")
+  md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  chk("B67 docs: the box, the register, CLAUDE.md, run_config.R and the method document name the new run with its total and interval, and B65 as the run replaced",
+      grepl("**`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
+      grepl("**THE RUN IT REPLACED (B65, authoritative 2026-10-04 to 2026-10-18):**", ps, fixed = TRUE) &&
+      grepl("**Authoritative run:** `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) &&
+      grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) && grepl("#   port total 86,113  [72,407, 103,557]", rc, fixed = TRUE) &&
+      grepl("**Since 2026-10-18 (B67)** it is `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE))
+  chk("B67 docs: the register carries B66 and B67, A35 to A38 read AUTHORITATIVE since 2026-10-18, B65 reads replaced, and the campaign 1z.13 with its anchor",
+      grepl("| B66 |", cr, fixed = TRUE) && grepl("| B67 |", cr, fixed = TRUE) && grepl("THE AUTHORITATIVE RUN since 2026-10-18 (Matt)", cr, fixed = TRUE) &&
+      grepl("**DONE: AUTHORITATIVE 2026-10-04 to 2026-10-18; replaced by B67**", cr, fixed = TRUE) &&
+      grepl("### 1z.13 The shipped file rendered on the container", vc, fixed = TRUE) && grepl("the container render of the shipped file, committed with this section; 1z.13)", vc, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

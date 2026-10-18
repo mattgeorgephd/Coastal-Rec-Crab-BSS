@@ -49,12 +49,16 @@
 # the per-population AR periods and the zero-inflated shore catch (D3 and D6, adopted
 # together 2026-10-02, A32 and B62; section 5 and section 2).
 #
-# and, since 2026-10-04, OSP's crab-only count (A33) and the day-level crabbing share (A34):
+# and, since 2026-10-04, OSP's crab-only count (A33) and the day-level crabbing share (A34), and,
+# since 2026-10-16, the holiday prior at 0.5 (A35), the Saturday/Sunday split (A36), the pooled
+# boat I/E path (A37, inert on 2024-25) and the comonotone pairing of the shore fits' draws in the
+# port total (A38), rendered on the cloud container 2026-10-17 and accepted 2026-10-18 (B67):
 #
-#   05_output/20261003/pooled-CPUE-2024-25
-#   port total 87,932  [75,193, 105,271]      4 of 4 components fitted, all BSS
-#   05_output/20261004/gear-type-CPUE-model-2024-25:
-#                       87,903, -0.03%, the cross-check PASSES
+#   05_output/20261017/pooled-CPUE-2024-25
+#   port total 86,113  [72,407, 103,557]      4 of 4 components fitted, all BSS
+#   05_output/20261017/gear-type-CPUE-model-2024-25:
+#                       85,878, -0.27%, the cross-check PASSES
+#   (the run it replaced: 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271], B65)
 #
 # Matt's render of this file as shipped at 4490fbe on a clean tree (committed c2cb6af;
 # CHANGE_REGISTER B65), judged by the A33/A34 rule written before it ran. It replaced:
@@ -274,8 +278,8 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271] (and of the runs before it:
-  # 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822; 05_output/20260928/pooled-CPUE-2024-25,
+  # 05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557] (and of the runs before it:
+  # 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271]; 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822; 05_output/20260928/pooled-CPUE-2024-25,
   # 99,873; the 2026-09-27 render, 96,118; and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12

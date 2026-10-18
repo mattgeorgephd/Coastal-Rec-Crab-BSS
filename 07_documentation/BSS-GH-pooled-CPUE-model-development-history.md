@@ -15,6 +15,25 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-10-18, THE AUTHORITATIVE RUN MOVES TO THE CONTAINER RENDER OF A35 TO A38: 86,113 (B66, B67)
+
+Four changes landed on 2026-10-16 (CHANGE_REGISTER A35 to A38): the holiday increments' prior at
+normal(0, `holiday_prior_sd` = 0.5); a Saturday/Sunday split of the weekend EFFORT effect
+(`sunday_split`, a Sunday increment `B1_sun` on both tracks, the CPUE weekend effect left pooled);
+the pooled prep's boat I/E path (`use_boat_ie` on both tracks, closing D35, inert on 2024-25); and
+the two shore fits' draws paired comonotonically in `tau_bar` before the port sum
+(`port_tau_coupling`, Matt's option (i) for D44, `03_R_functions/bss_port_tau_coupling.R`). A
+17-arm container batch previewed the first two (campaign 1z.12). On 2026-10-17 `bss_stan_fit()`
+gained a per-fit checkpoint (B66, `BSS_FIT_CACHE_DIR`, inert unless set) and the shipped file was
+rendered on the cloud container from `91ab2a2`: **`05_output/20261017/pooled-CPUE-2024-25`, 86,113
+[72,407, 103,557]**, cross-check -0.27%, every clause of the A35/A36 rule met (B67, campaign 1z.13).
+Matt accepted it as the authoritative run on 2026-10-18, the first not rendered on his machine
+(R 4.3.3, rstan 2.32.5 against the lock's R 4.2.2, rstan 2.32.7). Against B65: the shore all-gear
+fit 32,455 to 30,804 (a Sunday at 0.71 of a Saturday on four sampled Sundays), the boat all-gear
+35,211 to 35,403 (the boat's Sunday 0.89, beside OSP's raw 0.87), the port SD +4.8% from A38 with
+the medians untouched. The same session registered D43 to D48 from the October sampling-design
+findings and dropped the unverified Pollock attribution (D48).
+
 ### 2026-10-02, THE AUTHORITATIVE RUN AT THE A31 CODE: 99,822; D29 KEPT MONTHLY WITH ITS SPAN (B57 to B63)
 
 The overnight batch (`06_diagnostics/run_authoritative_batch_2026-09-29.R`, B58) rendered

@@ -19,6 +19,18 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-17, THE CROSS-CHECK UNDER A35 TO A38: -0.27% (B67)
+
+The Saturday/Sunday split (A36) reached this track's Stan program and prep in the same form as
+the pooled's (a Sunday increment `B1_sun` on the effort process, zero-size when off), the holiday
+prior through the same `holiday_prior_sd`, the boat I/E path through the same `use_boat_ie`
+(A37), and the port total through the same `bss_couple_component_draws()` (A38). On the
+2026-10-17 container render of the shipped file this track gave **85,878 [72,425, 103,666]**
+against the pooled 86,113, -0.27%, PASS; its boat all-gear fit 35,155 against the pooled 35,403,
+its Sunday increment -0.11 [-0.45, 0.23] on that fit (the pooled -0.11 [-0.44, 0.22]), all four
+fits through the gate with `B1_sun` clean. The pooled render became the authoritative run on
+2026-10-18 (B67).
+
 ### 2026-10-02, D3 AND D6 ADOPTED TOGETHER: THE CROSS-CHECK -0.53% (CHANGE_REGISTER A32)
 
 The authoritative batch (`06_diagnostics/run_authoritative_batch_2026-09-29.R`, campaign Sections
