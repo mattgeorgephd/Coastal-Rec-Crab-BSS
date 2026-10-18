@@ -7537,11 +7537,11 @@ local({
   ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rdf("07_documentation/CLAUDE.md"); rc <- rdf("run_config.R")
   # 2026-10-18 (B67): B65 is now the run replaced; the register says "It replaced", run_config.R names it among the runs before
-  chk("B65 docs: the box, the register, CLAUDE.md and run_config.R name the new run with its total and interval, and D29's span as stale",
+  chk("B65 docs: the box, the register, CLAUDE.md and run_config.R name the new run with its total and interval, and the register D29's span as stale since B65 (re-measured 2026-10-18, 1z.14)",
       grepl("**`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**", ps, fixed = TRUE) &&
       grepl("It replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE) &&
       grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE) &&
-      grepl("D29's span is stale", ps, fixed = TRUE) && grepl("STALE SINCE B65", cr, fixed = TRUE))
+      grepl("STALE SINCE B65", cr, fixed = TRUE))   # 2026-10-18 (1z.14): the box no longer calls the span stale; it quotes the re-measured one
   chk("B65 docs: the register carries B65, A33 and A34 read RENDERED, and the campaign 1z.11 with its anchor",
       grepl("| B65 |", cr, fixed = TRUE) && grepl("| **ADOPTED; RENDERED 2026-10-04 (B65), with A33** |", cr, fixed = TRUE) &&
       grepl("**ADOPTED; RENDERED 2026-10-04 (B65), with A34: the rule met on every clause**", cr, fixed = TRUE) &&
@@ -7855,6 +7855,27 @@ local({
       !grepl("OSP CRAB-ONLY COUNTS AS A HARD LOWER BOUND ON f", stan, fixed = TRUE) &&
       grepl("f_lower_param;", stan, fixed = TRUE) && grepl("zero-size under the shipped dynamic f (D42)", stan, fixed = TRUE) &&
       length(d42) == 1 && grepl("CLOSED 2026-10-18", d42, fixed = TRUE))
+})
+
+# ---------- 1z.14 (2026-10-18): D24, D29 and D45 priced on the container; the documents carry the results ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
+  ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  row <- function(id) regmatches(cr, regexpr(sprintf("\\| %s \\|[^\n]*", id), cr))
+  chk("1z.14: the campaign has the section, its anchor, both tables (twelve arms; five port rows) and the OFF-control rows filled",
+      grepl("### 1z.14 D24, D29 and D45 priced on the container", vc, fixed = TRUE) && grepl("the arm table in 1z.14 (1z.14; code `799954e` and `4ad0dde`)", vc, fixed = TRUE) &&
+      grepl("| d45b_off_sag | shore all-gear, shipped, lever off (second-cut program) |", vc, fixed = TRUE) && !grepl("D45B_OFF_", vc, fixed = TRUE) &&
+      grepl("| D45, the lever on both all-gear fits | 86,483 [72,870, 104,654], SD 8,251 (+0.4%; SD +2.5%) |", vc, fixed = TRUE))
+  chk("1z.14: the register rows D24, D29 and D45 carry the re-measurement with the batch's figures, and B68 reads PRICED",
+      grepl("RE-MEASURED 2026-10-18 on the current shore (campaign 1z.14): the window-only centre 2.225 prices at -9.5%", row("D24"), fixed = TRUE) &&
+      grepl("RE-MEASURED 2026-10-18 under the current model (campaign 1z.14), no longer stale:", row("D29"), fixed = TRUE) && grepl("38,767 at weekly (+9.5%)", row("D29"), fixed = TRUE) &&
+      grepl("PRICED 2026-10-18 (B68, campaign 1z.14); OPEN for Matt's decision", row("D45"), fixed = TRUE) && grepl("the port SD +2.5%", row("B68"), fixed = TRUE))
+  chk("1z.14: the status document's box, CLAUDE.md's box and the method document no longer call D29's span stale and quote the re-measured span",
+      grepl("D29's span was re-measured on 2026-10-18 (1z.14): the port 86,113 at", ps, fixed = TRUE) && !grepl("D29's span is stale", ps, fixed = TRUE) &&
+      grepl("D29's span, re-measured 2026-10-18 (1z.14)", ps, fixed = TRUE) &&
+      grepl("was re-measured on 2026-10-18 under the current model (campaign 1z.14): the boat all-gear fit", cl, fixed = TRUE) && !grepl("is STALE", cl, fixed = TRUE) &&
+      grepl("35,403 at monthly, 37,947 at biweekly (+7.2%) and 38,767 at weekly", md, fixed = TRUE) && grepl("the window-only centre 2.225 prices at -9.5% on the shore all-gear fit (27,866 against 30,804)", md, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

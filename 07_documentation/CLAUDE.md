@@ -74,7 +74,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > Sunday split, a Sunday at 0.71 of a Saturday on four sampled Sundays), the boat all-gear 35,211 to 35,403,
 > A38 +4.8% on the port SD. B65 was 11.9% below the run it replaced, all of it the boat all-gear fit (47,105
 > to 35,211), the shore byte-identical. The BSS sits 3.0% below the PE (88,758). D29's resolution span
-> (below) was measured before A33, A34 and A36 and is STALE. **Since 2026-10-18 the shipped file IS the
+> was re-measured on 2026-10-18 under the current model (campaign 1z.14): the boat all-gear fit
+> 35,403 at monthly to 38,767 at weekly, the port 86,113 to 89,387 (+3.8%); the +6.6% quoted below
+> is the pre-A33 figure. **Since 2026-10-18 the shipped file IS the
 > authoritative run again**; the four keys that moved since B65 are the holiday prior at 0.5 (A35), the
 > Saturday/Sunday split (A36), the pooled boat I/E path (A37, inert on 2024-25) and the comonotone pairing
 > of the shore fits' draws in the port total (A38, the interval only); the rule is CHANGE_REGISTER A36. **The run it

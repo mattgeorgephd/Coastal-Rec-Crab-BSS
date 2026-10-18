@@ -1511,7 +1511,7 @@ the pooled 40 is about **0.83 standard errors**, and the window value sits **1.0
 from the shipped centre, so the shipped prior already covers it, which is why the fitted
 posterior landed between the two on every render (2.381 on the authoritative run, B65; 2.373 on B61; 2.394 on R4). `tau_shore_derive_window_only = TRUE` prices the
 alternative, and the field fix that would actually settle it is a paired gear count on every
-I/E day. Tracked as CHANGE_REGISTER D24. Two related items, registered 2026-10-16: the two shore fits each draw their turnover around this one centre with no shared term, so until A38 the port total summed two draws of one uncertainty as if they were independent; since A38 (the same day) their draws are paired comonotonically in `tau_bar`, the bound a shared centre implies, about +5% on the port SD (D44, closed); and the three counts Float 20 takes on most two-sampler days enter the effort likelihood as three independent observations of the day's level when an intraclass correlation of 0.83 says they are nearly one, which narrows the interval and does not move the point (D45).
+I/E day. Tracked as CHANGE_REGISTER D24. Re-measured 2026-10-18 (campaign 1z.14): the window-only centre 2.225 prices at -9.5% on the shore all-gear fit (27,866 against 30,804) and -10.4% on the pot-closure fit (8,303 against 9,264), -3,882 crab on the port (82,232 against 86,114); the fitted turnover follows the centre (2.379 to 2.154) and `sigma_IE` eases 0.540 to 0.510, so the model cannot choose between the two centres and the decision is Matt's. Two related items, registered 2026-10-16: the two shore fits each draw their turnover around this one centre with no shared term, so until A38 the port total summed two draws of one uncertainty as if they were independent; since A38 (the same day) their draws are paired comonotonically in `tau_bar`, the bound a shared centre implies, about +5% on the port SD (D44, closed); and the three counts Float 20 takes on most two-sampler days enter the effort likelihood as three independent observations of the day's level when an intraclass correlation of 0.83 says they are nearly one, which narrows the interval and does not move the point (D45; priced 2026-10-18 with the B68 lever, 1z.14: the shore all-gear half-width +7.5% and the point +1.1%, the boat +4.0% and +0.2%, the port SD +2.5%; open for Matt's decision).
 
 **4. The PE's unsampled-cell CPUE fill is not settled, and it moves the validation rather
 than the estimate.** The boat PE sits 21.9% below the boat BSS under the shipped
@@ -1588,7 +1588,10 @@ adequate and gate-passing; daily is inadequate. On held-out weeks neither finer 
 better or worse than monthly, and the gear track rises the same way. Monthly is kept (Matt,
 2026-10-02, the batch's rule D29-4 b); the span is this component's resolution uncertainty and
 lies OUTSIDE the posterior interval: the port total reads 99,822 at monthly and 106,380 at weekly
-(+6.6%). Quote it beside the total.
+(+6.6%). Quote it beside the total. **Re-measured 2026-10-18 under the current model (campaign
+1z.14, the pooled track):** 35,403 at monthly, 37,947 at biweekly (+7.2%) and 38,767 at weekly
+(+9.5%), all three gate-passing with no divergences, the effort total within 1% across the rungs; the
+port 86,113 to 89,387 (+3.8%). The decision stands; quote this span beside the total.
 
 **11. Pre-2024-25 gear labels are one option short.** There was no ring-net option on the
 2022-23 or 2023-24 forms, which offered "Collapsible trap or ring" and, separately, "FISHING
