@@ -25,7 +25,7 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 more counts fall below `effort_day_effect_min_repeat_days` (5), the same construction as the pooled prep
 (A40, Matt's option (a) for B69): on 2024-25 the gear boat all-gear fit carries the term (45 such days)
 and the gear pot-closure fits do not (0 and 1), so those are the model without it bit for bit. The
-gear program is unchanged from A39. Pending the render under the A40 rule.
+gear program is unchanged from A39. Rendered the same day (B70): every clause met on the gear track, its pot-closure fits identical to B67 draw for draw, its all-gear fits identical to B69, the cross-check -0.25% (86,285 against 86,497); pending Matt's acceptance.
 
 ### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT IN THE GEAR PROGRAM (PENDING ITS RENDER)
 

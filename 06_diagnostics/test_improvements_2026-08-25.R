@@ -7950,7 +7950,106 @@ local({
       grepl("COMPLETED by A40 (2026-10-19), the identification floor, Matt's option (a)", a39, fixed = TRUE) &&
       grepl("The shipped configuration differs from this run in TWO keys since 2026-10-19,", ps, fixed = TRUE) &&
       grepl("**Since 2026-10-19 the shipped file differs from the authoritative run in two keys, `effort_day_effect = TRUE`", cl, fixed = TRUE) &&
-      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16) |", vc, fixed = TRUE))
+      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16; B70) |", vc, fixed = TRUE))   # 2026-10-19: the anchor gained B70 with the render
+})
+
+# ---------- B70 (2026-10-19): the A40 render; every clause of the rule met; the candidate authoritative run pending Matt's acceptance ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  N <- "05_output/20261019/pooled-CPUE-2024-25"; G <- "05_output/20261019/gear-type-CPUE-model-2024-25"
+  N67 <- "05_output/20261017/pooled-CPUE-2024-25"; G67 <- "05_output/20261017/gear-type-CPUE-model-2024-25"
+  N69 <- "05_output/20261018/pooled-CPUE-2024-25"; G69 <- "05_output/20261018/gear-type-CPUE-model-2024-25"
+  if (dir.exists(N) && dir.exists(G)) {
+    e <- utils::read.csv(file.path(N, "port_total_Dungeness_Kept.csv")); e <- e[e$Estimate == "Expected_Catch", ]
+    g <- utils::read.csv(file.path(G, "port_total_Dungeness_Kept.csv")); g <- g[g$Estimate == "Expected_Catch", ]
+    chk("B70 render: pooled 86,497 [72,869, 104,595], PE 88,758, gear 86,285 [72,656, 104,152], from the folders' own CSVs",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95, e$PE)), c(86497, 72869, 104595, 88758)) &&
+        identical(as.numeric(c(g$BSS_median, g$BSS_lo95, g$BSS_hi95)), c(86285, 72656, 104152)))
+    cv <- utils::read.csv(file.path(N, "convergence_report.csv")); cg <- utils::read.csv(file.path(G, "convergence_report.csv"))
+    chk("B70 clause (1): every fit on both tracks passes the gate", nrow(cv) == 4 && nrow(cg) == 4 && all(cv$pass_convergence) && all(cg$pass_convergence))
+    sp <- function(d) { f <- list.files(d, "^sampler_diagnostics_.*csv$", full.names = TRUE)
+                        length(f) == 4 && all(vapply(f, function(x) { z <- utils::read.csv(x); !any(z$ebfmi_low_flag) && max(z$mean_stepsize) / min(z$mean_stepsize) < 3 }, logical(1))) }
+    chk("B70 clause (2): no stuck chain (no E-BFMI flag; per-chain step sizes within a factor of 3 in every fit)", sp(N) && sp(G))
+    xc <- utils::read.csv(list.files("05_output/20261019", "^cross_check_.*csv$", full.names = TRUE)[1])
+    chk("B70 clause (3): the cross-check is -0.25%, PASS", identical(xc$verdict, "PASS") && abs(xc$gear_minus_pooled_pct) < 2 && isTRUE(all.equal(xc$gear_minus_pooled_pct, -0.25)))
+    su <- function(d) { f <- list.files(d, "^bss_full_summary_.*Dungeness_Kept\\.csv$", full.names = TRUE)
+                        do.call(rbind, lapply(f, function(x) { z <- utils::read.csv(x, check.names = FALSE); r <- z[z[[1]] == "sigma_uE_out[1]", c("n_eff", "Rhat")]
+                                                               data.frame(file = basename(x), rows = nrow(r), n_eff = if (nrow(r)) r$n_eff else NA_real_, Rhat = if (nrow(r)) r$Rhat else NA_real_) })) }
+    s8 <- rbind(su(N), su(G)); on <- grepl("_all_gear_", s8$file)
+    chk("B70 clause (4): sigma_uE_out is written on exactly the four all-gear fits (the term on) and on none of the pot-closure fits, with R-hat below 1.01 and n_eff above 400 on every one",
+        nrow(s8) == 8 && sum(on) == 4 && all(s8$rows[on] == 1) && all(s8$rows[!on] == 0) && all(s8$Rhat[on] < 1.01) && all(s8$n_eff[on] > 400))
+    fds <- function(d) { z <- utils::read.csv(file.path(d, "fit_data_summary.csv")); z[order(z$fit), c("fit", "effort_day_effect", "effort_day_repeat_days")] }
+    fd <- rbind(fds(N), fds(G))
+    chk("B70 A40 floor: fit_data_summary.csv on both tracks has the term on for the all-gear fits (83 and 45 repeat-count days) and off for the pot-closure fits (0 and 1), below the floor of 5",
+        nrow(fd) == 8 && all(c("effort_day_effect", "effort_day_repeat_days") %in% names(fd)) &&
+        all(fd$effort_day_effect[grepl("_all_gear_", fd$fit)] == 1L) && all(fd$effort_day_effect[grepl("_ring_net_only_", fd$fit)] == 0L) &&
+        all(fd$effort_day_repeat_days[fd$fit == "shore_all_gear_Dungeness_Kept"] == 83L) && all(fd$effort_day_repeat_days[fd$fit == "private_boat_all_gear_Dungeness_Kept"] == 45L) &&
+        all(fd$effort_day_repeat_days[fd$fit == "shore_ring_net_only_Dungeness_Kept"] == 0L) && all(fd$effort_day_repeat_days[fd$fit == "private_boat_ring_net_only_Dungeness_Kept"] == 1L) &&
+        all(fd$effort_day_repeat_days[fd$effort_day_effect == 0L] < 5L) && all(fd$effort_day_repeat_days[fd$effort_day_effect == 1L] >= 5L))
+    rw <- function(d) readLines(file.path(d, "run_warnings.csv"), warn = FALSE)
+    chk("B70 A40 floor: run_warnings.csv names the two switched-off fits on each track, and no fit was loaded from the cache (every A40 fit a cache miss, B71)",
+        all(vapply(list(rw(N), rw(G)), function(w) sum(grepl("the per-day effort effect is OFF for this fit", w, fixed = TRUE)) == 2 &&
+              any(grepl("shore/pot_closure: the per-day effort effect is OFF for this fit: 0 sampled day(s) carry repeat counts, below effort_day_effect_min_repeat_days = 5 (A40)", w, fixed = TRUE)) &&
+              any(grepl("private_boat/pot_closure: the per-day effort effect is OFF for this fit: 1 sampled day(s) carry repeat counts, below effort_day_effect_min_repeat_days = 5 (A40)", w, fixed = TRUE)) &&
+              !any(grepl("[fit cache]", w, fixed = TRUE)), logical(1))))
+    if (dir.exists(N67) && dir.exists(G67) && dir.exists(N69) && dir.exists(G69)) {
+      same <- function(a, b, f) { x <- file.path(a, f); y <- file.path(b, f); file.exists(x) && file.exists(y) && identical(readLines(x, warn = FALSE), readLines(y, warn = FALSE)) }
+      pc <- c("bss_draws_summed_shore_ring_net_only_Dungeness_Kept.csv", "bss_draws_summed_private_boat_ring_net_only_Dungeness_Kept.csv")
+      ag <- c("bss_draws_summed_shore_all_gear_Dungeness_Kept.csv", "bss_draws_summed_private_boat_all_gear_Dungeness_Kept.csv")
+      chk("B70 clause (5): the four pot-closure fits (the term off) reproduce B67's saved draws file for file, on both tracks, and differ from B69's",
+          all(vapply(pc, function(f) same(N, N67, f) && same(G, G67, f) && !same(N, N69, f) && !same(G, G69, f), logical(1))))
+      chk("B70: the four all-gear fits (the term on) reproduce B69's saved draws file for file, on both tracks, and differ from B67's",
+          all(vapply(ag, function(f) same(N, N69, f) && same(G, G69, f) && !same(N, N67, f) && !same(G, G67, f), logical(1))))
+    }
+    mf <- readLines(list.files("05_output/20261019", "^run_manifest_.*txt$", full.names = TRUE)[1], warn = FALSE)
+    chk("B70: the render ran on 3fbecc5 with a clean tree, under a fit cache, with effort_day_effect TRUE, effort_day_effect_sd 0.5 and the floor at 5",
+        any(grepl("git sha     : 3fbecc5", mf, fixed = TRUE)) && any(grepl("git tree    : clean", mf, fixed = TRUE)) && any(grepl("fit cache   : /", mf, fixed = TRUE)) &&
+        any(grepl("effort_day_effect  .*TRUE", mf)) && any(grepl("effort_day_effect_sd .*0.5", mf)) && any(grepl("effort_day_effect_min_repeat_days .*5", mf)))
+  }
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  ph <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-development-history.md"); gh <- rdf("07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md")
+  a40 <- regmatches(cr, regexpr("\\| A40 \\|[^\n]*", cr)); b70 <- regmatches(cr, regexpr("\\| B70 \\|[^\n]*", cr))
+  chk("B70 docs: the register has the B70 row with the verdict on every clause and what moved against B67; A40 reads RENDERED the same day (B70) and the candidate authoritative run pending Matt's acceptance",
+      length(b70) == 1 && grepl("**RENDERED; THE A40 RULE MET ON EVERY CLAUSE; the candidate authoritative run, pending Matt's acceptance**", b70, fixed = TRUE) &&
+      grepl("(5) the four pot-closure fits (0 and 1 repeat-count days, the term off) reproduce B67's fits draw for draw", b70, fixed = TRUE) &&
+      grepl("**What moved against B67:** the port 86,113 [72,407, 103,557] to **86,497 [72,869, 104,595]** (+0.4%; the half-width +1.8%)", b70, fixed = TRUE) &&
+      length(a40) == 1 && grepl("**ADOPTED 2026-10-19; RENDERED the same day (B70): every clause of the A40 rule met, the port 86,497 [72,869, 104,595], cross-check -0.25%; the candidate authoritative run, pending Matt's acceptance**", a40, fixed = TRUE))
+  chk("B70 docs: the box, CLAUDE.md, the campaign (1z.16 with its anchor), the method document and both histories name the render as the candidate pending acceptance, and B67 stays the authoritative run",
+      grepl("**A40's render (B70, 2026-10-19,\n> `05_output/20261019/pooled-CPUE-2024-25`, port 86,497 [72,869, 104,595], cross-check 86,285, -0.25%) met\n> every clause of its rule and is the candidate authoritative run pending Matt's acceptance.**", ps, fixed = TRUE) &&
+      grepl("**`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
+      grepl("met every clause of its rule and is the candidate authoritative run pending", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
+      grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **What it leaves to Matt.** Whether B70 becomes the authoritative run.", vc, fixed = TRUE) &&
+      grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70) |", vc, fixed = TRUE) &&
+      grepl("**Since 2026-10-18 (B67)** it is `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE) && grepl("B70", md, fixed = TRUE) &&
+      grepl("The render (B70, the same day) met every clause", ph, fixed = TRUE) && grepl("Rendered the same day (B70): every clause met on the gear track", gh, fixed = TRUE))
+})
+
+# ---------- B71 (2026-10-19): the fit cache key ignores the Stan data list's top-level attributes ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  sf <- rdf("03_R_functions/bss_stan_fit.R")
+  chk("B71 code: bss_fit_cache_key() strips the data list's top-level attributes (names kept) before digesting, through bss_fit_cache_strip()",
+      grepl("data <- bss_fit_cache_strip(data)\n  digest::digest(list(code = code, data = data, args = args), algo = \"md5\")", sf, fixed = TRUE) &&
+      grepl("bss_fit_cache_strip <- function(data) {\n  if (!is.list(data)) return(data)\n  nm <- names(data)\n  attributes(data) <- NULL\n  if (!is.null(nm)) names(data) <- nm\n  data\n}", sf, fixed = TRUE))
+  src_ok <- tryCatch({ env <- new.env(); sys.source("03_R_functions/bss_stan_fit.R", envir = env); exists("bss_fit_cache_strip", envir = env) && exists("bss_fit_cache_key", envir = env) }, error = function(e) FALSE)
+  chk("B71 behaviour: the key is unchanged by top-level attributes on the data list, changes when a data value changes, and an element's own dim survives the strip",
+      src_ok && requireNamespace("digest", quietly = TRUE) && local({
+        env <- new.env(); sys.source("03_R_functions/bss_stan_fit.R", envir = env)
+        tf <- tempfile(fileext = ".stan"); writeLines("data { int N; }", tf); on.exit(unlink(tf), add = TRUE)
+        d0 <- list(N = 3L, M = matrix(1:6, 2)); d1 <- d0; attr(d1, "ar_resolution") <- "weekly"; attr(d1, "effort_day_repeat_days") <- 83L
+        d2 <- d0; d2$N <- 4L; a <- list(iter = 10L, chains = 1L, seed = 1L, cores = 4L)
+        k0 <- env$bss_fit_cache_key(tf, d0, a); k1 <- env$bss_fit_cache_key(tf, d1, a); k2 <- env$bss_fit_cache_key(tf, d2, a)
+        s1 <- env$bss_fit_cache_strip(d1)
+        identical(k0, k1) && !identical(k0, k2) && is.null(attr(s1, "ar_resolution")) && identical(names(s1), c("N", "M")) && identical(dim(s1$M), c(2L, 3L)) &&
+          identical(env$bss_fit_cache_strip(d0), d0)
+      }))
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  chk("B71 docs: the register has the B71 row and CLAUDE.md's B66 bullet names it",
+      grepl("| B71 | **The fit cache key ignores the Stan data list's top-level attributes**", cr, fixed = TRUE) && grepl("since B71, 2026-10-19, the data list's top-level attributes", cl, fixed = TRUE))
+  for (f in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
+    chk(sprintf("B71 runners: %s re-declares its fingerprint after B71 and still pins effort_day_effect FALSE", basename(f)),
+        grepl("B71", rdf(f), fixed = TRUE) && grepl("cfg$effort_day_effect <- FALSE", rdf(f), fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

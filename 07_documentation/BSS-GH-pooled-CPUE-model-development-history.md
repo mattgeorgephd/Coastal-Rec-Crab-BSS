@@ -22,7 +22,7 @@ Each fit switches the term on only when at least that many of its sampled days c
 counts; below the floor the fit's Stan data carry `effort_day_effect = 0`, the model without the term
 bit for bit, with a run warning, and `fit_data_summary.csv` records the switch and the count. On 2024-25
 the two all-gear fits of each track carry the term and the four pot-closure fits do not. The A40 rule
-adds clause (5): the fits with the term off reproduce B67 draw for draw. The render follows.
+adds clause (5): the fits with the term off reproduce B67 draw for draw. The render (B70, the same day) met every clause: the pot-closure fits identical to B67 draw for draw, the all-gear fits identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; the candidate authoritative run pending Matt's acceptance. Every fit was a cache miss because the key digested the data's attributes; B71 fixes the key.
 
 ### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT ADOPTED ON BOTH TRACKS (PENDING ITS RENDER); D24 CLOSED BY DECISION (B68, 1z.14, 1z.15)
 

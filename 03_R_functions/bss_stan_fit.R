@@ -252,7 +252,20 @@ bss_fit_cache_key <- function(file, data, args) {
   args <- args[setdiff(names(args), c("cores", "log_file", "diagnose_empty"))]
   args <- args[order(names(args))]
   code <- tryCatch(paste(readLines(file, warn = FALSE), collapse = "\n"), error = function(e) NA_character_)
+  # B71 (2026-10-19): the preps attach metadata to the data list as TOP-LEVEL attributes (ar_resolution,
+  # cpue_data, f_strata, opener_labels, effort_day_repeat_days, ...), none of which reaches Stan. Hashing
+  # them made every A40 fit a cache miss when A40 added one attribute: the all-gear fits were re-sampled
+  # (identically) instead of loaded. Only the list's names survive into the key; each element keeps its
+  # own attributes (a matrix's dim is Stan data).
+  data <- bss_fit_cache_strip(data)
   digest::digest(list(code = code, data = data, args = args), algo = "md5")
+}
+bss_fit_cache_strip <- function(data) {
+  if (!is.list(data)) return(data)
+  nm <- names(data)
+  attributes(data) <- NULL
+  if (!is.null(nm)) names(data) <- nm
+  data
 }
 bss_fit_cache_path <- function(dir, label, key) {
   lab <- if (is.null(label) || !nzchar(label)) "fit" else gsub("[^A-Za-z0-9._-]+", "_", label)
