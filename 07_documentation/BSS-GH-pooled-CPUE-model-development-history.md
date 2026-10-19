@@ -15,6 +15,25 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-10-19, B72 TO B75: THE OSP ABSENT-DAY KEY, THE PE CATCH SE IN THE REPORT, AND THE 2025-26 READINESS RENDER'S REPORT FIXES
+
+Reporting and reader changes while OSP's answers are awaited; no Stan data and no fit changes
+(the authoritative run, B70, stands). B72: the driver stops on an OSP ingest error instead of
+skipping the stream, lifts the OSP series into `params` for the prep, writes `osp_absent_days.csv`
+(the days with boats and no crab-only value, read as `osp_absent_day` says, D39), sets OSP's
+observed crab-only share beside the model's `f(1 - c)` by month in section 12.3, and the
+comparison carries `pe_f_source`. B73: the PE catch SE (`pe_catch_variance()`) in the comparison,
+the PE table, the port total (`PE_se`) and the monthly panels, and a PE-reported component enters
+the port draws as seeded lognormal draws with that SE (`.pe_fallback_draws()`) instead of a
+constant. B75, the 2025-26 readiness render (campaign 1z.18), fixed what reading it on a season
+with a PE-reported component and a refused shared turnover exposed: the component table's PE row
+shows the point with the quantiles of its port draws, not +/- 1.96 SE, which ran below zero at a
+CV of 1 (`f352787`); the absent-day sentence prints whenever the file exists (`f352787`); and
+section 12.2, "Turnover as fitted", builds its rows from `fit_data_summary.csv`, so a fit whose
+shared turnover is REFUSED has a row naming the per-day prior its `L` sits at, median, mean and
+log-SD, with the D49 note (`b03743a`). The harness pins each; the turnover chunk is evaluated
+against the readiness render's folder.
+
 ### 2026-10-19, A40: THE IDENTIFICATION FLOOR ON THE PER-DAY EFFORT EFFECT; THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 86,497 (B70, B71)
 
 Matt's option (a) for B69: `effort_day_effect = TRUE` again with `effort_day_effect_min_repeat_days = 5`.

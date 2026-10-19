@@ -947,6 +947,20 @@ feature boat-only in effect**: on 2024-25 the shore fits have 4 informed days an
 148 OSP days over its two fits, 130 in the all-gear fit and 18 in the pot-closure fit, each
 above the floor (the floor is applied per fit).
 
+**What the refusal leaves behind (D49, found by the 2025-26 readiness render, B75, 2026-10-19).**
+A refused fit runs the retired structure: independent per-day lognormal draws at the calibration
+centre with log-SD `tau_boat_prior_sigma` (0.50), and when nothing in the fit observes trips (no
+OSP day, the boat I/E below its floor) every day's `L` is its prior. A season sum of 289
+independent lognormals concentrates at the sum of their MEANS, centre x exp(sigma^2 / 2), so the
+effort is centred 13.3% above the centre (3.50 to 3.97 on 2025-26) while the PE, which multiplies
+by the centre, is not; and the turnover's share of the effort interval is the per-day spread
+averaged over the days, about 5% CV, where the season-level turnover is in truth unknown to within
+the prior. The shared structure has neither property, because one `tau_bar` draw scales every day.
+No 2024-25 fit is affected (every one clears the floor); the 2025-26 boat all-gear fit is, until
+OSP's record arrives. The report's section 12.2 states the fallback on the fit's row; the options
+(keep; centre the per-day draws on the mean; keep one `tau_bar` under the refusal with no
+observation, the recommendation) are CHANGE_REGISTER D49, Matt's decision.
+
 **Where the two centres come from, and this is the second-largest change in Method v2.0.**
 
 | | shipped setting | 2024-25 prior centre | fitted | what it replaced |
@@ -1702,6 +1716,8 @@ failure); the 2026-06 attempt to collapse the level made a DAILY-AR shore fit ha
 shore fit has been on a coarse AR since 2026-09-07, so a future window fitted at daily AR
 should be watched for the same symptom (long trajectories, treedepth saturation).
 
+**16. A fit whose shared turnover is refused rests on per-day prior draws whose season sum sits at the lognormal mean (D49, found 2026-10-19 by the 2025-26 readiness render, B75).** The shared-turnover paragraphs (the one after the `shared_tau_min_obs` floor) state the arithmetic: at the shipped log-SD 0.50 the effort is centred 13% above the calibration centre and the turnover's uncertainty is averaged over the days instead of carried as one season-level unknown. No 2024-25 fit is affected; a season without OSP days in a boat fit is, and until Matt decides among the register's options (the recommendation keeps one `tau_bar` under the refusal with no observation) a reader of such a season should read the boat effort with the +13% and the understated interval in mind, which the report's section 12.2 now says on the fit's row.
+
 ## 21. Weather and tide covariates: evaluated and excluded
 
 Tide phase and range, daytime high-tide timing, wind and wave height were screened as
@@ -1818,7 +1834,7 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
-- **2026-10-19.** B73: the PE has a catch SE (Section 15; D22 part 2 closed) and a PE-reported component enters the port total with it; B72: `osp_absent_day`, how an OSP day with boats and no crab-only value is read (D39; shipped "unclassified"), and the report's OSP table beside the model's `f(1 - c)` (D41). A40: the identification floor on the per-day effort effect (`effort_day_effect_min_repeat_days = 5`; Section 14.2), Matt's option (a) after A39's render (B69) failed clause (4) of its rule on the pooled shore pot-closure fit; `effort_day_effect = TRUE` again; rendered the same day (B70): every clause of the A40 rule met, the fits with the term off identical to B67 draw for draw and those with it on identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 replaced (+0.4% on the port; the shared boat turnover 3.16 to 2.97 in the posterior mean).
+- **2026-10-19.** B75: the 2025-26 readiness render, the novel-season workflow end to end on both tracks on the container (campaign 1z.18; nothing citable, D18), every check met, the cross-check PASS at -0.24%; it found D49 (a refused shared turnover's per-day draws sum at the lognormal mean, 13% above the centre; limitation 16, Matt's decision) and D50 (the season's PE/BSS gaps), and fixed three report gaps (the gear driver's sensitivity column, the PE component row's interval, the turnover table's omission of a refused fit). B73: the PE has a catch SE (Section 15; D22 part 2 closed) and a PE-reported component enters the port total with it; B72: `osp_absent_day`, how an OSP day with boats and no crab-only value is read (D39; shipped "unclassified"), and the report's OSP table beside the model's `f(1 - c)` (D41). A40: the identification floor on the per-day effort effect (`effort_day_effect_min_repeat_days = 5`; Section 14.2), Matt's option (a) after A39's render (B69) failed clause (4) of its rule on the pooled shore pot-closure fit; `effort_day_effect = TRUE` again; rendered the same day (B70): every clause of the A40 rule met, the fits with the term off identical to B67 draw for draw and those with it on identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 replaced (+0.4% on the port; the shared boat turnover 3.16 to 2.97 in the posterior mean).
 - **2026-10-18.** A39: the per-day effort effect adopted on both tracks (`effort_day_effect = TRUE`; Section 14.2, the paragraph after the Sunday split; D45 closed), rendered the same evening (B69): clauses (1) to (3) of the rule met, clause (4) failed on the pooled shore pot-closure fit, the key back to FALSE per the rule pending Matt's decision; D24 closed by Matt's decision (the pooled centre kept, the window-only price, -4.5% on the port, quoted as the sensitivity); D29's span re-measured under the current model (10a). The container pricing batch is campaign Section 1z.14.
 - **2026-10-18.** The container render of A35 to A38 (B67, 2026-10-17) accepted as the authoritative run: 86,113 [72,407, 103,557], cross-check -0.27%; the shore all-gear fit 32,455 to 30,804 with the Sunday split, the boat all-gear 35,211 to 35,403; A38 +4.8% on the port SD. The first authoritative run rendered off Matt's machine (R 4.3.3, rstan 2.32.5).
 - **2026-10-16.** A38: the two shore fits' draws paired comonotonically in `tau_bar` before the port sum (`port_tau_coupling`, Section 16; D44 closed, the interval only); A35: the holiday prior at normal(0, 0.5) from `holiday_prior_sd` (Section 14.7);

@@ -1,0 +1,3 @@
+"population","covariate","label","n_days","n_flag","mean_flag","mean_other","adj_estimate","rate_ratio","se","ci_lo","ci_hi","adj_p","n_counts","rate_ratio_per_count","adj_p_per_count","note"
+"private_boat","nws_sca_any","NWS SCA or higher, any zone",221,94,2.87234042553191,35.9370078740157,-1.30663600343416,0.270729258546821,0.248388278707176,-1.79347702970023,-0.819794977168098,3.60529818261355e-07,463,0.306670347710943,6.6696534327467e-12,""
+"private_boat","bar_restriction","USCG bar restriction (sampler tick)",221,80,1.275,33.5602836879433,-1.65976090878201,0.190184446096903,0.422389169477118,-2.48764368095716,-0.831878136606863,0.000116361849076473,463,0.197958370432675,1.48387109354426e-08,""

@@ -8250,6 +8250,18 @@ local({
         grepl("REFUSED (no tau_bar): L is independent per-day draws at its prior, median 3.500, mean 3.966 (log-SD 0.50)", r$`tau_bar posterior`[3], fixed = TRUE) &&
         identical(r$n_eff[3], "") && identical(r$`R-hat`[3], ""))
   }
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md")
+  cl <- rdf("07_documentation/CLAUDE.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); ro <- rdf("05_output/README.md")
+  chk("B75 docs: the register's B75 row reads DONE with every check met, D49 and D50 are registered, D18 names the render; the campaign's 1z.18 carries the check table and D49; the guide, CLAUDE.md, the method document (limitation 16), the status document and the output README carry D49 or the readiness render",
+      grepl("**DONE 2026-10-19 (19:09Z to 21:10Z, three attempts; every check R1 to R7 met; the cross-check PASS at -0.24%); NOT CITABLE (D18)", cr, fixed = TRUE) &&
+      grepl("| D49 | **A fit whose shared turnover is REFUSED rests on independent per-day prior draws", cr, fixed = TRUE) && grepl("| D50 | **The 2025-26 PE/BSS gaps", cr, fixed = TRUE) &&
+      grepl("The 2025-26 readiness render (B75, 2026-10-19) ran on this record as described", cr, fixed = TRUE) &&
+      grepl("| R5, the day-effect-off refit of the boat all-gear fit | MET BY THE RULE |", vc, fixed = TRUE) && grepl("**D49, the finding the render makes", vc, fixed = TRUE) &&
+      grepl("**The readiness render (B75, 2026-10-19, campaign 1z.18)** ran this block end to end", gd, fixed = TRUE) && grepl("(D49; section 12.2 of the pooled report says so on the fit's row)", gd, fixed = TRUE) &&
+      grepl("lands at the lognormal MEAN, 13% above the centre (D49, Matt's decision; no 2024-25 fit is affected)", cl, fixed = TRUE) &&
+      grepl("**16. A fit whose shared turnover is refused rests on per-day prior draws whose season sum sits at the lognormal mean (D49", md, fixed = TRUE) &&
+      grepl("**What the refusal leaves behind (D49, found by the 2025-26 readiness render, B75, 2026-10-19).**", md, fixed = TRUE) &&
+      grepl("**B75 read 21:10Z (campaign 1z.18)", st, fixed = TRUE) && grepl("**Readiness renders are not estimates.**", ro, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

@@ -33,7 +33,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > zero days; the question is with OSP; priced 2026-10-19, B74: the absent days read as zeros move the port -0.1%) and the day's actual sampling rate (D2; the every-boat bound is -25% on the boat all-gear fit and -10% on the port, B74, so OSP's daily rates are the most consequential open data item). Its purpose is
 > to improve the accuracy of the boat estimate and reduce its uncertainty. The acknowledged
 > limitation is that more **boat interviews** are needed next season, which no amount of
-> boat counting fixes.
+> boat counting fixes. The 2025-26 workflow ran end to end on 2026-10-19 (B75, campaign 1z.18;
+> nothing citable, D18): on the record as delivered the boat all-gear fit has no OSP day, its shared
+> turnover is REFUSED and its per-day turnover sits at the 14-pair autumn calibration prior, whose season sum
+> lands at the lognormal MEAN, 13% above the centre (D49, Matt's decision; no 2024-25 fit is affected).
 >
 > **THE PROGRAM GOAL (stated by Matt, 2026-09-09).** The OSP branch was to supersede `main`,
 > and did (2026-09-28).

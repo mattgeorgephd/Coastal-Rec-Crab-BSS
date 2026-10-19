@@ -19,6 +19,19 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-19, B72, B73 AND B75: THE OSP INGEST AND THE PE CATCH SE IN THE GEAR REPORT, AND THE DEFECT THE READINESS RENDER CAUGHT
+
+The same reader and reporting changes as the pooled driver's (B72: the OSP ingest stops on an
+error, the series lifted into `params` for the gear prep, `osp_absent_days.csv`, `pe_f_source`;
+B73: the PE catch SE in the comparison and the PE tables, `PE_se` on the port total,
+`Dungeness_SE` on the PE summary, and a PE-reported component carried into the port draws with
+its SE), and one defect: B73's edit put a `PE catch SE` column on the incomplete-trip sensitivity
+table, whose frame has no such column, so the gear stage of the 2025-26 readiness render (B75)
+failed at its last chunk, 36.5 min in, with its three fits complete and cached. Removed in
+`cee229b`; the re-render from the cache completed, and the cross-check of the readiness render
+passes at -0.24% (gear 47,365 against pooled 47,480; a reading, not an estimate, D18). The harness
+parses the drivers and does not execute them, which is why a driver edit needs a render.
+
 ### 2026-10-19, A40: THE IDENTIFICATION FLOOR IN THE GEAR PREP; THE CROSS-CHECK OF THE AUTHORITATIVE RUN, -0.25% (B70)
 
 `prep_bss_crab_gear.R` switches the per-day effort effect off for a fit whose sampled days with two or
