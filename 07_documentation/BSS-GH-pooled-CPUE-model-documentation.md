@@ -882,6 +882,17 @@ used. Every-k-th sampling past a landmark is a systematic sample, which the bino
 simple random; with the boats' arrival order unrelated to their trip type that is the standard
 approximation, and the beta-binomial's `osp_f_kappa` absorbs extra day-to-day spread.
 
+**How much rides on the rate (B74, 2026-10-19).** No daily rate has been delivered, so every
+2024-25 OSP day's `n_d` is the schedule minimum. Refitting the two boat fits with `n_d = N_d`
+(`osp_sampling_rate_source = "none"`, every returning boat sampled, the bound in the other
+direction) moves the boat all-gear fit 35,462 to 26,492 (-25.3%) and the port -10.4%, with the
+turnover and the day effects unmoved: the whole difference is the crabbing share, which the OSP
+stream's weight, set by `n_d`, pulls down against the contacts. OSP's actual daily rates, or the
+number of private boats sampled per day, are therefore the most consequential data item
+outstanding (CHANGE_REGISTER D2). The other open reading of the delivery, a day with boats and
+no crab-only value (D39, `osp_absent_day`), is worth about 100 crab on the port whichever way
+OSP answers.
+
 > **`f_lower_out` MEANS TWO DIFFERENT THINGS under the same name, and this is a cross-run
 > hazard.** Under the legacy construction it is the hard lower bound just described. Under
 > the dynamic construction, which is production, it is **not a bound at all**: it is the

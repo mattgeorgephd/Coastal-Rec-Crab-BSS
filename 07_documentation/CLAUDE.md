@@ -30,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > observes `f(1 - c)` per day with n = the boats OSP sampled (the minimum-rate schedule, B48),
 > with the crabbing share varying by the day's boat volume (`crab_fraction_volume = TRUE`, A34,
 > D40), and both are in the authoritative run below (B65). Open: D39 (OSP's sheet appears to omit
-> zero days; the question is with OSP) and the day's actual sampling rate (D2). Its purpose is
+> zero days; the question is with OSP; priced 2026-10-19, B74: the absent days read as zeros move the port -0.1%) and the day's actual sampling rate (D2; the every-boat bound is -25% on the boat all-gear fit and -10% on the port, B74, so OSP's daily rates are the most consequential open data item). Its purpose is
 > to improve the accuracy of the boat estimate and reduce its uncertainty. The acknowledged
 > limitation is that more **boat interviews** are needed next season, which no amount of
 > boat counting fixes.
