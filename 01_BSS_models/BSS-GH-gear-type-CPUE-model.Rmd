@@ -2785,7 +2785,7 @@ if (!is.null(sensitivity_df) && nrow(sensitivity_df) > 0) {
       Component = component_disp, Arm = arm,
       `Interviews used` = n_cpue_used, `Incomplete (%)` = pct_incomplete,
       `Gear ratio` = gear_ratio, `Gear vs exclude (%)` = gear_vs_exclude_pct,
-      `PE effort` = PE_effort, `PE catch` = PE_catch, `PE catch SE` = PE_catch_se,
+      `PE effort` = PE_effort, `PE catch` = PE_catch,   # B75 (2026-10-19): a `PE catch SE` column was wrongly added here by B73 (sens_df has none); the gear stage of the readiness render failed on it
       `Catch vs exclude (%)` = catch_vs_exclude_pct),
     caption = paste("Incomplete-trip treatment arms (improvement 5), design-based PE. Production is",
                     "'exclude' and is the reference for the two '% vs exclude' columns. For shore on",
