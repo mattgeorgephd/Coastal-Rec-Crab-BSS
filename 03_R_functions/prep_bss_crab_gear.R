@@ -463,6 +463,23 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # repeat counts. The same construction as prep_bss_crab_pooled.R.
   .eday_levels <- sort(unique(eff_d$day_index))
   .eday <- match(eff_d$day_index, .eday_levels)
+  # A40 (2026-10-19): THE IDENTIFICATION FLOOR. The day effect is identified only where a day carries
+  # repeat counts; with one count per day it is the count noise under another name and sigma_uE trades
+  # off with sigma_r_E along a ridge (B69: n_eff 301 on the shore pot-closure fit). Below the floor the
+  # term is OFF for this fit, which is the model without it bit for bit, and the run warnings say so.
+  .n_repeat_days <- sum(table(eff_d$day_index) >= 2L)
+  .ede_on <- isTRUE(params$effort_day_effect)
+  .ede_floor <- as.integer(params$effort_day_effect_min_repeat_days %||% 0L)
+  if (.ede_on && .n_repeat_days < .ede_floor) {
+    .ede_on <- FALSE
+    .msg <- sprintf(paste0("%s/%s: the per-day effort effect is OFF for this fit: %d sampled day(s) carry repeat counts, below ",
+                           "effort_day_effect_min_repeat_days = %d (A40); the fit is the model without the term, bit for bit"),
+                    population_name, gear_regime %||% "", .n_repeat_days, .ede_floor)
+    cat("  ", .msg, "\n")
+    if (exists("bss_warn", mode = "function")) bss_warn("effort day effect", .msg, severity = "note")
+  } else if (.ede_on) {
+    cat(sprintf("  Per-day effort effect ON for this fit: %d sampled day(s) carry repeat counts (floor %d)\n", .n_repeat_days, .ede_floor))
+  }
 
   cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
@@ -611,7 +628,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
     T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
     # A39 (2026-10-18): the per-sampled-day index and the day effect, zero-size effect when off
-    effort_day_effect = as.integer(isTRUE(params$effort_day_effect)),
+    effort_day_effect = as.integer(.ede_on),   # A40: the fit's own switch, after the identification floor
     n_Eday = length(.eday_levels),
     Eday_Gear = if(is_shore) as.integer(.eday) else integer(0),
     Eday_T = if(!is_shore) as.integer(.eday) else integer(0),
@@ -789,6 +806,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     if (!nm %in% names(df)) return(rep(NA_real_, nrow(df)))
     suppressWarnings(as.numeric(df[[nm]]))
   }
+  attr(stan_data, "effort_day_repeat_days") <- .n_repeat_days   # A40: how many sampled days carry repeat counts
   attr(stan_data, "cpue_data") <- tibble(
     catch           = .col_num(int_d, "fish_count"),
     h               = as.numeric(eff_spec$h_fun(int_d)),

@@ -7829,7 +7829,7 @@ local({
       grepl("vector[effort_day_effect] sigma_uE_out;", stan, fixed = TRUE) && grepl("if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];", stan, fixed = TRUE))
   chk("B68 prep: the pooled prep indexes each count's sampled day and passes the flag, its n and its prior scale (0.5 when unset); the gear track is untouched",
       grepl(".eday_levels <- sort(unique(eff_d$day_index))", prep, fixed = TRUE) &&
-      grepl("effort_day_effect = as.integer(isTRUE(params$effort_day_effect))", prep, fixed = TRUE) &&
+      grepl("effort_day_effect = as.integer(.ede_on),", prep, fixed = TRUE) &&   # A40 (2026-10-19): the fit's own switch, after the identification floor
       grepl("n_Eday = length(.eday_levels)", prep, fixed = TRUE) &&
       grepl("Eday_Gear = if(is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
       grepl("Eday_T = if(!is_shore) as.integer(.eday) else integer(0)", prep, fixed = TRUE) &&
@@ -7847,15 +7847,16 @@ local({
       grepl("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", gstan, fixed = TRUE) &&
       grepl("* E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;", gstan, fixed = TRUE) && grepl("* E_scale * L[d] * fd * df;", gstan, fixed = TRUE))
   chk("A39 gear prep: the sampled-day index and the five fields, as the pooled prep builds them",
-      grepl(".eday_levels <- sort(unique(eff_d$day_index))", gprep, fixed = TRUE) && grepl("effort_day_effect = as.integer(isTRUE(params$effort_day_effect))", gprep, fixed = TRUE) &&
+      grepl(".eday_levels <- sort(unique(eff_d$day_index))", gprep, fixed = TRUE) && grepl("effort_day_effect = as.integer(.ede_on),", gprep, fixed = TRUE) &&   # A40: the fit's own switch
       grepl("n_Eday = length(.eday_levels)", gprep, fixed = TRUE) && grepl("Eday_Gear = if(is_shore) as.integer(.eday) else integer(0)", gprep, fixed = TRUE) &&
       grepl("Eday_T = if(!is_shore) as.integer(.eday) else integer(0)", gprep, fixed = TRUE) && grepl("value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5)", gprep, fixed = TRUE))
   chk("A39 reporting: both drivers add sigma_uE_out to the extracted parameters when the effect is on, and the prior table carries its half-normal",
       grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) bss_pars <- c(bss_pars, "sigma_uE_out")', pd, fixed = TRUE) &&
       grepl('if (isTRUE(bss_data$effort_day_effect == 1L)) .gear_pars <- c(.gear_pars, "sigma_uE_out")', gd, fixed = TRUE) &&
       grepl('prior_tbl$`sigma_uE[1]` <- list(fam = sprintf("half-normal(0, %.1f)", .s_uE)', rdf("03_R_functions/save_run_diagnostics.R"), fixed = TRUE))
-  chk("A39 config: effort_day_effect ships FALSE again (B69: clause 4 of the rule failed) with effort_day_effect_sd 0.5 in section 2.1 under the A39 rule and outcome comments, section 4 no longer carries it, and both live batch runners pin it FALSE in resolve_cfg()",
-      any(grepl("^\\s*effort_day_effect\\s*=\\s*FALSE,", rc)) && any(grepl("# THE OUTCOME (B69, 2026-10-18)", rc, fixed = TRUE)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) && sum(grepl("^\\s*effort_day_effect\\s*=", rc)) == 1 &&
+  chk("A39 / A40 config: effort_day_effect ships TRUE again with the identification floor (A40, after B69's clause-4 failure) and effort_day_effect_sd 0.5 in section 2.1 under the A39 rule, the B69 outcome and the A40 rule comments, section 4 no longer carries it, and both live batch runners pin it FALSE in resolve_cfg()",
+      any(grepl("^\\s*effort_day_effect\\s*=\\s*TRUE,", rc)) && any(grepl("^\\s*effort_day_effect_min_repeat_days\\s*=\\s*5,", rc)) &&
+      any(grepl("# THE OUTCOME (B69, 2026-10-18)", rc, fixed = TRUE)) && any(grepl("# THE RULE (A40, written before the render; the full text is CHANGE_REGISTER A40)", rc, fixed = TRUE)) && any(grepl("^\\s*effort_day_effect_sd\\s*=\\s*0\\.5,", rc)) && sum(grepl("^\\s*effort_day_effect\\s*=", rc)) == 1 &&
       any(grepl("# THE RULE (A39, written before the render; the full text is CHANGE_REGISTER A39)", rc, fixed = TRUE)) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_improvements_2026-09-08.R", warn = FALSE))) &&
       any(grepl("^\\s*cfg\\$effort_day_effect <- FALSE", readLines("06_diagnostics/run_marine_hazard_batch_2026-09-25.R", warn = FALSE))))
@@ -7922,9 +7923,34 @@ local({
   cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cl <- rdf("07_documentation/CLAUDE.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
   chk("B69 docs: the register has the B69 row and A39 reads RENDERED with clause (4) failed, the box and CLAUDE.md say the shipped file is B67's configuration again, the campaign anchors B69",
       grepl("| B69 |", cr, fixed = TRUE) && grepl("RENDERED the same day (B69): clauses (1) to (3) met, clause (4) FAILED on the pooled shore pot-closure fit", cr, fixed = TRUE) &&
-      grepl("The shipped configuration IS this run again: A39's render (B69, the evening of", ps, fixed = TRUE) &&
-      grepl("**The shipped file IS the authoritative run (B67) again since the evening of 2026-10-18", cl, fixed = TRUE) &&
+      grepl("A39's render, B69, failed clause (4) of its rule on the pooled shore pot-closure", ps, fixed = TRUE) &&   # 2026-10-19: the box moved on to A40 and still names B69's failure
+      grepl("after A39's\nrender, B69, failed clause (4) of its rule on the pooled shore pot-closure fit", cl, fixed = TRUE) &&
       grepl("(1z.15; the A39 commit `b1c1cf5` and B69)", vc, fixed = TRUE) && grepl("- **The render (B69).**", vc, fixed = TRUE))
+})
+
+# ---------- A40 (2026-10-19): the identification floor on the per-day effort effect, Matt's option (a) for B69 ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  pp <- rdf("03_R_functions/prep_bss_crab_pooled.R"); gp <- rdf("03_R_functions/prep_bss_crab_gear.R"); srd <- rdf("03_R_functions/save_run_diagnostics.R")
+  for (nm in c("pooled", "gear")) { pt <- if (nm == "pooled") pp else gp
+    chk(sprintf("A40 %s prep: counts the sampled days with repeat counts, switches the term off below the floor with a run warning, passes the fit's own switch and records the count", nm),
+        grepl(".n_repeat_days <- sum(table(eff_d$day_index) >= 2L)", pt, fixed = TRUE) &&
+        grepl(".ede_floor <- as.integer(params$effort_day_effect_min_repeat_days %||% 0L)", pt, fixed = TRUE) &&
+        grepl("if (.ede_on && .n_repeat_days < .ede_floor) {", pt, fixed = TRUE) &&
+        grepl('bss_warn("effort day effect", .msg, severity = "note")', pt, fixed = TRUE) &&
+        grepl("effort_day_effect = as.integer(.ede_on),", pt, fixed = TRUE) && !grepl("effort_day_effect = as.integer(isTRUE(params$effort_day_effect))", pt, fixed = TRUE) &&
+        grepl('attr(stan_data, "effort_day_repeat_days") <- .n_repeat_days', pt, fixed = TRUE)) }
+  chk("A40 fit_data_summary.csv records the switch and the repeat-count days for every fit",
+      grepl("effort_day_effect = if (!is.null(sd_)) sd_$effort_day_effect %||% NA_integer_ else NA_integer_,", srd, fixed = TRUE) &&
+      grepl('effort_day_repeat_days = if (!is.null(sd_)) (attr(sd_, "effort_day_repeat_days") %||% NA_integer_) else NA_integer_,', srd, fixed = TRUE))
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cl <- rdf("07_documentation/CLAUDE.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  a40 <- regmatches(cr, regexpr("\\| A40 \\|[^\n]*", cr)); a39 <- regmatches(cr, regexpr("\\| A39 \\|[^\n]*", cr))
+  chk("A40 docs: the register has the A40 row with its five-clause rule and A39 reads completed by A40; the box, CLAUDE.md, the method document and the campaign carry the floor",
+      length(a40) == 1 && grepl("**THE RULE (A40, written before the render, 2026-10-19):**", a40, fixed = TRUE) && grepl("(5) every fit where the term is OFF reproduces B67's fit draw for draw", a40, fixed = TRUE) &&
+      grepl("COMPLETED by A40 (2026-10-19), the identification floor, Matt's option (a)", a39, fixed = TRUE) &&
+      grepl("The shipped configuration differs from this run in TWO keys since 2026-10-19,", ps, fixed = TRUE) &&
+      grepl("**Since 2026-10-19 the shipped file differs from the authoritative run in two keys, `effort_day_effect = TRUE`", cl, fixed = TRUE) &&
+      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16) |", vc, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

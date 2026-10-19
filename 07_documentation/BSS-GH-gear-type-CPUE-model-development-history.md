@@ -19,6 +19,14 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-19, A40: THE IDENTIFICATION FLOOR IN THE GEAR PREP (PENDING ITS RENDER)
+
+`prep_bss_crab_gear.R` switches the per-day effort effect off for a fit whose sampled days with two or
+more counts fall below `effort_day_effect_min_repeat_days` (5), the same construction as the pooled prep
+(A40, Matt's option (a) for B69): on 2024-25 the gear boat all-gear fit carries the term (45 such days)
+and the gear pot-closure fits do not (0 and 1), so those are the model without it bit for bit. The
+gear program is unchanged from A39. Pending the render under the A40 rule.
+
 ### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT IN THE GEAR PROGRAM (PENDING ITS RENDER)
 
 `crab_bss_gear_resolved.stan` and `prep_bss_crab_gear.R` gain the per-day effort effect the pooled

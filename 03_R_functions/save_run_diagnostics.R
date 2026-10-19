@@ -739,6 +739,10 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         # and whether this fit ended up with a shared turnover. Together they say why.
         n_L_informed = if (!is.null(sd_)) sd_[[".n_L_informed"]] %||% NA_integer_ else NA_integer_,
         shared_tau   = if (!is.null(sd_)) sd_$shared_tau %||% NA_integer_ else NA_integer_,
+        # A40 (2026-10-19): the per-day effort effect's switch for THIS fit (after the identification
+        # floor) and the number of sampled days carrying repeat counts that decided it.
+        effort_day_effect = if (!is.null(sd_)) sd_$effort_day_effect %||% NA_integer_ else NA_integer_,
+        effort_day_repeat_days = if (!is.null(sd_)) (attr(sd_, "effort_day_repeat_days") %||% NA_integer_) else NA_integer_,
         date_start = if (!is.null(ev)) as.character(min(ev)) else NA,
         date_end = if (!is.null(ev)) as.character(max(ev)) else NA,
         pct_days_with_effort = pct_days_eff, pct_days_with_interview = pct_days_int,

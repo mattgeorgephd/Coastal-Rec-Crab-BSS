@@ -573,12 +573,24 @@ run_config <- list(
   # THE OUTCOME (B69, 2026-10-18): the render met clauses (1) to (3) (8 of 8 gates, no stuck
   # chain, cross-check -0.06%) and FAILED (4) on the pooled shore pot-closure fit, where every
   # sampled day has one count and sigma_uE trades off with sigma_r_E (n_eff 301; the gear
-  # track's same fit 413; the other six fits 906 to 3,661). Per the rule the key is back to
-  # FALSE, so this file is B67's configuration again, pending Matt's decision between an
-  # identification floor (the term only on fits with repeat counts), accepting B69 with an
-  # exception, more iterations on the pot-closure fits, or leaving it off (CHANGE_REGISTER B69).
-  effort_day_effect    = FALSE,
+  # track's same fit 413; the other six fits 906 to 3,661). The key went back to FALSE per the
+  # rule, and Matt chose the identification floor (CHANGE_REGISTER B69, option a).
+  # THE IDENTIFICATION FLOOR (2026-10-19, A40; Matt: "proceed with option a"). The term is
+  # identified only where a day carries repeat counts, so each fit switches it on only when at
+  # least effort_day_effect_min_repeat_days of its sampled days carry two or more counts; below
+  # the floor the fit is the model without the term, bit for bit, and the run warnings say so.
+  # On 2024-25 the floor is insensitive from 2 to 44: the shore all-gear fit has 83 such days,
+  # the boat all-gear 45, the boat pot closure 1, the shore pot closure 0, so the term is on for
+  # the two all-gear fits of each track and off for the pot-closure fits.
+  # THE RULE (A40, written before the render; the full text is CHANGE_REGISTER A40): the render
+  # of this file as shipped (--model both) is adopted if (1) every fit on both tracks passes the
+  # gate, (2) no chain is stuck, (3) the cross-check is within cross_check_tolerance, (4) sigma_uE
+  # is sampled cleanly on every fit where the term is ON (R-hat < 1.01, n_eff > 400), and (5)
+  # every fit where the term is OFF reproduces B67's fit draw for draw. Reported, not judged: each
+  # fit's sigma_uE and repeat-count days, the components' movement against B67, the interval.
+  effort_day_effect    = TRUE,
   effort_day_effect_sd = 0.5,          # half-normal scale of sigma_uE (log scale)
+  effort_day_effect_min_repeat_days = 5,   # A40: the identification floor (sampled days with 2+ counts)
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 
