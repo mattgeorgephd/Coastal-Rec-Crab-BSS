@@ -499,14 +499,29 @@ shift_coverage <- tryCatch(diagnose_shift_coverage(sampler_shifts, ie_data, dwg$
 # osp_trailer_overlap_pairs.csv, osp_coverage_audit.csv and osp_trailer_overlap.png to
 # output_dir. osp_boat is the per-day OSP series (boat_effort schema) that Phase 1
 # consumes as a second boat effort stream. Guarded so a missing file cannot break a run.
-osp_boat <- tryCatch(fetch_osp_boat_counts(params),
-                     error = function(e) { bss_warn("OSP", paste("OSP ingest skipped:", conditionMessage(e))); NULL })
+# D41 (c), 2026-10-19: since A30 and A33 the OSP streams are part of the method, and the boat
+# preps stopped on the same error at the first boat fit anyway (they re-read the file; now they
+# take this series from params). So an ingest ERROR under use_osp_boat_counts = TRUE stops the
+# run HERE, with its cause, instead of logging "skipped" and failing an hour later. A window with
+# no OSP day is not an error: the reader returns an empty series and the boat fits run on the
+# trailer stream alone (run_warnings.csv says where the shared turnover is refused).
+osp_boat <- tryCatch(fetch_osp_boat_counts(params), error = function(e) {
+  if (isTRUE(params$use_osp_boat_counts))
+    stop("OSP ingest failed: ", conditionMessage(e),
+         "\n  use_osp_boat_counts = TRUE makes the OSP boat count (A30) and its crab-only share (A33) part of the method; ",
+         "fix the input (04_input_files/WBL_boat_counts.xlsx, osp_sampling_rates.xlsx) or set use_osp_boat_counts = FALSE ",
+         "to run without them, which is a different method.", call. = FALSE)
+  bss_warn("OSP", paste("OSP ingest skipped (use_osp_boat_counts = FALSE):", conditionMessage(e)), severity = "note"); NULL })
+params$osp_boat_series <- osp_boat   # D41 (c): the boat preps read this, not the file again
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
                         error = function(e) { bss_warn("OSP", paste("OSP overlap diagnostic skipped:", conditionMessage(e))); NULL })
 # improvement 8: OSP crab-ONLY counts (a LOWER bound on the crabbing fraction f, because
-# OSP labels combo trips by the non-crab fishery). Lifted here so both the PE and the BSS
-# read the same rows from one file read. Empty until the crab-only column exists, in which
-# case every f feature is inert and f behaves exactly as it does today.
+# OSP labels combo trips by the non-crab fishery). Lifted here so the boat preps and the
+# diagnostics read one file read. D41 (d), 2026-10-19: the PE's crabbing fraction does NOT
+# read these rows, by design (crab_fraction_point_day(): the sampler contacts alone), so a boat
+# component that reports its PE carries no OSP information into the port total; the comparison
+# table (section 13, pe_f_source) says so beside the number. Empty when the crab-only column is
+# absent, in which case every f feature is inert.
 params$osp_crab_rows <- attr(osp_boat, "osp_crab_rows")
 if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
   cat(sprintf("  OSP crab-only rows lifted for the f lower bound: %d day(s).\n",
@@ -517,6 +532,12 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
   tryCatch(utils::write.csv(dplyr::mutate(params$osp_crab_rows, crab_only_share = osp_crab_only / osp_total),
                             file.path(output_dir, "osp_crab_only_daily.csv"), row.names = FALSE),
            error = function(e) bss_warn("OSP", paste("osp_crab_only_daily.csv not written:", conditionMessage(e)), severity = "note"))
+# D39 (2026-10-19): the OSP days with boats and NO crab-only value, as the reader read them
+# (osp_absent_day), so the question to OSP can be audited day by day.
+.osp_absent <- attr(osp_boat, "osp_absent_days")
+if (!is.null(.osp_absent) && nrow(.osp_absent) > 0)
+  tryCatch(utils::write.csv(.osp_absent, file.path(output_dir, "osp_absent_days.csv"), row.names = FALSE),
+           error = function(e) bss_warn("OSP", paste("osp_absent_days.csv not written:", conditionMessage(e)), severity = "note"))
 
 # --- Review item 3 + 5 (2026-09-08): resolve the boat turnover prior centre from THIS
 # window's OSP/trailer overlap when tau_boat_prior_mu = "calibration". The resolved
@@ -3319,7 +3340,7 @@ if (!is.null(.tb)) {
 
 ### 12.3 The crabbing fraction f
 
-The share of private-boat effort that is crab-directed, a monthly logit random walk informed by the sampler's boat contacts (and OSP's crab-only share when delivered, as a lower bound through the combo share `c`). It multiplies the boat effort one for one, so a month with few contacts leans on its neighbours through the walk. From `crab_fraction_strata_<fit>.csv`.
+The share of private-boat effort that is crab-directed, a monthly logit random walk informed by the sampler's boat contacts (and OSP's crab-only share when delivered, as a lower bound through the combo share `c`). It multiplies the boat effort one for one, so a month with few contacts leans on its neighbours through the walk. From `crab_fraction_strata_<fit>.csv`. The second table sets OSP's observed crab-only share beside the model's `f(1 - c)` month by month: the two should agree where OSP's n is large, and a month where OSP sits outside the model's interval is where the contacts and OSP disagree. Two caveats travel with OSP's share (CHANGE_REGISTER D2, D39): on a day without a delivered sampling rate n is the manual's minimum, so the observed share is an upper bound there; and a day with boats and no crab-only value is read as `osp_absent_day` says (`osp_absent_days.csv`), which is a question to OSP.
 
 ```{r f-show, echo=FALSE, fig.height=4.5, fig.cap="Crabbing fraction f by month (median and 95% interval) for each boat fit; point size is the number of boat contacts."}
 .fs <- read_fit_outputs("crab_fraction_strata")
@@ -3328,6 +3349,28 @@ if (!is.null(.fs) && nrow(.fs)) {
                                 f = fmt_ci(f_median, f_lo95, f_hi95, digits = 2), `Combo share c` = fmt_ci(c_median, c_lo95, c_hi95, digits = 2),
                                 `OSP days` = osp_days),
                caption = "Crabbing fraction f and combo share c by month, median (95% interval).")
+  # D41 (b), 2026-10-19: OSP's observed share beside the model's f(1 - c), by month, both the
+  # day-averaged share the likelihood fits and the boat-weighted one the totals apply (D40).
+  .os <- if (all(c("osp_days", "osp_total", "osp_crab_only", "crab_only_share_median") %in% names(.fs))) dplyr::filter(.fs, osp_days > 0) else .fs[0, ]
+  if (nrow(.os)) {
+    .os <- dplyr::mutate(.os, osp_share = osp_crab_only / pmax(osp_total, 1),
+                         inside = osp_share >= crab_only_share_lo95 & osp_share <= crab_only_share_hi95)
+    .has_bw <- all(c("crab_only_share_bw_median", "crab_only_share_bw_lo95", "crab_only_share_bw_hi95") %in% names(.os))
+    print(report_table(dplyr::transmute(.os, Fit = fit_lbl, Month = label, `OSP days` = osp_days, `Boats sampled` = osp_total,
+                                        `Crab-only` = osp_crab_only, `OSP share` = sprintf("%.3f", osp_share),
+                                        `Model f(1 - c), day-averaged` = fmt_ci(crab_only_share_median, crab_only_share_lo95, crab_only_share_hi95, digits = 3),
+                                        `Model f(1 - c), boat-weighted` = if (.has_bw) fmt_ci(crab_only_share_bw_median, crab_only_share_bw_lo95, crab_only_share_bw_hi95, digits = 3) else NA_character_,
+                                        `OSP inside the model interval` = ifelse(inside, "yes", "NO")),
+                       caption = paste("OSP's observed crab-only share (crab-only boats over the boats OSP sampled, the binomial n) beside the",
+                                       "model's f(1 - c) by month: day-averaged (what the likelihood fits) and boat-weighted (what the totals apply).",
+                                       "An observed share above the model's interval says the contacts hold f down relative to OSP; below, that",
+                                       "they hold it up. The observed share is an upper bound on days at the schedule-minimum n (D2).")))
+    cat(sprintf("\n_OSP's observed share sits inside the model's day-averaged interval in %d of %d OSP months._\n", sum(.os$inside), nrow(.os)))
+    .ab <- tryCatch(utils::read.csv(file.path(output_dir, "osp_absent_days.csv")), error = function(e) NULL)
+    if (!is.null(.ab) && nrow(.ab))
+      cat(sprintf("\n_%d OSP day(s) with boats carry no crab-only value and are read as %s (`osp_absent_day`; D39). If they are zero days, the observed and fitted shares above are both biased up where those days fall (%s)._\n",
+                  nrow(.ab), .ab$read_as[1], paste(names(sort(table(format(as.Date(.ab$event_date), "%Y-%m")), decreasing = TRUE)), collapse = ", ")))
+  }
   p_f <- ggplot(.fs, aes(x = label, y = f_median, group = fit_lbl, color = fit_lbl)) +
     geom_linerange(aes(ymin = f_lo95, ymax = f_hi95), linewidth = 0.8, alpha = 0.6) +
     geom_point(aes(size = contacts)) + geom_line(alpha = 0.5) +
@@ -3399,6 +3442,14 @@ for(pop in c("shore","private_boat")) {
       bss_vs_pe_catch_pct <- NA; bss_vs_pe_effort_pct <- NA
       method <- "PE"
     }
+    # D41 (d), 2026-10-19: the PE's crabbing fraction reads the sampler contacts alone, never OSP
+    # (by design, crab_fraction_point_day()), so a boat component that reports its PE carries no
+    # OSP information into the port total; say so beside the number, and in the run warnings.
+    pe_f_src <- if (pop == "private_boat") "contacts only (no OSP)" else NA_character_
+    if (pop == "private_boat" && identical(method, "PE") && isTRUE(params$use_osp_crab_lower))
+      bss_warn("OSP", sprintf(paste0("%s (%s) reports its PE: the PE's crabbing fraction reads the sampler contacts alone, so OSP's ",
+                                     "crab-only share (A33) and boat count are not in the port total for this component"), pop, ss$display_name),
+               severity = "note")
 
     comparison[[length(comparison)+1]] <- tibble(
       component = paste0(pop, " (", ss$display_name, ")"),
@@ -3406,7 +3457,8 @@ for(pop in c("shore","private_boat")) {
       bss_vs_pe_effort_pct = bss_vs_pe_effort_pct,
       PE_catch = round(pe_catch), BSS_catch = round(bss_catch),
       bss_vs_pe_catch_pct = bss_vs_pe_catch_pct,
-      method_selected = method
+      method_selected = method,
+      pe_f_source = pe_f_src
     )
   }
 }
@@ -3414,6 +3466,7 @@ comparison[[length(comparison)+1]] <- tibble(
   component = "comm_charter (census)",
   PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, bss_vs_pe_effort_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, bss_vs_pe_catch_pct = NA,
+  pe_f_source = NA_character_,
   # Review item 4 (2026-09-08/09): say what was observed and what the unsampled days are.
   # 2026-09-11: the two populations, two estimators, stated in the method column
   method_selected = local({ .c <- pe_all$comm_charter; sprintf(

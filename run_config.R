@@ -815,6 +815,15 @@ run_config <- list(
   # divided by the rate to all boats; converted back to the sampled count)
   osp_crab_only_unit    = "count",
   osp_crab_only_basis   = "sampled",
+  # D39 (2026-10-19): an OSP day with boats and NO crab-only value. OSP's crab-trips sheet appears
+  # to be built from crab-trip records, which cannot list a zero day (17 such days in the 2024-25
+  # window, 9 of them in September and October 2024; CHANGE_REGISTER D39); the question is with
+  # OSP. "unclassified" (shipped; the reading since B64) drops the day from the crab-only rows,
+  # which fits the share to zero-truncated data and reads it high if the days are zeros; "zero"
+  # reads the day as a classified day with 0 crab-only boats (n from the sampling rate). Both
+  # readings were priced on the container on 2026-10-19 (campaign 1z.17). Flip to "zero" only on
+  # OSP's answer; a mixed answer needs OSP's classified-day list, not this key.
+  osp_absent_day        = "unclassified",
   # SEASON-DERIVED from the 2024-25 OSP/trailer overlap days:
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
                                       #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;

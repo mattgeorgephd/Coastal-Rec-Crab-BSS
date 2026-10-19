@@ -6892,7 +6892,9 @@ local({
   pd <- rd("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"); gd <- rd("01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")
   chk("D36: both drivers route a failed OSP ingest or overlap diagnostic to the run-warnings log",
       all(vapply(list(pd, gd), function(t) grepl('bss_warn("OSP", paste("OSP overlap diagnostic skipped:"', t, fixed = TRUE) &&
-                                                  grepl('bss_warn("OSP", paste("OSP ingest skipped:"', t, fixed = TRUE), logical(1))))
+                                                  # 2026-10-19 (B72, D41 c): under use_osp_boat_counts = TRUE an ingest error STOPS the run with its cause; the note is the FALSE case
+                                                  grepl('bss_warn("OSP", paste("OSP ingest skipped (use_osp_boat_counts = FALSE):"', t, fixed = TRUE) &&
+                                                  grepl('stop("OSP ingest failed: ", conditionMessage(e),', t, fixed = TRUE), logical(1))))
   bss_warn_reset()
   chk("run warnings: a note is recorded but not raised; a warning is both",
       { w <- tryCatch({ bss_warn("x", "a note", severity = "note"); "none" }, warning = function(w) "raised")
@@ -8088,6 +8090,52 @@ local({
   for (f in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
     chk(sprintf("B71 runners: %s re-declares its fingerprint after B71 and still pins effort_day_effect FALSE", basename(f)),
         grepl("B71", rdf(f), fixed = TRUE) && grepl("cfg$effort_day_effect <- FALSE", rdf(f), fixed = TRUE))
+})
+
+# ---------- B72 (2026-10-19): the D39 absent-day reader key, and D41 (a) to (d): what the run says about the OSP crab-only stream ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  of <- rdf("03_R_functions/fetch_osp_boat_counts.R")
+  chk("B72 reader: osp_absent_day (unclassified | zero) is read, an unknown value stops, the absent days are returned as an attribute, and the schedule-minimum fact goes through the run-warnings log when it is loaded",
+      grepl('absent_mode <- params$osp_absent_day %||% "unclassified"', of, fixed = TRUE) &&
+      grepl('if (!absent_mode %in% c("unclassified", "zero"))', of, fixed = TRUE) &&
+      grepl('attr(out, "osp_absent_days") <- absent', of, fixed = TRUE) &&
+      grepl('if (exists("bss_warn", mode = "function")) bss_warn("OSP", msg, severity = "note")', of, fixed = TRUE) &&
+      grepl("n is the manual's MINIMUM sampling rate (no daily rate or ", of, fixed = TRUE))
+  if (requireNamespace("readxl", quietly = TRUE) && file.exists("04_input_files/WBL_boat_counts.xlsx")) {
+    e <- new.env()
+    sys.source("03_R_functions/read_input_workbook.R", envir = e); sys.source("03_R_functions/fetch_osp_boat_counts.R", envir = e)
+    sys.source("03_R_functions/osp_sampling_rates.R", envir = e); sys.source("03_R_functions/bss_run_warnings.R", envir = e)
+    e$`%||%` <- function(a, b) if (is.null(a)) b else a
+    q <- function(pp) { r <- NULL; utils::capture.output(r <- tryCatch(e$fetch_osp_boat_counts(pp), error = function(ee) ee)); r }
+    u <- q(list()); z <- q(list(osp_absent_day = "zero")); bad <- q(list(osp_absent_day = "maybe"))
+    cu <- attr(u, "osp_crab_rows"); cz <- attr(z, "osp_crab_rows"); au <- attr(u, "osp_absent_days"); az <- attr(z, "osp_absent_days")
+    chk("B72 reader (functional, the committed workbook): 17 OSP days with boats carry no crab-only value; 'unclassified' drops them (123 crab rows), 'zero' keeps them as 0 crab-only of a schedule n (140 rows), the boat series is identical in both, an unknown mode stops",
+        nrow(cu) == 123 && nrow(au) == 17 && all(au$read_as == "unclassified") && nrow(cz) == 140 && nrow(az) == 17 && all(az$read_as == "zero") &&
+        { zz <- cz[cz$event_date %in% az$event_date, ]; nrow(zz) == 17 && all(zz$osp_crab_only == 0) && all(zz$osp_rate_source == "schedule (minimum rate)") && all(zz$osp_total >= 1) } &&
+        identical(as.data.frame(u)[, c("event_date", "count_quantity")], as.data.frame(z)[, c("event_date", "count_quantity")]) &&
+        inherits(bad, "error") && grepl("osp_absent_day must be", conditionMessage(bad), fixed = TRUE))
+    lg <- e$bss_warn_log()
+    chk("B72 reader (functional): the absent-day count and the schedule-minimum fact reach the run-warnings log as OSP notes",
+        any(lg$source == "OSP" & lg$severity == "note" & grepl("carry no crab-only value", lg$message, fixed = TRUE)) &&
+        any(lg$source == "OSP" & lg$severity == "note" & grepl("MINIMUM sampling rate", lg$message, fixed = TRUE)))
+  }
+  for (f in c("03_R_functions/prep_bss_crab_pooled.R", "03_R_functions/prep_bss_crab_gear.R"))
+    chk(sprintf("B72 D41 (c) %s: the boat prep takes the OSP series the driver lifted into params and reads the file only standalone", basename(f)),
+        grepl("osp_raw <- params$osp_boat_series %||% fetch_osp_boat_counts(params)", rdf(f), fixed = TRUE) && !grepl("    osp_raw <- fetch_osp_boat_counts(params)\n", rdf(f), fixed = TRUE))
+  for (f in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) { dv <- rdf(f)
+    chk(sprintf("B72 D41 (c), (d) %s: an OSP ingest error stops the run under use_osp_boat_counts, the series is lifted for the preps, osp_absent_days.csv is written, and the comparison carries pe_f_source with a run note when a boat component reports its PE", basename(f)),
+        grepl('stop("OSP ingest failed: ", conditionMessage(e),', dv, fixed = TRUE) && grepl("params$osp_boat_series <- osp_boat", dv, fixed = TRUE) &&
+        !grepl('error = function(e) { bss_warn("OSP", paste("OSP ingest skipped:", conditionMessage(e))); NULL })', dv, fixed = TRUE) &&
+        grepl('file.path(output_dir, "osp_absent_days.csv")', dv, fixed = TRUE) &&
+        grepl("pe_f_source = pe_f_src", dv, fixed = TRUE) && grepl("pe_f_source = NA_character_,", dv, fixed = TRUE) &&
+        grepl("reports its PE: the PE's crabbing fraction reads the sampler contacts alone", dv, fixed = TRUE)) }
+  chk("B72 D41 (b): the pooled report sets OSP's observed share beside the model's f(1 - c) by month, day-averaged and boat-weighted, with the absent days noted",
+      grepl("`OSP inside the model interval` = ifelse(inside, \"yes\", \"NO\")", rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE) &&
+      grepl("`Model f(1 - c), boat-weighted` = if (.has_bw) fmt_ci(crab_only_share_bw_median", rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE) &&
+      grepl('utils::read.csv(file.path(output_dir, "osp_absent_days.csv"))', rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE))
+  e2 <- new.env(); sys.source("run_config.R", envir = e2); rc <- e2$run_config
+  chk("B72 config: osp_absent_day ships \"unclassified\" (the reading since B64; \"zero\" only on OSP's answer)", identical(rc$osp_absent_day, "unclassified"))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

@@ -76,6 +76,7 @@
 #   osp_sampling_rates_file  = "osp_sampling_rates.xlsx"  # the manual's minimum-rate schedule
 #   osp_crab_only_unit    = "count"      # count | fraction (of the boats sampled)
 #   osp_crab_only_basis   = "sampled"    # sampled | expanded (already divided by the rate)
+#   osp_absent_day        = "unclassified"  # unclassified | zero: a day with boats and NO crab-only value (D39)
 #   osp_dupe_resolve      = "mean"    # mean | sum | max | first (only on DISAGREEING dupes)
 #   est_date_start / est_date_end     # the estimation window (reused, already in run_config)
 #
@@ -83,13 +84,23 @@
 #   event_date, count_sequence, count_quantity, section_num, count_type, population
 # plus attr(., "osp_crab_rows") = tibble(event_date, osp_total (the boats SAMPLED, the binomial n),
 #   osp_crab_only, osp_boat_total, osp_sample_rate, osp_rate_source) or empty; the drivers write it
-#   as osp_crab_only_daily.csv.
+#   as osp_crab_only_daily.csv; and attr(., "osp_absent_days") = tibble(event_date, osp_boat_total,
+#   read_as): the days with boats and no crab-only value, how osp_absent_day read them (D39); the
+#   drivers write it as osp_absent_days.csv.
 #
 # Requires: dplyr, tibble, readxl, here.
 ###############################################################################
 
 fetch_osp_boat_counts <- function(params) {
   cat("\n  Reading OSP Westport boat-launch counts...\n")
+  # D41 (2026-10-19): what a reader of the run must see goes through bss_warn() when the run-warnings
+  # log is loaded (the drivers source the whole function library, so the note reaches the report's
+  # last section and run_warnings.csv), and to the console in any case (a standalone call, the
+  # harness). Until then the schedule-minimum note was a console line inside a hidden chunk.
+  .osp_note <- function(msg) {
+    if (exists("bss_warn", mode = "function")) bss_warn("OSP", msg, severity = "note")
+    cat("  NOTE:", msg, "\n")
+  }
 
   osp_file <- here::here("04_input_files", params$osp_boat_counts_file %||% "WBL_boat_counts.xlsx")
   empty <- tibble::tibble(
@@ -211,6 +222,7 @@ fetch_osp_boat_counts <- function(params) {
   crab_rows <- tibble::tibble(event_date = as.Date(character()),
                               osp_total = numeric(), osp_crab_only = numeric(), osp_boat_total = numeric(),
                               osp_sample_rate = numeric(), osp_rate_source = character())
+  absent <- tibble::tibble(event_date = as.Date(character()), osp_boat_total = numeric(), read_as = character())
   if (has_crab_col) {
     v <- osp$osp_crab_only[is.finite(osp$osp_crab_only)]
     if (identical(crab_unit, "count") && length(v) && all(v <= 1) && any(v != round(v)) &&
@@ -218,6 +230,30 @@ fetch_osp_boat_counts <- function(params) {
       stop(sprintf(paste0("fetch_osp_boat_counts: '%s' holds values in [0, 1] with fractions, against daily totals above 1: ",
                           "it looks like a SHARE of the boats, not a count. Set osp_crab_only_unit = \"fraction\" in run_config.R ",
                           "(or deliver counts)."), crab_col), call. = FALSE)
+    # D39 (2026-10-19): a day with boats and NO crab-only value. OSP's sheet appears to be built from
+    # crab-trip records, which cannot list a zero day (17 of the 2024-25 window's 140 OSP days with
+    # boats, 9 of them in September and October 2024; CHANGE_REGISTER D39). osp_absent_day says how
+    # such a day is read:
+    #   "unclassified" (the default, the reading since B64): the day is dropped from the crab-only
+    #                  rows, so the share is fitted to zero-truncated data and reads HIGH if the
+    #                  absent days are zero days;
+    #   "zero"         the day is a classified day with 0 crab-only boats (n from the sampling rate).
+    # The question is with OSP; until it answers, "zero" is the sensitivity, not the method.
+    absent_mode <- params$osp_absent_day %||% "unclassified"
+    if (!absent_mode %in% c("unclassified", "zero"))
+      stop("fetch_osp_boat_counts: osp_absent_day must be \"unclassified\" or \"zero\" (got '", absent_mode, "').", call. = FALSE)
+    absent <- osp |> dplyr::filter(is.na(osp_crab_only), osp_boat_total > 0) |>
+      dplyr::transmute(event_date, osp_boat_total, read_as = absent_mode)
+    if (nrow(absent) > 0) {
+      .osp_note(sprintf(paste0("%d OSP day(s) with boats (%.0f returning in all) carry no crab-only value and are read as %s ",
+                               "(osp_absent_day = \"%s\"; D39: if they are zero days the fitted crab-only share is biased up under ",
+                               "\"unclassified\"; the question is with OSP; osp_absent_days.csv lists them)"),
+                        nrow(absent), sum(absent$osp_boat_total),
+                        if (identical(absent_mode, "zero")) "0 crab-only boats, n from the day's sampling rate" else "UNCLASSIFIED and dropped",
+                        absent_mode))
+      if (identical(absent_mode, "zero"))
+        osp <- osp |> dplyr::mutate(osp_crab_only = dplyr::if_else(is.na(osp_crab_only) & osp_boat_total > 0, 0, osp_crab_only))
+    }
     cr <- osp |> dplyr::filter(!is.na(osp_crab_only))
     sn <- osp_resolve_sample_n(cr$osp_boat_total, cr$osp_checked, cr$osp_rate, params)
     cr <- cr |>
@@ -236,10 +272,16 @@ fetch_osp_boat_counts <- function(params) {
       tb <- table(cr$osp_rate_source)
       cat(sprintf("  OSP sampling: the crab-only share is out of %.0f SAMPLED boats (of %.0f returning); n from %s.\n",
                   sum(cr$osp_total), sum(cr$osp_boat_total), paste(sprintf("%s on %d day(s)", names(tb), as.integer(tb)), collapse = ", ")))
-      if (any(cr$osp_rate_source == "schedule (minimum rate)"))
+      if (any(cr$osp_rate_source == "schedule (minimum rate)")) {
         cat(paste0("  NOTE: days on the schedule take the manual's MINIMUM rate; OSP may have sampled above it, so on\n",
                    "        those days n is a lower bound and the crab-only share an upper bound. Deliver the day's rate\n",
                    "        (osp_sample_rate_col) or the number sampled (osp_crab_checked_col) to remove this.\n"))
+        # D41 (a), 2026-10-19: the same fact for the report and run_warnings.csv
+        .osp_note(sprintf(paste0("OSP crab-only share: on %d of %d OSP day(s) n is the manual's MINIMUM sampling rate (no daily rate or ",
+                                 "sampled count delivered), so there n is a lower bound and the share an UPPER bound on the truth (D2); ",
+                                 "osp_sampling_rate_source = \"none\" (every boat sampled) is the bound in the other direction"),
+                          sum(cr$osp_rate_source == "schedule (minimum rate)"), nrow(cr)))
+      }
     }
     n_over <- sum(cr$osp_crab_only > cr$osp_total)
     if (n_over > 0) {
@@ -259,5 +301,6 @@ fetch_osp_boat_counts <- function(params) {
     cat(sprintf("  OSP crab-only column '%s' absent; the f lower bound is inert this run.\n", crab_col))
   }
   attr(out, "osp_crab_rows") <- crab_rows
+  attr(out, "osp_absent_days") <- absent
   out
 }

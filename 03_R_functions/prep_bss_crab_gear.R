@@ -492,7 +492,10 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # prep_bss_crab_pooled (Phase 1).
   osp_match <- tibble(event_date = as.Date(character()), day_index = integer(), count_quantity = numeric())
   if (!is_shore && isTRUE(params$use_osp_boat_counts)) {
-    osp_raw <- fetch_osp_boat_counts(params)
+    # D41 (c), 2026-10-19: the driver lifts the series into params (one file read per run, and an
+    # ingest ERROR stops the run there, not at the first boat fit); the read below serves a
+    # standalone call (the harness, a dump script).
+    osp_raw <- params$osp_boat_series %||% fetch_osp_boat_counts(params)
     # improvement 8: crab-only rows ride along as an attribute; prefer what the driver
     # already lifted, fall back to this read so the prep works standalone.
     if (is.null(params$osp_crab_rows)) params$osp_crab_rows <- attr(osp_raw, "osp_crab_rows")

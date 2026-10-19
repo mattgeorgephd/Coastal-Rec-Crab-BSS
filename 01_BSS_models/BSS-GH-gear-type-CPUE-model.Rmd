@@ -506,11 +506,22 @@ shift_coverage <- tryCatch(diagnose_shift_coverage(sampler_shifts, ie_data, dwg$
 # live in 03_R_functions/ (auto-sourced); the diagnostic writes its CSVs + plot to
 # output_dir. Guarded so a missing file cannot break a run. The gear-resolved boat fit
 # consumes OSP via prep_bss_crab_gear() when use_osp_boat_counts = TRUE (Phase 1b).
-osp_boat <- tryCatch(fetch_osp_boat_counts(params),
-                     error = function(e) { bss_warn("OSP", paste("OSP ingest skipped:", conditionMessage(e))); NULL })
+# D41 (c), 2026-10-19, as the pooled driver: an ingest ERROR under use_osp_boat_counts = TRUE
+# stops the run here with its cause (the boat prep stopped on it anyway); the prep reads the
+# series from params. A window with no OSP day is an empty series, not an error.
+osp_boat <- tryCatch(fetch_osp_boat_counts(params), error = function(e) {
+  if (isTRUE(params$use_osp_boat_counts))
+    stop("OSP ingest failed: ", conditionMessage(e),
+         "\n  use_osp_boat_counts = TRUE makes the OSP boat count (A30) and its crab-only share (A33) part of the method; ",
+         "fix the input (04_input_files/WBL_boat_counts.xlsx, osp_sampling_rates.xlsx) or set use_osp_boat_counts = FALSE ",
+         "to run without them, which is a different method.", call. = FALSE)
+  bss_warn("OSP", paste("OSP ingest skipped (use_osp_boat_counts = FALSE):", conditionMessage(e)), severity = "note"); NULL })
+params$osp_boat_series <- osp_boat   # D41 (c): the boat prep reads this, not the file again
 # improvement 8: OSP crab-ONLY counts (a LOWER bound on the crabbing fraction f, because
-# OSP labels combo trips by the non-crab fishery). Lifted so the PE and the BSS read the
-# same rows from one file read. Empty until the crab-only column exists.
+# OSP labels combo trips by the non-crab fishery). Lifted so the boat prep and the diagnostics
+# read one file read. D41 (d): the PE's crabbing fraction never reads these rows (the sampler
+# contacts alone), so a boat component that reports its PE carries no OSP information into
+# the port total; the comparison table says so (pe_f_source). Empty when the column is absent.
 params$osp_crab_rows <- attr(osp_boat, "osp_crab_rows")
 # B48 (2026-09-28): the per-day crab-only rows as the model reads them (the boats SAMPLED, the
 # rate behind that n and where it came from), so the f floor can be audited day by day.
@@ -518,6 +529,11 @@ if (!is.null(params$osp_crab_rows) && nrow(params$osp_crab_rows) > 0)
   tryCatch(utils::write.csv(dplyr::mutate(params$osp_crab_rows, crab_only_share = osp_crab_only / osp_total),
                             file.path(output_dir, "osp_crab_only_daily.csv"), row.names = FALSE),
            error = function(e) cat("  osp_crab_only_daily.csv not written:", conditionMessage(e), "\n"))
+# D39 (2026-10-19): the OSP days with boats and no crab-only value, as the reader read them.
+.osp_absent <- attr(osp_boat, "osp_absent_days")
+if (!is.null(.osp_absent) && nrow(.osp_absent) > 0)
+  tryCatch(utils::write.csv(.osp_absent, file.path(output_dir, "osp_absent_days.csv"), row.names = FALSE),
+           error = function(e) bss_warn("OSP", paste("osp_absent_days.csv not written:", conditionMessage(e)), severity = "note"))
 
 osp_overlap <- tryCatch(diagnose_osp_trailer_overlap(osp_boat, params, output_dir = output_dir),
                         error = function(e) { bss_warn("OSP", paste("OSP overlap diagnostic skipped:", conditionMessage(e))); NULL })
@@ -2544,6 +2560,12 @@ for(pop in c("shore","private_boat")) {
       bss_vs_pe_catch_pct <- NA; bss_vs_pe_effort_pct <- NA
       method <- "PE"
     }
+    # D41 (d), 2026-10-19, as the pooled driver: the PE's crabbing fraction never reads OSP.
+    pe_f_src <- if (pop == "private_boat") "contacts only (no OSP)" else NA_character_
+    if (pop == "private_boat" && identical(method, "PE") && isTRUE(params$use_osp_crab_lower))
+      bss_warn("OSP", sprintf(paste0("%s (%s) reports its PE: the PE's crabbing fraction reads the sampler contacts alone, so OSP's ",
+                                     "crab-only share (A33) and boat count are not in the port total for this component"), pop, ss$display_name),
+               severity = "note")
 
     comparison[[length(comparison)+1]] <- tibble(
       component = paste0(pop, " (", ss$display_name, ")"),
@@ -2553,7 +2575,8 @@ for(pop in c("shore","private_boat")) {
       PE_catch = round(pe_catch),
       BSS_catch = round(bss_catch),
       bss_vs_pe_catch_pct = bss_vs_pe_catch_pct,
-      method_selected = method
+      method_selected = method,
+      pe_f_source = pe_f_src
     )
   }
 }
@@ -2564,6 +2587,7 @@ comparison[[length(comparison)+1]] <- tibble(
   BSS_effort = NA, bss_vs_pe_effort_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept),
   BSS_catch = NA, bss_vs_pe_catch_pct = NA,
+  pe_f_source = NA_character_,
   # 2026-09-11: the two populations, two estimators
   method_selected = local({ .c <- pe_all$comm_charter; sprintf(
     "Commercial CENSUS %s (%s crab) + Charter EXPANSION (%s frame, %s; %.0f trips, %d interviewed, %s crab, SE %s); carried SE %s ('%s')",
