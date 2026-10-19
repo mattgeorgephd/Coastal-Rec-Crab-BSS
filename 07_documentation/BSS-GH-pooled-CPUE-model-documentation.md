@@ -1257,16 +1257,29 @@ the high months, and reported no uncertainty for any of it. Under `"zero"` the s
 21.5% below the shore BSS; under the shipped `"local_day_type"` it sits **1.3% above**, which
 is what the fill was adopted to achieve.
 
-**Two things the PE does NOT do, both deliberate and both open.** It applies **no
-finite-population correction anywhere**, although a cell's `n_h` sampled days are drawn
-without replacement from its `N_h` calendar days, so `Var(ybar_h)` should carry `(1 - n/N)`.
-Adding one would REDUCE the SE and would have mixed an opposite-signed change into the
-variance work, making neither attributable. And **the PE produces no catch variance at all**,
-only an effort SE. In the headline port total a PE component therefore enters as a constant;
-the monthly-by-mode table borrows the effort relative SE as a lognormal multiplier, which
-means the PE catch inherits a spread rather than having one. Both are tracked as
-CHANGE_REGISTER D22. Note the inconsistency this creates with Section 16, where the charter
-expansion DOES apply an FPC.
+**One thing the PE does NOT do, deliberately and open, and one it does since 2026-10-19
+(B73).** It applies **no finite-population correction anywhere**, although a cell's `n_h`
+sampled days are drawn without replacement from its `N_h` calendar days, so `Var(ybar_h)`
+should carry `(1 - n/N)`. Adding one would REDUCE the SE and would have mixed an
+opposite-signed change into the variance work, making neither attributable; it is tracked as
+CHANGE_REGISTER D22 (part 1), and note the inconsistency with Section 16, where the charter
+expansion DOES apply an FPC. **The PE has a catch SE since B73** (`pe_catch_variance()`,
+`03_R_functions/pe_effort_strata.R`; until then it produced an effort SE only, D22 part 2):
+per stratum the product variance of the expanded effort and the stratum CPUE, taken as
+independent, `E^2 Var(R) + R^2 Var(E) + Var(E) Var(R)`, with `Var(R)` the day-level
+ratio-of-sums variance of the CPUE (two or more interview days from the cell's own
+residuals; one day borrowing the residual variance of the finest level with two or more days,
+month else sub-season, as the effort's collapsed-stratum cells; a filled cell carrying the
+donor ratio's own error plus, under `impute_aware`, one day's between-day spread), plus the
+effort donor covariances weighted by the cells' CPUE and the CPUE donor covariances between
+filled cells and the sampled cells whose interview days build the donor ratio. Not carried,
+stated: the day's count and the day's interviews may covary. In the headline port total a
+PE-reported component therefore enters as seeded lognormal draws around its point with
+CV = SE / point (before B73, as a constant), the monthly-by-mode table scales by the catch
+relative SE (before, the effort's), and `pe_vs_bss_comparison.csv` carries `PE_catch_se`.
+On 2024-25 at the shipped settings the four components' SEs are 959, 3,102, 432 and 6,864
+(10.5%, 9.4%, 36% and 18.6% of the PE catch), and every B70 BSS median sits inside its PE's
++/- 1.96 SE.
 
 ## 16. The commercial census and the charter expansion
 
@@ -1586,9 +1599,11 @@ showing through its stratum CPUEs. So the shore agrees month by month; the boat 
 its annual agreement must not be cited as monthly agreement. `monthly_pe_vs_bss.csv` has
 carried the new split since the 2026-09-28 render.
 
-**8. The design-based layer is inconsistent on finite-population corrections, and the PE has
-no catch variance.** Section 15 states both. Neither affects the headline, because the
-headline is the BSS posterior; both affect what the PE column can be asked to support.
+**8. The design-based layer is inconsistent on finite-population corrections, and the PE's
+catch variance (B73, 2026-10-19) takes the day's count and the day's interviews as
+independent.** Section 15 states both. Neither affects the headline, because the headline is
+the BSS posterior; both affect what the PE column can be asked to support, and the second
+understates the PE catch SE where a day's conditions move the count and the catch rate together.
 
 **9. The contact stream sees boats during sampler shifts only.** The shifts cover about 75%
 of a day's boat returns, and the trip-type mix does not drift with the hour inside them on
@@ -1792,7 +1807,7 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
-- **2026-10-19.** A40: the identification floor on the per-day effort effect (`effort_day_effect_min_repeat_days = 5`; Section 14.2), Matt's option (a) after A39's render (B69) failed clause (4) of its rule on the pooled shore pot-closure fit; `effort_day_effect = TRUE` again; rendered the same day (B70): every clause of the A40 rule met, the fits with the term off identical to B67 draw for draw and those with it on identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 replaced (+0.4% on the port; the shared boat turnover 3.16 to 2.97 in the posterior mean).
+- **2026-10-19.** B73: the PE has a catch SE (Section 15; D22 part 2 closed) and a PE-reported component enters the port total with it; B72: `osp_absent_day`, how an OSP day with boats and no crab-only value is read (D39; shipped "unclassified"), and the report's OSP table beside the model's `f(1 - c)` (D41). A40: the identification floor on the per-day effort effect (`effort_day_effect_min_repeat_days = 5`; Section 14.2), Matt's option (a) after A39's render (B69) failed clause (4) of its rule on the pooled shore pot-closure fit; `effort_day_effect = TRUE` again; rendered the same day (B70): every clause of the A40 rule met, the fits with the term off identical to B67 draw for draw and those with it on identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 replaced (+0.4% on the port; the shared boat turnover 3.16 to 2.97 in the posterior mean).
 - **2026-10-18.** A39: the per-day effort effect adopted on both tracks (`effort_day_effect = TRUE`; Section 14.2, the paragraph after the Sunday split; D45 closed), rendered the same evening (B69): clauses (1) to (3) of the rule met, clause (4) failed on the pooled shore pot-closure fit, the key back to FALSE per the rule pending Matt's decision; D24 closed by Matt's decision (the pooled centre kept, the window-only price, -4.5% on the port, quoted as the sensitivity); D29's span re-measured under the current model (10a). The container pricing batch is campaign Section 1z.14.
 - **2026-10-18.** The container render of A35 to A38 (B67, 2026-10-17) accepted as the authoritative run: 86,113 [72,407, 103,557], cross-check -0.27%; the shore all-gear fit 32,455 to 30,804 with the Sunday split, the boat all-gear 35,211 to 35,403; A38 +4.8% on the port SD. The first authoritative run rendered off Matt's machine (R 4.3.3, rstan 2.32.5).
 - **2026-10-16.** A38: the two shore fits' draws paired comonotonically in `tau_bar` before the port sum (`port_tau_coupling`, Section 16; D44 closed, the interval only); A35: the holiday prior at normal(0, 0.5) from `holiday_prior_sd` (Section 14.7);

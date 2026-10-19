@@ -7953,7 +7953,7 @@ local({
       grepl("COMPLETED by A40 (2026-10-19), the identification floor, Matt's option (a)", a39, fixed = TRUE) &&
       grepl("**The shipped file IS this run's configuration.**", ps, fixed = TRUE) &&   # 2026-10-19 (B70 accepted): no longer two keys apart
       grepl("**The shipped file IS the authoritative run's configuration.**", cl, fixed = TRUE) &&
-      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16) |", vc, fixed = TRUE))   # 2026-10-19: the anchor gained B70 with the render, then the acceptance
+      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16)", vc, fixed = TRUE))   # 2026-10-19: the anchor gained B70 with the render, then the acceptance, then 1z.17 and 1z.18
 })
 
 # ---------- B70 (2026-10-19): the A40 render; every clause of the rule met; the candidate authoritative run pending Matt's acceptance ----------
@@ -8023,7 +8023,7 @@ local({
       grepl("**THE RUN IT REPLACED (B67, authoritative 2026-10-18 to 2026-10-19):** **`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
       grepl("accepted by Matt 2026-10-19, the same day", cl, fixed = TRUE) && grepl("port **86,497 [72,869, 104,595]**", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
       grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **Accepted.** Matt accepted B70 as the authoritative run the same day (2026-10-19", vc, fixed = TRUE) &&
-      grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16) |", vc, fixed = TRUE) &&
+      grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16)", vc, fixed = TRUE) &&
       grepl("**Since 2026-10-19 (B70)** it is `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (the box; B67 replaced)", md, fixed = TRUE) &&
       grepl("The render (B70, the same day) met every clause", ph, fixed = TRUE) && grepl("Rendered the same day (B70): every clause met on the gear track", gh, fixed = TRUE))
 })
@@ -8156,6 +8156,13 @@ local({
       grepl('Method = "PE (gate or data; +/- 1.96 SE)", Median = pe_pt, lo = pe_pt - 1.96 * .se, hi = pe_pt + 1.96 * .se, PE = pe_pt', pd, fixed = TRUE) &&
       grepl("rel_se <- if (is.finite(.pc_tot) && .pc_tot > 0 && is.finite(.pc_se) && .pc_se > 0) .pc_se / .pc_tot", pd, fixed = TRUE) &&
       grepl("`PE catch SE` = sprintf(", pd, fixed = TRUE))
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); cl <- rdf("07_documentation/CLAUDE.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); ro <- rdf("05_output/README.md")
+  chk("B73 docs: the register has the B73 row, D22 reads part 2 CLOSED by B73 and D19 re-measured; CLAUDE.md, the method document (Section 15 and limitation 8) and the output README carry the catch SE",
+      grepl("| B73 |", cr, fixed = TRUE) && grepl("**PART 2 CLOSED 2026-10-19 by B73 (the PE catch SE); part 1 (the FPC) OPEN, deliberate**", cr, fixed = TRUE) &&
+      grepl("RE-MEASURED 2026-10-19 against B70 (campaign 1z.17): the evidence now FAVOURS `local`", cr, fixed = TRUE) &&
+      grepl("**Since B73 (2026-10-19) the PE has a catch SE**", cl, fixed = TRUE) && grepl("**The PE has a catch SE since B73**", md, fixed = TRUE) &&
+      grepl("the PE's\ncatch variance (B73, 2026-10-19) takes the day's count and the day's interviews as\nindependent.**", md, fixed = TRUE) &&
+      grepl("`PE_catch_se` (the PE catch SE, `pe_catch_variance()`)", ro, fixed = TRUE) && grepl("`osp_absent_days.csv` (B72, 2026-10-19)", ro, fixed = TRUE))
 })
 
 # ---------- B72 (2026-10-19): the D39 absent-day reader key, and D41 (a) to (d): what the run says about the OSP crab-only stream ----------
@@ -8202,6 +8209,11 @@ local({
       grepl('utils::read.csv(file.path(output_dir, "osp_absent_days.csv"))', rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE))
   e2 <- new.env(); sys.source("run_config.R", envir = e2); rc <- e2$run_config
   chk("B72 config: osp_absent_day ships \"unclassified\" (the reading since B64; \"zero\" only on OSP's answer)", identical(rc$osp_absent_day, "unclassified"))
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); cl <- rdf("07_documentation/CLAUDE.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md")
+  chk("B72 docs: the register has the B72 and B74 rows, D41 reads CLOSED by B72, D39 READY with the key built; CLAUDE.md, the guide and the campaign (1z.17) name osp_absent_day",
+      grepl("| B72 |", cr, fixed = TRUE) && grepl("| B74 |", cr, fixed = TRUE) && grepl("**CLOSED 2026-10-19 by B72: (a) to (d) built**", cr, fixed = TRUE) &&
+      grepl("READY 2026-10-19 (B72): `osp_absent_day` built", cr, fixed = TRUE) && grepl("`osp_absent_day` (B72, 2026-10-19, section 2.6", cl, fixed = TRUE) &&
+      grepl("read as `osp_absent_day` says", gd, fixed = TRUE) && grepl("### 1z.17 Waiting for OSP: the D39 and D2 pre-work", vc, fixed = TRUE) && grepl("### 1z.18 The 2025-26 readiness render", vc, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
