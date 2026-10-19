@@ -2337,7 +2337,9 @@ utils::write.csv(component_table, file.path(output_dir, "component_totals.csv"),
 report_table(dplyr::transmute(component_table, Component, Method, Median = round(Median), `95% interval` = fmt_ci(Median, lo, hi),
                               PE = round(PE), `Share of port median` = Share),
              digits = 0, caption = paste("The components of the port total. Component medians do not add to the port median (medians of sums",
-                                         "are not sums of medians); the port interval comes from summing the draws. Written to component_totals.csv.", .tc_caption))
+                                         "are not sums of medians); the port interval comes from summing the draws. A PE-reported component shows its PE point",
+                                         "with the 2.5% and 97.5% quantiles of the draws the port total carries for it (B73: lognormal, mean-centred on the point,",
+                                         "so with a CV near 1 the draws' median sits well below the point; B75). Written to component_totals.csv.", .tc_caption))
 ```
 
 ## 8. Monthly estimates
@@ -3378,15 +3380,44 @@ if (exists('expansion_df')) report_table(dplyr::transmute(expansion_df, Fit = sh
 The season-level turnover `tau_bar` each fit estimated around the prior centre of [Section 3.1](#the-expansion-factors-shore-and-boat-turnover). A posterior close to the prior (Section 11.6 flags it) means the component's scale rests on the derived centre; the shore fits are the case to watch, because only the in-window I/E days inform them.
 
 ```{r tau-show, echo=FALSE}
-.tb <- read_fit_outputs("structural_params")
-if (!is.null(.tb)) {
-  .tb <- .tb[grepl("^tau_bar", .tb$parameter), , drop = FALSE]
-  if (nrow(.tb)) report_table(data.frame(check.names = FALSE, Fit = .tb$fit_lbl,
+# B75 (2026-10-19): a fit whose shared turnover is REFUSED (fewer informed days than the floor,
+# bss_effort_spec.R) has no tau_bar parameter at all, so this table silently omitted it; the
+# 2025-26 boat all-gear fit, with no OSP day, was the case. Every fitted component now has a row,
+# from fit_data_summary.csv: a refused fit's row names the fallback its L draws sit at, independent
+# per-day draws at the prior, and states that a season sum of such draws concentrates at the
+# lognormal MEAN, centre * exp(sigma^2 / 2), not at the centre (CHANGE_REGISTER D49).
+.tb  <- read_fit_outputs("structural_params")
+if (!is.null(.tb)) .tb <- .tb[grepl("^tau_bar", .tb$parameter), , drop = FALSE]
+.tbf <- tryCatch(utils::read.csv(file.path(output_dir, "fit_data_summary.csv"), stringsAsFactors = FALSE), error = function(e) NULL)
+if (!is.null(.tbf) && "shared_tau" %in% names(.tbf)) .tbf <- .tbf[!is.na(.tbf$shared_tau), , drop = FALSE] else .tbf <- NULL
+if (!is.null(.tbf) && nrow(.tbf)) {
+  .rows <- lapply(seq_len(nrow(.tbf)), function(i) {
+    .f <- .tbf[i, ]; .lbl <- short_fit(.f$fit); .is_shore <- identical(.f$population, "shore")
+    .mu  <- as.numeric(if (.is_shore) params$tau_shore_prior_mu    else params$tau_boat_prior_mu)
+    .sg  <- as.numeric(if (.is_shore) params$tau_shore_prior_sigma else params$tau_boat_prior_sigma)
+    .flr <- as.integer(.bss_per_pop(params$shared_tau_min_obs, .f$population, 15L))
+    .r   <- if (!is.null(.tb)) .tb[.tb$fit_lbl == .lbl, , drop = FALSE] else NULL
+    .inf <- sprintf("%s (floor %d)", .f$n_L_informed, .flr)
+    if (!is.null(.r) && nrow(.r))
+      data.frame(check.names = FALSE, Fit = .lbl, `Prior centre` = sprintf("%.3f", .mu), `Informed days` = .inf,
+                 `tau_bar posterior` = fmt_ci(.r$median[1], .r$lo95[1], .r$hi95[1], digits = 3),
+                 n_eff = as.character(round(.r$n_eff[1])), `R-hat` = sprintf("%.3f", .r$Rhat[1]))
+    else
+      data.frame(check.names = FALSE, Fit = .lbl, `Prior centre` = sprintf("%.3f", .mu), `Informed days` = .inf,
+                 `tau_bar posterior` = sprintf(paste0("REFUSED (no tau_bar): L is independent per-day draws at its prior, median %.3f, ",
+                                                      "mean %.3f (log-SD %.2f); the season sum sits at the mean, not the centre (D49)"),
+                                               .mu, .mu * exp(.sg^2 / 2), .sg),
+                 n_eff = "", `R-hat` = "")
+  })
+  report_table(do.call(rbind, .rows),
+    caption = paste("Fitted season-level turnover per fit, median (95% interval). A REFUSED row is a fit with fewer days that can inform",
+                    "the turnover than shared_tau_min_obs; its per-day L stays at the prior, and the refusal is in the run warnings."))
+} else if (!is.null(.tb) && nrow(.tb)) {
+  report_table(data.frame(check.names = FALSE, Fit = .tb$fit_lbl,
       `Prior centre` = ifelse(grepl("^shore", .tb$fit_lbl), sprintf("%.3f", as.numeric(params$tau_shore_prior_mu)), sprintf("%.3f", as.numeric(params$tau_boat_prior_mu))),
       `tau_bar posterior` = fmt_ci(.tb$median, .tb$lo95, .tb$hi95, digits = 3), n_eff = round(.tb$n_eff), `R-hat` = sprintf("%.3f", .tb$Rhat)),
     caption = "Fitted season-level turnover per fit, median (95% interval).")
-  else cat("_No shared turnover in this run (shared_tau = FALSE)._")
-}
+} else cat("_No shared turnover in this run (shared_tau = FALSE)._")
 ```
 
 ### 12.3 The crabbing fraction f

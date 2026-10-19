@@ -8217,5 +8217,40 @@ local({
       grepl("read as `osp_absent_day` says", gd, fixed = TRUE) && grepl("### 1z.17 Waiting for OSP: the D39 and D2 pre-work", vc, fixed = TRUE) && grepl("### 1z.18 The 2025-26 readiness render", vc, fixed = TRUE))
 })
 
+# ---------- B75 (2026-10-19): the 2025-26 readiness render's report gaps, and D49 ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  pd <- rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")
+  chk("B75 pooled driver: the turnover table (12.2) lists every fitted component from fit_data_summary.csv, a REFUSED fit with the per-day prior its L sits at (median, mean, the D49 note), and the component caption says what a PE-reported row shows",
+      grepl('.tbf <- tryCatch(utils::read.csv(file.path(output_dir, "fit_data_summary.csv"), stringsAsFactors = FALSE), error = function(e) NULL)', pd, fixed = TRUE) &&
+      grepl("REFUSED (no tau_bar): L is independent per-day draws at its prior, median %.3f, ", pd, fixed = TRUE) &&
+      grepl(".mu, .mu * exp(.sg^2 / 2), .sg)", pd, fixed = TRUE) &&
+      grepl(".flr <- as.integer(.bss_per_pop(params$shared_tau_min_obs, .f$population, 15L))", pd, fixed = TRUE) &&
+      grepl("so with a CV near 1 the draws' median sits well below the point; B75)", pd, fixed = TRUE))
+  # The chunk evaluated against the readiness render's folder, which has a refused fit (the boat all-gear, no OSP day).
+  d <- "05_output/20261019/pooled-CPUE-season-2025-26"
+  if (file.exists(file.path(d, "fit_data_summary.csv")) && file.exists("03_R_functions/bss_effort_spec.R")) {
+    e <- new.env(); sys.source("03_R_functions/bss_effort_spec.R", envir = e)
+    e$`%||%` <- function(a, b) if (is.null(a)) b else a
+    e$output_dir <- d
+    e$fmt_ci <- function(m, lo, hi, digits = 0) sprintf(paste0("%.", digits, "f [%.", digits, "f, %.", digits, "f]"), m, lo, hi)
+    e$short_fit <- function(x) gsub("_Dungeness_Kept$", "", gsub("private_boat", "boat", gsub("_ring_net_only", " pot-closure", gsub("_all_gear", " all-gear", x))))
+    e$.tau_tab <- NULL
+    e$report_table <- function(x, caption = NULL, ...) { assign(".tau_tab", x, envir = e); invisible(NULL) }
+    e$read_fit_outputs <- function(prefix, dir = d) { fs <- list.files(dir, pattern = paste0("^", prefix, "_.*\\.csv$"), full.names = TRUE)
+      do.call(rbind, lapply(fs, function(f) { x <- utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE)
+        x$fit_lbl <- e$short_fit(sub(paste0("^", prefix, "_"), "", tools::file_path_sans_ext(basename(f)))); x })) }
+    e$params <- list(tau_shore_prior_mu = 2.516, tau_shore_prior_sigma = 0.1, tau_boat_prior_mu = 3.5, tau_boat_prior_sigma = 0.5, shared_tau_min_obs = list(shore = 0L, private_boat = 15))
+    src <- readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE); a <- grep("^```\\{r tau-show", src); b <- a + which(src[(a + 1):length(src)] == "```")[1]
+    r <- tryCatch({ eval(parse(text = src[(a + 1):(b - 1)]), envir = e); e$.tau_tab }, error = function(err) err)
+    chk("B75 turnover table (functional, the readiness render): three rows, the shore fits with their tau_bar and informed days (0 and 16, floor 0), the boat all-gear REFUSED at median 3.500 / mean 3.966 (floor 15)",
+        is.data.frame(r) && nrow(r) == 3 && identical(r$Fit, c("shore pot-closure", "shore all-gear", "boat all-gear")) &&
+        identical(r$`Informed days`, c("0 (floor 0)", "16 (floor 0)", "0 (floor 15)")) &&
+        grepl("^2\\.516 \\[", r$`tau_bar posterior`[1]) && grepl("^2\\.296 \\[", r$`tau_bar posterior`[2]) &&
+        grepl("REFUSED (no tau_bar): L is independent per-day draws at its prior, median 3.500, mean 3.966 (log-SD 0.50)", r$`tau_bar posterior`[3], fixed = TRUE) &&
+        identical(r$n_eff[3], "") && identical(r$`R-hat`[3], ""))
+  }
+})
+
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
 if (bad > 0) quit(status = 1)
