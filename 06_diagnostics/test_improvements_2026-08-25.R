@@ -7537,9 +7537,10 @@ local({
   ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
   vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); cl <- rdf("07_documentation/CLAUDE.md"); rc <- rdf("run_config.R")
   # 2026-10-18 (B67): B65 is now the run replaced; the register says "It replaced", run_config.R names it among the runs before
+  # 2026-10-19 (B70): two runs back now; the register says "That had replaced"
   chk("B65 docs: the box, the register, CLAUDE.md and run_config.R name the new run with its total and interval, and the register D29's span as stale since B65 (re-measured 2026-10-18, 1z.14)",
       grepl("**`05_output/20261003/pooled-CPUE-2024-25`, port total 87,932 [75,193, 105,271]**", ps, fixed = TRUE) &&
-      grepl("It replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE) &&
+      grepl("That had replaced `05_output/20261003/pooled-CPUE-2024-25`, port total **87,932 [75,193, 105,271]**", cr, fixed = TRUE) &&
       grepl("port **87,932 [75,193, 105,271]**", cl, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE) &&
       grepl("STALE SINCE B65", cr, fixed = TRUE))   # 2026-10-18 (1z.14): the box no longer calls the span stale; it quotes the re-measured one
   chk("B65 docs: the register carries B65, A33 and A34 read RENDERED, and the campaign 1z.11 with its anchor",
@@ -7794,10 +7795,10 @@ local({
   md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
   chk("B67 docs: the box, the register, CLAUDE.md, run_config.R and the method document name the new run with its total and interval, and B65 as the run replaced",
       grepl("**`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
-      grepl("**THE RUN IT REPLACED (B65, authoritative 2026-10-04 to 2026-10-18):**", ps, fixed = TRUE) &&
-      grepl("**Authoritative run:** `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) &&
-      grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) && grepl("#   port total 86,113  [72,407, 103,557]", rc, fixed = TRUE) &&
-      grepl("**Since 2026-10-18 (B67)** it is `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE))
+      grepl("**THE RUN BEFORE THAT (B65, authoritative 2026-10-04 to 2026-10-18):**", ps, fixed = TRUE) &&   # 2026-10-19 (B70): B67 is the run replaced now, B65 the one before
+      grepl("It replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) &&   # 2026-10-19 (B70): the run replaced
+      grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) && grepl("05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557], B67", rc, fixed = TRUE) &&
+      grepl("**since 2026-10-18 (B67)**, it was `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE))
   chk("B67 docs: the register carries B66 and B67, A35 to A38 read AUTHORITATIVE since 2026-10-18, B65 reads replaced, and the campaign 1z.13 with its anchor",
       grepl("| B66 |", cr, fixed = TRUE) && grepl("| B67 |", cr, fixed = TRUE) && grepl("THE AUTHORITATIVE RUN since 2026-10-18 (Matt)", cr, fixed = TRUE) &&
       grepl("**DONE: AUTHORITATIVE 2026-10-04 to 2026-10-18; replaced by B67**", cr, fixed = TRUE) &&
@@ -7948,9 +7949,9 @@ local({
   chk("A40 docs: the register has the A40 row with its five-clause rule and A39 reads completed by A40; the box, CLAUDE.md, the method document and the campaign carry the floor",
       length(a40) == 1 && grepl("**THE RULE (A40, written before the render, 2026-10-19):**", a40, fixed = TRUE) && grepl("(5) every fit where the term is OFF reproduces B67's fit draw for draw", a40, fixed = TRUE) &&
       grepl("COMPLETED by A40 (2026-10-19), the identification floor, Matt's option (a)", a39, fixed = TRUE) &&
-      grepl("The shipped configuration differs from this run in TWO keys since 2026-10-19,", ps, fixed = TRUE) &&
-      grepl("**Since 2026-10-19 the shipped file differs from the authoritative run in two keys, `effort_day_effect = TRUE`", cl, fixed = TRUE) &&
-      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16; B70) |", vc, fixed = TRUE))   # 2026-10-19: the anchor gained B70 with the render
+      grepl("**The shipped file IS this run's configuration.**", ps, fixed = TRUE) &&   # 2026-10-19 (B70 accepted): no longer two keys apart
+      grepl("**The shipped file IS the authoritative run's configuration.**", cl, fixed = TRUE) &&
+      grepl("Under A40 the switch is per fit:", md, fixed = TRUE) && grepl("### 1z.16 Matt's option (a): the identification floor", vc, fixed = TRUE) && grepl("(1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16) |", vc, fixed = TRUE))   # 2026-10-19: the anchor gained B70 with the render, then the acceptance
 })
 
 # ---------- B70 (2026-10-19): the A40 render; every clause of the rule met; the candidate authoritative run pending Matt's acceptance ----------
@@ -8010,19 +8011,56 @@ local({
   vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
   ph <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-development-history.md"); gh <- rdf("07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md")
   a40 <- regmatches(cr, regexpr("\\| A40 \\|[^\n]*", cr)); b70 <- regmatches(cr, regexpr("\\| B70 \\|[^\n]*", cr))
-  chk("B70 docs: the register has the B70 row with the verdict on every clause and what moved against B67; A40 reads RENDERED the same day (B70) and the candidate authoritative run pending Matt's acceptance",
-      length(b70) == 1 && grepl("**RENDERED; THE A40 RULE MET ON EVERY CLAUSE; the candidate authoritative run, pending Matt's acceptance**", b70, fixed = TRUE) &&
+  chk("B70 docs: the register has the B70 row with the verdict on every clause and what moved against B67; A40 reads RENDERED the same day (B70) and the authoritative run since 2026-10-19",
+      length(b70) == 1 && grepl("**RENDERED; THE A40 RULE MET ON EVERY CLAUSE; THE AUTHORITATIVE RUN since 2026-10-19 (Matt accepted it the same day); B67 replaced**", b70, fixed = TRUE) &&
       grepl("(5) the four pot-closure fits (0 and 1 repeat-count days, the term off) reproduce B67's fits draw for draw", b70, fixed = TRUE) &&
       grepl("**What moved against B67:** the port 86,113 [72,407, 103,557] to **86,497 [72,869, 104,595]** (+0.4%; the half-width +1.8%)", b70, fixed = TRUE) &&
-      length(a40) == 1 && grepl("**ADOPTED 2026-10-19; RENDERED the same day (B70): every clause of the A40 rule met, the port 86,497 [72,869, 104,595], cross-check -0.25%; the candidate authoritative run, pending Matt's acceptance**", a40, fixed = TRUE))
-  chk("B70 docs: the box, CLAUDE.md, the campaign (1z.16 with its anchor), the method document and both histories name the render as the candidate pending acceptance, and B67 stays the authoritative run",
-      grepl("**A40's render (B70, 2026-10-19,\n> `05_output/20261019/pooled-CPUE-2024-25`, port 86,497 [72,869, 104,595], cross-check 86,285, -0.25%) met\n> every clause of its rule and is the candidate authoritative run pending Matt's acceptance.**", ps, fixed = TRUE) &&
-      grepl("**`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
-      grepl("met every clause of its rule and is the candidate authoritative run pending", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
-      grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **What it leaves to Matt.** Whether B70 becomes the authoritative run.", vc, fixed = TRUE) &&
-      grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70) |", vc, fixed = TRUE) &&
-      grepl("**Since 2026-10-18 (B67)** it is `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE) && grepl("B70", md, fixed = TRUE) &&
+      length(a40) == 1 && grepl("**ADOPTED 2026-10-19; RENDERED the same day (B70): every clause of the A40 rule met, the port 86,497 [72,869, 104,595], cross-check -0.25%; THE AUTHORITATIVE RUN since 2026-10-19 (Matt accepted B70 the same day)**", a40, fixed = TRUE))
+  chk("B70 docs: the box, CLAUDE.md, the campaign (1z.16 with its anchor), the method document and both histories name the render as the authoritative run since 2026-10-19 (accepted), B67 the run it replaced",
+      grepl("**`05_output/20261019/pooled-CPUE-2024-25`, port total 86,497 [72,869, 104,595]**", ps, fixed = TRUE) && grepl("**accepted by Matt on 2026-10-19 as the authoritative run**", ps, fixed = TRUE) &&
+      grepl("**THE RUN IT REPLACED (B67, authoritative 2026-10-18 to 2026-10-19):** **`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
+      grepl("accepted by Matt 2026-10-19, the same day", cl, fixed = TRUE) && grepl("port **86,497 [72,869, 104,595]**", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
+      grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **Accepted.** Matt accepted B70 as the authoritative run the same day (2026-10-19", vc, fixed = TRUE) &&
+      grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16) |", vc, fixed = TRUE) &&
+      grepl("**Since 2026-10-19 (B70)** it is `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (the box; B67 replaced)", md, fixed = TRUE) &&
       grepl("The render (B70, the same day) met every clause", ph, fixed = TRUE) && grepl("Rendered the same day (B70): every clause met on the gear track", gh, fixed = TRUE))
+})
+
+# ---------- B70 accepted (2026-10-19): Matt's "Accept B70"; the authoritative run moves to 05_output/20261019; B67 the run it replaced ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); rc <- rdf("run_config.R")
+  rm_ <- rdf("README.md"); gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md")
+  ph <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-development-history.md"); gh <- rdf("07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md")
+  a39 <- regmatches(cr, regexpr("\\| A39 \\|[^\n]*", cr)); b67 <- regmatches(cr, regexpr("\\| B67 \\|[^\n]*", cr))
+  chk("B70 accepted: the register's Authoritative run line names 05_output/20261019 at 86,497 [72,869, 104,595] with its cross-check, B67 as the run replaced and B65 before it; its Last updated line records the move; A39 and B67 read accordingly",
+      grepl("**Authoritative run:** `05_output/20261019/pooled-CPUE-2024-25`, port total **86,497 [72,869, 104,595]**, 4 of 4 components fitted, every one reporting BSS, with its gear-resolved cross-check `05_output/20261019/gear-type-CPUE-model-2024-25` at 86,285 (-0.25%, PASS)", cr, fixed = TRUE) &&
+      grepl("It replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) && grepl("That had replaced `05_output/20261003/pooled-CPUE-2024-25`", cr, fixed = TRUE) &&
+      grepl("**THE AUTHORITATIVE RUN MOVES to B70: Matt accepted the A40 render on 2026-10-19;", cr, fixed = TRUE) &&
+      length(a39) == 1 && grepl("THE AUTHORITATIVE RUN since 2026-10-19 (B70, Matt)", a39, fixed = TRUE) &&
+      length(b67) == 1 && grepl("AUTHORITATIVE 2026-10-18 to 2026-10-19 (Matt accepted the container render); replaced by B70", b67, fixed = TRUE))
+  chk("B70 accepted: the box names the render as the authoritative run with the five clauses, what moved against B67 (the turnover included) and the shipped file as its configuration",
+      grepl("RENDERED ON THE CLOUD CONTAINER (B70)", ps, fixed = TRUE) && grepl("**It met the A40 rule, written before it ran** (CHANGE_REGISTER A40):", ps, fixed = TRUE) &&
+      grepl("**What moved against the run it replaced:** port 86,113 to 86,497 (+0.4%)", ps, fixed = TRUE) && grepl("the shared boat turnover `tau_bar` 3.16 to", ps, fixed = TRUE) &&
+      grepl("The BSS sits 2.5% below the PE (88,758).", ps, fixed = TRUE) && grepl("**THE AUTHORITATIVE RUN MOVES to B70: Matt accepted A40's render on 2026-10-19;", ps, fixed = TRUE))
+  chk("B70 accepted: CLAUDE.md names the run, its cross-check, the turnover on it and the reproducible reference; run_config.R's header and section 1.2 name it with B67 and B65 before it",
+      grepl("`05_output/20261019/gear-type-CPUE-model-2024-25` at **86,285 (-0.25%, PASS)**", cl, fixed = TRUE) &&
+      grepl("the fitted `tau_bar` is **2.972** in the posterior mean (median 2.951 [2.24, 3.82]) on the authoritative run, B70", cl, fixed = TRUE) &&
+      grepl("The reproducible reference now is the B70 run (86,497", cl, fixed = TRUE) && !grepl("pending Matt's acceptance", cl, fixed = TRUE) &&
+      grepl("#   port total 86,497  [72,869, 104,595]", rc, fixed = TRUE) && grepl("#   05_output/20261019/pooled-CPUE-2024-25\n", rc, fixed = TRUE) &&
+      grepl("# 05_output/20261019/pooled-CPUE-2024-25, 86,497 [72,869, 104,595] (and of the runs before it:", rc, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE))
+  chk("B70 accepted: the README run table, the guide's canonical-run paragraph, the method document and both histories carry the move",
+      grepl("accepted as the authoritative run **86,497 [72,869, 104,595]**, cross-check -0.25% (B70) |", rm_, fixed = TRUE) &&
+      grepl("`05_output/20261019/pooled-CPUE-2024-25`, port total 86,497 [72,869, 104,595], with its gear", gd, fixed = TRUE) && grepl("(B70, accepted 2026-10-19; and of the", gd, fixed = TRUE) &&
+      grepl("**The authoritative run has moved four times since this reference run.**", md, fixed = TRUE) &&
+      grepl("THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 86,497 (B70, B71)", ph, fixed = TRUE) && grepl("THE CROSS-CHECK OF THE AUTHORITATIVE RUN, -0.25% (B70)", gh, fixed = TRUE) &&
+      !grepl("pending Matt's acceptance", ph, fixed = TRUE) && !grepl("pending Matt's acceptance", gh, fixed = TRUE) && !grepl("pending Matt's acceptance", md, fixed = TRUE) && !grepl("pending Matt's acceptance", ps, fixed = TRUE))
+  if (dir.exists("05_output/20261019/pooled-CPUE-2024-25")) {
+    e <- utils::read.csv("05_output/20261019/pooled-CPUE-2024-25/port_total_Dungeness_Kept.csv"); e <- e[e$Estimate == "Expected_Catch", ]
+    chk("B70 accepted: the total the documents quote is the folder's own (86,497 [72,869, 104,595])",
+        identical(as.numeric(c(e$BSS_median, e$BSS_lo95, e$BSS_hi95)), c(86497, 72869, 104595)))
+  }
 })
 
 # ---------- B71 (2026-10-19): the fit cache key ignores the Stan data list's top-level attributes ----------

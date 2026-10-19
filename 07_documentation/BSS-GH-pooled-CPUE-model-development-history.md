@@ -15,14 +15,14 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
-### 2026-10-19, A40: THE IDENTIFICATION FLOOR ON THE PER-DAY EFFORT EFFECT (PENDING ITS RENDER)
+### 2026-10-19, A40: THE IDENTIFICATION FLOOR ON THE PER-DAY EFFORT EFFECT; THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 86,497 (B70, B71)
 
 Matt's option (a) for B69: `effort_day_effect = TRUE` again with `effort_day_effect_min_repeat_days = 5`.
 Each fit switches the term on only when at least that many of its sampled days carry two or more
 counts; below the floor the fit's Stan data carry `effort_day_effect = 0`, the model without the term
 bit for bit, with a run warning, and `fit_data_summary.csv` records the switch and the count. On 2024-25
 the two all-gear fits of each track carry the term and the four pot-closure fits do not. The A40 rule
-adds clause (5): the fits with the term off reproduce B67 draw for draw. The render (B70, the same day) met every clause: the pot-closure fits identical to B67 draw for draw, the all-gear fits identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; the candidate authoritative run pending Matt's acceptance. Every fit was a cache miss because the key digested the data's attributes; B71 fixes the key.
+adds clause (5): the fits with the term off reproduce B67 draw for draw. The render (B70, the same day) met every clause: the pot-closure fits identical to B67 draw for draw, the all-gear fits identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 (86,113) replaced: against it the shore all-gear fit 30,804 to 31,130, the boat all-gear 35,403 to 35,462, the pot-closure fits unchanged, the half-width +1.8%, the shared boat turnover 3.16 to 2.97 in the posterior mean. Every fit was a cache miss because the key digested the data's attributes; B71 fixes the key.
 
 ### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT ADOPTED ON BOTH TRACKS (PENDING ITS RENDER); D24 CLOSED BY DECISION (B68, 1z.14, 1z.15)
 
