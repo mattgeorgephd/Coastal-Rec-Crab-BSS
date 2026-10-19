@@ -1104,9 +1104,10 @@ timer_stop("3_PE_estimates")
              `One sampled day` = x$n_single_effort_strata %||% NA,
              `Share of calendar days` = sprintf("%.0f%%", 100 * ((x$n_empty_effort_days %||% 0) + (x$n_single_effort_days %||% 0)) / max(x$n_calendar_days %||% 1, 1)),
              `Effort SE` = sprintf("%s (%.1f%%)", format(round(x$effort_se %||% NA), big.mark = ","), 100 * (x$effort_se %||% NA) / max(x$effort_total %||% 1, 1)),
-             `PE catch` = round(x$Dungeness_Kept %||% NA), check.names = FALSE) }))
+             `PE catch` = round(x$Dungeness_Kept %||% NA),
+             `PE catch SE` = sprintf("%s (%.1f%%)", format(round(x$catch_se %||% NA), big.mark = ","), 100 * (x$catch_se %||% NA) / max(x$Dungeness_Kept %||% 1, 1)), check.names = FALSE) }))
 if (!is.null(.tc) && nrow(.tc)) { .tc$Component <- short_fit(.tc$Component)
-  print(report_table(.tc, digits = 0, caption = "This run's (week x day-type) cells: unsampled, resting on one sampled day, the share of calendar days they cover, the effort SE and the PE catch.")) }
+  print(report_table(.tc, digits = 0, caption = "This run's (week x day-type) cells: unsampled, resting on one sampled day, the share of calendar days they cover, the effort SE, the PE catch and its SE (D22 (2), B73: the stratum effort variance combined with a day-level ratio variance of the stratum CPUE, with the donor covariances; pe_catch_variance()).")) }
 ```
 
 ### 4.1 Incomplete-trip treatment diagnostic (improvement 5)
@@ -1258,7 +1259,12 @@ pe_summary <- tibble(
   # deployments and the commercial/charter row in vessel-trips, so the PORT TOTAL row of this
   # column adds two units and is not an effort figure (the report says so).
   Effort = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),
-  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
+  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept")),
+  # D22 (2), 2026-10-19 (B73): the PE catch SE per component (pe_catch_variance(); the census row
+  # carries what enters the port interval, carried_se) and, for the port, the root of the sum of
+  # squares, the components being independent samples.
+  Dungeness_SE = local({ se <- vapply(component_keys, function(k) as.numeric(if (identical(k, "comm_charter")) pe_all$comm_charter$carried_se %||% NA_real_ else pe_all[[k]]$catch_se %||% NA_real_), numeric(1))
+                         c(se, sqrt(sum(se^2, na.rm = TRUE))) })
 )
 
 print(pe_summary |> mutate(across(where(is.numeric), ~round(.))))
@@ -2011,6 +2017,39 @@ n_draws_max <- max(sapply(bss_all, function(b) {
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
 
+# D22 (2), 2026-10-19 (B73): the draws a PE-reported component contributes to the port total.
+# Until B73 such a component entered as a CONSTANT; now it enters as lognormal draws around its
+# PE point with CV = its PE catch SE / point (the effort with its effort SE), seeded from
+# bss_seed so the port total stays reproducible (B38), one set per component and catch group,
+# shared by every section that sums components (this block, the season totals, the by-mode
+# totals), so they agree to the crab. A results object without an SE enters as before. When
+# every component reports BSS nothing here is called, so the port total is bit-identical.
+.pe_fallback_cache <- list()
+.pe_fallback_draws <- function(pe_label, cg) {
+  key <- paste(pe_label, cg)
+  if (!is.null(.pe_fallback_cache[[key]])) return(.pe_fallback_cache[[key]])
+  x <- pe_all[[pe_label]]; pt <- x[[cg]] %||% 0; ef <- x$effort_total %||% 0
+  se_c <- if (identical(cg, "Dungeness_Kept")) x$catch_se %||% NA_real_ else NA_real_
+  se_e <- x$effort_se %||% NA_real_
+  ln <- function(point, se, k) {
+    if (!is.finite(point) || point <= 0 || !is.finite(se) || se <= 0) return(rep(point, n_draws_max))
+    sdlog <- sqrt(log(1 + (se / point)^2))
+    point * bss_with_seed((params$bss_seed %||% 1L) + 9000L + k, exp(stats::rnorm(n_draws_max, -sdlog^2 / 2, sdlog)))
+  }
+  k <- length(.pe_fallback_cache)
+  out <- list(C = ln(pt, se_c, 2L * k + 1L), E = ln(ef, se_e, 2L * k + 2L))
+  .pe_fallback_cache[[key]] <<- out
+  out
+}
+# B73: the PE's own SEs beside its points in port_total_*.csv: effort, the root of the sum of the
+# fitted components' squared effort SEs; catch, the same over their catch SEs plus the census SE
+# that enters the port interval (carried_se).
+.pe_port_se <- function(field, census_field = NULL) {
+  v <- unlist(lapply(setdiff(names(pe_all), "comm_charter"), function(k) pe_all[[k]][[field]] %||% NA_real_))
+  if (!is.null(census_field)) v <- c(v, pe_all$comm_charter[[census_field]] %||% NA_real_)
+  sqrt(sum(as.numeric(v)^2, na.rm = TRUE))
+}
+
 .cc_draws_by_cg <- list()   # 2026-09-28 (B43): the census draws, kept for the season totals below
 for(cg in bss_catch_groups) {
   bss_C_total <- rep(0, n_draws_max)    # expected catch
@@ -2024,9 +2063,10 @@ for(cg in bss_catch_groups) {
       b <- bss_all[[label]]
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed scale-aware gate
-        bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
-        bss_C_pred_total <- bss_C_pred_total + (pe_all[[pe_label]][[cg]] %||% 0)
-        bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
+        .pd <- .pe_fallback_draws(pe_label, cg)   # D22 (2), B73: with its PE SE, not a constant
+        bss_C_total <- bss_C_total + .pd$C
+        bss_C_pred_total <- bss_C_pred_total + .pd$C
+        bss_E_total <- bss_E_total + .pd$E
       } else {
         n <- length(b$C_exp_draws)
         idx <- rep_len(1:n, n_draws_max)
@@ -2088,6 +2128,7 @@ for(cg in bss_catch_groups) {
     PE = c(round(pe_port_total("effort_total")),
            round(pe_port_total(cg)),
            NA),
+    PE_se = c(round(.pe_port_se("effort_se")), if (identical(cg, "Dungeness_Kept")) round(.pe_port_se("catch_se", "carried_se")) else NA, NA),   # D22 (2), B73
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total)), round(median(bss_C_pred_total))),
     BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025)), round(quantile(bss_C_pred_total,0.025))),
     BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)), round(quantile(bss_C_pred_total,0.975)))
@@ -2128,7 +2169,7 @@ for(cg in bss_catch_groups) {
   tot <- rep(0, n_draws_max)
   for (pop in pop_set) for (ss in subseasons) {
     b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
-    if (bss_use_pe_for(b)) { tot <- tot + (pe_all[[paste0(pop, "_", ss$name)]]$Dungeness_Kept %||% 0); next }
+    if (bss_use_pe_for(b)) { tot <- tot + .pe_fallback_draws(paste0(pop, "_", ss$name), "Dungeness_Kept")$C; next }   # D22 (2), B73
     d <- if (indep) (b$C_exp_draws_indep %||% b$C_exp_draws) else b$C_exp_draws
     tot <- tot + d[rep_len(seq_along(d), n_draws_max)]
   }
@@ -2213,8 +2254,9 @@ if (length(.seasons)) {
       s_pe_C <- s_pe_C + (pe_all[[pe_label]][[cg]] %||% 0)
       s_pe_E <- s_pe_E + (pe_all[[pe_label]]$effort_total %||% 0)
       if (bss_use_pe_for(b)) {
-        sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)
-        sE <- sE + (pe_all[[pe_label]]$effort_total %||% 0)
+        .pd <- .pe_fallback_draws(pe_label, cg)   # D22 (2), B73: the same draws as the port block
+        sC <- sC + .pd$C
+        sE <- sE + .pd$E
       } else {
         idx <- rep_len(seq_along(b$C_exp_draws), n_draws_max)
         sC <- sC + b$C_exp_draws[idx]; sE <- sE + b$E_draws[idx]
@@ -2266,8 +2308,9 @@ for (pop in c("shore", "private_boat")) for (ss in subseasons) {
   .lb <- paste0(pop, "_", ss$name, "_Dungeness_Kept"); .pl <- paste0(pop, "_", ss$name); b <- bss_all[[.lb]]
   pe_pt <- pe_all[[.pl]]$Dungeness_Kept %||% NA_real_
   if (bss_use_pe_for(b)) {
+    .se <- pe_all[[.pl]]$catch_se %||% NA_real_   # D22 (2), B73: the PE's own interval, +/- 1.96 SE
     comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
-                               Method = "PE (gate or data)", Median = pe_pt, lo = NA_real_, hi = NA_real_, PE = pe_pt)
+                               Method = "PE (gate or data; +/- 1.96 SE)", Median = pe_pt, lo = pe_pt - 1.96 * .se, hi = pe_pt + 1.96 * .se, PE = pe_pt)
   } else {
     q <- stats::quantile(b$C_exp_draws, c(0.5, 0.025, 0.975))
     comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
@@ -2480,7 +2523,11 @@ for(cg in bss_catch_groups) {
 
         eff_total <- pe_all[[pe_label]]$effort_total %||% NA_real_
         eff_se    <- pe_all[[pe_label]]$effort_se %||% NA_real_
-        rel_se <- if(!is.na(eff_total) && eff_total > 0 && !is.na(eff_se) && eff_se > 0)
+        # D22 (2), B73: the PE catch SE (which carries the effort SE) when the PE has one; else the effort SE
+        .pc_tot <- pe_all[[pe_label]][[cg]] %||% NA_real_
+        .pc_se  <- if (identical(cg, "Dungeness_Kept")) pe_all[[pe_label]]$catch_se %||% NA_real_ else NA_real_
+        rel_se <- if (is.finite(.pc_tot) && .pc_tot > 0 && is.finite(.pc_se) && .pc_se > 0) .pc_se / .pc_tot
+                  else if(!is.na(eff_total) && eff_total > 0 && !is.na(eff_se) && eff_se > 0)
                     eff_se / eff_total else {
                       bss_warn("monthly", sprintf("%s: no PE effort SE; the by-mode monthly panel uses a relative SE of 0.30.", pe_label), severity = "note"); 0.30 }
         scale_draws <- rln_scale(n_draws_max, rel_se)   # common effort-level uncertainty
@@ -2599,7 +2646,7 @@ cat("\n", strrep("=",60), "\n CATCH BY CRABBING MODE\n", strrep("=",60), "\n")
   tot <- rep(0, n_draws_max)
   for (ss in subseasons) {
     b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
-    tot <- tot + if (bss_use_pe_for(b)) (pe_all[[paste0(pop, "_", ss$name)]]$Dungeness_Kept %||% 0)
+    tot <- tot + if (bss_use_pe_for(b)) .pe_fallback_draws(paste0(pop, "_", ss$name), "Dungeness_Kept")$C   # D22 (2), B73
                  else b$C_exp_draws[rep_len(seq_along(b$C_exp_draws), n_draws_max)]
   }
   tot
@@ -3456,6 +3503,7 @@ for(pop in c("shore","private_boat")) {
       PE_effort = round(pe_effort), BSS_effort = round(bss_effort),
       bss_vs_pe_effort_pct = bss_vs_pe_effort_pct,
       PE_catch = round(pe_catch), BSS_catch = round(bss_catch),
+      PE_catch_se = round(pe_all[[pe_label]]$catch_se %||% NA_real_),   # D22 (2), B73
       bss_vs_pe_catch_pct = bss_vs_pe_catch_pct,
       method_selected = method,
       pe_f_source = pe_f_src
@@ -3465,7 +3513,8 @@ for(pop in c("shore","private_boat")) {
 comparison[[length(comparison)+1]] <- tibble(
   component = "comm_charter (census)",
   PE_effort = round(pe_all$comm_charter$effort_total), BSS_effort = NA, bss_vs_pe_effort_pct = NA,
-  PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA, bss_vs_pe_catch_pct = NA,
+  PE_catch = round(pe_all$comm_charter$Dungeness_Kept), BSS_catch = NA,
+  PE_catch_se = round(pe_all$comm_charter$carried_se %||% NA_real_), bss_vs_pe_catch_pct = NA,
   pe_f_source = NA_character_,
   # Review item 4 (2026-09-08/09): say what was observed and what the unsampled days are.
   # 2026-09-11: the two populations, two estimators, stated in the method column
@@ -3506,7 +3555,7 @@ write.csv(comparison_df, file.path(output_dir, "pe_vs_bss_comparison.csv"), row.
 .cmp$method_short <- ifelse(grepl("census", .cmp$component), "Census + charter expansion", .cmp$method_selected)
 .cmp$Component <- sub("^comm_charter \\(census\\)$", "Commercial/charter", sub("^private_boat ", "Private boat ", sub("^shore ", "Shore ", .cmp$component)))
 print(report_table(dplyr::transmute(.cmp, Component, `PE effort` = round(PE_effort), `BSS effort` = round(BSS_effort),
-                                    `Effort BSS vs PE (%)` = round(bss_vs_pe_effort_pct, 1), `PE catch` = round(PE_catch), `BSS catch` = round(BSS_catch),
+                                    `Effort BSS vs PE (%)` = round(bss_vs_pe_effort_pct, 1), `PE catch` = round(PE_catch), `PE catch SE` = round(PE_catch_se), `BSS catch` = round(BSS_catch),
                                     `Catch BSS vs PE (%)` = round(bss_vs_pe_catch_pct, 1), `Totals use` = method_short),
                    digits = 1, caption = paste("Point Estimator against the Bayesian estimate by component (BSS medians). Effort is in gear deployments;",
                                                "the census row in vessel-trips. 'Totals use' is the estimate the port total carries.")))

@@ -853,7 +853,10 @@ component_names <- c(unlist(lapply(pe_pops, function(p) sprintf("%s (%s)", pop_d
 pe_summary <- tibble(
   Component  = c(component_names, "PORT TOTAL"),
   Effort = c(vapply(component_keys, function(k) pe_field(k, "effort_total"),  numeric(1)), pe_port_total("effort_total")),   # gear deployments (census: vessel-trips); was Effort_hrs
-  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept"))
+  Dungeness  = c(vapply(component_keys, function(k) pe_field(k, "Dungeness_Kept"), numeric(1)), pe_port_total("Dungeness_Kept")),
+  # D22 (2), 2026-10-19 (B73), as the pooled driver: the PE catch SE per component and the root of the sum of squares for the port
+  Dungeness_SE = local({ se <- vapply(component_keys, function(k) as.numeric(if (identical(k, "comm_charter")) pe_all$comm_charter$carried_se %||% NA_real_ else pe_all[[k]]$catch_se %||% NA_real_), numeric(1))
+                         c(se, sqrt(sum(se^2, na.rm = TRUE))) })
 )
 
 report_table(pe_summary |> mutate(across(where(is.numeric), ~round(.))), caption = "PE port totals by component")
@@ -1358,6 +1361,34 @@ n_draws_max <- max(sapply(bss_all, function(b) {
 }))
 if(n_draws_max == 0) n_draws_max <- params$bss_chains * (params$bss_iter_default - params$bss_warmup_default)
 
+# D22 (2), 2026-10-19 (B73), as the pooled driver: a PE-reported component enters the port draws
+# as seeded lognormal draws around its PE point with CV = its PE catch SE / point (the effort with
+# its effort SE), one set per component and catch group shared by every section that sums
+# components; a results object without an SE enters as the constant it was. Bit-identical when
+# every component reports BSS.
+.pe_fallback_cache <- list()
+.pe_fallback_draws <- function(pe_label, cg) {
+  key <- paste(pe_label, cg)
+  if (!is.null(.pe_fallback_cache[[key]])) return(.pe_fallback_cache[[key]])
+  x <- pe_all[[pe_label]]; pt <- x[[cg]] %||% 0; ef <- x$effort_total %||% 0
+  se_c <- if (identical(cg, "Dungeness_Kept")) x$catch_se %||% NA_real_ else NA_real_
+  se_e <- x$effort_se %||% NA_real_
+  ln <- function(point, se, k) {
+    if (!is.finite(point) || point <= 0 || !is.finite(se) || se <= 0) return(rep(point, n_draws_max))
+    sdlog <- sqrt(log(1 + (se / point)^2))
+    point * bss_with_seed((params$bss_seed %||% 1L) + 9000L + k, exp(stats::rnorm(n_draws_max, -sdlog^2 / 2, sdlog)))
+  }
+  k <- length(.pe_fallback_cache)
+  out <- list(C = ln(pt, se_c, 2L * k + 1L), E = ln(ef, se_e, 2L * k + 2L))
+  .pe_fallback_cache[[key]] <<- out
+  out
+}
+.pe_port_se <- function(field, census_field = NULL) {   # B73: the PE's own SE beside its point in port_total_*.csv
+  v <- unlist(lapply(setdiff(names(pe_all), "comm_charter"), function(k) pe_all[[k]][[field]] %||% NA_real_))
+  if (!is.null(census_field)) v <- c(v, pe_all$comm_charter[[census_field]] %||% NA_real_)
+  sqrt(sum(as.numeric(v)^2, na.rm = TRUE))
+}
+
 .cc_draws_by_cg <- list()   # 2026-09-28 (B46): the census draws, kept for the season totals below
 for(cg in bss_catch_groups) {
   bss_C_total <- rep(0, n_draws_max)       # expected catch (the headline, as on the pooled track)
@@ -1371,9 +1402,10 @@ for(cg in bss_catch_groups) {
       b <- bss_all[[label]]
 
       if(bss_use_pe_for(b)) {   # B1.8: PE if insufficient data OR failed the gate
-        bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)
-        bss_C_pred_total <- bss_C_pred_total + (pe_all[[pe_label]][[cg]] %||% 0)
-        bss_E_total <- bss_E_total + pe_all[[pe_label]]$effort_total
+        .pd <- .pe_fallback_draws(pe_label, cg)   # D22 (2), B73: with its PE SE, not a constant
+        bss_C_total <- bss_C_total + .pd$C
+        bss_C_pred_total <- bss_C_pred_total + .pd$C
+        bss_E_total <- bss_E_total + .pd$E
       } else {
         n <- length(b$C_exp_draws)
         idx <- rep_len(1:n, n_draws_max)
@@ -1412,6 +1444,7 @@ for(cg in bss_catch_groups) {
     PE = c(round(pe_port_total("effort_total")),
            round(pe_port_total(cg)),
            NA),
+    PE_se = c(round(.pe_port_se("effort_se")), if (identical(cg, "Dungeness_Kept")) round(.pe_port_se("catch_se", "carried_se")) else NA, NA),   # D22 (2), B73
     BSS_median = c(round(median(bss_E_total)), round(median(bss_C_total)), round(median(bss_C_pred_total))),
     BSS_lo95 = c(round(quantile(bss_E_total,0.025)), round(quantile(bss_C_total,0.025)), round(quantile(bss_C_pred_total,0.025))),
     BSS_hi95 = c(round(quantile(bss_E_total,0.975)), round(quantile(bss_C_total,0.975)), round(quantile(bss_C_pred_total,0.975)))
@@ -1468,7 +1501,7 @@ Per-season totals, written to `season_totals.csv` every run (and shown here when
   tot <- rep(0, n_draws_max)
   for (pop in pop_set) for (ss in subseasons) {
     b <- bss_all[[paste0(pop, "_", ss$name, "_Dungeness_Kept")]]
-    if (bss_use_pe_for(b)) { tot <- tot + (pe_all[[paste0(pop, "_", ss$name)]]$Dungeness_Kept %||% 0); next }
+    if (bss_use_pe_for(b)) { tot <- tot + .pe_fallback_draws(paste0(pop, "_", ss$name), "Dungeness_Kept")$C; next }   # D22 (2), B73
     d <- if (indep) (b$C_exp_draws_indep %||% b$C_exp_draws) else b$C_exp_draws
     tot <- tot + d[rep_len(seq_along(d), n_draws_max)]
   }
@@ -1553,8 +1586,9 @@ if (length(.seasons)) {
       s_pe_C <- s_pe_C + (pe_all[[pe_label]][[cg]] %||% 0)
       s_pe_E <- s_pe_E + (pe_all[[pe_label]]$effort_total %||% 0)
       if (bss_use_pe_for(b)) {
-        sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)
-        sE <- sE + (pe_all[[pe_label]]$effort_total %||% 0)
+        .pd <- .pe_fallback_draws(pe_label, cg)   # D22 (2), B73: the same draws as the port block
+        sC <- sC + .pd$C
+        sE <- sE + .pd$E
       } else {
         idx <- rep_len(seq_along(b$C_exp_draws), n_draws_max)
         sC <- sC + b$C_exp_draws[idx]; sE <- sE + b$E_draws[idx]
@@ -2574,6 +2608,7 @@ for(pop in c("shore","private_boat")) {
       bss_vs_pe_effort_pct = bss_vs_pe_effort_pct,
       PE_catch = round(pe_catch),
       BSS_catch = round(bss_catch),
+      PE_catch_se = round(pe_all[[pe_label]]$catch_se %||% NA_real_),   # D22 (2), B73
       bss_vs_pe_catch_pct = bss_vs_pe_catch_pct,
       method_selected = method,
       pe_f_source = pe_f_src
@@ -2586,7 +2621,7 @@ comparison[[length(comparison)+1]] <- tibble(
   PE_effort = round(pe_all$comm_charter$effort_total),
   BSS_effort = NA, bss_vs_pe_effort_pct = NA,
   PE_catch = round(pe_all$comm_charter$Dungeness_Kept),
-  BSS_catch = NA, bss_vs_pe_catch_pct = NA,
+  BSS_catch = NA, PE_catch_se = round(pe_all$comm_charter$carried_se %||% NA_real_), bss_vs_pe_catch_pct = NA,
   pe_f_source = NA_character_,
   # 2026-09-11: the two populations, two estimators
   method_selected = local({ .c <- pe_all$comm_charter; sprintf(
@@ -2750,7 +2785,7 @@ if (!is.null(sensitivity_df) && nrow(sensitivity_df) > 0) {
       Component = component_disp, Arm = arm,
       `Interviews used` = n_cpue_used, `Incomplete (%)` = pct_incomplete,
       `Gear ratio` = gear_ratio, `Gear vs exclude (%)` = gear_vs_exclude_pct,
-      `PE effort` = PE_effort, `PE catch` = PE_catch,
+      `PE effort` = PE_effort, `PE catch` = PE_catch, `PE catch SE` = PE_catch_se,
       `Catch vs exclude (%)` = catch_vs_exclude_pct),
     caption = paste("Incomplete-trip treatment arms (improvement 5), design-based PE. Production is",
                     "'exclude' and is the reference for the two '% vs exclude' columns. For shore on",

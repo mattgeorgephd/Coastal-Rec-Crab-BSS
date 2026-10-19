@@ -8092,6 +8092,72 @@ local({
         grepl("B71", rdf(f), fixed = TRUE) && grepl("cfg$effort_day_effect <- FALSE", rdf(f), fixed = TRUE))
 })
 
+# ---------- B73 (2026-10-19): the PE catch SE (D22 part 2): pe_catch_variance(), both PE runners, both drivers ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  pf <- rdf("03_R_functions/pe_effort_strata.R")
+  chk("B73 code: pe_catch_variance() exists beside the effort variance, pe_donor_covariance() takes per-cell weights with 1 the default, and both PE runners call it after the stratum catch and keep the CPUE variance columns",
+      grepl("pe_catch_variance <- function(catch_strat, daily_cpue, effort_strat, daily_effort, days, params)", pf, fixed = TRUE) &&
+      grepl("pe_donor_covariance <- function(st, daily_effort, day_month, w = NULL)", pf, fixed = TRUE) && grepl("st$.w <- if (is.null(w)) 1 else as.numeric(w)", pf, fixed = TRUE) &&
+      all(vapply(c("03_R_functions/run_pe_pooled.R", "03_R_functions/run_pe_gear.R"), function(f) { t <- rdf(f)
+        grepl(".cv <- pe_catch_variance(catch_strat, daily_cpue, effort_strat, daily_effort, days, params)", t, fixed = TRUE) &&
+        grepl('if (cg == "Dungeness_Kept") { results$catch_se <- .cv$catch_se; results$catch_se_sampled_only <- .cv$catch_se_sampled_only }', t, fixed = TRUE) &&
+        grepl("cpue_used, cpue_days, cpue_var, cpue_var_source, catch_var_cell)", t, fixed = TRUE) }, logical(1))))
+  if (requireNamespace("dplyr", quietly = TRUE) && requireNamespace("tidyr", quietly = TRUE)) {
+    e <- new.env(); sys.source("03_R_functions/pe_effort_strata.R", envir = e)
+    e$`%||%` <- function(a, b) if (is.null(a)) b else a
+    dd <- as.Date("2026-06-01") + 0:9
+    days <- data.frame(event_date = dd, period = "W1", day_type = rep(c("weekday", "weekend"), each = 5), month = 6, open_section_1 = TRUE)
+    de <- data.frame(event_date = dd[c(1, 2, 3, 6, 7)], section_num = 1, period = "W1", day_type = c("weekday", "weekday", "weekday", "weekend", "weekend"),
+                     est_daily_effort = c(10, 12, 14, 20, 24))
+    dcp <- data.frame(event_date = dd[c(1, 2, 6, 7)], section_num = 1, catch = c(5, 9, 12, 10), hrs = c(10, 12, 20, 24), n_int = 1,
+                      cpue = c(5, 9, 12, 10) / c(10, 12, 20, 24), day_type = c("weekday", "weekday", "weekend", "weekend"), period = "W1")
+    pr <- list(pe_empty_effort_stratum = "local_day_type", pe_variance = "impute_aware", pe_empty_stratum = "local")
+    build <- function(dcp, pr) {
+      es <- e$pe_build_effort_strata(de, days, pr)
+      cs <- dcp |> dplyr::group_by(section_num, period, day_type) |> dplyr::summarise(catch_s = sum(catch), hrs_s = sum(hrs), .groups = "drop") |>
+        dplyr::mutate(mean_cpue = catch_s / hrs_s)
+      fill <- e$pe_empty_cpue_fill(dcp, es, days, pr)
+      st <- es |> dplyr::mutate(.empty_cpue_fill = as.numeric(fill)) |> dplyr::left_join(cs, by = c("section_num", "period", "day_type")) |>
+        dplyr::mutate(est_catch = est_total * dplyr::coalesce(mean_cpue, .empty_cpue_fill))
+      list(es = es, st = st, cv = e$pe_catch_variance(st, dcp, es, de, days, pr))
+    }
+    a <- build(dcp, pr)
+    # by hand: weekday R = 14/22, residuals +/- (5 - 10 R); weekend R = 0.5, residuals +/- 2; the effort cells' own variances
+    Rw <- 14 / 22; vRw <- 2 * (2 * (5 - 10 * Rw)^2) / 22^2; vRe <- 2 * (2^2 + 2^2) / 44^2
+    Ew <- 5 * 12; Ee <- 5 * 22; vEw <- 25 * 4 / 3; vEe <- 25 * 8 / 2
+    expect <- sqrt(Ew^2 * vRw + Rw^2 * vEw + vEw * vRw + Ee^2 * vRe + 0.25 * vEe + vEe * vRe)
+    chk("B73 pe_catch_variance (toy, every cell sampled with two interview days): the SE is the product-variance sum of the two cells, no covariance term, and the sampled-only arithmetic agrees",
+        isTRUE(all.equal(a$cv$catch_se, expect, tolerance = 1e-10)) && isTRUE(all.equal(a$cv$catch_se_sampled_only, expect, tolerance = 1e-10)) &&
+        a$cv$terms[["cov_effort"]] == 0 && a$cv$terms[["cov_cpue"]] == 0 && all(a$cv$strata$cpue_days == 2) && all(grepl("^own interview days", a$cv$strata$cpue_var_source)) &&
+        abs(expect - 13.97) < 0.02)
+    b <- build(dcp[dcp$day_type == "weekday", ], pr)    # the weekend cell has effort days but no interview: its CPUE is the month's ratio
+    chk("B73 pe_catch_variance (toy, a filled CPUE cell): the filled cell carries the donor ratio's error plus a between-day term, the filled x sampled covariance is positive, and the SE exceeds the sampled-only arithmetic",
+        { w <- b$cv$strata; i <- which(w$day_type == "weekend"); j <- which(w$day_type == "weekday")
+          w$cpue_days[i] == 0 && grepl("^imputed \\(donor ratio \\+ between-day\\): month:6", w$cpue_var_source[i]) && w$cpue_var[i] > 0 &&
+          isTRUE(all.equal(w$cpue_used[i], w$cpue_used[j])) && b$cv$terms[["cov_cpue"]] > 0 && b$cv$catch_se > b$cv$catch_se_sampled_only })
+    c0 <- build(dcp[dcp$day_type == "weekday", ], modifyList(pr, list(pe_variance = "sampled_only")))
+    chk("B73 pe_catch_variance (toy, sampled_only): no borrowed variance and no covariance",
+        c0$cv$strata$cpue_var[c0$cv$strata$day_type == "weekend"] == 0 && c0$cv$terms[["cov_cpue"]] == 0 && c0$cv$terms[["cov_effort"]] == 0 &&
+        isTRUE(all.equal(c0$cv$catch_se, c0$cv$catch_se_sampled_only)))
+    chk("B73 pe_donor_covariance: with no weight the effort covariance is unchanged (no imputed effort cell here, so zero on both calls)",
+        identical(e$pe_donor_covariance(a$es, de, days |> dplyr::select(event_date, .pe_month = month)), e$pe_donor_covariance(a$es, de, days |> dplyr::select(event_date, .pe_month = month), w = rep(1, nrow(a$es)))))
+  }
+  for (f in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd")) { dv <- rdf(f)
+    chk(sprintf("B73 %s: the comparison carries PE_catch_se, pe_port_summary.csv a Dungeness_SE column, port_total_*.csv a PE_se column, and a PE-reported component enters the port draws through .pe_fallback_draws() (seeded; a constant without an SE) in the port block, the season totals and the pairing sums", basename(f)),
+        grepl("PE_catch_se = round(pe_all[[pe_label]]$catch_se %||% NA_real_)", dv, fixed = TRUE) && grepl("PE_catch_se = round(pe_all$comm_charter$carried_se %||% NA_real_)", dv, fixed = TRUE) &&
+        grepl("Dungeness_SE = local({ se <- vapply(component_keys", dv, fixed = TRUE) &&
+        grepl('PE_se = c(round(.pe_port_se("effort_se")), if (identical(cg, "Dungeness_Kept")) round(.pe_port_se("catch_se", "carried_se")) else NA, NA)', dv, fixed = TRUE) &&
+        grepl(".pe_fallback_draws <- function(pe_label, cg) {", dv, fixed = TRUE) && grepl("point * bss_with_seed((params$bss_seed %||% 1L) + 9000L + k, exp(stats::rnorm(n_draws_max, -sdlog^2 / 2, sdlog)))", dv, fixed = TRUE) &&
+        sum(gregexpr(".pe_fallback_draws(", dv, fixed = TRUE)[[1]] > 0) >= 3 &&   # the port block, the season totals, the pairing sums (the pooled also the by-mode totals)
+        !grepl("bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)", dv, fixed = TRUE) && !grepl("sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)", dv, fixed = TRUE)) }
+  pd <- rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")
+  chk("B73 pooled driver: a PE-reported component's row in the component table carries +/- 1.96 SE, the by-mode monthly panel scales the PE by its catch SE first, and the section 4 table shows the PE catch SE",
+      grepl('Method = "PE (gate or data; +/- 1.96 SE)", Median = pe_pt, lo = pe_pt - 1.96 * .se, hi = pe_pt + 1.96 * .se, PE = pe_pt', pd, fixed = TRUE) &&
+      grepl("rel_se <- if (is.finite(.pc_tot) && .pc_tot > 0 && is.finite(.pc_se) && .pc_se > 0) .pc_se / .pc_tot", pd, fixed = TRUE) &&
+      grepl("`PE catch SE` = sprintf(", pd, fixed = TRUE))
+})
+
 # ---------- B72 (2026-10-19): the D39 absent-day reader key, and D41 (a) to (d): what the run says about the OSP crab-only stream ----------
 local({
   rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")

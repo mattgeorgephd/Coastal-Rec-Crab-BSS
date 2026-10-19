@@ -205,11 +205,18 @@ run_pe_gear <- function(summ, days, params, population_name, population = NULL) 
 
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
     results[[paste0("imputed_", cg)]] <- sum(catch_strat$est_catch[catch_strat$imputed_effort_stratum], na.rm = TRUE)
+    # D22 part 2 (2026-10-19, B73): the PE catch SE, as run_pe_pooled() (pe_catch_variance()).
+    .cv <- pe_catch_variance(catch_strat, daily_cpue, effort_strat, daily_effort, days, params)
+    catch_strat <- .cv$strata
+    results$catch_se_by_group[[cg]] <- .cv$catch_se
+    results$catch_se_sampled_only_by_group[[cg]] <- .cv$catch_se_sampled_only
+    results$catch_var_terms[[cg]] <- .cv$terms
+    if (cg == "Dungeness_Kept") { results$catch_se <- .cv$catch_se; results$catch_se_sampled_only <- .cv$catch_se_sampled_only }
     # B44 (2026-09-28): the stratum catch, kept so the monthly split can spread each
     # (period x day_type) cell's own catch over its own calendar days (pe_monthly_split()),
     # instead of splitting the total by effort share at one season-wide CPUE.
     results$catch_strata[[cg]] <- catch_strat |>
-      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch)
+      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch, cpue_used, cpue_days, cpue_var, cpue_var_source, catch_var_cell)
     if (cg == "Dungeness_Kept") results$pe_empty_cpue_source <- attr(empty_fill, "source")
 
     # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
