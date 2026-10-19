@@ -7924,7 +7924,7 @@ local({
   chk("B69 docs: the register has the B69 row and A39 reads RENDERED with clause (4) failed, the box and CLAUDE.md say the shipped file is B67's configuration again, the campaign anchors B69",
       grepl("| B69 |", cr, fixed = TRUE) && grepl("RENDERED the same day (B69): clauses (1) to (3) met, clause (4) FAILED on the pooled shore pot-closure fit", cr, fixed = TRUE) &&
       grepl("A39's render, B69, failed clause (4) of its rule on the pooled shore pot-closure", ps, fixed = TRUE) &&   # 2026-10-19: the box moved on to A40 and still names B69's failure
-      grepl("after A39's\nrender, B69, failed clause (4) of its rule on the pooled shore pot-closure fit", cl, fixed = TRUE) &&
+      grepl("render, B69, failed clause (4) of its rule on the pooled shore pot-closure fit, where one count per day", cl, fixed = TRUE) &&
       grepl("(1z.15; the A39 commit `b1c1cf5` and B69)", vc, fixed = TRUE) && grepl("- **The render (B69).**", vc, fixed = TRUE))
 })
 
