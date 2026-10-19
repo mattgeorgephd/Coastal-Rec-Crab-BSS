@@ -8152,8 +8152,9 @@ local({
         sum(gregexpr(".pe_fallback_draws(", dv, fixed = TRUE)[[1]] > 0) >= 3 &&   # the port block, the season totals, the pairing sums (the pooled also the by-mode totals)
         !grepl("bss_C_total <- bss_C_total + (pe_all[[pe_label]][[cg]] %||% 0)", dv, fixed = TRUE) && !grepl("sC <- sC + (pe_all[[pe_label]][[cg]] %||% 0)", dv, fixed = TRUE)) }
   pd <- rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd")
-  chk("B73 pooled driver: a PE-reported component's row in the component table carries +/- 1.96 SE, the by-mode monthly panel scales the PE by its catch SE first, and the section 4 table shows the PE catch SE",
-      grepl('Method = "PE (gate or data; +/- 1.96 SE)", Median = pe_pt, lo = pe_pt - 1.96 * .se, hi = pe_pt + 1.96 * .se, PE = pe_pt', pd, fixed = TRUE) &&
+  chk("B73 pooled driver: a PE-reported component's row in the component table carries the interval of its port draws (B75: not +/- 1.96 SE, which ran negative), the by-mode monthly panel scales the PE by its catch SE first, and the section 4 table shows the PE catch SE",
+      grepl('Method = "PE (gate or data; its SE as the port total carries it)", Median = pe_pt, lo = .pq[[2]], hi = .pq[[3]], PE = pe_pt', pd, fixed = TRUE) &&   # B75: the lognormal draws' quantiles, never negative
+      grepl('.pq <- stats::quantile(.pe_fallback_draws(.pl, "Dungeness_Kept")$C, c(0.5, 0.025, 0.975))', pd, fixed = TRUE) &&
       grepl("rel_se <- if (is.finite(.pc_tot) && .pc_tot > 0 && is.finite(.pc_se) && .pc_se > 0) .pc_se / .pc_tot", pd, fixed = TRUE) &&
       grepl("`PE catch SE` = sprintf(", pd, fixed = TRUE))
   cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); cl <- rdf("07_documentation/CLAUDE.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); ro <- rdf("05_output/README.md")

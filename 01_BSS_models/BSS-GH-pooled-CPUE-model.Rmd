@@ -2308,9 +2308,13 @@ for (pop in c("shore", "private_boat")) for (ss in subseasons) {
   .lb <- paste0(pop, "_", ss$name, "_Dungeness_Kept"); .pl <- paste0(pop, "_", ss$name); b <- bss_all[[.lb]]
   pe_pt <- pe_all[[.pl]]$Dungeness_Kept %||% NA_real_
   if (bss_use_pe_for(b)) {
-    .se <- pe_all[[.pl]]$catch_se %||% NA_real_   # D22 (2), B73: the PE's own interval, +/- 1.96 SE
+    # D22 (2), B73: the PE's own interval, from the same seeded lognormal draws the port total carries
+    # (.pe_fallback_draws(); mean-centred on the point, so its median sits a little below it). The
+    # 2025-26 readiness render (B75) showed why not +/- 1.96 SE: the boat pot-closure PE there has a
+    # CV near 1, and a normal interval ran below zero.
+    .pq <- stats::quantile(.pe_fallback_draws(.pl, "Dungeness_Kept")$C, c(0.5, 0.025, 0.975))
     comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
-                               Method = "PE (gate or data; +/- 1.96 SE)", Median = pe_pt, lo = pe_pt - 1.96 * .se, hi = pe_pt + 1.96 * .se, PE = pe_pt)
+                               Method = "PE (gate or data; its SE as the port total carries it)", Median = pe_pt, lo = .pq[[2]], hi = .pq[[3]], PE = pe_pt)
   } else {
     q <- stats::quantile(b$C_exp_draws, c(0.5, 0.025, 0.975))
     comp_rows[[.lb]] <- tibble(Component = sprintf("%s, %s", c(shore = "Shore", private_boat = "Private boat")[[pop]], ss$display_name),
@@ -3413,11 +3417,13 @@ if (!is.null(.fs) && nrow(.fs)) {
                                        "An observed share above the model's interval says the contacts hold f down relative to OSP; below, that",
                                        "they hold it up. The observed share is an upper bound on days at the schedule-minimum n (D2).")))
     cat(sprintf("\n_OSP's observed share sits inside the model's day-averaged interval in %d of %d OSP months._\n", sum(.os$inside), nrow(.os)))
-    .ab <- tryCatch(utils::read.csv(file.path(output_dir, "osp_absent_days.csv")), error = function(e) NULL)
-    if (!is.null(.ab) && nrow(.ab))
-      cat(sprintf("\n_%d OSP day(s) with boats carry no crab-only value and are read as %s (`osp_absent_day`; D39). If they are zero days, the observed and fitted shares above are both biased up where those days fall (%s)._\n",
-                  nrow(.ab), .ab$read_as[1], paste(names(sort(table(format(as.Date(.ab$event_date), "%Y-%m")), decreasing = TRUE)), collapse = ", ")))
-  }
+  } else cat("\n_No fitted boat fit carries an OSP crab-only day in this window, so there is no observed share to set beside the model's._\n")
+  # B75 (2026-10-19): printed whenever the file exists, not only under the table above: on 2025-26 the
+  # fitted boat fit has no OSP day and the delivery still has absent days.
+  .ab <- tryCatch(utils::read.csv(file.path(output_dir, "osp_absent_days.csv")), error = function(e) NULL)
+  if (!is.null(.ab) && nrow(.ab))
+    cat(sprintf("\n_%d OSP day(s) with boats carry no crab-only value and are read as %s (`osp_absent_day`; D39). If they are zero days, the observed and fitted shares are biased up where those days fall (%s)._\n",
+                nrow(.ab), .ab$read_as[1], paste(names(sort(table(format(as.Date(.ab$event_date), "%Y-%m")), decreasing = TRUE)), collapse = ", ")))
   p_f <- ggplot(.fs, aes(x = label, y = f_median, group = fit_lbl, color = fit_lbl)) +
     geom_linerange(aes(ymin = f_lo95, ymax = f_hi95), linewidth = 0.8, alpha = 0.6) +
     geom_point(aes(size = contacts)) + geom_line(alpha = 0.5) +
