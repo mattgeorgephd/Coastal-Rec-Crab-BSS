@@ -135,6 +135,10 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "the CPUE level hierarchy is collapsed (one section, or collapse_mu_hier = 1): this is its prior")
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
+  # A41 (2026-10-20): below the floor the shared level is kept but observed by no day (the prep's
+  # shared_tau_refusal attribute); tau_bar then reports its prior, and says so.
+  if (identical(attr(stan_data, "shared_tau_refusal"), "shared_prior")) set(base %in% c("tau_bar", "tau_bar_out"),
+    "A41: below the shared-turnover floor no day observes L (osp_scale_is_tau = 0, the boat I/E dropped); tau_bar is its prior")
   # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
   # change shape between runs, which means it reports a hard 0.0 when the feature is off.
   # Without this rule a reader would see "theta_C_out = 0" and take it as an estimate that

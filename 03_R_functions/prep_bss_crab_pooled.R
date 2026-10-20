@@ -345,6 +345,23 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
                                     population_name = population_name,
                                     n_informed = .n_L_informed)
 
+  # A41 (2026-10-20, D49 option (iii)): a fit below the floor keeps ONE tau_bar that no day observes.
+  # Its OSP boat totals, if any, then observe presence through the free scale kappa_OSP
+  # (osp_scale_is_tau = 0 for THIS fit; inert when OSP_n = 0), and the boat I/E stream, which observes
+  # presence times L directly, is dropped. .n_L_informed keeps the count that decided the refusal.
+  .shared_tau_refusal <- attr(.shared_tau, "refusal") %||% "none"
+  .osp_scale_is_tau_fit <- as.integer(isTRUE(params$osp_scale_is_tau))
+  if (identical(.shared_tau_refusal, "shared_prior")) {
+    .osp_scale_is_tau_fit <- 0L
+    if (IE_n > 0) {
+      .msg <- sprintf("Boat I/E stream dropped for %s/%s under the shared-turnover refusal (A41): its %d day(s) would observe the level no day may inform.",
+                      population_name, gear_regime %||% "?", IE_n)
+      cat("  ", .msg, "\n", sep = "")
+      if (exists("bss_warn", mode = "function")) bss_warn("I/E", .msg)
+      ie_match <- ie_match[0, , drop = FALSE]; IE_n <- 0L
+    }
+  }
+
   # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
   # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
   # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
@@ -527,7 +544,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     fvol_centre            = cf_data$fvol_centre,
     cfi_x                  = cf_data$cfi_x,
     osp_f_x                = cf_data$osp_f_x,
-    osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))
+    osp_scale_is_tau       = .osp_scale_is_tau_fit   # A41: 0 for a fit below the shared-turnover floor
     # POOL-1: R_T_alpha / R_T_beta removed. R_G_boat carries a fixed lognormal prior
     # in the Stan model (log(4), 0.5), matching crab_bss_gear_resolved.stan.
   )
@@ -566,6 +583,9 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
   # 2026-08-30: the count the shared-turnover floor gates on, reported so a reader can see
   # WHY a fit did or did not get a shared level.
   stan_data[[".n_L_informed"]] <- .n_L_informed
+  # A41 (2026-10-20): what this fit ran below the floor ("none" above it); an attribute, so the fit
+  # cache key (B71) and every 2024-25 data list are untouched.
+  attr(stan_data, "shared_tau_refusal") <- .shared_tau_refusal
   # gear_time_total is retained for the saturation diagnostic even though the boat
   # no longer uses it as the CPUE denominator (h is now number_of_gear).
   attr(stan_data, "effort_day_repeat_days") <- .n_repeat_days   # A40: how many sampled days carry repeat counts

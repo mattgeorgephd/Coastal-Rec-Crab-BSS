@@ -559,6 +559,23 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
                                     params, population_name = population_name,
                                     n_informed = .n_L_informed)
 
+  # A41 (2026-10-20, D49 option (iii)): a fit below the floor keeps ONE tau_bar that no day observes.
+  # Its OSP boat totals, if any, then observe presence through the free scale kappa_OSP
+  # (osp_scale_is_tau = 0 for THIS fit; inert when OSP_n = 0), and the boat I/E stream, which observes
+  # presence times L directly, is dropped. .n_L_informed keeps the count that decided the refusal.
+  .shared_tau_refusal <- attr(.shared_tau, "refusal") %||% "none"
+  .osp_scale_is_tau_fit <- as.integer(isTRUE(params$osp_scale_is_tau))
+  if (identical(.shared_tau_refusal, "shared_prior")) {
+    .osp_scale_is_tau_fit <- 0L
+    if (IE_n > 0) {
+      .msg <- sprintf("Boat I/E stream dropped for %s/%s under the shared-turnover refusal (A41): its %d day(s) would observe the level no day may inform.",
+                      population_name, gear_regime %||% "?", IE_n)
+      cat("  ", .msg, "\n", sep = "")
+      if (exists("bss_warn", mode = "function")) bss_warn("I/E", .msg)
+      ie_match <- ie_match[0, , drop = FALSE]; IE_n <- 0L
+    }
+  }
+
   # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
   # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
   # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
@@ -756,7 +773,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     fvol_centre            = cf_data$fvol_centre,
     cfi_x                  = cf_data$cfi_x,
     osp_f_x                = cf_data$osp_f_x,
-    osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
+    osp_scale_is_tau       = .osp_scale_is_tau_fit,   # A41: 0 for a fit below the shared-turnover floor
 
     # --- D6 (2026-09-13): zero-inflated interview catch, ported from the pooled model ----
     # SHIPS OFF FOR THIS TRACK. catch_zi_tracks defaults to "pooled", so zi_catch is 0 here
@@ -810,6 +827,7 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     suppressWarnings(as.numeric(df[[nm]]))
   }
   attr(stan_data, "effort_day_repeat_days") <- .n_repeat_days   # A40: how many sampled days carry repeat counts
+  attr(stan_data, "shared_tau_refusal") <- .shared_tau_refusal   # A41: what this fit ran below the floor ("none" above it)
   attr(stan_data, "cpue_data") <- tibble(
     catch           = .col_num(int_d, "fish_count"),
     h               = as.numeric(eff_spec$h_fun(int_d)),

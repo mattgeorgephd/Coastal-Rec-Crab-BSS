@@ -291,6 +291,35 @@ bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list()
   # loses the boat pot closure; that sensitivity is worth checking once.
   floor_n <- as.integer(.bss_per_pop(params$shared_tau_min_obs, population_name, 15L))
   if (!is.na(n_informed) && n_informed < floor_n) {
+    # A41 (2026-10-20, D49 option (iii), Matt): which structure a refused fit runs.
+    #   "shared_prior" (ships): the shared structure is KEPT, one tau_bar ~ lognormal(log(centre),
+    #     prior SD) scaling every day with the fixed day spread, and observed by NO day: the caller
+    #     sets osp_scale_is_tau = 0 for the fit (its OSP totals then observe presence through
+    #     kappa_OSP) and drops the boat I/E stream. The season effort is centred on the calibration
+    #     centre and carries the prior's whole uncertainty.
+    #   "per_day": the former fallback, D independent per-day draws at the prior (shared_tau = 0),
+    #     whose season sum sits at the lognormal MEAN, centre * exp(sigma^2 / 2), with the turnover's
+    #     uncertainty averaged over the days (D49). Bit-identical to every render before A41.
+    mode <- params$shared_tau_refusal %||% "shared_prior"
+    if (!mode %in% c("shared_prior", "per_day"))
+      stop(sprintf("shared_tau_refusal must be \"shared_prior\" or \"per_day\", not \"%s\"", mode), call. = FALSE)
+    if (identical(mode, "shared_prior")) {
+      unobs <- off; unobs$shared_tau <- 1L
+      attr(unobs, "refusal") <- "shared_prior"
+      if (!isTRUE(quiet)) {
+        cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below shared_tau_min_obs = %d. ",
+                           "A41: one tau_bar ~ Lognormal(log(%.3f), %.2f) scales every day (day spread %.2f) and no day observes it.\n"),
+                    population_name, n_informed, floor_n, unobs$shared_tau_prior_mu, unobs$shared_tau_prior_sigma, unobs$shared_tau_sigma))
+        if (identical(population_name, "private_boat") && exists("bss_warn", mode = "function"))
+          bss_warn("turnover", sprintf(paste0("Shared boat turnover REFUSED for this fit (A41, D49): %d day(s) can inform L (OSP + boat I/E), ",
+                                              "below shared_tau_min_obs = %d, so tau_bar is ONE season-level draw from its prior, lognormal(log(%.3f), %.2f), ",
+                                              "scaling every day with the fixed day spread %.2f and observed by no day: the OSP boat totals, if any, observe ",
+                                              "presence through the free scale kappa_OSP (osp_scale_is_tau = 0 for this fit) and the boat I/E stream is dropped. ",
+                                              "The boat effort's centre and interval are the prior's. Expected only when the fit has (almost) no OSP days."),
+                                       n_informed, floor_n, unobs$shared_tau_prior_mu, unobs$shared_tau_prior_sigma, unobs$shared_tau_sigma))
+      }
+      return(unobs)
+    }
     if (!isTRUE(quiet)) {
       cat(sprintf(paste0("  SHARED TURNOVER refused for %s: %d day(s) can inform L, below ",
                          "shared_tau_min_obs = %d. Falling back to per-day draws.\n"),

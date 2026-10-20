@@ -621,14 +621,21 @@ local({
   on <- function(n, extra = list())
     bss_shared_tau_data(sp, Lc, Sc, modifyList(list(shared_tau = TRUE), extra),
                         "x", n_informed = n, quiet = TRUE)$shared_tau
+  # A41 (2026-10-20): a refusal keeps the level, unobserved (the "refusal" attribute), under the shipped
+  # mode; shared_tau_refusal = "per_day" is the former fallback, no level at all.
+  rf <- function(n, extra = list())
+    attr(bss_shared_tau_data(sp, Lc, Sc, modifyList(list(shared_tau = TRUE), extra),
+                             "x", n_informed = n, quiet = TRUE), "refusal")
 
-  chk("shared tau floor: 4 informed days (the shore case) is REFUSED", identical(on(4L), 0L))
+  chk("shared tau floor: 4 informed days (the shore case) is REFUSED (A41: the level kept and unobserved; per_day: no level)",
+      identical(rf(4L), "shared_prior") && identical(on(4L), 1L) && identical(on(4L, list(shared_tau_refusal = "per_day")), 0L))
   chk("shared tau floor: 130 informed days (the boat case) is allowed", identical(on(130L), 1L))
   chk("shared tau floor: 18 (boat pot closure) is allowed at the default of 15",
       identical(on(18L), 1L))
-  chk("shared tau floor: 0 informed days is refused", identical(on(0L), 0L))
+  chk("shared tau floor: 0 informed days is refused", identical(rf(0L), "shared_prior") && identical(on(0L, list(shared_tau_refusal = "per_day")), 0L))
   chk("shared tau floor: the threshold is configurable",
-      identical(on(18L, list(shared_tau_min_obs = 20L)), 0L))
+      identical(rf(18L, list(shared_tau_min_obs = 20L)), "shared_prior") && is.null(rf(18L)) &&
+      identical(on(18L, list(shared_tau_min_obs = 20L, shared_tau_refusal = "per_day")), 0L))
   chk("shared tau floor: an UNKNOWN count does not block the feature",
       identical(on(NA_integer_), 1L))
   chk("shared tau floor: it cannot switch the feature ON when the unit guard says no",
@@ -2151,7 +2158,8 @@ local({
       on_s$shared_tau == 1L && isTRUE(all.equal(on_s$shared_tau_sigma, 0.35)))
   spb <- bss_effort_spec(FALSE, days289, P)
   off_b <- bss_shared_tau_data(spb, spb$L_data, spb$L_prior_sigma, Pl, population_name = "private_boat", n_informed = 4L, quiet = TRUE)
-  chk("shared tau: the boat keeps its own floor and spread", off_b$shared_tau == 0L && isTRUE(all.equal(off_b$shared_tau_sigma, 0.15)))
+  chk("shared tau: the boat keeps its own floor and spread (A41: refused at 4 days, the level kept unobserved)",
+      identical(attr(off_b, "refusal"), "shared_prior") && off_b$shared_tau == 1L && isTRUE(all.equal(off_b$shared_tau_sigma, 0.15)))
   # drivers derive, write, resolve, in that order, before the PE
   for (drv in list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE)) {
     d <- readLines(drv, warn = FALSE); d <- d[!grepl("^\\s*#", d)]
@@ -8262,6 +8270,49 @@ local({
       grepl("**16. A fit whose shared turnover is refused rests on per-day prior draws whose season sum sits at the lognormal mean (D49", md, fixed = TRUE) &&
       grepl("**What the refusal leaves behind (D49, found by the 2025-26 readiness render, B75, 2026-10-19).**", md, fixed = TRUE) &&
       grepl("**B75 read 21:10Z (campaign 1z.18)", st, fixed = TRUE) && grepl("**Readiness renders are not estimates.**", ro, fixed = TRUE))
+})
+
+# ---------- A41 (2026-10-20): the refused shared turnover keeps one unobserved tau_bar (D49 option (iii), Matt) ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  e2 <- new.env(); sys.source("run_config.R", envir = e2); rc <- e2$run_config
+  chk("A41 config: shared_tau_refusal ships \"shared_prior\" beside shared_tau_min_obs", identical(rc$shared_tau_refusal, "shared_prior"))
+  es <- new.env(); sys.source("03_R_functions/bss_run_warnings.R", envir = es); sys.source("03_R_functions/bss_effort_spec.R", envir = es)
+  es$`%||%` <- function(a, b) if (is.null(a)) b else a
+  f <- es$bss_shared_tau_data; spec <- list(L_unit = "turnover (gear-deployments per gear slot)")
+  call <- function(pp, n) { r <- NULL; suppressWarnings(utils::capture.output(r <- f(spec, rep(3.5, 4), rep(0.5, 4), pp, population_name = "private_boat", n_informed = n))); r }
+  es$bss_warn_reset()
+  a <- call(list(shared_tau = TRUE, shared_tau_min_obs = 15, shared_tau_sigma = 0.15), 0L); la <- es$bss_warn_log()
+  chk("A41 refusal, shipped mode: below the floor the shared structure is KEPT (shared_tau = 1, the prior fields unchanged), flagged shared_prior, and the boat warning names A41 and kappa_OSP",
+      identical(a$shared_tau, 1L) && identical(attr(a, "refusal"), "shared_prior") && isTRUE(all.equal(a$shared_tau_prior_mu, 3.5)) &&
+      isTRUE(all.equal(a$shared_tau_prior_sigma, 0.5)) && isTRUE(all.equal(a$shared_tau_sigma, 0.15)) &&
+      any(la$source == "turnover" & grepl("Shared boat turnover REFUSED for this fit (A41, D49)", la$message, fixed = TRUE) & grepl("kappa_OSP", la$message, fixed = TRUE)))
+  es$bss_warn_reset()
+  b <- call(list(shared_tau = TRUE, shared_tau_min_obs = 15, shared_tau_sigma = 0.15, shared_tau_refusal = "per_day"), 0L); lb <- es$bss_warn_log()
+  chk("A41 refusal, per_day: the former fallback bit for bit (shared_tau = 0, no flag, the former warning)",
+      identical(b$shared_tau, 0L) && is.null(attr(b, "refusal")) && any(grepl("so L falls back to independent per-day draws", lb$message, fixed = TRUE)))
+  on <- call(list(shared_tau = TRUE, shared_tau_min_obs = 15, shared_tau_sigma = 0.15), 20L)
+  chk("A41: above the floor nothing changes (shared_tau = 1, no flag)", identical(on$shared_tau, 1L) && is.null(attr(on, "refusal")))
+  bad <- tryCatch(call(list(shared_tau = TRUE, shared_tau_min_obs = 15, shared_tau_refusal = "maybe"), 0L), error = function(e) e)
+  chk("A41: an unknown shared_tau_refusal stops", inherits(bad, "error") && grepl("shared_tau_refusal must be", conditionMessage(bad), fixed = TRUE))
+  for (p in c("03_R_functions/prep_bss_crab_pooled.R", "03_R_functions/prep_bss_crab_gear.R")) { tx <- rdf(p)
+    chk(sprintf("A41 %s: under shared_prior the fit's osp_scale_is_tau is 0 and the boat I/E stream is dropped; the refusal mode travels as an attribute", basename(p)),
+        grepl('.shared_tau_refusal <- attr(.shared_tau, "refusal") %||% "none"', tx, fixed = TRUE) &&
+        grepl('if (identical(.shared_tau_refusal, "shared_prior")) {', tx, fixed = TRUE) && grepl(".osp_scale_is_tau_fit <- 0L", tx, fixed = TRUE) &&
+        grepl("osp_scale_is_tau       = .osp_scale_is_tau_fit", tx, fixed = TRUE) && !grepl("osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau))", tx, fixed = TRUE) &&
+        grepl('attr(stan_data, "shared_tau_refusal") <- .shared_tau_refusal', tx, fixed = TRUE)) }
+  chk("A41: fit_data_summary.csv records shared_tau_refusal per fit, structural_params marks the unobserved tau_bar, the 12.2 row says it",
+      grepl('shared_tau_refusal = if (!is.null(sd_)) (attr(sd_, "shared_tau_refusal") %||% "none") else NA_character_', rdf("03_R_functions/save_run_diagnostics.R"), fixed = TRUE) &&
+      grepl('if (identical(attr(stan_data, "shared_tau_refusal"), "shared_prior")) set(base %in% c("tau_bar", "tau_bar_out")', rdf("03_R_functions/model_diagnostics.R"), fixed = TRUE) &&
+      grepl('if (identical(.rf, "shared_prior")) " (A41: below the floor, no day observes it; this is its prior, carried whole)"', rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE))
+  for (p in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
+    chk(sprintf("A41 %s pins shared_tau_refusal = \"per_day\" in resolve_cfg()", basename(p)), grepl('cfg$shared_tau_refusal <- "per_day"', rdf(p), fixed = TRUE))
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
+  chk("A41 register: the A41 row with its rule written before the renders, D49 CLOSED by A41, D19 CLOSED keeping local",
+      grepl("| A41 | **THE REFUSED SHARED TURNOVER KEEPS ONE UNOBSERVED `tau_bar` (D49 option (iii), Matt's decision)**", cr, fixed = TRUE) &&
+      grepl("**THE RULE (A41, written 2026-10-20 before either render).**", cr, fixed = TRUE) &&
+      grepl("| **CLOSED 2026-10-20 by A41 (Matt: option (iii), with the per-day log-SD)", cr, fixed = TRUE) &&
+      grepl("| **CLOSED 2026-10-20 (Matt: keep `local`, on the B70 re-measurement below).", cr, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

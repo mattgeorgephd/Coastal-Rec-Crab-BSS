@@ -739,6 +739,9 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         # and whether this fit ended up with a shared turnover. Together they say why.
         n_L_informed = if (!is.null(sd_)) sd_[[".n_L_informed"]] %||% NA_integer_ else NA_integer_,
         shared_tau   = if (!is.null(sd_)) sd_$shared_tau %||% NA_integer_ else NA_integer_,
+        # A41 (2026-10-20): what a fit below the floor ran: "none" (above it), "shared_prior" (one
+        # unobserved tau_bar, the shipped mode) or "per_day" (the former per-day draws).
+        shared_tau_refusal = if (!is.null(sd_)) (attr(sd_, "shared_tau_refusal") %||% "none") else NA_character_,
         # A40 (2026-10-19): the per-day effort effect's switch for THIS fit (after the identification
         # floor) and the number of sampled days carrying repeat counts that decided it.
         effort_day_effect = if (!is.null(sd_)) sd_$effort_day_effect %||% NA_integer_ else NA_integer_,

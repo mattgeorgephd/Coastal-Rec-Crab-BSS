@@ -764,6 +764,18 @@ run_config <- list(
   # 2026-09-08: may also be a per-population list, list(shore = 0, private_boat = 15);
   # bss_resolve_tau_shore_prior() sets the shore entry to 0 when the shore prior is derived.
   shared_tau_min_obs     = 15,
+  # A41 (2026-10-20, D49 option (iii), Matt): what a fit BELOW the floor runs. "shared_prior" (ships)
+  # keeps the shared structure, one tau_bar ~ lognormal(log(centre), tau_boat_prior_sigma) scaling
+  # every day with the fixed day spread above, and lets NO day observe it (the fit's OSP boat totals,
+  # if any, observe presence through the free scale kappa_OSP, osp_scale_is_tau = 0 for that fit;
+  # the boat I/E stream is dropped): the season effort is centred on the calibration centre and
+  # carries the prior's whole uncertainty, which is the truth of a season without OSP days.
+  # "per_day" is the former fallback, D independent per-day draws at the prior (shared_tau = 0),
+  # whose season sum sits at the lognormal MEAN, centre * exp(sigma^2 / 2), 13% above the centre at
+  # the shipped log-SD 0.5, with the turnover's uncertainty averaged over the days (D49, found by
+  # the 2025-26 readiness render, B75); bit-identical to every render before A41. No 2024-25 fit
+  # is below the floor, so the authoritative run does not read this key.
+  shared_tau_refusal     = "shared_prior",
 
   # --- 2.3 The OSP port boat-count stream (the second boat effort stream) ---
   # Adds the OSP daily boat-total series (fetch_osp_boat_counts) as a SECOND boat

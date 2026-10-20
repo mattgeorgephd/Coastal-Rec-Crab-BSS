@@ -3398,9 +3398,11 @@ if (!is.null(.tbf) && nrow(.tbf)) {
     .flr <- as.integer(.bss_per_pop(params$shared_tau_min_obs, .f$population, 15L))
     .r   <- if (!is.null(.tb)) .tb[.tb$fit_lbl == .lbl, , drop = FALSE] else NULL
     .inf <- sprintf("%s (floor %d)", .f$n_L_informed, .flr)
+    .rf  <- .f$shared_tau_refusal %||% "none"   # A41 (2026-10-20): the fit's refusal mode, when the run recorded it
     if (!is.null(.r) && nrow(.r))
       data.frame(check.names = FALSE, Fit = .lbl, `Prior centre` = sprintf("%.3f", .mu), `Informed days` = .inf,
-                 `tau_bar posterior` = fmt_ci(.r$median[1], .r$lo95[1], .r$hi95[1], digits = 3),
+                 `tau_bar posterior` = paste0(fmt_ci(.r$median[1], .r$lo95[1], .r$hi95[1], digits = 3),
+                                              if (identical(.rf, "shared_prior")) " (A41: below the floor, no day observes it; this is its prior, carried whole)" else ""),
                  n_eff = as.character(round(.r$n_eff[1])), `R-hat` = sprintf("%.3f", .r$Rhat[1]))
     else
       data.frame(check.names = FALSE, Fit = .lbl, `Prior centre` = sprintf("%.3f", .mu), `Informed days` = .inf,
@@ -3410,8 +3412,10 @@ if (!is.null(.tbf) && nrow(.tbf)) {
                  n_eff = "", `R-hat` = "")
   })
   report_table(do.call(rbind, .rows),
-    caption = paste("Fitted season-level turnover per fit, median (95% interval). A REFUSED row is a fit with fewer days that can inform",
-                    "the turnover than shared_tau_min_obs; its per-day L stays at the prior, and the refusal is in the run warnings."))
+    caption = paste("Fitted season-level turnover per fit, median (95% interval). A fit with fewer days that can inform the turnover than",
+                    "shared_tau_min_obs is refused: since A41 it keeps one tau_bar that no day observes (its prior, carried whole);",
+                    "under shared_tau_refusal = \"per_day\" it has no tau_bar and its per-day L stays at the prior (a REFUSED row).",
+                    "Either way the refusal is in the run warnings."))
 } else if (!is.null(.tb) && nrow(.tb)) {
   report_table(data.frame(check.names = FALSE, Fit = .tb$fit_lbl,
       `Prior centre` = ifelse(grepl("^shore", .tb$fit_lbl), sprintf("%.3f", as.numeric(params$tau_shore_prior_mu)), sprintf("%.3f", as.numeric(params$tau_boat_prior_mu))),
