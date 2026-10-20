@@ -367,7 +367,11 @@ bss_block_cv_fit <- function(streams, k_max = 0.7) {
 # stanfit's own log_lik_* generated quantities, written as loo_block_<stream>_<label>.csv.
 # `days_ss` gives the dates (event_date by day index) the weekly blocks are cut from.
 # Never stops a run: extraction is tryCatch-wrapped per stream and the scoring as a whole.
-write_block_cv_diagnostics <- function(fit, stan_data, days_ss, label, output_dir, k_max = 0.7) {
+# `prefix` (2026-09-29, D29): the ladders write every RUNG's block CV as
+# ladder_block_<stream>_<label>_<resolution>.csv, so the report's block-CV table, which reads
+# the kept fit's loo_block_* files, is not mixed with rungs the run did not report.
+write_block_cv_diagnostics <- function(fit, stan_data, days_ss, label, output_dir, k_max = 0.7,
+                                       prefix = "loo_block") {
   if (is.null(fit) || !requireNamespace("loo", quietly = TRUE)) return(invisible(NULL))
   ev <- if (!is.null(days_ss) && "event_date" %in% names(days_ss)) as.Date(days_ss$event_date) else NULL
   if (is.null(ev)) return(invisible(NULL))
@@ -390,7 +394,7 @@ write_block_cv_diagnostics <- function(fit, stan_data, days_ss, label, output_di
   if (is.null(tabs)) return(invisible(NULL))
   for (sn in names(tabs)) {
     tab <- cbind(data_type = sn, tabs[[sn]], stringsAsFactors = FALSE)
-    utils::write.csv(tab, file.path(output_dir, sprintf("loo_block_%s_%s.csv", sn, label)), row.names = FALSE)
+    utils::write.csv(tab, file.path(output_dir, sprintf("%s_%s_%s.csv", prefix, sn, label)), row.names = FALSE)
     cat(sprintf("    block CV %s/%s: %d weeks, %d reliable (k <= %.1f), held-out elpd %.1f; leave-out set %s\n",
                 label, sn, nrow(tab), sum(tab$reliable), k_max, sum(tab$elpd_block[tab$reliable]), tab$leaveout_streams[1]))
   }

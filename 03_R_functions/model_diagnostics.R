@@ -69,6 +69,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   combo_d <- g("combo_dynamic", 0L);         cfc_n <- g("CFC_n", 0L)
   w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
   h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
+  sun_sum <- sum(as.numeric(g("sun", 0)), na.rm = TRUE)   # A36
 
   if (ie_n == 0) set(base == "sigma_IE",
     "no I/E observations in this fit (IE_n = 0); sigma_IE is its prior")
@@ -82,6 +83,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   if (dens == 0)   set(base == "gamma_C", "estimate_cpue_density = 0: the density term is inert")
   if (w_sum == 0)  set(base %in% c("B1", "B1_C"), "no weekend day in this fit's window")
   if (h_sum == 0)  set(base %in% c("B2", "B2_C"), "no holiday in this fit's window")
+  if (sun_sum == 0) set(base %in% c("B1_sun", "B1_sun_out"), "no Sunday in this fit's window")   # A36
   if (apply_f == 0) set(base %in% c("f_crab", "f_lower"),
     "apply_crab_fraction = 0 (shore, or the feature is off): f is pinned at 1")
   else if (est_f == 0) set(base == "f_crab",
@@ -133,6 +135,10 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
     "the CPUE level hierarchy is collapsed (one section, or collapse_mu_hier = 1): this is its prior")
   if (identical(as.integer(g("shared_tau", 0L)), 0L)) set(base %in% c("tau_bar", "tau_bar_out"),
     "shared_tau = 0: L is per-day independent draws and there is no shared turnover")
+  # A41 (2026-10-20): below the floor the shared level is kept but observed by no day (the prep's
+  # shared_tau_refusal attribute); tau_bar then reports its prior, and says so.
+  if (identical(attr(stan_data, "shared_tau_refusal"), "shared_prior")) set(base %in% c("tau_bar", "tau_bar_out"),
+    "A41: below the shared-turnover floor no day observes L (osp_scale_is_tau = 0, the boat I/E dropped); tau_bar is its prior")
   # 2026-09-02: theta_C_out is written unconditionally so the reported parameter set does not
   # change shape between runs, which means it reports a hard 0.0 when the feature is off.
   # Without this rule a reader would see "theta_C_out = 0" and take it as an estimate that
@@ -157,6 +163,8 @@ bss_structural_summary <- function(fit, stan_data = NULL, fit_method = NULL) {
             # scale/fraction parameters were all written only to bss_full_summary_*, so a
             # reader had to open the full summary to see terms that move the estimate.
             "B2_C", "gamma_C", "B_open",
+            # A36 (2026-10-16): the Sunday increment on the weekend effort effect (zero-size when off).
+            "B1_sun",
             "kappa_OSP", "sigma_r_OSP", "r_OSP",
             "f_crab", "f_lower",
             # review item 1B (2026-09-08): the dynamic-f scale parameters (always-size-1

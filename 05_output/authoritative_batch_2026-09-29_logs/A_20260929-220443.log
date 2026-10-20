@@ -1,0 +1,881 @@
+Warning messages:
+1: package 'forcats' was built under R version 4.2.3 
+2: package 'here' was built under R version 4.2.3 
+
+==========================================================================
+ CRAB CREEL ESTIMATION  |  model = pooled + gear_resolved
+==========================================================================
+
+==========================================================================
+ MODEL [pooled]  |  BSS-GH-pooled-CPUE-model.Rmd  |  start 22:04:48
+==========================================================================
+
+
+processing file: BSS-GH-pooled-CPUE-model.Rmd
+  |                                                |                                        |   0%  |                                                |                                        |   1%                                |                                                |.                                       |   1% [setup]                        |                                                |.                                       |   2%                                |                                                |.                                       |   3% [config]                                                     |                                                |..                                      |   4% [config-show]                                                |                                                |..                                      |   5% [load-data]                    |                                                |..                                      |   6%                                |                                                |...                                     |   6% [inputs-show]                  |                                                |...                                     |   7%                                |                                                |...                                     |   8% [input-figures]                                              |                                                |....                                    |   9% [input-figures-show]           |                                                |....                                    |  10%                               [turnover-show]                |                                                |....                                    |  11%                                |                                                |.....                                   |  12% [turnover-figs]                                              |                                                |.....                                   |  13% [osp-overlap-fig]                                            |                                                |......                                  |  14% [ie-analysis]                  |                                                |......                                  |  15%                               [ie-analysis-show]             |                                                |......                                  |  16%                                |                                                |.......                                 |  17% [ie-representativeness]                                      |                                                |.......                                 |  18% [fishery-spillover]            |                                                |.......                                 |  19%                                |                                                |........                                |  19% [opener-covariate-decision]    |                                                |........                                |  20%                                |                                                |........                                |  21% [opener-screen-show]                                         |                                                |.........                               |  22% [marine-hazard-decision]                                     |                                                |.........                               |  23% [marine-hazard-show]           |                                                |.........                               |  24%                                |                                                |..........                              |  24% [pe-estimates]                 |                                                |..........                              |  25%                                |                                                |..........                              |  26% [pe-thin-cells-show]           |                                                |...........                             |  26%                                |                                                |...........                             |  27% [pe-sensitivity]               |                                                |...........                             |  28%                               [pe-sensitivity-show]          |                                                |............                            |  29%                               [pe-comm]                      |                                                |............                            |  30%                                |                                                |............                            |  31% [pe-comm-show]                 |                                                |.............                           |  31%                                |                                                |.............                           |  32% [pe-port]                      |                                                |.............                           |  33%                               [pe-port-show]                 |                                                |..............                          |  34%                                |                                                |..............                          |  35% [pe-consistency-show]                                        |                                                |..............                          |  36% [bss-fits]                   starting worker pid=34528 on localhost:11982 at 22:05:36.554
+starting worker pid=19528 on localhost:11982 at 22:05:36.707
+starting worker pid=33152 on localhost:11982 at 22:05:36.854
+starting worker pid=39676 on localhost:11982 at 22:05:37.015
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000621 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 6.21 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 1: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 1: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 1: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000838 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 8.38 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 1: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 1: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 1: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 2: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 1: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 55.274 seconds (Warm-up)
+Chain 1:                31.538 seconds (Sampling)
+Chain 1:                86.812 seconds (Total)
+Chain 1: 
+Chain 2: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 2: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 2: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 2: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 2: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 2: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 2: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 52.81 seconds (Warm-up)
+Chain 2:                25.589 seconds (Sampling)
+Chain 2:                78.399 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.00063 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 6.3 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 3: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 3: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 3: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 3: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 3: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 3: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 3: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 3: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 3: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000793 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 7.93 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 3: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 3: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 56.042 seconds (Warm-up)
+Chain 3:                51.842 seconds (Sampling)
+Chain 3:                107.884 seconds (Total)
+Chain 3: 
+Chain 4: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 4: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 4: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 4: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 4: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 4: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 4: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 4: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 4: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 4: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 4: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 47.331 seconds (Warm-up)
+Chain 4:                23.954 seconds (Sampling)
+Chain 4:                71.285 seconds (Total)
+Chain 4: 
+starting worker pid=27076 on localhost:11982 at 22:16:43.388
+starting worker pid=3632 on localhost:11982 at 22:16:43.544
+starting worker pid=6780 on localhost:11982 at 22:16:43.693
+starting worker pid=19672 on localhost:11982 at 22:16:43.843
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.00322 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 32.2 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.001778 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 17.78 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.001552 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 15.52 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 366.27 seconds (Warm-up)
+Chain 1:                229.601 seconds (Sampling)
+Chain 1:                595.871 seconds (Total)
+Chain 1: 
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 3: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 3: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 3: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 345.451 seconds (Warm-up)
+Chain 2:                240.565 seconds (Sampling)
+Chain 2:                586.016 seconds (Total)
+Chain 2: 
+Chain 3: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.00212 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 21.2 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 3: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 3: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 3: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 4: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 3: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 4: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 3: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 4: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 3: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 321.518 seconds (Warm-up)
+Chain 3:                214.809 seconds (Sampling)
+Chain 3:                536.327 seconds (Total)
+Chain 3: 
+Chain 4: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 4: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 4: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 4: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 4: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 4: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 4: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 311.561 seconds (Warm-up)
+Chain 4:                198.709 seconds (Sampling)
+Chain 4:                510.27 seconds (Total)
+Chain 4: 
+starting worker pid=8388 on localhost:11982 at 22:52:39.415
+starting worker pid=35652 on localhost:11982 at 22:52:39.571
+starting worker pid=37184 on localhost:11982 at 22:52:39.724
+starting worker pid=33872 on localhost:11982 at 22:52:39.878
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000311 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 3.11 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 1: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 1: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 1: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 1: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 1: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 1: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 1: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 1: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 16.007 seconds (Warm-up)
+Chain 1:                11.256 seconds (Sampling)
+Chain 1:                27.263 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000259 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 2.59 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 2: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 2: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 2: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 2: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 2: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 2: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 2: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 2: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 16.034 seconds (Warm-up)
+Chain 2:                13.003 seconds (Sampling)
+Chain 2:                29.037 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000236 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 2.36 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 3: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 3: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 3: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 3: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 3: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 3: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 3: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 3: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 3: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 3: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 3: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 16.474 seconds (Warm-up)
+Chain 3:                16.336 seconds (Sampling)
+Chain 3:                32.81 seconds (Total)
+Chain 3: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000365 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 3.65 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 4: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 4: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 4: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 4: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 4: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 4: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 4: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 4: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 4: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 4: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 4: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 14.327 seconds (Warm-up)
+Chain 4:                11.782 seconds (Sampling)
+Chain 4:                26.109 seconds (Total)
+Chain 4: 
+starting worker pid=34184 on localhost:11982 at 00:05:45.602
+starting worker pid=27788 on localhost:11982 at 00:05:45.779
+starting worker pid=32724 on localhost:11982 at 00:05:45.929
+starting worker pid=24220 on localhost:11982 at 00:05:46.082
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000861 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 8.61 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 360.708 seconds (Warm-up)
+Chain 1:                325.785 seconds (Sampling)
+Chain 1:                686.493 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000643 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 6.43 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 367.549 seconds (Warm-up)
+Chain 2:                333.414 seconds (Sampling)
+Chain 2:                700.963 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000669 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 6.69 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 3: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 3: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 3: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 3: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 3: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 3: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 3: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 3: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 3: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 3: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 341.728 seconds (Warm-up)
+Chain 3:                651.588 seconds (Sampling)
+Chain 3:                993.316 seconds (Total)
+Chain 3: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000786 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 7.86 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 4: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 4: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 4: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 4: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 4: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 4: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 4: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 4: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 4: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 4: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 345.768 seconds (Warm-up)
+Chain 4:                268.825 seconds (Sampling)
+Chain 4:                614.593 seconds (Total)
+Chain 4: 
+  |                                                |...............                         |  37%                               [fit-settings-show]            |                                                |...............                         |  38%                               [ar-escalation-show]           |                                                |................                        |  39%                                |                                                |................                        |  40% [gate]                                                       |                                                |................                        |  41% [convergence-report]           |                                                |.................                       |  42%                               [convergence-report-show]      |                                                |.................                       |  43%                                |                                                |.................                       |  44% [port-total]                   |                                                |..................                      |  44%                                |                                                |..................                      |  45% [season-totals]                |                                                |..................                      |  46%                               [port-total-show]              |                                                |...................                     |  47%                               [monthly]                      |                                                |...................                     |  48%                                |                                                |...................                     |  49% [monthly-show]                 |                                                |....................                    |  49%                                |                                                |....................                    |  50% [monthly-mode]                 |                                                |....................                    |  51%                                |                                                |.....................                   |  51% [monthly-mode-show]            |                                                |.....................                   |  52%                                |                                                |.....................                   |  53% [catch-mode]                                                 |                                                |......................                  |  54% [catch-mode-show]                                            |                                                |......................                  |  55% [catch-gear]                   |                                                |......................                  |  56%                                |                                                |.......................                 |  56% [catch-gear-show]              |                                                |.......................                 |  57%                                |                                                |.......................                 |  58% [bss-fit-plots-show]                                         |                                                |........................                |  59% [diag-perfit]                  |                                                |........................                |  60%                               [diag-perfit-show]             |                                                |........................                |  61%                                |                                                |.........................               |  62% [diag-pit-show]                                              |                                                |.........................               |  63% [diag-overdisp]                                              |                                                |..........................              |  64% [diag-overdisp-show]           |                                                |..........................              |  65%                               [diag-extended]                |                                                |..........................              |  66%                                |                                                |...........................             |  67% [diag-extended-show]                                         |                                                |...........................             |  68% [divergence-diagnostics-show]  |                                                |...........................             |  69%                                |                                                |............................            |  69% [extrapolation-transparency]   |                                                |............................            |  70%                                |                                                |............................            |  71% [adequacy-show]                                              |                                                |.............................           |  72% [prior-influence-show]                                       |                                                |.............................           |  73% [blockcv-show]                 |                                                |.............................           |  74%                                |                                                |..............................          |  74% [sampler-show]                 |                                                |..............................          |  75%                                |                                                |..............................          |  76% [multipliers]                  |                                                |...............................         |  76%                                |                                                |...............................         |  77% [multipliers-show]             |                                                |...............................         |  78%                               [expansion]                    |                                                |................................        |  79%                               [expansion-show]               |                                                |................................        |  80%                                |                                                |................................        |  81% [tau-show]                     |                                                |.................................       |  81%                                |                                                |.................................       |  82% [f-show]                       |                                                |.................................       |  83%                               [day-covariates]               |                                                |..................................      |  84%                                |                                                |..................................      |  85% [day-covariates-show]                                        |                                                |..................................      |  86% [pe-vs-bss]                    |                                                |...................................     |  87%                               [pe-vs-bss-show]               |                                                |...................................     |  88%                               [season-summary]               |                                                |....................................    |  89%                                |                                                |....................................    |  90% [season-summary-show]                                        |                                                |....................................    |  91% [save-params]                  |                                                |.....................................   |  92%                               [run-info-show]                |                                                |.....................................   |  93%                                |                                                |.....................................   |  94% [run-warnings-show]            |                                                |......................................  |  94%                                |                                                |......................................  |  95% [divergence-diagnostics]       |                                                |......................................  |  96%                               [fishery-spillover-raw-show]   |                                                |....................................... |  97%                               [fishery-spillover-adj-show]   |                                                |....................................... |  98%                                |                                                |....................................... |  99% [fishery-spillover-notes]      |                                                |........................................|  99%                                |                                                |........................................| 100% [fishery-spillover-plots]                                                                                                                            
+output file: BSS-GH-pooled-CPUE-model.knit.md
+
+"C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools/pandoc" +RTS -K512m -RTS BSS-GH-pooled-CPUE-model.knit.md --to html4 --from markdown+autolink_bare_uris+tex_math_single_backslash --output BSS-GH-pooled-CPUE-model.html --lua-filter "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmarkdown\lua\pagebreak.lua" --lua-filter "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmarkdown\lua\latex-div.lua" --embed-resources --standalone --variable bs3=TRUE --section-divs --table-of-contents --toc-depth 3 --variable toc_float=1 --variable toc_selectors=h1,h2,h3 --variable toc_collapsed=1 --variable toc_smooth_scroll=1 --variable toc_print=1 --template "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmd\h\default.html" --highlight-style tango --variable theme=cosmo --mathjax --variable "mathjax-url=https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" --include-in-header "C:\Users\mattg\AppData\Local\Temp\RtmpgbcTyZ\rmarkdown-str94045cba56e4.html" --variable code_folding=hide --variable code_menu=1 
+
+Output created: BSS-GH-pooled-CPUE-model.html
+
+==========================================================================
+ MODEL [pooled] DONE in 247.8 min  ->  C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260929/pooled-CPUE-2024-25-220449
+==========================================================================
+
+==========================================================================
+ MODEL [gear_resolved]  |  BSS-GH-gear-type-CPUE-model.Rmd  |  start 02:12:36
+==========================================================================
+
+
+processing file: BSS-GH-gear-type-CPUE-model.Rmd
+  |                                            |                                    |   0%  |                                            |.                                   |   2%                                    |                                            |.                                   |   4% [setup]                            |                                            |..                                  |   6%                                    |                                            |...                                 |   7% [unnamed-chunk-1]                  |                                            |...                                 |   9%                                    |                                            |....                                |  11% [gear-sec2-inputs]                 |                                            |.....                               |  13%                                    |                                            |.....                               |  15% [gear-sec3-pe]                     |                                            |......                              |  17%                                    |                                            |.......                             |  19% [gear-sec4-bss]                  starting worker pid=2596 on localhost:11982 at 02:12:58.564
+starting worker pid=14916 on localhost:11982 at 02:12:58.711
+starting worker pid=15836 on localhost:11982 at 02:12:58.852
+starting worker pid=34836 on localhost:11982 at 02:12:58.994
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000546 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 5.46 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000728 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 7.28 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000557 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 5.57 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000534 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 5.34 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 1: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 2: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 3: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 4: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 3: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 4: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 3: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 1: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 2: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 4: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 1: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 3: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 2: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 4: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 3: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 3: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 4: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 3: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 48.116 seconds (Warm-up)
+Chain 1:                26.375 seconds (Sampling)
+Chain 1:                74.491 seconds (Total)
+Chain 1: 
+Chain 4: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 45.023 seconds (Warm-up)
+Chain 2:                26.61 seconds (Sampling)
+Chain 2:                71.633 seconds (Total)
+Chain 2: 
+Chain 3: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 3: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 4: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 3: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 49.5 seconds (Warm-up)
+Chain 3:                26.122 seconds (Sampling)
+Chain 3:                75.622 seconds (Total)
+Chain 3: 
+Chain 4: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 49.107 seconds (Warm-up)
+Chain 4:                25.792 seconds (Sampling)
+Chain 4:                74.899 seconds (Total)
+Chain 4: 
+starting worker pid=26532 on localhost:11982 at 02:18:10.436
+starting worker pid=3924 on localhost:11982 at 02:18:10.578
+starting worker pid=7928 on localhost:11982 at 02:18:10.720
+starting worker pid=21188 on localhost:11982 at 02:18:10.862
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.001312 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 13.12 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.001356 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 13.56 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.001688 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 16.88 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 4000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.001266 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 12.66 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 1: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 2: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 4: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 3: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 4: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 3: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 4: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 3: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 2: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 4: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 3: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 2: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 4: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 2: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 3: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 1: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 4: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 2: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 3: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 4: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 2: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 3: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 1: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 4: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 2: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 3: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 2: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 256.113 seconds (Warm-up)
+Chain 2:                152.551 seconds (Sampling)
+Chain 2:                408.664 seconds (Total)
+Chain 2: 
+Chain 3: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 1: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 258.551 seconds (Warm-up)
+Chain 4:                152.415 seconds (Sampling)
+Chain 4:                410.966 seconds (Total)
+Chain 4: 
+Chain 3: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 277.039 seconds (Warm-up)
+Chain 3:                151.376 seconds (Sampling)
+Chain 3:                428.415 seconds (Total)
+Chain 3: 
+Chain 1: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 1: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 260.29 seconds (Warm-up)
+Chain 1:                262.704 seconds (Sampling)
+Chain 1:                522.994 seconds (Total)
+Chain 1: 
+starting worker pid=38712 on localhost:11982 at 02:38:45.867
+starting worker pid=9324 on localhost:11982 at 02:38:46.014
+starting worker pid=32476 on localhost:11982 at 02:38:46.157
+starting worker pid=2932 on localhost:11982 at 02:38:46.298
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000245 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 2.45 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 1: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration:  800 / 4000 [ 20%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000239 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 2.39 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 1: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 2: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 2: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.0003 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 3 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 2: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 2: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 3: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 3: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000255 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 2.55 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 3: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 1: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 3: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 4: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 3: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 3: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 4: Iteration: 1200 / 4000 [ 30%]  (Warmup)
+Chain 2: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 4: Iteration: 1600 / 4000 [ 40%]  (Warmup)
+Chain 3: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 27.009 seconds (Warm-up)
+Chain 2:                35.205 seconds (Sampling)
+Chain 2:                62.214 seconds (Total)
+Chain 2: 
+Chain 4: Iteration: 2000 / 4000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2001 / 4000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 3: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 4: Iteration: 2400 / 4000 [ 60%]  (Sampling)
+Chain 4: Iteration: 2800 / 4000 [ 70%]  (Sampling)
+Chain 3: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 4: Iteration: 3200 / 4000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 26.008 seconds (Warm-up)
+Chain 1:                69.353 seconds (Sampling)
+Chain 1:                95.361 seconds (Total)
+Chain 1: 
+Chain 4: Iteration: 3600 / 4000 [ 90%]  (Sampling)
+Chain 3: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 25.462 seconds (Warm-up)
+Chain 3:                34.569 seconds (Sampling)
+Chain 3:                60.031 seconds (Total)
+Chain 3: 
+Chain 4: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 28.857 seconds (Warm-up)
+Chain 4:                18.366 seconds (Sampling)
+Chain 4:                47.223 seconds (Total)
+Chain 4: 
+starting worker pid=20472 on localhost:11982 at 02:43:56.047
+starting worker pid=39680 on localhost:11982 at 02:43:56.190
+starting worker pid=5380 on localhost:11982 at 02:43:56.329
+starting worker pid=2576 on localhost:11982 at 02:43:56.473
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000583 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 5.83 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.001001 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 10.01 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000578 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 5.78 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 5000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000641 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 6.41 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 3: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 4: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 3: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 4: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 4: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 3: Iteration: 1500 / 5000 [ 30%]  (Warmup)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 4: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 3: Iteration: 2000 / 5000 [ 40%]  (Warmup)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 1: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 2: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 4: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 4: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 3: Iteration: 2500 / 5000 [ 50%]  (Warmup)
+Chain 3: Iteration: 2501 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 4: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 3: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 4: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 3: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 4: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 3: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 4: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 360.396 seconds (Warm-up)
+Chain 1:                316.692 seconds (Sampling)
+Chain 1:                677.088 seconds (Total)
+Chain 1: 
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 345.626 seconds (Warm-up)
+Chain 2:                320.343 seconds (Sampling)
+Chain 2:                665.969 seconds (Total)
+Chain 2: 
+Chain 4: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 349.917 seconds (Warm-up)
+Chain 4:                316.694 seconds (Sampling)
+Chain 4:                666.611 seconds (Total)
+Chain 4: 
+Chain 3: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 3: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 370.616 seconds (Warm-up)
+Chain 3:                384.166 seconds (Sampling)
+Chain 3:                754.782 seconds (Total)
+Chain 3: 
+  |                                            |.......                             |  20%                                    |                                            |........                            |  22% [gear-sec5-gate]                   |                                            |.........                           |  24%                                    |                                            |.........                           |  26% [gear-sec6-porttotal]              |                                            |..........                          |  28%                                    |                                            |...........                         |  30% [gear-season-totals]               |                                            |...........                         |  31%                                    |                                            |............                        |  33% [gear-sec6b-tau-sensitivity]       |                                            |.............                       |  35%                                    |                                            |.............                       |  37% [gear-sec7-monthly]                |                                            |..............                      |  39%                                    |                                            |...............                     |  41% [gear-sec8-mode]                   |                                            |...............                     |  43%                                    |                                            |................                    |  44% [gear-sec9-geartype]               |                                            |.................                   |  46%                                    |                                            |.................                   |  48% [gear-sec10-convreport]            |                                            |..................                  |  50%                                    |                                            |...................                 |  52% [gear-sec11-daily]                 |                                            |...................                 |  54%                                    |                                            |....................                |  56% [gear-sec12-coverage]              |                                            |.....................               |  57%                                    |                                            |.....................               |  59% [gear-sec13-multipliers]           |                                            |......................              |  61%                                    |                                            |.......................             |  63% [gear-sec13-day-covariates]        |                                            |.......................             |  65%                                    |                                            |........................            |  67% [gear-sec14-expansion]             |                                            |.........................           |  69%                                    |                                            |.........................           |  70% [gear-sec15-pevsbss]               |                                            |..........................          |  72%                                    |                                            |...........................         |  74% [gear-sec16-season]                |                                            |...........................         |  76%                                    |                                            |............................        |  78% [gear-sec17-sensitivity]           |                                            |.............................       |  80%                                    |                                            |.............................       |  81% [gear-convergence-report-show]     |                                            |..............................      |  83%                                    |                                            |...............................     |  85% [gear-diag-perfit-show]            |                                            |...............................     |  87%                                    |                                            |................................    |  89% [gear-diag-overdisp-show]          |                                            |.................................   |  91%                                    |                                            |.................................   |  93% [gear-diag-extended-show]          |                                            |..................................  |  94%                                    |                                            |................................... |  96% [gear-extrapolation-transparency]  |                                            |................................... |  98%                                    |                                            |....................................| 100% [run-warnings-show]                                                                                                                                          
+output file: BSS-GH-gear-type-CPUE-model.knit.md
+
+"C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools/pandoc" +RTS -K512m -RTS BSS-GH-gear-type-CPUE-model.knit.md --to html4 --from markdown+autolink_bare_uris+tex_math_single_backslash --output BSS-GH-gear-type-CPUE-model.html --lua-filter "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmarkdown\lua\pagebreak.lua" --lua-filter "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmarkdown\lua\latex-div.lua" --embed-resources --standalone --variable bs3=TRUE --section-divs --table-of-contents --toc-depth 3 --variable toc_float=1 --variable toc_selectors=h1,h2,h3 --variable toc_collapsed=1 --variable toc_smooth_scroll=1 --variable toc_print=1 --template "C:\Users\mattg\AppData\Local\R\cache\R\renv\cache\v5\R-4.2\x86_64-w64-mingw32\rmarkdown\2.20\716fde5382293cc94a71f68c85b78d19\rmarkdown\rmd\h\default.html" --highlight-style tango --variable theme=cosmo --mathjax --variable "mathjax-url=https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" --include-in-header "C:\Users\mattg\AppData\Local\Temp\RtmpgbcTyZ\rmarkdown-str94044ec35b80.html" --variable code_folding=hide --variable code_menu=1 
+
+Output created: BSS-GH-gear-type-CPUE-model.html
+
+==========================================================================
+ MODEL [gear_resolved] DONE in 58.8 min  ->  C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260930/gear-type-CPUE-model-2024-25
+==========================================================================
+
+==========================================================================
+ CROSS-CHECK  |  pooled 99,822  gear 98,382  (-1.44%, criterion 2%): PASS
+==========================================================================
+
+==========================================================================
+ ALL DONE  |  manifest: C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260929/run_manifest_20260929_220448.txt  |  cross-check: C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260929/cross_check_20260929_220448.csv
+==========================================================================

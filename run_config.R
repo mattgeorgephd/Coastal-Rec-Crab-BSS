@@ -41,19 +41,46 @@
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
-# THE CANONICAL RUN. As shipped, this file is the configuration of the authoritative
-# run: the single 2024-25 season, both models (the pooled headline and its gear-resolved
-# cross-check), Method v2.0 and the boat all-gear advisory-day term (section 2.10, A30).
+# THE CANONICAL RUN. As shipped, this file IS the configuration of the authoritative run: the
+# single 2024-25 season, both models (the pooled headline and its gear-resolved cross-check),
+# Method v2.0, the boat all-gear advisory-day term (section 2.10, A30), the collapsed
+# single-section level hierarchies (A31, mu_hier_collapse_single = "both", section 4.5),
+# every chain started within init_r = 0.5 (B51, section 1.5), and, on the gear track only,
+# the per-population AR periods and the zero-inflated shore catch (D3 and D6, adopted
+# together 2026-10-02, A32 and B62; section 5 and section 2).
 #
-#   05_output/20260928/pooled-CPUE-2024-25
-#   port total 99,873  [82,414, 124,438]      4 of 4 components fitted, all BSS
-#   05_output/20260928/gear-type-CPUE-model-2024-25: 98,588, -1.29%, the cross-check PASSES
+# and, since 2026-10-04, OSP's crab-only count (A33) and the day-level crabbing share (A34), and,
+# since 2026-10-16, the holiday prior at 0.5 (A35), the Saturday/Sunday split (A36), the pooled
+# boat I/E path (A37, inert on 2024-25) and the comonotone pairing of the shore fits' draws in the
+# port total (A38), rendered on the cloud container 2026-10-17 and accepted 2026-10-18 (B67), and,
+# since 2026-10-18/19, the per-day effort effect (A39, section 2.1) with its identification floor
+# (A40), rendered on the cloud container 2026-10-19 from 3fbecc5 and accepted the same day (B70):
 #
-# Those folders were rendered from THIS file by run_estimation.R with model = "both"
-# (Matt, 2026-09-28, committed ff750c4; CHANGE_REGISTER B50), so they are not ladder rungs
-# with a window pin: sourcing the orchestrator on this file as shipped reproduces their
-# configuration, and on the same machine and toolchain their numbers to the crab (B38; the
-# boat fits are byte-identical to the 2026-09-27 render's). They superseded
+#   05_output/20261019/pooled-CPUE-2024-25
+#   port total 86,497  [72,869, 104,595]      4 of 4 components fitted, all BSS
+#   05_output/20261019/gear-type-CPUE-model-2024-25:
+#                       86,285, -0.25%, the cross-check PASSES
+#   (the run it replaced: 05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557], B67;
+#    before it 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271], B65)
+#
+# B65 was Matt's render of this file as shipped at 4490fbe on a clean tree (committed c2cb6af;
+# CHANGE_REGISTER B65), judged by the A33/A34 rule written before it ran. It replaced:
+#
+#   05_output/20260929/pooled-CPUE-2024-25-220449
+#   port total 99,822  [82,090, 124,718]      (cross-check 99,294, -0.53%)
+#
+# That pooled folder is stage A of 06_diagnostics/run_authoritative_batch_2026-09-29.R: this
+# file as shipped at 2523e8e, rendered by run_estimation.R with model = "both" on a clean tree
+# (Matt, 2026-09-29 to 30, committed d30161a; CHANGE_REGISTER B61). D3 and D6 touch only the
+# gear driver, so the pooled render is unchanged by them. The gear folder is the same batch's
+# stage D6: this file's configuration as shipped now, at the same code, the same inputs and
+# the same bss_seed, so it IS the render of this file's gear track (only run_tag differs, and
+# run_tag names the folder and nothing else). On the same machine a render of this file
+# reproduced both to the crab (B38) until A33 and A34 moved it. The gear cross-check it replaced was
+# 05_output/20260930/gear-type-CPUE-model-2024-25 (98,382, -1.44%: monthly shore all-gear,
+# plain NB2 catch). The pooled run superseded
+# 05_output/20260928/pooled-CPUE-2024-25 (99,873 [82,414, 124,438], B50; every component within
+# 0.02 posterior SD of this run, before A31 and init_r = 0.5), which had superseded
 # 05_output/20260927/pooled-CPUE-canonical-2024-25 (96,118 [79,418, 120,558], before the
 # Float 17-21 fill, B45), which had superseded ladder rung R4
 # (05_output/20260910/pooled-CPUE-IMP-R4-shore-tau-newf, 94,376), whose fits were the
@@ -64,8 +91,8 @@
 # 07_documentation/development_notes/PIPELINE_STATUS.md; do not take an estimate from
 # anywhere else in the repository without checking it there.
 #
-# The two-season 2023-25 span that used to ship here is staged in
-# 07_documentation/NEW_SEASON_GUIDE.md section 7, with the exact keys. It is OUT OF SCOPE
+# The two-season 2023-25 span that used to ship here is kept commented out in section 1.2
+# below. It is OUT OF SCOPE
 # (Matt, 2026-09-28; CHANGE_REGISTER D8 closed): seasons before 2024-25 were exploratory and
 # not the current protocol. It was also blocked on data (no 2023-24 vessel tally or charter
 # roster).
@@ -78,7 +105,8 @@
 # DEVELOPMENT TEST SEASON; the architecture is built to run on any window the user
 # selects (full season, part of a season, or a multi-season span via a vector
 # season_filter). THE NINE PER-SEASON KEYS MUST BE REVISITED TOGETHER, and they are all
-# in section 1.2 below:
+# in section 1.2 below; change run_tag (section 1.1) with them, since a season token in it
+# that is not in season_filter stops the run (B46):
 #
 #   the window       est_date_start, est_date_end
 #   the data filter  season_filter (must match the season column of the workbooks;
@@ -96,6 +124,9 @@
 #                    ar_escalate + ar_rung_adequacy, before trusting them on new data)
 #   season-derived   every key tagged "SEASON-DERIVED": prior centres, floors, the set
 #   priors/floors    crabbing fraction. Revisit, do not assume.
+#   the gear periods gear_period_bss (section 5): the gear track's operative AR periods;
+#                    its shore entries mirror the pooled shore caps (A32), so change them
+#                    with ar_max_resolution or the cross-check is no longer like for like.
 #
 # Multi-season spans (2026-09-10, CHANGE_REGISTER A14): a span containing several pot
 # closures is expressed with `pot_closures` (one entry per season) plus `census_windows`
@@ -127,19 +158,21 @@
 # binomial, everything else NB2. The commercial vessels are an exact census over the
 # tally days; the charter vessels are an expansion over their trip roster. Every fit is
 # gated, and a fit that fails the gate reports the design-based Point Estimator instead.
-# The three changes that distinguish v2.0 from v1.0 in the number are the dynamic `f`,
-# the derived shore turnover, and the calibration boat turnover; together +31%.
+# The four changes that distinguish v2.0 from v1.0 in the number are the dynamic `f`,
+# the derived shore turnover, the calibration boat turnover and the census split; together
+# +31% (the 2026-09-11 ladder).
 #
 # WHAT THE OSP DATA IS, and why the boat model is built the way it is. OSP will
 # provide, per day: (a) the TOTAL number of vessels returning, and (b) the
 # fraction of those that were CRABBING ONLY. (a) IS IN HAND and is what the boat
-# effort stream now runs on. (b) IS STILL OUTSTANDING. (b) deliberately EXCLUDES combo
+# effort stream now runs on. (b) WAS DELIVERED 2026-10-02 (WPTPrivateCrabOnly, B64) AND IS
+# ON SINCE 2026-10-04 (A33, section 2.4b). (b) deliberately EXCLUDES combo
 # trips that included crabbing alongside another fishery, so it is a LOWER BOUND
 # on the vessels that did any crabbing, not the crabbing fraction itself. That
-# is exactly what `osp_crab_lower` / `f_lower` exist for: the crab-only count
-# bounds f from below while the combo-trip share stays on a prior. Do not wire
-# the crab-only column in as if it were f. Until it arrives the machinery in section
-# 2.4b is built, tested and inert, and `f` rests on the sampler interview contacts alone.
+# is exactly what `osp_crab_lower` / `f_lower` exist for: under the shipped dynamic f the
+# crab-only share observes f x (1 - c), c the combo-trip share (its own walk, observed by the
+# sampler's typed contacts). Do not wire the crab-only column in as if it were f. Before
+# A33, `f` rested on the sampler interview contacts alone.
 #
 # WHAT THE OSP DATA IS FOR. Two things, in order: improve the ACCURACY of the
 # boat harvest estimate, and reduce its UNCERTAINTY. Before the OSP stream the
@@ -170,7 +203,8 @@
 # tuning on top: each .Rmd does `params <- modifyList(run_config, params_model)`,
 # where `params_model` holds ONLY that model's specifics (Stan file, per-fit
 # sampler settings, gate thresholds, AR-selector thresholds, model constants).
-# The two key sets are disjoint, so the merge order carries intent only.
+# The two key sets are INTENDED to be disjoint; a key in both is decided silently by the
+# driver (params_model wins), so grep both params_model blocks before adding a key here.
 # This file is the SINGLE SOURCE OF TRUTH for every user-selectable toggle,
 # including the AR resolution map in section 2.6; the two .Rmd files no longer carry
 # their own copies, so there is nothing to keep in sync. The AR map is per-model (the
@@ -247,8 +281,9 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
-  # 05_output/20260928/pooled-CPUE-2024-25, 99,873 [82,414, 124,438] (and of the runs before
-  # it: 05_output/20260927/pooled-CPUE-canonical-2024-25, 96,118, and R4, 94,376).
+  # 05_output/20261019/pooled-CPUE-2024-25, 86,497 [72,869, 104,595] (and of the runs before it:
+  # 05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557]; 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271]; 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822; 05_output/20260928/pooled-CPUE-2024-25,
+  # 99,873; the 2026-09-27 render, 96,118; and R4, 94,376).
   #
   # Restored 2026-09-12, closing CHANGE_REGISTER D28. Between 2026-09-10 and 2026-09-12
   # this file shipped the staged 2023-25 two-season span while the ladder pinned 2024-25 on
@@ -484,12 +519,81 @@ run_config <- list(
   # 2.34x to 1.74x (shore) and 1.81x to 1.42x (boat), and regressing log effort on
   # month + day-type shows moving Friday to the weekday stratum cuts the residual
   # variance the AR(1) must absorb by 15% (shore) / 5% (boat).
-  # KNOWN RESIDUAL (documented, not fixed here): Sunday is sampled on only 6 of 50
-  # shore days and 5 of 50 boat days, and the boat Sunday mean (3.4) sits BELOW the
-  # weekday mean (6.9), so grouping Sunday with Saturday is not obviously right for
-  # the boat stream. Splitting Sunday out needs a shift change in the field plan, not
-  # a config edit; see PIPELINE_STATUS Section 6.
   days_wkend        = c("Saturday", "Sunday"),
+  # THE SATURDAY/SUNDAY SPLIT (2026-10-16, A36; Matt). Sunday is sampled on 10 of 196 boat
+  # days and 4 of 145 shore days in the 2024-25 all-gear window (the pot closure adds none
+  # for the shore), so the pooled weekend effect B1 is Saturday's effect applied to every
+  # Sunday with Saturday's precision. TRUE adds a Sunday increment to the BSS weekend EFFORT
+  # effect on both tracks, B1_sun ~ normal(0, sunday_prior_sd), so a Sunday is
+  # exp(B1 + B1_sun) against a Saturday's exp(B1) (and a holiday exp(B2) more on top of
+  # whichever day it fell on; the indicator is the calendar Sunday, prep_days_crab's
+  # day_type_num_sunday, so days_wkend does not move it). What informs it: the Sundays that
+  # WERE counted. For the boat all-gear fit that is OSP's totals on 27 Sundays and 28
+  # Saturdays (means 77.6 and 88.8 boats, so about -13% on Sunday) and the 10 trailer-count
+  # Sundays (8.5 against Saturday's 9.2); for the shore, 4 gear-count Sundays (39.9 against
+  # 57.0). Where Sundays were not counted the prior holds the increment near zero, which is
+  # the pooled model's assumption carried honestly rather than asserted. The CPUE process
+  # keeps its pooled weekend effect (B1_C on w): there is no finding about Sunday CPUE and
+  # the Sunday interviews are few. The PE's (week x day-type) strata are unchanged (a Sunday
+  # stratum would be empty in 46 of 52 weeks). FALSE is bit-identical to the model without the
+  # split (B1_sun is zero-size). Stan data, no recompile. Its field-plan partner, sampling
+  # more Sundays, stays in PIPELINE_STATUS Section 6.
+  # THE RULE (A35/A36, written before the render; the full text is CHANGE_REGISTER A36): the
+  # render of this file as shipped (--model both) is adopted if every fit on both tracks passes
+  # the gate, no chain is stuck, the cross-check is within cross_check_tolerance, and B1_sun is
+  # sampled cleanly on all eight fits (R-hat < 1.01, n_eff > 400); each fit's B1_sun and B2, the
+  # components' movement and exp(B1_sun) beside OSP's raw 0.87 are reported, not judged.
+  sunday_split      = TRUE,
+  sunday_prior_sd   = 0.5,            # normal(0, sd) on the Sunday increment, log scale
+  # THE HOLIDAY PRIOR (2026-10-16, A35; Matt). The holiday increments B2 (effort) and B2_C
+  # (CPUE, pooled track) had a hard-coded normal(0, 1) prior. A holiday is one of 13 days
+  # in 2024-25 and 2 of them fall in the pot closure, where B2 sat on its prior
+  # (0.0 [-2.0, 2.0] on both pot-closure fits, B65); on the boat all-gear fit it read
+  # 0.35 [-0.13, 0.87]. normal(0, 0.5) says a holiday is within about a factor of 2.7 of
+  # the weekend it sits on at 95%, which the sampled holidays do not contradict, and it
+  # stops a thin fit's holidays from wandering. Set 1 to restore the former prior exactly.
+  holiday_prior_sd  = 0.5,
+  # THE PER-DAY EFFORT EFFECT (2026-10-18, A39; Matt: "adopt the D45 lever on both tracks").
+  # Float 20 takes three counts on most two-sampler days and they are near-replicates
+  # (intraclass correlation 0.83 on 2024-25); the trailer count is a snapshot of a day OSP
+  # counts in full. The effort likelihood treated each count as an independent draw about
+  # the day's level, which over-determined the day and let r_E be set by the within-day
+  # spread (D45). TRUE multiplies each count's expectation by exp(uE[day] - sigma_uE^2/2),
+  # mean ONE across days (so lambda_E keeps its meaning and an unsampled day's expected
+  # effort is the level), one uE per sampled day, uE ~ normal(0, sigma_uE),
+  # sigma_uE ~ half-normal(effort_day_effect_sd); on a shore day with gear counts the totals
+  # carry the fitted deviation, the boat keeps the level (OSP pins it). Both Stan programs;
+  # the flag is Stan data. Priced on the container 2026-10-18 as the B68 lever (campaign
+  # 1z.14): shore all-gear half-width +7.5% with the point +1.1%, boat +4.0% and +0.2%, the
+  # port SD +2.5%; sigma_uE 0.42 (shore) and 0.84 (boat). FALSE restores every render before
+  # it bit for bit (checked draw for draw on both tracks).
+  # THE RULE (A39, written before the render; the full text is CHANGE_REGISTER A39): the
+  # render of this file as shipped (--model both) is adopted if every fit on both tracks
+  # passes the gate, no chain is stuck, the cross-check is within cross_check_tolerance, and
+  # sigma_uE is sampled cleanly on all eight fits (R-hat < 1.01, n_eff > 400); each fit's
+  # sigma_uE, the components' movement against B67 and the interval widening are reported,
+  # not judged. If a clause fails, the key goes back to FALSE and the failure is recorded.
+  # THE OUTCOME (B69, 2026-10-18): the render met clauses (1) to (3) (8 of 8 gates, no stuck
+  # chain, cross-check -0.06%) and FAILED (4) on the pooled shore pot-closure fit, where every
+  # sampled day has one count and sigma_uE trades off with sigma_r_E (n_eff 301; the gear
+  # track's same fit 413; the other six fits 906 to 3,661). The key went back to FALSE per the
+  # rule, and Matt chose the identification floor (CHANGE_REGISTER B69, option a).
+  # THE IDENTIFICATION FLOOR (2026-10-19, A40; Matt: "proceed with option a"). The term is
+  # identified only where a day carries repeat counts, so each fit switches it on only when at
+  # least effort_day_effect_min_repeat_days of its sampled days carry two or more counts; below
+  # the floor the fit is the model without the term, bit for bit, and the run warnings say so.
+  # On 2024-25 the floor is insensitive from 2 to 44: the shore all-gear fit has 83 such days,
+  # the boat all-gear 45, the boat pot closure 1, the shore pot closure 0, so the term is on for
+  # the two all-gear fits of each track and off for the pot-closure fits.
+  # THE RULE (A40, written before the render; the full text is CHANGE_REGISTER A40): the render
+  # of this file as shipped (--model both) is adopted if (1) every fit on both tracks passes the
+  # gate, (2) no chain is stuck, (3) the cross-check is within cross_check_tolerance, (4) sigma_uE
+  # is sampled cleanly on every fit where the term is ON (R-hat < 1.01, n_eff > 400), and (5)
+  # every fit where the term is OFF reproduces B67's fit draw for draw. Reported, not judged: each
+  # fit's sigma_uE and repeat-count days, the components' movement against B67, the interval.
+  effort_day_effect    = TRUE,
+  effort_day_effect_sd = 0.5,          # half-normal scale of sigma_uE (log scale)
+  effort_day_effect_min_repeat_days = 5,   # A40: the identification floor (sampled days with 2+ counts)
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 
@@ -660,6 +764,18 @@ run_config <- list(
   # 2026-09-08: may also be a per-population list, list(shore = 0, private_boat = 15);
   # bss_resolve_tau_shore_prior() sets the shore entry to 0 when the shore prior is derived.
   shared_tau_min_obs     = 15,
+  # A41 (2026-10-20, D49 option (iii), Matt): what a fit BELOW the floor runs. "shared_prior" (ships)
+  # keeps the shared structure, one tau_bar ~ lognormal(log(centre), tau_boat_prior_sigma) scaling
+  # every day with the fixed day spread above, and lets NO day observe it (the fit's OSP boat totals,
+  # if any, observe presence through the free scale kappa_OSP, osp_scale_is_tau = 0 for that fit;
+  # the boat I/E stream is dropped): the season effort is centred on the calibration centre and
+  # carries the prior's whole uncertainty, which is the truth of a season without OSP days.
+  # "per_day" is the former fallback, D independent per-day draws at the prior (shared_tau = 0),
+  # whose season sum sits at the lognormal MEAN, centre * exp(sigma^2 / 2), 13% above the centre at
+  # the shipped log-SD 0.5, with the turnover's uncertainty averaged over the days (D49, found by
+  # the 2025-26 readiness render, B75); bit-identical to every render before A41. No 2024-25 fit
+  # is below the floor, so the authoritative run does not read this key.
+  shared_tau_refusal     = "shared_prior",
 
   # --- 2.3 The OSP port boat-count stream (the second boat effort stream) ---
   # Adds the OSP daily boat-total series (fetch_osp_boat_counts) as a SECOND boat
@@ -680,11 +796,17 @@ run_config <- list(
   osp_effort_col        = "WestportPrivateEffort",  # OSP daily ALL-boat total column
   # OSP CRAB-ONLY column (improvement 8, 2026-08-25). Optional extra column in
   # WBL_boat_counts.xlsx holding the count of SAMPLED boats OSP labelled as crabbing ONLY.
-  # OSP will deliver it as "crabbing_only" (Matt, 2026-09-28); the first name present wins.
-  # Absent today -> every OSP feature below is inert and f behaves exactly as it does now.
-  # See the use_osp_crab_lower block for the combo-trip problem this column does and does
-  # not solve.
-  osp_crab_only_col     = c("crabbing_only", "WestportCrabOnlyEffort"),
+  # The first name present wins. OSP DELIVERED it on 2026-10-02 as "WPTPrivateCrabOnly" (sheet
+  # "crabbing trips" of 04_input_files/raw/OSP_WPT_boat_counts_crab_trips_2026-10-02.xlsx; 253
+  # classified days, 2024-03-09 to 2025-10-17), carried into WBL_boat_counts.xlsx under that
+  # name; "crabbing_only" was the name expected before delivery and stays accepted. The same
+  # sheet's "WPTPrivateCrabAlso" is NOT carried and must not be: it is counted from the free-text
+  # NOTES field of OSP's sampling form, not a menu item, so it is opportunistic and was not
+  # consistently sampled (Matt, from OSP, 2026-10-02). Since A33 (2026-10-04,
+  # use_osp_crab_lower = TRUE, below) the column observes f x (1 - c) on the boat fits; with the
+  # key FALSE it would feed only the run's osp_crab_only_daily.csv. See the use_osp_crab_lower
+  # block for the combo-trip problem this column does and does not solve.
+  osp_crab_only_col     = c("WPTPrivateCrabOnly", "crabbing_only", "WestportCrabOnlyEffort"),
   # OSP'S SAMPLING (2026-09-28, B48; Erica, OSP). OSP samples every k-th private boat at a rate
   # fixed for the day from the anticipated effort and the staff on the docks, so the crab-only
   # count is out of the boats SAMPLED, and the floor on f is crabbing_only / (rate x total).
@@ -705,6 +827,15 @@ run_config <- list(
   # divided by the rate to all boats; converted back to the sampled count)
   osp_crab_only_unit    = "count",
   osp_crab_only_basis   = "sampled",
+  # D39 (2026-10-19): an OSP day with boats and NO crab-only value. OSP's crab-trips sheet appears
+  # to be built from crab-trip records, which cannot list a zero day (17 such days in the 2024-25
+  # window, 9 of them in September and October 2024; CHANGE_REGISTER D39); the question is with
+  # OSP. "unclassified" (shipped; the reading since B64) drops the day from the crab-only rows,
+  # which fits the share to zero-truncated data and reads it high if the days are zeros; "zero"
+  # reads the day as a classified day with 0 crab-only boats (n from the sampling rate). Both
+  # readings were priced on the container on 2026-10-19 (campaign 1z.17). Flip to "zero" only on
+  # OSP's answer; a mixed answer needs OSP's classified-day list, not this key.
+  osp_absent_day        = "unclassified",
   # SEASON-DERIVED from the 2024-25 OSP/trailer overlap days:
   osp_scale_prior_mu    = 3.0,        # kappa_OSP prior center = OSP/trailer overlap ratio
                                       #   (1 / mean-per-visit origin slope ~0.33 -> ~3.0;
@@ -755,12 +886,13 @@ run_config <- list(
   # WPT/WBL egress classification columns (blank until the pilot delivers), "both".
   # CAVEAT carried, not hidden: contacts happen during sampler shifts, so boats returning
   # outside the shift are not classified; if finfish boats return later than crab boats
-  # the contact share overstates f, most in summer. OSP's all-day crabbing-only column,
-  # when it arrives, is the check (crab_fraction_source_rows in crab_fraction.R).
+  # the contact share overstates f, most in summer. OSP's all-day crabbing-only column was the
+  # out-of-sample check (crab_fraction_source_rows in crab_fraction.R; inside the model's
+  # f(1 - c) interval in all seven OSP months of 2025, D2) until A33 fitted it.
   crab_fraction_source      = "both",
   # TRUE replaces the per-stratum Beta/Binomial f above with a random walk on the log-odds
   # of f across the month strata in chronological order, observed PER DAY by the sampler
-  # boat contacts (crab_fraction_source) and, when OSP's crabbing-only column arrives, by
+  # boat contacts (crab_fraction_source) and, since A33 (use_osp_crab_lower = TRUE), by
   # the OSP counts through f x (1 - c), c the combo-trip share among crabbing boats:
   #     logit f[k] = logit f[k-1] + sigma_f * z[k],   sigma_f learned,  z ~ Student-t
   # A month with five contacts borrows from its neighbours instead of falling back to the
@@ -795,12 +927,14 @@ run_config <- list(
   # 0.75). Most contact days hold 1-4 boats, where beta-binomial ~ binomial and this
   # rests on its prior; it bites on the busy days (20+ contacts).
   crab_fraction_contact_kappa_prior_mu = 20,
-  # theta's prior in an OSP-INFORMED stratum: the share of non-crab-labelled boats that
-  # were also crabbing. 0.15 is a PLACEHOLDER with the same standing f = 0.3 had before
-  # the pilot: it is a guess, not a measurement, and it is what turns the OSP lower bound
-  # into a level. It is pinned by the WPT egress classification wherever both streams
-  # cover the same stratum, which is the strongest argument for running the egress pilot
-  # on days OSP is also in port.
+  # theta's prior in an OSP-INFORMED stratum under the LEGACY f construction: the share of
+  # non-crab-labelled boats that were also crabbing. 0.15 is a PLACEHOLDER with the same
+  # standing f = 0.3 had before the pilot: a guess, not a measurement. Under the shipped
+  # dynamic f (A18) these two keys reach only the legacy prior: the live combo-share prior
+  # is crab_fraction_combo_level below, and OSP's count enters as an observation of
+  # f(1 - c) (A33), not as a bound turned into a level (D42, 2026-10-18). The WPT egress
+  # classification pins c wherever both streams cover the same stratum, which is the
+  # strongest argument for running the egress pilot on days OSP is also in port.
   crab_fraction_combo_share = 0.15,
   crab_fraction_combo_kappa = 8,      # Beta concentration (prior SD ~0.12 at mean 0.15)
   # THE COMBO-TRIP SHARE c (2026-09-09). The interview workbook now carries every contacted
@@ -839,39 +973,65 @@ run_config <- list(
   ie_crab_col               = "boats_crabbing",  # ingress_egress column: crab-classified boats
   ie_total_col              = "boats_total",     # ingress_egress column: total classified boats
 
-  # --- 2.4b BUILT AND WAITING ON DATA: the OSP crabbing-only lower bound on f ---
-  # THE PROBLEM. OSP can report, per day, the number of boats that were ONLY crabbing.
-  # It does not record combo trips: a boat that crabs AND fishes another fishery is
-  # labelled by the non-crab fishery. So the OSP crab-only share is a LOWER BOUND on the
-  # true crabbing fraction f, not an estimate of it, and OSP alone cannot separate
-  # "few boats, all crabbing" from "many boats, some also crabbing".
+  # --- 2.4b ADOPTED 2026-10-04 (A33), PENDING ITS CONFIRMING RENDER: the OSP crab-only stream ---
+  # THE PROBLEM. OSP reports, per day, the number of SAMPLED private boats that were ONLY
+  # crabbing (WPTPrivateCrabOnly, delivered 2026-10-02, B64). It does not count combo trips:
+  # a boat that crabs AND fishes another fishery is labelled by the other fishery. So the
+  # OSP crab-only share is a LOWER BOUND on the crabbing fraction f, not f.
   #
-  # THE PARAMETERIZATION (hard lower bound). Per f stratum k:
-  #     f_lower[k] ~ Beta(1,1)   updated by  osp_crab_only[k] ~ Binomial(osp_total[k], f_lower[k])
-  #     f[k]       = f_lower[k] + (1 - f_lower[k]) * theta[k]
-  # theta[k] in [0,1] is the share of the NOT-crab-labelled boats that were also crabbing
-  # (the combo trips OSP cannot see). f can therefore never fall below what OSP directly
-  # observed, which is the whole point of the bound.
+  # HOW IT ENTERS (the shipped dynamic f, crab_fraction_dynamic = TRUE). Per OSP day j in a
+  # month stratum k:
+  #     osp_crab_j ~ BetaBinomial(n_j, f[k] * (1 - c[k]), kappa_O)
+  # where n_j is the boats OSP SAMPLED that day (osp_sampling_rate_source above; the minimum-
+  # rate schedule on every 2024-25 day, since no daily rate came with the data), c[k] is the
+  # combo-trip share among crabbing boats (its own walk, observed by the sampler's typed
+  # contacts) and kappa_O ~ lognormal(log(crab_fraction_osp_kappa_prior_mu), 0.75) is
+  # estimated from the spread of the daily shares. A stratum with fewer than
+  # crab_fraction_osp_min_obs sampled boats sends no OSP rows. f still enters generated
+  # quantities only, so the boat total stays linear in f and the model CPUE is untouched.
+  # (The legacy construction, crab_fraction_dynamic = FALSE, uses a hard bound instead,
+  # f = f_lower + (1 - f_lower) * theta; see 03_R_functions/crab_fraction.R. It is not shipped.)
   #
-  # HOW IT DEGRADES (this is the "defaults back to interview data" behaviour):
-  #   OSP + egress classification in a stratum -> f_lower from OSP, theta pinned by the
-  #       egress Binomial n_crab ~ Binomial(n_total, f); both identified.
-  #   OSP only                                 -> f_lower from OSP, theta on its combo
-  #       prior; f is bounded below by data and the rest rests on the prior.
-  #   Egress only / neither (winter, OSP dark) -> f_lower is PINNED TO 0 and theta's prior
-  #       is set to the ordinary f prior Beta(set*kappa, (1-set)*kappa), so f reduces
-  #       EXACTLY to today's Phase 2/3 behaviour. Backward compatibility is exact.
-  # f still enters generated quantities only, so the boat stays exactly linear in f and
-  # the model CPUE stays invariant (the validated Phase 2/3 property is preserved).
-  # SHIPS OFF, deliberately. Every other behaviour-changing feature in the 2026-08-25
-  # batch is opt-in, and this one has to be too: the moment WBL_boat_counts.xlsx gains a
-  # crab-only column, flipping this to TRUE would change the boat harvest on the SAME run
-  # that first reads the new data, with no baseline to compare against. Worse, at
-  # crab_fraction_strata = "none" the whole window collapses to one stratum and f becomes
-  # p_osp + (1 - p_osp) * crab_fraction_combo_share, so a large part of the move would come
-  # from the combo-share PLACEHOLDER rather than from OSP's data. Turn it on deliberately,
-  # in its own run, against a run with it off. Requires use_osp_boat_counts = TRUE.
-  use_osp_crab_lower        = FALSE,
+  # WHY ON (Matt, 2026-10-03: "Set the use osp crab lower to on"). The column it was built to
+  # read is now delivered and uncontaminated (the notes-derived WPTPrivateCrabAlso is not
+  # carried). Out of sample, OSP's monthly share at the schedule n fell inside the
+  # authoritative run's own f(1 - c) 95% interval in all seven OSP months of 2025. Container
+  # refits of the boat all-gear fit at production settings (B64 follow-up, scratch, not a
+  # render): off 46,947 [31,769, 69,621]; on 46,538 [32,451, 67,969] (-0.9%, interval 6%
+  # narrower, 0 divergences); f moves only in March to September (Apr 0.625 -> 0.572,
+  # Jul 0.417 -> 0.386, Sep 0.198 -> 0.267), December to February within 0.007. With n =
+  # every returning boat (osp_sampling_rate_source = "none", a bound, not an option) the same
+  # fit reads 43,006: that 7.6% is the most that OSP sampling above its minimum rate could
+  # move this fit, and is why the day's actual rate is still worth asking OSP for (D2).
+  # THE RULE (A33 with A34, written before the render, revised 2026-10-04 before any render):
+  # the authoritative render of this file (Rscript run_estimation.R --model both) is adopted if
+  # (1) every fit on both tracks passes the convergence gate, (2) no chain is stuck, (3) the gear
+  # cross-check is within cross_check_tolerance (2%), and (4) beta_fvol's 95% interval excludes
+  # zero on both tracks' boat all-gear fits (else crab_fraction_volume goes back to FALSE). The
+  # boat totals, the December to February f and each OSP month's boat-weighted crab-only share
+  # beside OSP's own expansion are REPORTED, not judged. A33's first clause (4), "December to
+  # February f moves by less than 0.25 posterior SD", was RETIRED with D40: it was written to
+  # catch OSP information leaking into the winter months, and the volume term changes f in every
+  # month by design (one slope per fit, and f_crab_out is now the share at central volume), so
+  # it no longer tests what it was written for; the container refit moves February's
+  # boat-weighted f +0.6 SD.
+  # Requires use_osp_boat_counts = TRUE. FALSE restores the 2026-09-29 model exactly.
+  use_osp_crab_lower        = TRUE,
+  # D40 (2026-10-04): THE CRABBING SHARE VARIES WITH THE DAY'S BOAT VOLUME, within a month.
+  # TRUE (needs crab_fraction_dynamic = TRUE) gives each day its own share,
+  #     logit f_d = eta_f[month] + beta * (log V_d - the month's central log volume),
+  # in both classification streams (V_d observed: OSP's daily total, else the day's mean
+  # trailer count x its turnover centre) and in the totals (V_d the model's own daily boat
+  # volume, (lambda_E / R_G_boat) x L, on every day), so the month's share the totals apply
+  # is BOAT-WEIGHTED. Without it the per-day beta-binomial fits close to the AVERAGE day's
+  # share, and OSP's crab-only share falls on busy days: in June to September 2025 the
+  # likelihood's share was 1.41x to 1.59x the boat-weighted one (CHANGE_REGISTER D40). On
+  # OSP's own 2024-25 days a quasi-binomial fit of the same form gives beta = -0.88 (SE
+  # 0.105) and reproduces OSP's monthly expansion estimate (July 0.082 against 0.081).
+  # FALSE leaves every fit bit-identical to the model without the term. Changing it does
+  # not force a recompile (Stan data only).
+  crab_fraction_volume      = TRUE,
+  crab_fraction_volume_beta_sd = 1,   # normal(0, sd) prior on beta, logit per log unit of volume
   crab_fraction_osp_min_obs = 20,     # min OSP-classified boats in a stratum before the bound binds
   # Beta-binomial concentration for the DAILY OSP crab-only shares. The bound is fitted
   # one observation PER DAY, not on the stratum sum: summing ~150 operating days at ~50
@@ -905,15 +1065,20 @@ run_config <- list(
   # zi_catch, so the gear track read this flag and IGNORED it, fitting plain NB2 and making
   # the two-track cross-check compare UNLIKE shore catch likelihoods (about -0.3% of the
   # pooled shore component). The port removed the asymmetry from the MODEL but NOT from the
-  # shipped configuration, deliberately: catch_zi_tracks ships as "pooled", so the gear
-  # track still fits plain NB2 and the committed 20260911 R5 cross-check stays exactly
-  # reproducible. Flipping it is the D6 decision, and
-  # 06_diagnostics/run_gear_ar_zi_2026-09-13.R is the run that settles it. Do not flip it
-  # here on the strength of symmetry alone: a feature that earns its parameter on the
-  # pooled shore likelihood need not earn it on a per-gear one, which is thinner.
+  # shipped configuration until 2026-10-02, deliberately: it was not flipped on the strength
+  # of symmetry alone, because a feature that earns its parameter on the pooled shore
+  # likelihood need not earn it on the gear track's.
+  # 2026-10-02: ADOPTED on the gear track (D6, with D3; CHANGE_REGISTER A32). It earned it
+  # on its own test, against a converged baseline: the authoritative batch's D6R against D3R
+  # (both at seed 20260620) gave +10.1 nats at 2.14 paired SE on the shore all-gear catch,
+  # both count bins improved (zero z 3.58 -> 2.07, one z -6.10 -> -3.47), theta_C 0.165
+  # against the pooled track's 0.170. The gain is NET: zeros +20.4 and counts 3 to 16 +33.7,
+  # single-crab trips -37.7 (-17.5 SE). The first D6 pair (seed 20260619, 1.99 SE) was
+  # judged against a D3 fit with a trapped chain and is not a test; the 2026-09-14 rung
+  # measured +11.3 at 2.29 SE. It also steadied the weekly gear fit (see gear_period_bss).
   estimate_catch_zi     = TRUE,
   catch_zi_populations  = c("shore"),
-  catch_zi_tracks       = c("pooled"),      # "pooled", "gear_resolved", or both
+  catch_zi_tracks       = c("pooled", "gear_resolved"),   # "pooled", "gear_resolved", or both
   # SEASON-DERIVED prior shape (chosen from the 2024-25 zero bin; weakly informative):
   zi_catch_prior_a      = 1,          # Beta(1, 9): mean 0.10, most mass below 0.25,
   zi_catch_prior_b      = 9,          # comfortably above the ~0.04 the zero bin implies
@@ -984,8 +1149,9 @@ run_config <- list(
   # fails its gate, and falls back to PE; biweekly removes the funnel so it reports
   # BSS, matching the gear track's biweekly ring-net period_bss. (Until 2026-09-07 the
   # all-gear fit was left data-driven at daily.) The gear_resolved map takes
-  # the SAME per-sub-season structure; its values mirror the gear track's fixed
-  # period_bss (monthly all-gear, biweekly ring-net). NOTE the gear map is dormant
+  # the SAME per-sub-season structure; its values mirror the gear track's PRE-A32 fixed
+  # period_bss (monthly all-gear, biweekly ring-net); since A32 the gear shore all-gear fit
+  # runs weekly through gear_period_bss (section 5). NOTE the gear map is dormant
   # in production: gear-resolved runs ar_adaptive = FALSE, so fixed_resolution =
   # period_bss bypasses the cap. It is consulted only in the ar_adaptive = TRUE
   # experiment, where it now agrees with the fixed periods instead of the old
@@ -997,7 +1163,7 @@ run_config <- list(
   # ar_rung_adequacy = TRUE) and re-derive them. See NEW_SEASON_GUIDE.md.
   ar_max_resolution = list(
     # 2026-09-07 ADOPTION: pooled shore all_gear "daily" -> "weekly". See Section 1k of
-    # PIPELINE_STATUS.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of
+    # VALIDATION_CAMPAIGN.md. The 2026-09-04 ladder showed daily is OVERFITTED (p_loo 35.2% of
     # n_obs, 41 Pareto k above 0.7, coverage_50 0.701 at +7.1 sampling SD, miscalibration
     # flag set); at weekly those become 9.6%, 1, 0.559 (+2.3 SD) and clear. ONLY daily is
     # an outlier: weekly, biweekly and monthly sit within 0.5 sampling SD of each other and
@@ -1235,6 +1401,20 @@ run_config <- list(
   #              day-type imputation when census_expansion = "day_type" ("imputed_days" is
   #              still accepted as the 2026-09-08 name)
   census_uncertainty = "charter",
+  # 2026-10-16 (A38, closes D44 by Matt's option (i)): HOW THE PORT TOTAL PAIRS ONE POPULATION'S FITS.
+  # The pot-closure and all-gear fits of a population draw their turnover tau_bar around ONE prior
+  # centre (the shore's derived I/E centre, 2.477 on 2024-25, log-SD floored at 0.10), so the
+  # uncertainty they carry in it is one number; summing the two fits' draws paired at random treats
+  # it as two independent ones and understates the port interval (D44: about +5% on the port SD on
+  # the authoritative run; the mean of the sum is unchanged exactly). "comonotone" re-pairs each
+  # listed population's components so that row j of every fit carries the same tau_bar quantile
+  # (the largest component keeps its order, the others are re-indexed; bss_port_tau_coupling.R),
+  # which is the bound a fully shared centre implies. "none" is the pairing every run before
+  # 2026-10-16 used, bit for bit. Every run writes the port interval under both pairings to
+  # port_tau_coupling.csv. The boat's two fits share the OSP/trailer calibration centre the same
+  # way; add "private_boat" to the populations to pair them too (its pot-closure fit is small).
+  port_tau_coupling             = "comonotone",
+  port_tau_coupling_populations = "shore",
   # The charter trip roster (charter_trips.xlsx, 2024-25 on): the TRIP FRAME the charter
   # expansion runs on. charter_frame = "roster" (default) takes, per day, the larger of the
   # roster's sailed trips and the tally's charter column (the roster does not depend on a
@@ -1266,7 +1446,14 @@ run_config <- list(
   # tightening it would push the shore all-gear sigma_IE (~1.07) down and force
   # possibly-unrepresentative I/E days to bind harder (see the shore-I/E diagnostic).
   ie_min_obs_shore = 3,   # shore components (both models)
-  ie_min_obs_boat  = 2,   # boat components (gear-resolved; boat I/E identifies tau)
+  ie_min_obs_boat  = 2,   # boat components (both models since A37; boat I/E identifies tau)
+  # A37 (2026-10-16, D35): the WBL boat I/E ingress counts (boat trips) as a turnover
+  # observation on the boat fits, predicted (lambda_E / R_G_boat) * tau. The gear track has
+  # read them since GR-7 Phase 1; the pooled track reads them since A37, so both tracks
+  # follow this one key. IE_n = 0 is safe: 2024-25 has no WBL boat I/E day in the window and
+  # 2025-26 one (2025-12-19), below ie_min_obs_boat, so on both seasons the fits are what
+  # they were. It activates on its own as WBL boat I/E days accumulate.
+  use_boat_ie      = TRUE,
   # Civil-twilight clamp. Binds only on the fallback rung and on the
   # day_length_civil_twilight diagnostic column.
   day_length_min_hours = 9.0,
@@ -1767,6 +1954,8 @@ run_config <- list(
                                        #   S == 1, which is every production fit, so this changes
                                        #   nothing as shipped. Accepts a per-population named list,
                                        #   e.g. list(private_boat = TRUE).
+  # >>> THE ONE KEY IN THIS SECTION THAT IS PART OF THE METHOD OF RECORD (A31, ADOPTED). It sits
+  # >>> here beside collapse_mu_hier, its older sibling, and is NOT a rejected alternative.
   # A31 / T2.5 (2026-09-29; D33): with ONE section the level hierarchy
   # mu = mu_mu + sigma_mu * eps_mu is unidentified (only the sum enters the likelihood), and
   # its funnels are what the shore all-gear divergences sat on. "both" collapses the effort
@@ -1785,8 +1974,10 @@ run_config <- list(
   # ----------------------------------------------------------------------------
   # Read by crab_bss_gear_resolved.stan and its driver; the pooled model ignores every
   # key in this section. The gear-resolved track is the CROSS-CHECK, not the headline
-  # estimator: it ran as ladder rung R5 on the same configuration as the authoritative
-  # pooled run and agreed to -1.17% at the port.
+  # estimator. Its render of this file as shipped is the authoritative batch's stage D6
+  # (05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi), -0.53% against
+  # the authoritative pooled run at the port since D3 and D6 were adopted (A32, 2026-10-02);
+  # before that -1.44% (stage A's gear render) and -1.29% (B50, 2026-09-28).
   # ============================================================================
                                        #   TRUE matches the pooled model; FALSE drops B1_C
                                        #   from the likelihood (v5.4 behavior).
@@ -1815,10 +2006,12 @@ run_config <- list(
   # fixed_resolution = ss$period_bss and ar_max_resolution$gear_resolved is DORMANT. Until
   # 2026-09-13 period_bss was a literal inside build_subseasons.R with no configuration
   # surface, so CHANGE_REGISTER D3 ("the gear track's shore cap is still monthly") named a
-  # key that does nothing. These are the real values, and they ship at exactly the literals
-  # they replaced, so every committed gear run is reproduced byte for byte.
+  # key that does nothing. These were the real values, and until A32 (2026-10-02) they
+  # shipped at exactly the literals they replaced, so every committed gear run before it is
+  # reproduced byte for byte by the flat form.
   #
-  # D3 IS OPEN. The pooled shore all-gear fit is at WEEKLY; this track is at MONTHLY, which
+  # (The 2026-09-13 state, kept for the record; D3 CLOSED 2026-10-02, A32, below.) D3 WAS
+  # OPEN. The pooled shore all-gear fit is at WEEKLY; this track was at MONTHLY, which
   # is most of the -1.39% cross-track gap (at a common monthly resolution the two tracks
   # agree to 0.08%, the strongest agreement the cross-check has produced). Do NOT copy the
   # pooled value across on the strength of symmetry alone, but note that the reason usually
@@ -1834,34 +2027,41 @@ run_config <- list(
   # which is GR-7 Phase 2 and a different decision. The run that settles D3 is
   # 06_diagnostics/run_gear_ar_zi_2026-09-13.R, which ladders this key and reports adequacy
   # per rung. Recognized values: "daily", "weekly", "biweekly", "month"/"monthly".
-  # TWO SHAPES, and the flat one ships. 2026-09-14: the first D3 ladder proved the flat
+  # TWO SHAPES, and since A32 the per-population one ships (the flat one until then). 2026-09-14: the first D3 ladder proved the flat
   # form cannot answer the question, because period_bss belongs to the SUB-SEASON and a
   # sub-season holds BOTH populations, so moving it moved the boat all-gear fit as well
   # (+18.1% monthly to weekly, against +3.3% for the shore). The pooled track fits shore
   # all-gear at WEEKLY and boat all-gear at MONTHLY via its per-population cap; the gear
   # track had no way to express that. Per-population form, resolved by
-  # 03_R_functions/bss_gear_period.R in the gear driver:
+  # 03_R_functions/bss_gear_period.R in the gear driver.
   #
-  #   gear_period_bss = list(
-  #     shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
-  #     private_boat = list(all_gear = "month",  pot_closure = "biweekly"))
-  #
-  # That is the D3 adoption, and it is measured to bring the two tracks to +0.28% at the
-  # PORT (VALIDATION_CAMPAIGN 1w) against -0.35% for the shipped flat form. It is NOT
-  # adopted here because the measurement is a reconstruction from two rungs' draws rather
-  # than a rendered run; one ~35 min render makes it citable.
-  gear_period_bss            = list(all_gear = "month", pot_closure = "biweekly"),
+  # 2026-10-02: ADOPTED (D3, with D6; CHANGE_REGISTER A32, VALIDATION_CAMPAIGN 1z.10). The
+  # shore at the pooled caps, the boat at the periods the flat form gave it, so exactly one
+  # fit moves against the old gear track (shore all-gear, monthly to weekly). The evidence is
+  # the authoritative batch (06_diagnostics/run_authoritative_batch_2026-09-29.R):
+  #   * ALONE, at the shipped bss_seed (20260619), it TRAPPED a chain in the shore all-gear
+  #     fit (chain 1: 1,546 of 2,000 draws divergent, R-hat 2.2 on mu_mu_C and the weekly
+  #     omega_C, divergences at high phi_C), so that fit fell back to its PE. At seed
+  #     20260620 (D3R) every gate passed. Renders are reproducible (B38), so adopting it
+  #     alone would have reproduced the failure in every cross-check.
+  #   * WITH the gear-track zero-inflated catch (catch_zi_tracks, section 2, D6) it passed
+  #     at BOTH seeds: 4 and 10 divergent draws of 8,000, R-hat <= 1.0002, no stuck chain.
+  #   * Two seeds per configuration is thin evidence. If a new season's gear shore all-gear
+  #     fit traps a chain at weekly, that is this item reopening, not bad luck.
+  # The flat form (list(all_gear = "month", pot_closure = "biweekly")) is the gear track
+  # before 2026-10-02 and reproduces 05_output/20260930/gear-type-CPUE-model-2024-25.
+  gear_period_bss            = list(shore        = list(all_gear = "weekly", pot_closure = "biweekly"),
+                                    private_boat = list(all_gear = "month",  pot_closure = "biweekly")),
 
-  ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed per-sub-
-                                       #   season period_bss (biweekly ring-net, monthly all-
-                                       #   gear) EXACTLY. TRUE hands AR choice to the data-driven
+  ar_adaptive                = FALSE,  # (gear-resolved) FALSE preserves the fixed periods
+                                       #   from gear_period_bss (above, per population since
+                                       #   A32) EXACTLY. TRUE hands AR choice to the data-driven
                                        #   selector; that is inference-changing, so validate first.
-  loo_effort_unit_comparison = FALSE,  # (gear-resolved) TRUE restricts interviews to the common
+  loo_effort_unit_comparison = FALSE   # (gear-resolved) TRUE restricts interviews to the common
                                        #   valid-denominator subset for a legitimate cross-unit
                                        #   elpd_loo comparison. FALSE for a production run of the
                                        #   chosen unit (the comparison is done).
-  use_boat_ie                = TRUE    # (gear-resolved) use WBL boat I/E ingress counts to
-                                       #   identify tau once enough days exist. IE_n = 0 is safe.
+  # (use_boat_ie moved to section 2.9 on 2026-10-16, A37: both tracks read it now.)
 )
 
 # =========================================================================== #

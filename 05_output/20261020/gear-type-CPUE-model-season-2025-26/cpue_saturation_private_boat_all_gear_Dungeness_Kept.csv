@@ -1,0 +1,2 @@
+"fit","n_obs","beta","beta_se","beta_lo95","beta_hi95","assumed_beta","hours_per_gear_median","saturation_flag","status"
+"private_boat_all_gear_Dungeness_Kept",201,0.0989982269465869,0.0570058717135692,-0.0127332816120087,0.210729735505182,1,5,TRUE,"estimated"

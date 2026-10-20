@@ -1,0 +1,11 @@
+stage: D3R
+part: gear_resolved
+digest: b0d8f752af9e
+code: stan:73a6cf27 drivers:a99d985c fns:ce3697fa orch:0f089295
+inputs: 8326377a
+manifest: none
+git: c4a0241
+written: 2026-10-01 22:53:01
+
+# run_authoritative_batch_2026-09-29.R writes this after a stage renders. RESUME reuses
+# a folder ONLY when its digest matches the stage being requested.

@@ -1,0 +1,2 @@
+"fit","n_obs","beta_h","beta_h_se","beta_h_lo95","beta_h_hi95","assumed_beta_h","linearity_flag","effort_unit","status"
+"shore_all_gear_Dungeness_Kept",2253,1.01735093737595,0.0609213116519067,0.897945166538208,1.13675670821368,1,FALSE,"gear-deployments","estimated"

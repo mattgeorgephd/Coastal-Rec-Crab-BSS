@@ -1,0 +1,11 @@
+stage: R2
+part: pooled
+digest: 49602eb9f479
+code: stan:73a6cf27 drivers:a99d985c fns:ce3697fa orch:0f089295
+inputs: 8326377a
+manifest: none
+git: 2523e8e
+written: 2026-10-01 08:09:35
+
+# run_authoritative_batch_2026-09-29.R writes this after a stage renders. RESUME reuses
+# a folder ONLY when its digest matches the stage being requested.

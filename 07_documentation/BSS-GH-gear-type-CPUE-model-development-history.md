@@ -7,7 +7,7 @@
 - **Correction (2026-09-28).** The scope line above was written at v5.6. The current state is **framework v6.0** (2026-09-12, on the Method v2.0 configuration), described in `BSS-GH-gear-type-CPUE-model-documentation.md`; the backlog table and the "Current production configuration" section at the end carry dated corrections rather than rewrites.
 - **Convention:** no em dashes.
 
-This file is the provenance record for the gear-resolved model. The published method document summarizes this history in one screen and refers here for the detail. Entries are newest-first. The version log traces the framework from the initial gear-resolved release (v5.0) through the empirical-proportion and data-alignment work (v5.1 to v5.4) to the shore effort-unit resolution (v5.5). The run-driven Stan fixes that do not carry a framework tag are recorded in their own section below the version log, and the outstanding backlog closes the log.
+This file is the provenance record for the gear-resolved model. The method-of-record document summarizes this history in one screen and refers here for the detail. Entries are newest-first. The version log traces the framework from the initial gear-resolved release (v5.0) through the empirical-proportion and data-alignment work (v5.1 to v5.4) to the shore effort-unit resolution (v5.5). The run-driven Stan fixes that do not carry a framework tag are recorded in their own section below the version log, and the outstanding backlog closes the log.
 
 The gear-resolved track branched from the shared pooled/gear-resolved sequence at v5: versions v1 through v4 are one shared milestone line (documented in `README.md`), and since v5 the two tracks carry independent change logs. The gear-resolved track imports the pooled convergence work as parity ports rather than re-deriving it (the B1.x markers in the Stan file below), and adds its own hard-won equivalents, F1 and F2, which the pooled track then ported back as POOL-1 and POOL-3. The two tracks share the effort-specification module `03_R_functions/bss_effort_spec.R` and the convergence-gate and AR-selection helpers, so they cannot drift onto different scales or gate policies.
 
@@ -18,6 +18,81 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 ------------------------------------------------------------------------
 
 ## Version log
+
+### 2026-10-20, A41 IN THE GEAR PREP: THE SAME UNOBSERVED tau_bar BELOW THE FLOOR
+
+`prep_bss_crab_gear()` applies A41 as the pooled prep does: a boat fit below the shared-turnover
+floor keeps one `tau_bar` at its prior under `shared_tau_refusal = "shared_prior"`, with the fit's
+`osp_scale_is_tau` set to 0 and its boat I/E stream dropped, the refusal mode on the Stan data as an
+attribute. The gear Stan program is unchanged (both switches are data). Every 2024-25 gear fit's
+Stan data are identical before and after (dump), so the cross-check of the authoritative run does
+not move; on 2025-26 the gear boat all-gear fit differs in `shared_tau` and `osp_scale_is_tau` only,
+and is re-rendered under A41 beside the pooled track (B76).
+
+### 2026-10-19, B72, B73 AND B75: THE OSP INGEST AND THE PE CATCH SE IN THE GEAR REPORT, AND THE DEFECT THE READINESS RENDER CAUGHT
+
+The same reader and reporting changes as the pooled driver's (B72: the OSP ingest stops on an
+error, the series lifted into `params` for the gear prep, `osp_absent_days.csv`, `pe_f_source`;
+B73: the PE catch SE in the comparison and the PE tables, `PE_se` on the port total,
+`Dungeness_SE` on the PE summary, and a PE-reported component carried into the port draws with
+its SE), and one defect: B73's edit put a `PE catch SE` column on the incomplete-trip sensitivity
+table, whose frame has no such column, so the gear stage of the 2025-26 readiness render (B75)
+failed at its last chunk, 36.5 min in, with its three fits complete and cached. Removed in
+`cee229b`; the re-render from the cache completed, and the cross-check of the readiness render
+passes at -0.24% (gear 47,365 against pooled 47,480; a reading, not an estimate, D18). The harness
+parses the drivers and does not execute them, which is why a driver edit needs a render.
+
+### 2026-10-19, A40: THE IDENTIFICATION FLOOR IN THE GEAR PREP; THE CROSS-CHECK OF THE AUTHORITATIVE RUN, -0.25% (B70)
+
+`prep_bss_crab_gear.R` switches the per-day effort effect off for a fit whose sampled days with two or
+more counts fall below `effort_day_effect_min_repeat_days` (5), the same construction as the pooled prep
+(A40, Matt's option (a) for B69): on 2024-25 the gear boat all-gear fit carries the term (45 such days)
+and the gear pot-closure fits do not (0 and 1), so those are the model without it bit for bit. The
+gear program is unchanged from A39. Rendered the same day (B70): every clause met on the gear track, its pot-closure fits identical to B67 draw for draw, its all-gear fits identical to B69, the cross-check -0.25% (86,285 against 86,497; its boat all-gear fit 35,350 against the pooled 35,462, its shore all-gear 31,075 against 31,130); the pooled render became the authoritative run the same day (Matt).
+
+### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT IN THE GEAR PROGRAM (PENDING ITS RENDER)
+
+`crab_bss_gear_resolved.stan` and `prep_bss_crab_gear.R` gain the per-day effort effect the pooled
+program carries since B68 (D45; Matt: "adopt the D45 lever on both tracks"): every gear and trailer
+count's expectation is multiplied by `exp(sigma_uE * uE[day] - sigma_uE^2 / 2)`, one `uE` per
+sampled day shared by its repeat counts, `sigma_uE ~ half-normal(0, effort_day_effect_sd)`; the
+totals carry the shore's fitted deviation on sampled days (`eday_of_day` from the gear counts only;
+the boat keeps the level OSP pins). Zero-size and the literal 1.0 when `effort_day_effect = FALSE`,
+checked draw for draw on the boat pot-closure fit (campaign 1z.15). The driver extracts
+`sigma_uE_out` when the effect is on. Rendered the same day (B69): the gear track met every clause itself (its shore pot-closure fit's `sigma_uE` n_eff 413, the cross-check -0.06%), the pooled track's same fit did not (301), and per the rule the key is back to FALSE pending Matt's decision (CHANGE_REGISTER A39, B69).
+
+### 2026-10-17, THE CROSS-CHECK UNDER A35 TO A38: -0.27% (B67)
+
+The Saturday/Sunday split (A36) reached this track's Stan program and prep in the same form as
+the pooled's (a Sunday increment `B1_sun` on the effort process, zero-size when off), the holiday
+prior through the same `holiday_prior_sd`, the boat I/E path through the same `use_boat_ie`
+(A37), and the port total through the same `bss_couple_component_draws()` (A38). On the
+2026-10-17 container render of the shipped file this track gave **85,878 [72,425, 103,666]**
+against the pooled 86,113, -0.27%, PASS; its boat all-gear fit 35,155 against the pooled 35,403,
+its Sunday increment -0.11 [-0.45, 0.23] on that fit (the pooled -0.11 [-0.44, 0.22]), all four
+fits through the gate with `B1_sun` clean. The pooled render became the authoritative run on
+2026-10-18 (B67).
+
+### 2026-10-02, D3 AND D6 ADOPTED TOGETHER: THE CROSS-CHECK -0.53% (CHANGE_REGISTER A32)
+
+The authoritative batch (`06_diagnostics/run_authoritative_batch_2026-09-29.R`, campaign Sections
+1z.9 and 1z.10) rendered this track at the per-population periods (D3: the shore at the pooled
+track's weekly all-gear and biweekly pot closure, the boat unchanged) and with the zero-inflated
+shore catch (D6), each at two seeds. D3 alone trapped a chain in the shore all-gear fit at the
+shipped seed (1,546 of 2,000 draws divergent; R-hat 2.2 on `mu_mu_C` and the weekly `omega_C`,
+the divergent draws at high `phi_C`) and passed at the second; D3 with D6 passed at both. D6
+against a converged D3: +10.1 nats at 2.14 paired SE. Matt adopted the two together:
+`gear_period_bss` ships per population and `catch_zi_tracks` ships `c("pooled",
+"gear_resolved")`. No code moved on this track, so the framework number stays 6.0. **The
+cross-check is now `05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi`,
+99,294 [82,154, 123,380], -0.53% against the pooled 99,822** (stage D6, which is this
+track's render of the shipped file; it was -1.44% at stage A's own gear render). By component
+(medians of the 2,000 saved draws on both tracks, as the batch's tables read them; the full
+posterior gives 32,450 / 9,538 / 46,683 / 1,298 here and 32,455 / 9,505 / 47,105 / 1,378 pooled)
+the remaining gap: shore all-gear 32,437 against the pooled 32,246 (+0.6%), shore pot closure
+9,543 against 9,534, boat all-gear 46,849 against 47,192 (-0.7%), boat pot closure 1,307
+against 1,361 at this track's biweekly against the pooled monthly, the one period still
+unmatched.
 
 ### 2026-09-29 (second entry), WHAT THE POOLED FIXES CHANGED ON THIS TRACK
 
@@ -44,7 +119,7 @@ labels; every earlier gear total, 93,274 included, summed the predictive catch),
 `R_G` prior from the season's interviews rather than the 2024-25 literal 1.3; the tau
 sensitivity over every boat all-gear sub-season; `season_totals.csv` and `session_info.txt`
 written; a banner that names the modelled season), and B51 (every chain within `init_r = 0.5`,
-as on the pooled track; not yet rendered). By component the gap is the known one: shore all-gear
+as on the pooled track; rendered 2026-09-29 in B57: 98,382 [81,145, 122,466], every fit passing). By component the gap is the known one: shore all-gear
 -2.8% at this track's monthly AR against the pooled weekly (D3), boat pot closure -6.2% at
 biweekly against monthly.
 
@@ -514,7 +589,7 @@ The 20260710 run is the first in which all three fitted components report on the
 > is centred on the OSP/trailer calibration, 3.03 on 2024-25, and the shared `tau_bar` is fitted
 > to the OSP counts; GR-12), and `private_boat_ring_net` does fit and reports BSS (four of four
 > fits pass the gate in the 2026-09-11 reference run R5; GR-15). The zero-inflation block was
-> ported 2026-09-13 and ships off (`catch_zi_tracks = "pooled"`). For the authoritative numbers,
+> ported 2026-09-13 and shipped off until 2026-10-02 (A32: on since). For the authoritative numbers,
 > the box at the top of `development_notes/PIPELINE_STATUS.md`.
 
 For a reader running the model at framework v5.6 (2026-07-12), the production state was:

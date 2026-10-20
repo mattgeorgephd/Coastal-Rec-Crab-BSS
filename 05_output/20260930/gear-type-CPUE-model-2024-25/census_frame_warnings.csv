@@ -1,0 +1,4 @@
+"n","warning"
+1,"ROSTER-ONLY DAYS: 8 charter trip(s) on 8 day(s) with no vessel tally. They are in the frame because charter_frame = 'roster' unions the roster with the tally; a tally-only frame would carry 0 crab on those days."
+2,"FRAMES DISAGREE on 6 tally day(s): the vessel tally and the charter roster give different trip counts. The larger of the two is used. See roster_reconciliation in census_roster_reconciliation.csv."
+3,"UNSAMPLED DAYS TREATED AS NO OPERATION: 23 calendar day(s) in the census window have no tally row, and census_expansion = 'none' records them as days on which no vessel operated rather than imputing them. That is what the tally means; it is stated here because the alternative (census_expansion = 'day_type') would add catch on those days."

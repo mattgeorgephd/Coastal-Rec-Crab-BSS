@@ -1,5 +1,7 @@
 # Phase 2b: crabbing fraction f applied to the Point Estimate
 
+> **STATUS 2026-09-29: HISTORICAL.** Superseded by the dynamic `f` (A18, 2026-09-08). The PE's point fraction is now `crab_fraction_point_day()` in `03_R_functions/crab_fraction.R`; `crab_fraction_point()` below no longer exists. Read this note for how the PE came to carry `f`, not for the current code.
+
 **Applies after:** the Phase 2 patch. **Scope:** the design-based PE (`run_pe_pooled.R`, `run_pe_gear.R`) plus a one-line driver hand-off. Small follow-up to Phase 2; no Stan change. **Status:** inherits the Phase 2 toggles (`use_crab_fraction`, `crab_fraction_set = 0.3`); FALSE reproduces the pre-Phase-2 boat PE exactly. R not executed here; validate by run.
 
 ## Why

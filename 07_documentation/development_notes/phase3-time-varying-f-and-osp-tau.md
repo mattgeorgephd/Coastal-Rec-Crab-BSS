@@ -1,5 +1,7 @@
 # Phase 3: time-varying f (by stratum) + optional OSP-informs-tau
 
+> **STATUS: HISTORICAL (banner added 2026-10-02).** The defaults it describes are not the shipped ones: `crab_fraction_strata = "month"` with the dynamic f (A18) and `osp_scale_is_tau = TRUE` ship. For the current model see `../BSS-GH-pooled-CPUE-model-documentation.md` and, for the authoritative run, the box at the top of `PIPELINE_STATUS.md`.
+
 **Applies after:** the Phase 2b patch. **Scope:** both tracks. **Status:** behavior-neutral by default: `crab_fraction_strata = "none"` reproduces the Phase 2 scalar f exactly, and `osp_scale_is_tau = FALSE` reproduces the Phase 1 OSP scale exactly. Opt into each feature per run. R/Stan not executed here; validate by run.
 
 ## Part 1: time-varying f by stratum (the main deliverable)

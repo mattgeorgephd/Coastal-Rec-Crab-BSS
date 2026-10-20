@@ -1,0 +1,11 @@
+stage: A
+part: pooled
+digest: 3159220c2d97
+code: stan:73a6cf27 drivers:a99d985c fns:ce3697fa orch:0f089295
+inputs: 8326377a
+manifest: C:/Users/mattg/Desktop/github/FWC-estimation-method/05_output/20260929/run_manifest_20260929_220448.txt
+git: 2523e8e
+written: 2026-09-30 03:11:29
+
+# run_authoritative_batch_2026-09-29.R writes this after a stage renders. RESUME reuses
+# a folder ONLY when its digest matches the stage being requested.

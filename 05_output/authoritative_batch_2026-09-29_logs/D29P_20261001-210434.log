@@ -1,0 +1,97 @@
+
+
+processing file: BSS-GH-pooled-CPUE-model.Rmd
+  |                                                |                                        |   0%  |                                                |                                        |   1%                                |                                                |.                                       |   1% [setup]                        |                                                |.                                       |   2%                                |                                                |.                                       |   3% [config]                                                     |                                                |..                                      |   4% [config-show]                                                |                                                |..                                      |   5% [load-data]                    |                                                |..                                      |   6%                                |                                                |...                                     |   6% [inputs-show]                  |                                                |...                                     |   7%                                |                                                |...                                     |   8% [input-figures]                                              |                                                |....                                    |   9% [input-figures-show]           |                                                |....                                    |  10%                               [turnover-show]                |                                                |....                                    |  11%                                |                                                |.....                                   |  12% [turnover-figs]                                              |                                                |.....                                   |  13% [osp-overlap-fig]                                            |                                                |......                                  |  14% [ie-analysis]                  |                                                |......                                  |  15%                               [ie-analysis-show]             |                                                |......                                  |  16%                                |                                                |.......                                 |  17% [ie-representativeness]                                      |                                                |.......                                 |  18% [fishery-spillover]            |                                                |.......                                 |  19%                                |                                                |........                                |  19% [opener-covariate-decision]    |                                                |........                                |  20%                                |                                                |........                                |  21% [opener-screen-show]                                         |                                                |.........                               |  22% [marine-hazard-decision]                                     |                                                |.........                               |  23% [marine-hazard-show]           |                                                |.........                               |  24%                                |                                                |..........                              |  24% [pe-estimates]                 |                                                |..........                              |  25%                                |                                                |..........                              |  26% [pe-thin-cells-show]           |                                                |...........                             |  26%                                |                                                |...........                             |  27% [pe-sensitivity]               |                                                |...........                             |  28%                               [pe-sensitivity-show]          |                                                |............                            |  29%                               [pe-comm]                      |                                                |............                            |  30%                                |                                                |............                            |  31% [pe-comm-show]                 |                                                |.............                           |  31%                                |                                                |.............                           |  32% [pe-port]                      |                                                |.............                           |  33%                               [pe-port-show]                 |                                                |..............                          |  34%                                |                                                |..............                          |  35% [pe-consistency-show]                                        |                                                |..............                          |  36% [bss-fits]                   starting worker pid=21628 on localhost:11272 at 21:05:28.383
+starting worker pid=18452 on localhost:11272 at 21:05:28.530
+starting worker pid=31128 on localhost:11272 at 21:05:28.669
+starting worker pid=30660 on localhost:11272 at 21:05:28.808
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.00066 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 6.6 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 1: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 1: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 1: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 1: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000664 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 6.64 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 1: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 1: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 1: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 48.884 seconds (Warm-up)
+Chain 1:                28.155 seconds (Sampling)
+Chain 1:                77.039 seconds (Total)
+Chain 1: 
+Chain 2: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 2: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 2: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 2: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 2: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 2: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 2: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 2: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 48.121 seconds (Warm-up)
+Chain 2:                24.667 seconds (Sampling)
+Chain 2:                72.788 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000594 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 5.94 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 3: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 3: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 3: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 3: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 3: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 3: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 3: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 3: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 3: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+
+SAMPLING FOR MODEL 'anon_model' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.001309 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 13.09 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 3: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 3: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 52.031 seconds (Warm-up)
+Chain 3:                49.833 seconds (Sampling)
+Chain 3:                101.864 seconds (Total)
+Chain 3: 
+Chain 4: Iteration:  300 / 3000 [ 10%]  (Warmup)
+
+
+Quitting from BSS-GH-pooled-CPUE-model.Rmd:1290-1791 [bss-fits]
+                                                                                                                        
+Execution halted

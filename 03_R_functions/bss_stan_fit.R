@@ -227,6 +227,84 @@ bss_assert_fit_usable <- function(fit, label = NULL, console = character(0)) {
 }
 
 # ---------------------------------------------------------------------------
+# 2026-10-17 (CHANGE_REGISTER B66). A RENDER CHECKPOINTED PER FIT.
+#
+# A production render has eight fits of up to an hour each and, until B66, no way to resume:
+# a container reset killed the 2026-10-03 overnight batch and the first A35/A36 batch of
+# 2026-10-16 with their fits in memory. With the environment variable BSS_FIT_CACHE_DIR set
+# (nothing in run_config.R; the shipped file stays as shipped), bss_stan_fit() computes a key
+# from the Stan program's text, the Stan data, the sampler arguments (chains, iterations,
+# warmup, control, init_r) and the seed, with `cores` and the log path left out because they
+# do not touch the draws, and:
+#   * if <dir>/<label>_<key>.rds holds a usable stanfit, LOADS it instead of sampling and says
+#     so on the console, in the fit's stan_console_*.log, and in run_warnings.csv (a note);
+#   * otherwise samples exactly as before and SAVES the fit after the B38 permutation, so a
+#     loaded fit is the sampled one draw for draw. A failed fit is never saved.
+# Unset, bss_fit_cache_dir() is NULL and nothing below is touched: bit-identical behaviour.
+# The sampling body is unchanged and lives in .bss_stan_fit_sample(); bss_stan_fit() wraps it.
+# ---------------------------------------------------------------------------
+bss_fit_cache_dir <- function() {
+  d <- Sys.getenv("BSS_FIT_CACHE_DIR", unset = "")
+  if (!nzchar(d)) NULL else d
+}
+bss_fit_cache_key <- function(file, data, args) {
+  args <- as.list(args)
+  args <- args[setdiff(names(args), c("cores", "log_file", "diagnose_empty"))]
+  args <- args[order(names(args))]
+  code <- tryCatch(paste(readLines(file, warn = FALSE), collapse = "\n"), error = function(e) NA_character_)
+  # B71 (2026-10-19): the preps attach metadata to the data list as TOP-LEVEL attributes (ar_resolution,
+  # cpue_data, f_strata, opener_labels, effort_day_repeat_days, ...), none of which reaches Stan. Hashing
+  # them made every A40 fit a cache miss when A40 added one attribute: the all-gear fits were re-sampled
+  # (identically) instead of loaded. Only the list's names survive into the key; each element keeps its
+  # own attributes (a matrix's dim is Stan data).
+  data <- bss_fit_cache_strip(data)
+  digest::digest(list(code = code, data = data, args = args), algo = "md5")
+}
+bss_fit_cache_strip <- function(data) {
+  if (!is.list(data)) return(data)
+  nm <- names(data)
+  attributes(data) <- NULL
+  if (!is.null(nm)) names(data) <- nm
+  data
+}
+bss_fit_cache_path <- function(dir, label, key) {
+  lab <- if (is.null(label) || !nzchar(label)) "fit" else gsub("[^A-Za-z0-9._-]+", "_", label)
+  file.path(dir, sprintf("%s_%s.rds", lab, key))
+}
+bss_fit_cache_load <- function(path, label = NULL, log_file = NULL) {
+  if (is.null(path) || !file.exists(path)) return(NULL)
+  fit <- tryCatch(readRDS(path), error = function(e) NULL)
+  if (is.null(fit) || !inherits(fit, "stanfit") || !bss_fit_has_draws(fit)) return(NULL)
+  lab <- if (is.null(label) || !nzchar(label)) "fit" else label
+  note <- sprintf("[fit cache] %s: loaded from %s and NOT sampled (the Stan program, the data, the sampler settings and the seed match the saved fit)", lab, path)
+  cat("  ", note, "\n", sep = "")
+  if (!is.null(log_file)) try(writeLines(note, log_file), silent = TRUE)
+  if (exists("bss_warn", mode = "function")) try(bss_warn("fit cache", note, severity = "note"), silent = TRUE)
+  fit
+}
+bss_fit_cache_save <- function(fit, path, label = NULL) {
+  lab <- if (is.null(label) || !nzchar(label)) "fit" else label
+  ok <- tryCatch({ dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE); saveRDS(fit, path); TRUE },
+                 error = function(e) FALSE)
+  cat(sprintf("  [fit cache] %s: %s %s\n", lab, if (ok) "saved to" else "COULD NOT be saved to", path))
+  invisible(ok)
+}
+bss_stan_fit <- function(file, data, label = NULL, log_file = NULL,
+                         diagnose_empty = TRUE, ...) {
+  cache_dir <- bss_fit_cache_dir()
+  cache_path <- NULL
+  if (!is.null(cache_dir)) {
+    cache_path <- bss_fit_cache_path(cache_dir, label, bss_fit_cache_key(file, data, list(...)))
+    hit <- bss_fit_cache_load(cache_path, label, log_file)
+    if (!is.null(hit)) return(hit)
+  }
+  fit <- .bss_stan_fit_sample(file = file, data = data, label = label, log_file = log_file,
+                              diagnose_empty = diagnose_empty, ...)
+  if (!is.null(cache_path)) bss_fit_cache_save(fit, cache_path, label)
+  fit
+}
+
+# ---------------------------------------------------------------------------
 # The call the drivers make. Signature mirrors rstan::stan() for the arguments the
 # pipeline uses; `label` and `log_file` are ours.
 #
@@ -252,8 +330,8 @@ bss_assert_fit_usable <- function(fit, label = NULL, console = character(0)) {
 # this process, so no log file is written for it. A log file present next to a fit's other
 # outputs means rstan had something to say; a failure always produces one.
 # ---------------------------------------------------------------------------
-bss_stan_fit <- function(file, data, label = NULL, log_file = NULL,
-                         diagnose_empty = TRUE, ...) {
+.bss_stan_fit_sample <- function(file, data, label = NULL, log_file = NULL,
+                                 diagnose_empty = TRUE, ...) {
 
   bss_assert_stan_data(data, file, label = label)
 

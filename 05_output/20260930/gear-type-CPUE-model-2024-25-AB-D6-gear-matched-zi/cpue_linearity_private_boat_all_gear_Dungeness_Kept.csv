@@ -1,0 +1,2 @@
+"fit","n_obs","beta_h","beta_h_se","beta_h_lo95","beta_h_hi95","assumed_beta_h","linearity_flag","effort_unit","status"
+"private_boat_all_gear_Dungeness_Kept",130,0.765613761089788,0.147167682599818,0.477165103194146,1.05406241898543,1,FALSE,"gear-deployments","estimated"
