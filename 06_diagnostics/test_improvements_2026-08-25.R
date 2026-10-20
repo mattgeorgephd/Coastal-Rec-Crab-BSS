@@ -8265,10 +8265,10 @@ local({
       grepl("| D49 | **A fit whose shared turnover is REFUSED rests on independent per-day prior draws", cr, fixed = TRUE) && grepl("| D50 | **The 2025-26 PE/BSS gaps", cr, fixed = TRUE) &&
       grepl("The 2025-26 readiness render (B75, 2026-10-19) ran on this record as described", cr, fixed = TRUE) &&
       grepl("| R5, the day-effect-off refit of the boat all-gear fit | MET BY THE RULE |", vc, fixed = TRUE) && grepl("**D49, the finding the render makes", vc, fixed = TRUE) &&
-      grepl("**The readiness render (B75, 2026-10-19, campaign 1z.18)** ran this block end to end", gd, fixed = TRUE) && grepl("(D49; section 12.2 of the pooled report says so on the fit's row)", gd, fixed = TRUE) &&
-      grepl("lands at the lognormal MEAN, 13% above the centre (D49, Matt's decision; no 2024-25 fit is affected)", cl, fixed = TRUE) &&
-      grepl("**16. A fit whose shared turnover is refused rests on per-day prior draws whose season sum sits at the lognormal mean (D49", md, fixed = TRUE) &&
-      grepl("**What the refusal leaves behind (D49, found by the 2025-26 readiness render, B75, 2026-10-19).**", md, fixed = TRUE) &&
+      grepl("**The readiness render (B75, 2026-10-19, campaign 1z.18)** ran this block end to end", gd, fixed = TRUE) && grepl("(section 12.2 of the pooled report says so on the fit's row)", gd, fixed = TRUE) &&
+      grepl("landed at the lognormal MEAN, 13% above the centre (D49): since A41 (2026-10-20, Matt's option (iii)) such a fit keeps", cl, fixed = TRUE) &&   # repointed 2026-10-20 (A41)
+      grepl("**16. A fit below the shared-turnover floor has no data on its turnover, and says so (D49", md, fixed = TRUE) &&   # repointed 2026-10-20 (A41)
+      grepl("**What a refused fit runs (A41, 2026-10-20; D49 closed).**", md, fixed = TRUE) &&
       grepl("**B75 read 21:10Z (campaign 1z.18)", st, fixed = TRUE) && grepl("**Readiness renders are not estimates.**", ro, fixed = TRUE))
 })
 
@@ -8307,7 +8307,41 @@ local({
       grepl('if (identical(.rf, "shared_prior")) " (A41: below the floor, no day observes it; this is its prior, carried whole)"', rdf("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd"), fixed = TRUE))
   for (p in c("06_diagnostics/run_improvements_2026-09-08.R", "06_diagnostics/run_marine_hazard_batch_2026-09-25.R"))
     chk(sprintf("A41 %s pins shared_tau_refusal = \"per_day\" in resolve_cfg()", basename(p)), grepl('cfg$shared_tau_refusal <- "per_day"', rdf(p), fixed = TRUE))
-  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
+  # The 12.2 chunk against B76's folder: the boat all-gear row carries its tau_bar (the prior) with the A41 note.
+  d <- "05_output/20261020/pooled-CPUE-season-2025-26"
+  if (file.exists(file.path(d, "fit_data_summary.csv")) && file.exists("03_R_functions/bss_effort_spec.R")) {
+    e <- new.env(); sys.source("03_R_functions/bss_effort_spec.R", envir = e)
+    e$`%||%` <- function(a, b) if (is.null(a)) b else a
+    e$output_dir <- d
+    e$fmt_ci <- function(m, lo, hi, digits = 0) sprintf(paste0("%.", digits, "f [%.", digits, "f, %.", digits, "f]"), m, lo, hi)
+    e$short_fit <- function(x) gsub("_Dungeness_Kept$", "", gsub("private_boat", "boat", gsub("_ring_net_only", " pot-closure", gsub("_all_gear", " all-gear", x))))
+    e$.tau_tab <- NULL
+    e$report_table <- function(x, caption = NULL, ...) { assign(".tau_tab", x, envir = e); invisible(NULL) }
+    e$read_fit_outputs <- function(prefix, dir = d) { fs <- list.files(dir, pattern = paste0("^", prefix, "_.*\\.csv$"), full.names = TRUE)
+      do.call(rbind, lapply(fs, function(f) { x <- utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE)
+        x$fit_lbl <- e$short_fit(sub(paste0("^", prefix, "_"), "", tools::file_path_sans_ext(basename(f)))); x })) }
+    e$params <- list(tau_shore_prior_mu = 2.516, tau_shore_prior_sigma = 0.1, tau_boat_prior_mu = 3.5, tau_boat_prior_sigma = 0.5, shared_tau_min_obs = list(shore = 0L, private_boat = 15))
+    src <- readLines("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", warn = FALSE); a <- grep("^```\\{r tau-show", src); b <- a + which(src[(a + 1):length(src)] == "```")[1]
+    r <- tryCatch({ eval(parse(text = src[(a + 1):(b - 1)]), envir = e); e$.tau_tab }, error = function(err) err)
+    chk("A41 turnover table (functional, B76's folder): three rows, the boat all-gear with its tau_bar at the prior, 3.503 [1.312, 9.338], and the A41 note, n_eff present",
+        is.data.frame(r) && nrow(r) == 3 && identical(r$Fit[3], "boat all-gear") && identical(r$`Informed days`[3], "0 (floor 15)") &&
+        grepl("^3\\.503 \\[1\\.312, 9\\.338\\] \\(A41: below the floor, no day observes it; this is its prior, carried whole\\)$", r$`tau_bar posterior`[3]) && nzchar(r$n_eff[3]))
+    fd <- utils::read.csv(file.path(d, "fit_data_summary.csv"), stringsAsFactors = FALSE)
+    chk("A41 B76 folder: fit_data_summary.csv carries shared_tau_refusal, shared_prior on the boat all-gear and none on the shore fits",
+        "shared_tau_refusal" %in% names(fd) && identical(fd$shared_tau_refusal[fd$fit == "private_boat_all_gear_Dungeness_Kept"], "shared_prior") &&
+        all(fd$shared_tau_refusal[grepl("^shore", fd$fit)] == "none"))
+  }
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md")
+  cl <- rdf("07_documentation/CLAUDE.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); ro <- rdf("05_output/README.md")
+  chk("A41 docs: the B76 row reads DONE with every clause met, the A41 status names B76; the campaign has 1z.19 with the clause table; the guide, CLAUDE.md, the method document, the status document and the output README carry A41; the method document's limitation 4 closes D19",
+      grepl("| B76 | **A41's two renders on the container**", cr, fixed = TRUE) && grepl("**DONE 2026-10-20 for the 2025-26 render (05:00Z to 05:46Z, `e7dea7c`; every clause of the A41 rule it can test met on both tracks; cross-check PASS at -0.47%)", cr, fixed = TRUE) &&
+      grepl("**ADOPTED 2026-10-20; RENDERED the same day (B76): clauses (2) to (6) met on both tracks", cr, fixed = TRUE) &&
+      grepl("### 1z.19 A41: a fit below the shared-turnover floor keeps one unobserved `tau_bar`; D19 closed (2026-10-20)", vc, fixed = TRUE) && grepl("| (3) `tau_bar` at its prior | MET | 3.503 [1.312, 9.338]; contraction -0.003 | 3.513 [1.294, 9.150]; contraction 0.012 |", vc, fixed = TRUE) &&
+      grepl("flagged A41: below the floor no day observes it", gd, fixed = TRUE) && grepl("`shared_tau_refusal = \"per_day\"` restores the former per-day draws", gd, fixed = TRUE) &&
+      grepl("`shared_tau_refusal` (A41, 2026-10-20, beside the floor:", cl, fixed = TRUE) && grepl("and D19 was CLOSED on 2026-10-20 (Matt: keep `local`).", cl, fixed = TRUE) &&
+      grepl("**What a refused fit runs (A41, 2026-10-20; D49 closed).**", md, fixed = TRUE) && grepl("**16. A fit below the shared-turnover floor has no data on its turnover, and says so (D49", md, fixed = TRUE) &&
+      grepl("not settled until 2026-10-20 (D19 closed by Matt, keeping `local`).**", md, fixed = TRUE) &&
+      grepl("[NEW 2026-10-20, A41; D49 CLOSED; D19 CLOSED]", st, fixed = TRUE) && grepl("(B76, 2026-10-20, under A41) and their predecessors in `05_output/20261019/` (B75, before A41)", ro, fixed = TRUE))
   chk("A41 register: the A41 row with its rule written before the renders, D49 CLOSED by A41, D19 CLOSED keeping local",
       grepl("| A41 | **THE REFUSED SHARED TURNOVER KEEPS ONE UNOBSERVED `tau_bar` (D49 option (iii), Matt's decision)**", cr, fixed = TRUE) &&
       grepl("**THE RULE (A41, written 2026-10-20 before either render).**", cr, fixed = TRUE) &&

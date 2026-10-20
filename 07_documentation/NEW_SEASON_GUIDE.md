@@ -164,21 +164,25 @@ pot closure, so the boat ALL-GEAR fit has no OSP stream and its shared turnover 
 2025-26 boat or port figure before the full OSP record is in. The tally has 23 days and the charter roster 11 Westport trips (9 inside the census window).
 
 **The readiness render (B75, 2026-10-19, campaign 1z.18)** ran this block end to end on both
-tracks on the container (`b03743a`; `05_output/20261019/pooled-CPUE-season-2025-26` and
-`gear-type-CPUE-model-season-2025-26`): 38 min for the pooled stage's three fits, about the same
-for the gear's, 8 min for a re-render from the fit cache. What a 2025-26 run looks like on this
-record, so you recognise it: the shore pot closure fits at biweekly AR (912 interviews), the
-shore all-gear at weekly (3,844), the boat all-gear at monthly (268 interviews, 369 trailer
-counts), every gate passing; the boat pot closure (2 interviews) is PE with a CV of 1.0, and
-its row in the component table shows the point with the quantiles of the draws the port total
-carries for it; the cross-check passes (-0.24%). Section 12.2 of the pooled report shows the
-boat all-gear fit's turnover as REFUSED with the per-day prior its `L` sits at (median 3.50,
-mean 3.97): read CHANGE_REGISTER D49 before reading the boat effort, because under the refusal
-the season effort is centred on that mean, 13% above the calibration centre, and the turnover's
-uncertainty is averaged away. The shore all-gear fit's turnover follows its 16 in-window I/E
-days (2.30 against the derived centre 2.52 the PE applies), which is part of why the PE and the
-BSS disagree on this season (D50: -22.5% shore all-gear, +28.9% boat all-gear; expected, and to
-be examined on the complete data, not a stop). None of the render's figures is an estimate.
+tracks on the container (`b03743a`), and B76 (2026-10-20, `e7dea7c`, campaign 1z.19) re-rendered it
+under A41: `05_output/20261020/pooled-CPUE-season-2025-26` and `gear-type-CPUE-model-season-2025-26`
+are the current readiness record, the `20261019` folders the pre-A41 one. Timings: 38 min for the
+pooled stage's three fits on the first attempt, about the same for the gear's, 8 min for a re-render
+from the fit cache, 20 min for one boat all-gear fit. What a 2025-26 run looks like on this record,
+so you recognise it: the shore pot closure fits at biweekly AR (912 interviews), the shore all-gear
+at weekly (3,844), the boat all-gear at monthly (268 interviews, 369 trailer counts), every gate
+passing; the boat pot closure (2 interviews) is PE with a CV of 1.0, and its row in the component
+table shows the point with the quantiles of the draws the port total carries for it; the
+cross-check passes (-0.47% under A41). Section 12.2 of the pooled report shows the boat all-gear
+fit's turnover as its prior, 3.50 [1.31, 9.34], flagged A41: below the floor no day observes it
+(before A41 the fit ran per-day draws whose season sum sat 13% above the centre, D49). So the boat
+all-gear effort of this season is centred on the 14-pair autumn calibration and carries the prior's
+whole uncertainty, 10,652 [4,008, 30,698] deployments, a factor of 2.7 either way, which nothing
+but OSP's days can narrow; the port interval, 45,233 [30,855, 83,978], is wide for the same reason.
+The shore all-gear fit's turnover follows its 16 in-window I/E days (2.30 against the derived
+centre 2.52 the PE applies), which is part of why the PE and the BSS disagree on this season (D50:
+-22.5% on the shore all-gear, +16.1% on the boat all-gear after A41; expected, and to be examined
+on the complete data, not a stop). None of the render's figures is an estimate.
 
 **A two-season span, 2024-26: the mechanical example** (not yet a run to make: wait until the
 2025-26 data, its OSP record included, are complete). The multi-season keys, per season in
@@ -218,7 +222,7 @@ reads their trailer counts descriptively; neither is a model fit.
 | Run stops at "No crabbing holidays for season(s)" | The holiday calendar has no rows for a requested season | Extend the season/year range in `04_input_files/build_crabbing_holidays.R` and rebuild (`Rscript 04_input_files/build_all_inputs.R`). Never hand-edit `crabbing_holidays.xlsx`: it is built, and a hand edit is discarded by the next rebuild |
 | Run stops because the window spans more than one season but `pot_closures` is NULL | `season_filter` names several seasons, or the window is longer than 366 days, with the single-season closure keys | Set `pot_closures` and `census_windows` (section 7), or narrow the window |
 | Run stops in `bss_output_dir()` on the run tag | `run_tag` carries a season token (`2024-25`) that is not in `season_filter` | Change `run_tag` with the window |
-| `run_warnings.csv`: "Shared boat turnover REFUSED for this fit" | That boat fit has fewer than `shared_tau_min_obs` days that can inform the turnover (OSP + boat I/E); it falls back to per-day draws | Expected on a fit with no OSP days (2025-26's all-gear fit until OSP's spring/summer days arrive, D18); get the OSP record before citing the boat. Meanwhile know what the fallback does: the per-day draws are lognormal at the prior, and their season sum sits at the lognormal MEAN, centre x exp(sigma^2 / 2), 13% above the centre at the shipped log-SD 0.5, with the turnover's uncertainty averaged over the days (D49; section 12.2 of the pooled report says so on the fit's row) |
+| `run_warnings.csv`: "Shared boat turnover REFUSED for this fit" | That boat fit has fewer than `shared_tau_min_obs` days that can inform the turnover (OSP + boat I/E); it falls back to per-day draws | Expected on a fit with no OSP days (2025-26's all-gear fit until OSP's spring/summer days arrive, D18); get the OSP record before citing the boat. Meanwhile know what the fit runs (A41, 2026-10-20): one `tau_bar` at its prior that no day observes, so the boat effort is centred on the calibration centre and carries the prior's whole uncertainty, a factor of 2.7 either way at the shipped log-SD 0.5 (section 12.2 of the pooled report says so on the fit's row); `shared_tau_refusal = "per_day"` restores the former per-day draws, whose season sum sits 13% above the centre with the uncertainty averaged away (D49) |
 | "OSP boat-count days in window: 0" | No OSP coverage; stream absent, boat runs trailer-only, `f` lower bound inert | Expected when OSP did not operate; nothing to fix |
 | "tau_shore prior: the turnover derivation is unavailable" | Fewer than `tau_shore_derive_min_days` I/E days with the `time` column | The shore turnover is centred on the 2.477 fallback (log-SD 0.3); the report's warnings section says so. Add I/E days, or set `tau_shore_prior_mu` to a number you can defend |
 | "tau_boat prior: no OSP/trailer overlap calibration" | No OSP file, a failed overlap diagnostic, or fewer than 3 paired days | The boat turnover is centred on the 3.03 fallback (the 2024-25 calibration); check `osp_trailer_overlap_calibration.csv` and the warnings section |

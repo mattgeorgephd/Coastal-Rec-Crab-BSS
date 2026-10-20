@@ -15,6 +15,21 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-10-20, A41: A FIT BELOW THE SHARED-TURNOVER FLOOR KEEPS ONE UNOBSERVED tau_bar (D49 OPTION (iii), MATT); D19 CLOSED KEEPING local
+
+Matt's two decisions. A41: `bss_shared_tau_data()` no longer falls back to per-day draws below the
+informed-day floor; under the shipped `shared_tau_refusal = "shared_prior"` it keeps the shared
+structure (one `tau_bar ~ lognormal(log(centre), tau_boat_prior_sigma)` scaling every day with the
+fixed day spread) and flags the refusal, and the prep then sets `osp_scale_is_tau = 0` for that fit
+and drops its boat I/E stream, so no day observes the level: the boat effort of a season without OSP
+days is centred on the calibration centre and carries the prior's whole uncertainty, where the
+per-day draws had centred it 13% above and averaged the uncertainty away (D49). `"per_day"` is
+the former fallback bit for bit. The refusal mode travels as an attribute of the Stan data list, so
+the fit cache key and every 2024-25 data list are untouched (checked by dump, both tracks, every
+fit); `fit_data_summary.csv` gains `shared_tau_refusal`, `structural_params` marks the unobserved
+`tau_bar`, and section 12.2 says the level is its prior. The rule is CHANGE_REGISTER A41, written
+before the renders (B76). D19: `pe_empty_stratum = "local"` stays, closed on the B70 re-measurement.
+
 ### 2026-10-19, B72 TO B75: THE OSP ABSENT-DAY KEY, THE PE CATCH SE IN THE REPORT, AND THE 2025-26 READINESS RENDER'S REPORT FIXES
 
 Reporting and reader changes while OSP's answers are awaited; no Stan data and no fit changes

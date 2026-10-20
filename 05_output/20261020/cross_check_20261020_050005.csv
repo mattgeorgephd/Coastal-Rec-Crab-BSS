@@ -1,0 +1,2 @@
+"pooled_median","pooled_lo95","pooled_hi95","gear_median","gear_lo95","gear_hi95","gear_minus_pooled_pct","tolerance_pct","verdict","pooled_folder","gear_folder"
+45233,30855,83978,45019,30881,82521,-0.47,2,"PASS","pooled-CPUE-season-2025-26","gear-type-CPUE-model-season-2025-26"

@@ -19,6 +19,16 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-10-20, A41 IN THE GEAR PREP: THE SAME UNOBSERVED tau_bar BELOW THE FLOOR
+
+`prep_bss_crab_gear()` applies A41 as the pooled prep does: a boat fit below the shared-turnover
+floor keeps one `tau_bar` at its prior under `shared_tau_refusal = "shared_prior"`, with the fit's
+`osp_scale_is_tau` set to 0 and its boat I/E stream dropped, the refusal mode on the Stan data as an
+attribute. The gear Stan program is unchanged (both switches are data). Every 2024-25 gear fit's
+Stan data are identical before and after (dump), so the cross-check of the authoritative run does
+not move; on 2025-26 the gear boat all-gear fit differs in `shared_tau` and `osp_scale_is_tau` only,
+and is re-rendered under A41 beside the pooled track (B76).
+
 ### 2026-10-19, B72, B73 AND B75: THE OSP INGEST AND THE PE CATCH SE IN THE GEAR REPORT, AND THE DEFECT THE READINESS RENDER CAUGHT
 
 The same reader and reporting changes as the pooled driver's (B72: the OSP ingest stops on an

@@ -1,0 +1,4 @@
+"fit","attempt","ar_resolution","P_n","days","interviews","effort_obs","ie_obs","iter","warmup","max_treedepth","adapt_delta","init_r","level_collapse","minutes"
+"shore_ring_net_only_Dungeness_Kept",1,"biweekly",6,76,539,132,0,3000,1500,12,0.95,0.5,"both",0.2
+"shore_all_gear_Dungeness_Kept",1,"weekly",42,289,2253,505,16,5000,2500,14,0.95,0.5,"both",1
+"private_boat_all_gear_Dungeness_Kept",1,"monthly",10,289,247,369,0,5000,2500,13,0.99,0.5,"both",20.5
