@@ -38,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > turnover is REFUSED and its per-day turnover sits at the 14-pair autumn calibration prior, whose season sum
 > landed at the lognormal MEAN, 13% above the centre (D49): since A41 (2026-10-20, Matt's option (iii)) such a fit keeps
 > ONE `tau_bar` at its prior that no day observes, so its effort is centred on the calibration and carries the prior's
-> whole uncertainty; no 2024-25 fit is below the floor, so the authoritative run is unchanged; B76 (2026-10-20) re-rendered 2025-26 under it: the
+> whole uncertainty; no 2024-25 fit is below the floor, so the authoritative run is unchanged (a 2024-25 re-sample under A41 reproduced B70 draw for draw, B76); B76 (2026-10-20) re-rendered 2025-26 under it: the
 > boat all-gear effort 10,652 [4,008, 30,698] where the per-day draws gave 11,865 [8,586, 17,415], the port
 > 45,233 [30,855, 83,978], the cross-check -0.47%, nothing citable.
 >

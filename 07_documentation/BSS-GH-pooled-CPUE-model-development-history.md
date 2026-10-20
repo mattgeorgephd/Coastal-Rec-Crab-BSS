@@ -26,7 +26,7 @@ days is centred on the calibration centre and carries the prior's whole uncertai
 per-day draws had centred it 13% above and averaged the uncertainty away (D49). `"per_day"` is
 the former fallback bit for bit. The refusal mode travels as an attribute of the Stan data list, so
 the fit cache key and every 2024-25 data list are untouched (checked by dump, both tracks, every
-fit); `fit_data_summary.csv` gains `shared_tau_refusal`, `structural_params` marks the unobserved
+fit, and then by a 2024-25 re-sample that reproduced B70 draw for draw, B76); `fit_data_summary.csv` gains `shared_tau_refusal`, `structural_params` marks the unobserved
 `tau_bar`, and section 12.2 says the level is its prior. The rule is CHANGE_REGISTER A41, written
 before the renders (B76). D19: `pe_empty_stratum = "local"` stays, closed on the B70 re-measurement.
 

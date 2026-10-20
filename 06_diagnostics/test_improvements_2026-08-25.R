@@ -8334,14 +8334,25 @@ local({
   cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md")
   cl <- rdf("07_documentation/CLAUDE.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md"); st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); ro <- rdf("05_output/README.md")
   chk("A41 docs: the B76 row reads DONE with every clause met, the A41 status names B76; the campaign has 1z.19 with the clause table; the guide, CLAUDE.md, the method document, the status document and the output README carry A41; the method document's limitation 4 closes D19",
-      grepl("| B76 | **A41's two renders on the container**", cr, fixed = TRUE) && grepl("**DONE 2026-10-20 for the 2025-26 render (05:00Z to 05:46Z, `e7dea7c`; every clause of the A41 rule it can test met on both tracks; cross-check PASS at -0.47%)", cr, fixed = TRUE) &&
-      grepl("**ADOPTED 2026-10-20; RENDERED the same day (B76): clauses (2) to (6) met on both tracks", cr, fixed = TRUE) &&
+      grepl("| B76 | **A41's two renders on the container**", cr, fixed = TRUE) && grepl("**DONE 2026-10-20: the 2025-26 render (05:00Z to 05:46Z, `e7dea7c`; every clause of the A41 rule met on both tracks; cross-check PASS at -0.47%) and the 2024-25 re-sample", cr, fixed = TRUE) &&
+      grepl("**ADOPTED 2026-10-20; RENDERED the same day (B76): every clause met on both tracks, clause (1) by the dump and then by the 2024-25 re-sample, which reproduced B70 draw for draw", cr, fixed = TRUE) &&
+      grepl("**The 2024-25 re-sample reproduced B70 draw for draw (08:10Z to 10:30Z, `fa4977b`, clean tree).**", vc, fixed = TRUE) &&
       grepl("### 1z.19 A41: a fit below the shared-turnover floor keeps one unobserved `tau_bar`; D19 closed (2026-10-20)", vc, fixed = TRUE) && grepl("| (3) `tau_bar` at its prior | MET | 3.503 [1.312, 9.338]; contraction -0.003 | 3.513 [1.294, 9.150]; contraction 0.012 |", vc, fixed = TRUE) &&
       grepl("flagged A41: below the floor no day observes it", gd, fixed = TRUE) && grepl("`shared_tau_refusal = \"per_day\"` restores the former per-day draws", gd, fixed = TRUE) &&
       grepl("`shared_tau_refusal` (A41, 2026-10-20, beside the floor:", cl, fixed = TRUE) && grepl("and D19 was CLOSED on 2026-10-20 (Matt: keep `local`).", cl, fixed = TRUE) &&
       grepl("**What a refused fit runs (A41, 2026-10-20; D49 closed).**", md, fixed = TRUE) && grepl("**16. A fit below the shared-turnover floor has no data on its turnover, and says so (D49", md, fixed = TRUE) &&
       grepl("not settled until 2026-10-20 (D19 closed by Matt, keeping `local`).**", md, fixed = TRUE) &&
       grepl("[NEW 2026-10-20, A41; D49 CLOSED; D19 CLOSED]", st, fixed = TRUE) && grepl("(B76, 2026-10-20, under A41) and their predecessors in `05_output/20261019/` (B75, before A41)", ro, fixed = TRUE))
+  rp <- "05_output/20261020/A41-B70-reproduction"
+  if (dir.exists(rp)) {
+    pt <- function(f) utils::read.csv(file.path(rp, f), stringsAsFactors = FALSE)
+    chk("A41 B76 reproduction folder: the manifest (clean tree, fa4977b), the cross-check (-0.25% PASS), both warnings files, both port totals at B70's medians (86,497 and 86,285), and a README",
+        all(file.exists(file.path(rp, c("run_manifest_20261020_081004.txt", "cross_check_20261020_081004.csv", "run_warnings_pooled.csv", "run_warnings_gear.csv", "port_total_pooled.csv", "port_total_gear.csv", "README.md")))) &&
+        any(grepl("git tree    : clean", readLines(file.path(rp, "run_manifest_20261020_081004.txt"), warn = FALSE), fixed = TRUE)) &&
+        identical(pt("cross_check_20261020_081004.csv")$verdict, "PASS") && pt("cross_check_20261020_081004.csv")$pooled_median == 86497 && pt("cross_check_20261020_081004.csv")$gear_median == 86285 &&
+        pt("port_total_pooled.csv")$BSS_median[2] == 86497 && pt("port_total_gear.csv")$BSS_median[2] == 86285 &&
+        !dir.exists("05_output/20261020/pooled-CPUE-2024-25") && !dir.exists("05_output/20261020/gear-type-CPUE-model-2024-25"))
+  }
   chk("A41 register: the A41 row with its rule written before the renders, D49 CLOSED by A41, D19 CLOSED keeping local",
       grepl("| A41 | **THE REFUSED SHARED TURNOVER KEEPS ONE UNOBSERVED `tau_bar` (D49 option (iii), Matt's decision)**", cr, fixed = TRUE) &&
       grepl("**THE RULE (A41, written 2026-10-20 before either render).**", cr, fixed = TRUE) &&
