@@ -8383,7 +8383,9 @@ local({
   chk("B77 inventory: the workbook the merged head carried (razor-clam-dig-dates-2021-2026.xlsx, 2026-11-02) is on disk, inventoried as read by no code path, and indeed read by none",
       file.exists("04_input_files/razor-clam-dig-dates-2021-2026.xlsx") && grepl("| `razor-clam-dig-dates-2021-2026.xlsx` | none yet: read by NO code path |", ir, fixed = TRUE) &&
       grepl("`razor-clam-dig-dates-2021-2026.xlsx` (added 2026-11-02; read by no code path yet)", rm_, fixed = TRUE) &&
-      !any(grepl("razor-clam-dig-dates", unlist(lapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE), "run_config.R", "run_estimation.R"), readLines, warn = FALSE)), fixed = TRUE)))
+      # comment lines excepted: prep_fishery_events.R and run_config.R say in comments that the per-fishery
+      # razor-clam-dig-dates*.xlsx workbooks were RETIRED as sources on 2026-07-16, which is the point
+      !any(grepl("razor-clam-dig-dates", grep("^\\s*#", unlist(lapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE), "run_config.R", "run_estimation.R"), readLines, warn = FALSE)), value = TRUE, invert = TRUE), fixed = TRUE)))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
