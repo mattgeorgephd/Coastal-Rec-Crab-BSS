@@ -143,7 +143,9 @@
 # state of the model BEFORE two things happened: a meeting with the WDFW freshwater
 # creel team, and confirmation from OSP that they can supply daily boat-count data.
 # The `OSP-boat-count-incorporation` branch, the work incorporating both, merged
-# into `main` on 2026-09-28 (pull request #5). There is therefore NO published
+# into `main` on 2026-09-28 (pull request #5) and again on 2026-11-18 (pull request
+# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record.
+# There is therefore NO published
 # figure that a change here has to stay consistent with, and continuity with an
 # earlier internal run is not by itself a reason to prefer one modelling choice
 # over another.

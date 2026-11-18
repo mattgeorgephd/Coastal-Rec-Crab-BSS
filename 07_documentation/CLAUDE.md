@@ -11,12 +11,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > WDFW freshwater creel team and *before* OSP confirmed they can supply daily boat counts
 > (`724eead`), and the `OSP-boat-count-incorporation` branch was the work incorporating both.
 > That branch merged into `main` on 2026-09-28 (pull request #5, merge commit `a878a87`), and
-> pull requests #6 (2026-09-28) and #7 (2026-09-29, merge `3a55a2e`) followed, so
-> `main` now carries Method v2.0; the merge description is archived at
-> `07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md`. Since 2026-09-29 the work has
-> continued on `OSP-boat-count-incorporation` again (pull request #8, open against `main`): A31 to A37,
-> B50 to B65 and the authoritative run below are on that branch, and `main` (tip `3a55a2e`) quotes the
-> superseded 99,873 until it merges. **There is no
+> pull requests #6 (2026-09-28) and #7 (2026-09-29, merge `3a55a2e`) followed; the merge description
+> is archived at `07_documentation/archive/PR-5-merge-OSP-boat-count-incorporation.md`. The work then
+> continued on `OSP-boat-count-incorporation` (pull request #8: A31 to A41, B50 to B76 and the
+> authoritative run below), which merged into `main` on 2026-11-18 (merge commit `27d68c7`, 59 commits;
+> its description is archived at `07_documentation/archive/PR-8-merge-OSP-boat-count-incorporation.md`).
+> **`main` is the method of record**: Method v2.0 with A30 to A41 and the authoritative run B70.
+> Development continues on `OSP-boat-count-incorporation`, restarted from `main` after the merge; a
+> change reaches `main` through a new pull request. **There is no
 > published figure that a change has to stay consistent with**, so continuity with an
 > earlier internal run is not on its own a reason to prefer one modelling choice over
 > another. Judge changes on the evidence, and record what moved.
