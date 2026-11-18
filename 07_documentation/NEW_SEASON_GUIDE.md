@@ -182,7 +182,13 @@ but OSP's days can narrow; the port interval, 45,233 [30,855, 83,978], is wide f
 The shore all-gear fit's turnover follows its 16 in-window I/E days (2.30 against the derived
 centre 2.52 the PE applies), which is part of why the PE and the BSS disagree on this season (D50:
 -22.5% on the shore all-gear, +16.1% on the boat all-gear after A41; expected, and to be examined
-on the complete data, not a stop). None of the render's figures is an estimate.
+on the complete data, not a stop). Since 2026-11-18 (B78, campaign 1z.20) the shore part is
+understood: the fit's I/E likelihood compares Float 20's arrivals with a level calibrated to both
+floats' gear and reads the turnover about 18% low, so a shore fit sits below its derived centre by
+more the more I/E days its window holds, and the derived centre is the reading to trust. Until
+D51 is decided, expect it on any season with many I/E days, and read the BSS shore all-gear effort
+as low by about the ratio of the centre to the fitted `tau_bar` (9.6% here; 4.1% on 2024-25).
+None of the render's figures is an estimate.
 
 **A two-season span, 2024-26: the mechanical example** (not yet a run to make: wait until the
 2025-26 data, its OSP record included, are complete). The multi-season keys, per season in

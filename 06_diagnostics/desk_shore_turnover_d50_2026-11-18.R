@@ -259,8 +259,8 @@ factors <- by_day |> group_by(season_window, run, fit) |>
     tau_bar_desk = exp((w_prior * log(prior_mu) + w_lik * log(tau_likelihood_geomean)) / (w_prior + w_lik)),
     # ... with the Float 20 share of the day's gear in the I/E prediction (the likelihood's centre moves by f_cover)
     tau_bar_desk_cover = exp((w_prior * log(prior_mu) + w_lik * (log(tau_likelihood_geomean) + f_cover)) / (w_prior + w_lik)),
-    tau_bar_desk_cover_over_fit = tau_bar_desk_cover / tau_bar_desk,   # the effort and the catch scale by this
-    tau_bar_prior_over_fit = prior_mu / tau_bar_desk) |>               # ... and by this with the I/E stream dropped
+    tau_bar_desk_cover_over_fit = tau_bar_desk_cover / tau_bar_desk,   # the effort and the catch scale by this (desk over desk)
+    tau_bar_prior_over_fit = prior_mu / tau_bar_fit) |>                # ... and by this with the I/E stream dropped (the centre over the fitted value)
   select(-w_prior, -w_lik)
 
 # ---- 4. EVERY I/E DAY IN THE WORKBOOK, COUNT BY COUNT (the two factors that need no fit) --

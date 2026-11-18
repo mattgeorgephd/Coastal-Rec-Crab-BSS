@@ -7030,8 +7030,13 @@ local({
     tf <- gsub("[ \n]+", " ", paste(readLines(f, warn = FALSE), collapse = "\n"))
     n  <- regmatches(tf, gregexpr("\\*\\*[0-9,]+ assertions", tf))[[1]]
     q  <- if (length(n)) as.numeric(gsub("[^0-9]", "", n[1])) else NA_real_
-    sites <- length(grep("^\\s*chk\\(", readLines("06_diagnostics/test_improvements_2026-08-25.R",
-                                                  warn = FALSE)))
+    # 2026-11-18 (B78): the static sites counted are those ABOVE this check. The blocks appended
+    # below it run after `total` is taken, so counting their sites raised the floor without
+    # raising the ceiling: on 2026-11-18 the whole-file count (1,427) passed the count executed
+    # by this point (1,425), which no quoted figure can satisfy.
+    src   <- readLines("06_diagnostics/test_improvements_2026-08-25.R", warn = FALSE)
+    here_ <- grep("chk(\"size: 06_diagnostics/README.md does not over-claim the harness", src, fixed = TRUE)[1]
+    sites <- length(grep("^\\s*chk\\(", src[seq_len(here_ - 1L)]))
     chk("size: 06_diagnostics/README.md does not over-claim the harness, and is not wildly stale",
         !is.na(q) && q <= total && q >= sites,
         sprintf("(quotes %s; executed %d; static call sites %d)",
@@ -8376,7 +8381,7 @@ local({
       grepl("restarted from `main` after the merge", rm_, fixed = TRUE) &&
       grepl("which merged into `main` on 2026-11-18 (merge commit `27d68c7`, 59 commits;", cl, fixed = TRUE) && grepl("**`main` is the method of record**: Method v2.0 with A30 to A41 and the authoritative run B70.", cl, fixed = TRUE) &&
       grepl("and again on 2026-11-18 (pull request\n# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record.", rc, fixed = TRUE) &&
-      grepl("**Last updated:** 2026-11-18 (**MERGED: pull request #8 merged `OSP-boat-count-incorporation` into `main` on 2026-11-18 (merge commit `27d68c7`", cr, fixed = TRUE) &&
+      grepl("**MERGED: pull request #8 merged `OSP-boat-count-incorporation` into `main` on 2026-11-18 (merge commit `27d68c7`", cr, fixed = TRUE) &&
       grepl("**Branch:** `OSP-boat-count-incorporation`, restarted from `main` after [pull request #8]", cr, fixed = TRUE) && grepl("| B77 | **After the second merge: the documentation says `main` is the method of record**", cr, fixed = TRUE) &&
       grepl("**Repo:** `Coastal-Rec-Crab-BSS`. **The work is on branch `main`, which is the method of record:**", st, fixed = TRUE) && grepl("on 2026-11-18 (PR #8, merge commit `27d68c7`:", st, fixed = TRUE) &&
       grepl("| `archive/PR-8-merge-OSP-boat-count-incorporation.md` |", dr, fixed = TRUE) && grepl("pull request #8 on 2026-11-18, after which the branch was restarted from `main`", dr, fixed = TRUE))
@@ -8386,6 +8391,101 @@ local({
       # comment lines excepted: prep_fishery_events.R and run_config.R say in comments that the per-fishery
       # razor-clam-dig-dates*.xlsx workbooks were RETIRED as sources on 2026-07-16, which is the point
       !any(grepl("razor-clam-dig-dates", grep("^\\s*#", unlist(lapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE), "run_config.R", "run_estimation.R"), readLines, warn = FALSE)), value = TRUE, invert = TRUE), fixed = TRUE)))
+})
+
+# ---------- B78 (2026-11-18): the D50 shore turnover desk comparison; D51 and D52 opened ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  ds <- "06_diagnostics/desk_shore_turnover_d50_2026-11-18.R"
+  fa <- "05_output/shore_turnover_d50_2026-11-18_factors.csv"; bd <- "05_output/shore_turnover_d50_2026-11-18_by_day.csv"
+  bs <- "05_output/shore_turnover_d50_2026-11-18_by_season.csv"; bc <- "05_output/shore_turnover_d50_2026-11-18_by_count.csv"
+  chk("B78 script: the D50 desk comparison exists, fits nothing, reads the B70 and B76 folders and carries the rule's two thresholds as written",
+      file.exists(ds) && { s <- rdf(ds); code <- paste(grep("^\\s*#", readLines(ds, warn = FALSE), invert = TRUE, value = TRUE), collapse = "\n")
+        !grepl("bss_stan_fit\\(|rstan::|sampling\\(|rmarkdown::render", code) &&
+        grepl("run = \"05_output/20261019/pooled-CPUE-2024-25\", label = \"B70\"", s, fixed = TRUE) &&
+        grepl("run = \"05_output/20261020/pooled-CPUE-season-2025-26\", label = \"B76\"", s, fixed = TRUE) &&
+        grepl("RULE_MATERIAL <- 0.03", s, fixed = TRUE) &&
+        grepl("accounts <- function(f, g) is.finite(f) & is.finite(g) & sign(f) == sign(g) & abs(f) >= abs(g) / 2", s, fixed = TRUE) })
+  if (all(file.exists(c(fa, bd, bs, bc)))) {
+    f <- utils::read.csv(fa, stringsAsFactors = FALSE); d <- utils::read.csv(bd, stringsAsFactors = FALSE); sn <- utils::read.csv(bs, stringsAsFactors = FALSE)
+    n26 <- f[f$season_window == "2025-26" & f$fit == "shore_all_gear", ]; n25 <- f[f$season_window == "2024-25" & f$fit == "shore_all_gear", ]
+    near <- function(x, y, tol = 5e-4) length(x) == 1 && is.finite(x) && abs(x - y) <= tol
+    chk("B78 identity: on every I/E day the four factors multiply to lambda / Pbar exactly, under both measures of the tally's presence, and their mean logs sum to g",
+        nrow(d) == 23 && all(abs(d$F_smooth * d$F_cover * d$F_gear_A * d$F_time_A / d$F_total - 1) < 1e-9) &&
+        all(abs(d$F_smooth * d$F_cover * d$F_gear_B * d$F_time_B / d$F_total - 1) < 1e-9) &&
+        all(abs(f$f_smooth + f$f_cover + f$f_gear_A + f$f_time_A - f$g) < 1e-9) && all(abs(f$f_smooth + f$f_cover + f$f_gear_B + f$f_time_B - f$g) < 1e-9))
+    chk("B78 table: the 2025-26 shore all-gear fit's 16 I/E days read g 0.245, f_cover 0.197 (SE 0.030), f_smooth 0.134, f_gear 0.109 and f_time -0.195 as first computed, and all but cover 0.048 (SE 0.109)",
+        nrow(n26) == 1 && n26$n_ie_days == 16 && n26$n_ie_obs_fit == 16 && near(n26$g, 0.2447) && near(n26$f_cover, 0.1971) && near(n26$f_cover_se, 0.0297) &&
+        near(n26$f_smooth, 0.1336) && near(n26$f_gear_A, 0.1092) && near(n26$f_time_A, -0.1952) && near(n26$f_gear_B, 0.0910) && near(n26$f_time_B, -0.1770) &&
+        near(n26$f_all_but_cover, 0.0476) && near(n26$f_all_but_cover_se, 0.1087))
+    chk("B78 rule: applied as written, F_cover and F_smooth ACCOUNT FOR the 2025-26 gap, F_gear and F_time do not, all four are material, and clause (1)'s proviso reads 1.115 (1.095 repaired)",
+        isTRUE(n26$accounts_cover) && isTRUE(n26$accounts_smooth) && !isTRUE(n26$accounts_gear_A) && !isTRUE(n26$accounts_time_A) && !isTRUE(n26$accounts_gear_B) && !isTRUE(n26$accounts_time_B) &&
+        isTRUE(n26$material_cover) && isTRUE(n26$material_smooth) && isTRUE(n26$material_gear_A) && isTRUE(n26$material_time_A) &&
+        near(n26$exp_f_gear_A, 1.1154) && near(n26$exp_f_gear_B, 1.0953) &&
+        # the flags are the thresholds, recomputed here
+        identical(isTRUE(n26$accounts_cover), abs(n26$f_cover) >= abs(n26$g) / 2) && identical(isTRUE(n26$accounts_gear_A), abs(n26$f_gear_A) >= abs(n26$g) / 2))
+    chk("B78 desk approximation: precision-weighting the prior and the I/E likelihood reproduces the fitted tau_bar within 0.5% on both runs; with the Float 20 share 2.521 and 2.416; the centre over the fitted value 1.096 and 1.041",
+        abs(n26$tau_bar_desk / n26$tau_bar_fit - 1) < 0.005 && abs(n25$tau_bar_desk / n25$tau_bar_fit - 1) < 0.005 &&
+        near(n26$tau_bar_fit, 2.2962) && near(n25$tau_bar_fit, 2.3802) && near(n26$prior_mu, 2.5159) && near(n25$prior_mu, 2.4771) &&
+        near(n26$tau_bar_desk_cover, 2.5208) && near(n25$tau_bar_desk_cover, 2.4164) && near(n26$tau_bar_prior_over_fit, 1.0957) && near(n25$tau_bar_prior_over_fit, 1.0407) &&
+        near(n26$tau_bar_desk_cover_over_fit, 1.0954) && near(n25$tau_bar_desk_cover_over_fit, 1.0127))
+    chk("B78 premise: at counts between 10:00 and 15:00 the Float 20 gear per present crabber is 0.983 of R_G on 2025-26 (39 counts) and 1.009 on 2024-25 (5); the two floats' gear is 1.200 and 1.213 times Float 20's on the observed pairs",
+        near(sn$F_gear_ratio_of_sums_10_to_15[sn$season == "2025-26"], 0.9832) && near(sn$F_gear_ratio_of_sums_10_to_15[sn$season == "2024-25"], 1.0088) &&
+        sn$n_10_to_15[sn$season == "2025-26"] == 39 && sn$n_10_to_15[sn$season == "2024-25"] == 5 &&
+        near(sn$two_float_ratio_all_days[sn$season == "2025-26"], 1.2004) && near(sn$two_float_ratio_all_days[sn$season == "2024-25"], 1.2129) &&
+        sn$n_f17_observed_all_days[sn$season == "2025-26"] == 324 && sn$n_f17_observed_all_days[sn$season == "2024-25"] == 175)
+  } else skp("B78 tables: the four shore_turnover_d50_2026-11-18 CSVs")
+  # what the finding rests on in the code, so a change to any of it sends the reader back to D51
+  sp <- rdf("02_stan_models/crab_bss_pooled.stan"); sg <- rdf("02_stan_models/crab_bss_gear_resolved.stan"); rc <- rdf("run_config.R"); fc <- rdf("03_R_functions/fetch_crab_data.R")
+  chk("D51 as built: both Stan programs still predict the shore I/E arrivals as lambda * L with no float term, the I/E series is WDF20 alone, the shore count is Float 20 plus Float 17-21, and ie_min_obs_shore still ships 3 (nothing changed in B78)",
+      grepl("real ie_pred = lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]];", sp, fixed = TRUE) &&
+      grepl("real ie_pred = sum(lambda_E_S[section_IE[i]][day_IE[i], ]) * L[day_IE[i]];", sg, fixed = TRUE) &&
+      grepl("ie_shore_location = \"WDF20\",", rc, fixed = TRUE) && grepl("ie_min_obs_shore = 3,", rc, fixed = TRUE) &&
+      grepl("dock_f20 <- params$shore_dock_float20 %||% \"Westport Docks Float 20\"", fc, fixed = TRUE) &&
+      grepl("dock_f17 <- params$shore_dock_float17 %||% \"Westport Docks Float 17-21\"", fc, fixed = TRUE))
+  ief <- "04_input_files/ingress_egress.xlsx"
+  if (file.exists(ief)) {
+    w <- as.data.frame(readxl::read_excel(ief, sheet = "data")); w <- w[w$location_name == "WDF20", ]
+    num <- function(x) { x <- suppressWarnings(as.numeric(x)); x[is.na(x)] <- 0; x }
+    w <- w[order(as.character(w$date), as.numeric(w$time)), ]
+    z <- do.call(rbind, lapply(split(w, as.character(w$date)), function(x) { b <- cumsum(num(x$crabbers_on) - num(x$crabbers_off)); fl <- num(x$crabber_flow); n <- nrow(x)
+      data.frame(first = fl[1] == 0 && b[1] != 0, last = fl[n] == 0 && b[n] != 0, interior = if (n > 2) sum(fl[2:(n - 1)] != b[2:(n - 1)]) else 0L,
+                 peak_end = which.max(b) %in% c(1L, n)) }))
+    chk("D52 (ii): the I/E workbook's crabber_flow is 0 on the first interval row of 24 of the 40 WDF20 days and the last of 23 where the running balance is not; every interior row IS the running balance and no day's peak is at an end row",
+        nrow(z) == 40 && sum(z$first) == 24 && sum(z$last) == 23 && sum(z$interior) == 0 && !any(z$peak_end))
+  } else skp("D52 (ii): ingress_egress.xlsx")
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  ng <- rdf("07_documentation/NEW_SEASON_GUIDE.md"); ir <- rdf("04_input_files/README.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  dg <- rdf("06_diagnostics/README.md"); orr <- rdf("05_output/README.md")
+  chk("B78 register: the row is DONE with the rule's and the script's commits, keeps the rule as written, reports the rule's verdict and the evidence beside it apart, and says what the rule got wrong",
+      grepl("| B78 | **The D50 shore turnover desk comparison: which of the two I/E readings to trust**", cr, fixed = TRUE) &&
+      grepl("**DONE 2026-11-18 (the rule `8af6e2f`, written before the per-day table was computed; the script and its tables `f2be2ff`). BY THE RULE: no single factor.", cr, fixed = TRUE) &&
+      grepl("a factor is MATERIAL at abs(f_k) >= 0.03 and ACCOUNTS FOR the gap at f_k >= g / 2 with g's sign.", cr, fixed = TRUE) &&
+      grepl("**The rule certifies neither the derivation nor the fit.**", cr, fixed = TRUE) &&
+      grepl("**BESIDE THE RULE (added after the first table was seen; evidence, not verdict).**", cr, fixed = TRUE) &&
+      grepl("**The rule's own shortcomings, on the record:**", cr, fixed = TRUE))
+  chk("B78 register: D50's shore effort half is marked examined, D51 is OPEN for Matt with options (a) to (d) and a recommendation, and D52 records the count schedule and the three smaller findings",
+      grepl("The shore EFFORT half EXAMINED 2026-11-18 (B78): the turnover difference is the fit's I/E likelihood reading low, not the derivation (D51)", cr, fixed = TRUE) &&
+      grepl("| D51 | **The shore I/E likelihood compares Float 20's arrivals with both floats' presence, so it reads the turnover about 18% low wherever it binds**", cr, fixed = TRUE) &&
+      grepl("**OPEN 2026-11-18: a decision for Matt among (a) to (d); nothing changed.", cr, fixed = TRUE) && grepl("**Recommendation: (b)**", cr, fixed = TRUE) &&
+      grepl("| D52 | **On an I/E day the gear counts follow the tally's schedule, and the fit reads them as regular counts; three smaller things the same tally showed**", cr, fixed = TRUE))
+  chk("B78 campaign and status: Section 1z.20 exists and is in the git-anchor table with both commits; the status box states the authoritative run's exposure and Tier 1 carries the decision",
+      grepl("### 1z.20 The D50 shore turnover comparison: the fit's I/E likelihood reads one float against two (2026-11-18)", vc, fixed = TRUE) &&
+      grepl("2026-11-18 (B78: the rule `8af6e2f`, the desk script and its tables `f2be2ff`,", vc, fixed = TRUE) && grepl("no fit; 1z.20) |", vc, fixed = TRUE) &&
+      grepl("**Last updated:** 2026-11-18 (Section 1z.20:", vc, fixed = TRUE) &&
+      grepl("> **A known exposure of this run, found 2026-11-18 (B78, D51; nothing changed).**", st, fixed = TRUE) &&
+      grepl("- **[NEW 2026-11-18, B78; D51 OPEN for Matt; D52 recorded] The shore I/E likelihood compares one float with two.**", st, fixed = TRUE))
+  chk("B78 method and guides: the method document carries the caution beside the I/E likelihood and limitation 17, the season guide says what to expect until D51 is decided, the input README and CLAUDE.md carry the workbook quirk and D51, and both folder READMEs list the script and its tables",
+      grepl("> **The shore I/E likelihood compares one float with two (D51, found 2026-11-18; open).**", md, fixed = TRUE) &&
+      grepl("**17. The shore I/E likelihood compares one float with two, and reads the turnover low wherever it binds (D51,", md, fixed = TRUE) &&
+      grepl("posterior median 2.380 [1.97, 2.89] (authoritative run, B70;", md, fixed = TRUE) &&
+      grepl("Until\nD51 is decided, expect it on any season with many I/E days", ng, fixed = TRUE) &&
+      grepl("**`crabber_flow` in `ingress_egress.xlsx` is 0 on a day's first and last interval row**", ir, fixed = TRUE) &&
+      grepl("**D51 (open since 2026-11-18, B78, a decision for Matt): the shore I/E LIKELIHOOD compares Float 20's arrivals", cl, fixed = TRUE) &&
+      grepl("- **`crabber_flow` in `ingress_egress.xlsx` is 0 on each day's first and last interval row**", cl, fixed = TRUE) &&
+      grepl("| `desk_shore_turnover_d50_2026-11-18.R` | **DESK, seconds, no MCMC** (B78, for D50 and D51).", dg, fixed = TRUE) &&
+      grepl("`shore_turnover_d50_2026-11-18_{by_day,factors,by_count,by_season}.csv` are the D50 shore turnover desk comparison", orr, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
