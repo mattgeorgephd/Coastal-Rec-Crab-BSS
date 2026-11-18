@@ -406,6 +406,23 @@ write_fit_extended_diagnostics <- function(fit, stan_data, days_ss, label, outpu
       prior_tbl$B1_C <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_C),
                              mean = 0, sd = sd_p$value_normal_sigma_B1_C)
     }
+    # 2026-10-16: the holiday CPUE increment (pooled only; it was missing from this table) and,
+    # under the Saturday/Sunday split (A36), the Sunday effort increment.
+    if (!is.null(sd_p$value_normal_sigma_B2_C)) {
+      prior_tbl$B2_C <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B2_C),
+                             mean = 0, sd = sd_p$value_normal_sigma_B2_C)
+    }
+    if (isTRUE(sd_p$sunday_split == 1L) && !is.null(sd_p$value_normal_sigma_B1_sun)) {
+      prior_tbl$`B1_sun[1]` <- list(fam = sprintf("normal(0, %.1f)", sd_p$value_normal_sigma_B1_sun),
+                                    mean = 0, sd = sd_p$value_normal_sigma_B1_sun)
+    }
+    # A39 (2026-10-18): the per-day effort effect's SD, half-normal(0, effort_day_effect_sd) on
+    # the log scale (mean s * sqrt(2 / pi), SD s * sqrt(1 - 2 / pi)).
+    if (isTRUE(sd_p$effort_day_effect == 1L) && !is.null(sd_p$value_normal_sigma_uE)) {
+      .s_uE <- as.numeric(sd_p$value_normal_sigma_uE)
+      prior_tbl$`sigma_uE[1]` <- list(fam = sprintf("half-normal(0, %.1f)", .s_uE),
+                                      mean = .s_uE * sqrt(2 / pi), sd = .s_uE * sqrt(1 - 2 / pi))
+    }
     # Gear-resolved: R_G_boat ~ lognormal(log(4), 0.5), hardcoded in the Stan model.
     if (has_par("R_G_boat")) {
       prior_tbl$R_G_boat <- list(fam = "lognormal(log(4.000), 0.500)",
@@ -722,6 +739,13 @@ write_run_level_diagnostics <- function(bss_all, pe_all, gear_props, params, out
         # and whether this fit ended up with a shared turnover. Together they say why.
         n_L_informed = if (!is.null(sd_)) sd_[[".n_L_informed"]] %||% NA_integer_ else NA_integer_,
         shared_tau   = if (!is.null(sd_)) sd_$shared_tau %||% NA_integer_ else NA_integer_,
+        # A41 (2026-10-20): what a fit below the floor ran: "none" (above it), "shared_prior" (one
+        # unobserved tau_bar, the shipped mode) or "per_day" (the former per-day draws).
+        shared_tau_refusal = if (!is.null(sd_)) (attr(sd_, "shared_tau_refusal") %||% "none") else NA_character_,
+        # A40 (2026-10-19): the per-day effort effect's switch for THIS fit (after the identification
+        # floor) and the number of sampled days carrying repeat counts that decided it.
+        effort_day_effect = if (!is.null(sd_)) sd_$effort_day_effect %||% NA_integer_ else NA_integer_,
+        effort_day_repeat_days = if (!is.null(sd_)) (attr(sd_, "effort_day_repeat_days") %||% NA_integer_) else NA_integer_,
         date_start = if (!is.null(ev)) as.character(min(ev)) else NA,
         date_end = if (!is.null(ev)) as.character(max(ev)) else NA,
         pct_days_with_effort = pct_days_eff, pct_days_with_interview = pct_days_int,

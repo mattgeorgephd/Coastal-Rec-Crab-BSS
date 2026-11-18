@@ -1,5 +1,7 @@
 # OSP boat-count validation: review of all 14 runs (2026-07-31)
 
+> **STATUS: HISTORICAL (banner added 2026-10-02).** Its "production configuration" (flat `f = 0.3`, a private-boat harvest of about 27,700) is SUPERSEDED by Method v2.0 (2026-09-12) and everything since. For the current model see `../BSS-GH-pooled-CPUE-model-documentation.md` and, for the authoritative run, the box at the top of `PIPELINE_STATUS.md`.
+
 **Branch:** `OSP-boat-count-incorporation`. **Source of truth:** `05_output/osp_validation_summary.csv` plus the per-run CSVs under `05_output/{20260729,20260730,20260731}/`. Numbers below are medians, Dungeness Kept (matching the summary and the `port_total` `BSS_median` convention); credible intervals and coefficients of variation use the posterior mean and 2.5/97.5% from `bss_summary_private_boat_all_gear_Dungeness_Kept.csv` and say so. Convention: no em dashes.
 
 ## Verdict

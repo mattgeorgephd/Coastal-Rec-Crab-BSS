@@ -121,6 +121,20 @@ data {
   int<lower=1> period[D];               // Day-to-period mapping
   vector<lower=0,upper=1>[D] w;          // Weekend indicator
   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
+  // A36 (2026-10-16): THE SATURDAY/SUNDAY SPLIT OF THE WEEKEND EFFORT EFFECT. sunday_split = 1
+  // adds a Sunday increment B1_sun to the EFFORT process, so the day-type multiplier is 1 on a
+  // weekday, exp(B1) on a Saturday, exp(B1 + B1_sun) on a Sunday, and exp(B2) more on a holiday
+  // on top of whichever day it fell on. sun[d] is the CALENDAR Sunday (the R prep's
+  // day_type_num_sunday): a Sunday holiday carries w, sun and holiday, and days_wkend does not
+  // move it. The CPUE process keeps its pooled weekend effect (B1_C on w). The reason it exists:
+  // Sunday is sampled on 10 of 196 boat days and 4 of 145 shore days in the 2024-25 all-gear
+  // window, so a pooled weekend effect is Saturday's effect applied to every Sunday with
+  // Saturday's precision; the increment lets the Sundays that were counted (the OSP totals on
+  // 27 of them for the boat) say how far Sunday sits from Saturday, and carries the uncertainty
+  // where they were not. sunday_split = 0 is bit-identical to the model without it (B1_sun is
+  // zero-size, so the unconstrained parameter vector is unchanged).
+  int<lower=0,upper=1> sunday_split;
+  vector<lower=0,upper=1>[D] sun;
   // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES.
   // Generalizes the single razor-dig indicator into a K_open-column design matrix on
   // the EFFORT process, so any opener (razor dig, MA2 halibut / salmon / bottomfish)
@@ -163,7 +177,8 @@ data {
   int<lower=0,upper=2> mu_hier_collapse_single;
 
   // --- Day length / effort expansion factor L ---
-  //   shore: effective day length in HOURS (I/E-derived L_mu).
+  //   shore: since v7.7 the gear-deployment TURNOVER tau_shore (dimensionless), prior-centred
+  //         on the I/E-derived value; it was an effective day length in hours before v7.7 (D42).
   //   boat (POOL-3): tau, the gear-deployment TURNOVER (dimensionless), a
   //         PARAMETER (estimate_L = 1) prior-centred on L_data with log-scale SD
   //         L_prior_sigma, replacing the old flat L = 24 h.
@@ -230,6 +245,25 @@ data {
   int<lower=1> section_T[T_n];
   int<lower=0> T_I[T_n];
 
+  // 2026-10-18 (D45 experiment lever, CHANGE_REGISTER B68): a per-SAMPLED-DAY effect shared by
+  // the day's repeat counts. Float 20 takes three counts on most two-sampler days and they are
+  // near-replicates (intraclass correlation 0.83 on 2024-25), while the likelihood below treats
+  // each count as an independent draw about the day's level. With effort_day_effect = 1 every
+  // count's expectation is multiplied by exp(sigma_uE * uE_raw[day] - sigma_uE^2 / 2), one uE per
+  // sampled day (n_Eday of them, indexed by Eday_Gear / Eday_T), so the day-level deviation is
+  // absorbed by uE and r_E describes the within-day spread. The factor has mean ONE across days,
+  // so lambda_E stays the expected count level and an unsampled day's expected effort is the
+  // level; the first cut (the same day) lacked the - sigma_uE^2 / 2 and read the shore all-gear
+  // effort 5.8% low for that reason alone (campaign 1z.14). On a day with gear counts the
+  // generated quantities carry the fitted deviation (eday_of_day, transformed data). Zero-size
+  // when off, and the OFF multiplier is the literal 1.0, so the OFF path is bit-identical (the
+  // pooled track only; the gear program is unchanged).
+  int<lower=0, upper=1> effort_day_effect;
+  int<lower=0> n_Eday;
+  int<lower=1> Eday_Gear[Gear_n];
+  int<lower=1> Eday_T[T_n];
+  real<lower=0> value_normal_sigma_uE;
+
   // --- Phase 1: OSP boat-count observations (second boat effort stream) ---
   // OSP_I is the DAILY BOAT TOTAL (all private boats) on OSP-sampled days. It
   // observes the same latent lambda_E as the trailer stream, via a scale
@@ -295,6 +329,13 @@ data {
   int<lower=1> day_IE[IE_n];
   int<lower=1> section_IE[IE_n];
   vector<lower=0>[IE_n] IE_crabber_hours;
+  // A37 (2026-10-16, D35): which population the I/E stream belongs to, as in
+  // crab_bss_gear_resolved.stan. 0 (shore): IE_crabber_hours holds the observation the effort
+  // unit names (crabber arrivals under gear-deployments), predicted lambda_E * L. 1 (boat): it
+  // holds WBL boat trips, predicted (lambda_E / R_G_boat) * L, lambda_E being gear in the
+  // water, lambda_E / R_G_boat the boat groups present and L = tau the deployment turnover.
+  // IE_n = 0 (every 2024-25 boat fit) leaves the fit exactly as before.
+  int<lower=0,upper=1> ie_group_scale;
 
   // --- Hyperparameters ---
   real value_cauchyDF_sigma_eps_E;
@@ -307,6 +348,7 @@ data {
   real value_normal_sigma_B2;
   real value_normal_sigma_B1_C;
   real value_normal_sigma_B2_C;   // item 6a: holiday CPUE effect (B2_C) prior scale
+  real value_normal_sigma_B1_sun; // A36: the Sunday increment's prior scale (sunday_prior_sd)
   real value_normal_sigma_B_open; // improvement 4: opener effort-covariate prior scale
   // item 6b: same-day-effort CPUE density-dependence (OFF by default). estimate_cpue_density
   // toggles the gamma_C term; log_E_ref centers the log-effort covariate (per fit, = the
@@ -348,7 +390,11 @@ data {
   vector<lower=0>[n_f_strata] crab_fraction_beta0;
   int<lower=0> crab_fraction_n_total[n_f_strata];
   int<lower=0> crab_fraction_n_crab[n_f_strata];
-  // improvement 8 (2026-08-25): OSP CRAB-ONLY COUNTS AS A HARD LOWER BOUND ON f.
+  // improvement 8 (2026-08-25): OSP CRAB-ONLY COUNTS AS A LOWER BOUND ON f.
+  // D42 (2026-10-18): the HARD-bound construction described in this paragraph is the LEGACY
+  // path, live only when crab_fraction_dynamic = 0. The shipped model (the dynamic f of review
+  // item 1B, with A33's stream on) uses the same per-day counts as a beta-binomial observation
+  // of f(1 - c), c the combo-trip share, in the model block; f_lower_param is then zero-size.
   // OSP can report how many boats were labelled crabbing ONLY; it cannot see combo
   // trips (a boat crabbing AND fishing something else is labelled by the other
   // fishery), so the OSP crab-only share is a LOWER BOUND on f, never an estimate of
@@ -375,8 +421,8 @@ data {
   // kappa is identified by the spread of the daily shares (large kappa -> binomial,
   // small kappa -> strongly overdispersed), so the bound's precision is measured
   // rather than assumed. This matters because f multiplies the boat total linearly
-  // and the bound is HARD: an over-precise f_lower would force f up with unearned
-  // confidence.
+  // and on the legacy path the bound is HARD: an over-precise f_lower would force f up with
+  // unearned confidence. Under the dynamic f the same kappa prices the f(1 - c) observation.
   int<lower=0> OSPF_n;
   int<lower=1,upper=n_f_strata> osp_f_stratum[OSPF_n];
   int<lower=0> osp_f_total[OSPF_n];
@@ -454,6 +500,25 @@ data {
   // records is against the RETIRED 1.2 centre; the calibration centre is ~2.98, and the
   // note that the conflict was being absorbed by r_OSP rather than by L still stands.
   int<lower=0,upper=1> osp_scale_is_tau;
+
+  // D40 (2026-10-04): THE CRABBING SHARE VARIES WITH THE DAY'S BOAT VOLUME, WITHIN A MONTH.
+  // f_volume = 1 (only with the dynamic f) gives each day its own share,
+  //     logit f_d = eta_f[k] + beta_fvol * x_d,   x_d = log(day's boat volume) - fvol_centre[k],
+  // so eta_f[k] is the share at the stratum's central volume. The classification streams
+  // use OBSERVED volumes (OSP's daily total, else the day's mean trailer count times its
+  // turnover centre: the R side builds cfi_x and osp_f_x), so f stays out of the effort and
+  // CPUE likelihoods. The totals use the model's own daily volume on every day,
+  // (lambda_E / R_G_boat) * L, which is the OSP stream's mean, so a month's share as the
+  // totals apply it is BOAT-WEIGHTED, which is what multiplying each day's effort by f
+  // requires. Without the term the per-day beta-binomial caps a busy day's weight near
+  // kappa and fits close to the AVERAGE day's share, and OSP's share falls on busy days
+  // (CHANGE_REGISTER D40: the likelihood's share 1.4x to 1.6x the boat-weighted one in
+  // June to September 2025). f_volume = 0 leaves every quantity below bit-identical.
+  int<lower=0,upper=1> f_volume;
+  real<lower=0> fvol_beta_prior_sd;          // normal(0, sd) on beta_fvol (logit per log unit)
+  vector[n_f_strata] fvol_centre;            // per-stratum centre of log daily boat volume
+  vector[CFI_n] cfi_x;                       // contact day's log volume minus its centre (0 if unknown)
+  vector[OSPF_n] osp_f_x;                    // OSP day's log total minus its centre
 }
 
 transformed data {
@@ -462,8 +527,17 @@ transformed data {
   // or off, so every f parameter below is zero-size and the unconstrained parameter
   // vector is unchanged (the fixed-seed reproduction test of behaviour-neutrality).
   int n_f_dyn = crab_fraction_estimate * crab_fraction_dynamic;
+  int n_uE = (effort_day_effect == 1) ? n_Eday : 0;   // D45 lever: the day effects, zero-size when off
+  // D45 lever: the sampled-day index of each day for the GEAR counts (0 when the day has none), so the
+  // generated quantities can carry the fitted day deviation on the shore's sampled days. Built from the
+  // gear counts only: on the boat the day's level is pinned by OSP's every-boat total, so the trailer
+  // counts' shared deviation is a snapshot nuisance and the reported boat effort keeps the level.
+  int eday_of_day[D];
+  for (d in 1:D) eday_of_day[d] = 0;
+  for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
   int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
+  int n_fvol = n_f_dyn * f_volume;         // D40: the day-level volume term is live
   // T2.5 (2026-09-29, D33): the single-cell level hierarchy is COLLAPSED whenever there is
   // one section. With S == 1, mu_E[g,1] = mu_mu_E[g] + eps_mu_E[g,1] * sigma_mu_E has one
   // element per level, so only the SUM enters the likelihood: mu_mu_E and
@@ -499,10 +573,14 @@ parameters {
   // Structural-zero probability for the interview catch likelihood. Zero-size unless
   // zi_catch = 1, so the OFF path is bit-identical (see the data block).
   vector<lower=0, upper=1>[zi_catch] theta_C;
+  // D45 lever (2026-10-18): the per-sampled-day effort effects, non-centred; zero-size when off.
+  vector[n_uE] uE_raw;
+  real<lower=0> sigma_uE[effort_day_effect];
   real B1;
   real B2;
   real B1_C;
   real B2_C;      // item 6a: holiday CPUE effect (symmetric to B2 on effort)
+  vector[sunday_split] B1_sun;   // A36: the Sunday increment on the weekend EFFORT effect; zero-size when off
   vector[K_open] B_open;   // improvement 4: opener effort covariates (length 0 when unused)
   real gamma_C;   // item 6b: same-day-effort CPUE density effect (inert when estimate_cpue_density = 0)
 
@@ -531,7 +609,8 @@ parameters {
   // also crabbing, not f itself. With no OSP lower bound they coincide (f = theta).
   // review item 1B: also length 0 under the dynamic f (n_f_leg = 0).
   vector<lower=0,upper=1>[n_f_strata * n_f_leg] f_theta;
-  // improvement 8: the OSP-observed crab-only share, the hard lower bound on f.
+  // improvement 8: the OSP-observed crab-only share, the hard lower bound on f on the LEGACY
+  // (non-dynamic) path only; zero-size under the shipped dynamic f (D42).
   vector<lower=0,upper=1>[n_f_strata * osp_crab_lower * (1 - crab_fraction_dynamic)] f_lower_param;
   // review item 1B: the dynamic f. Non-centred innovations of the logit random walk, its
   // step SD, the contact-stream concentration, and the combo-trip share (the last only
@@ -555,6 +634,8 @@ parameters {
   // patch is behaviour-neutral where it claims to be, and it is worth more than the
   // symmetry with the older parameters.
   vector<lower=0>[osp_crab_lower] osp_f_kappa;
+  // D40: the within-stratum slope of logit f on log daily boat volume. Zero-size when off.
+  vector[n_fvol] beta_fvol;
 
   real<lower=0> sigma_IE;
 
@@ -594,7 +675,7 @@ transformed parameters {
   vector<lower=0>[D] L;
   real<lower=0> E_scale;   // P1/POOL-3: 1 (crabbers) or R_G (gear); see effort_scale_gear
   vector<lower=0,upper=1>[n_f_strata] f_crab;   // Phase 3: per-stratum crabbing fraction
-  vector<lower=0,upper=1>[n_f_strata] f_lower;  // improvement 8: OSP crab-only lower bound
+  vector<lower=0,upper=1>[n_f_strata] f_lower;  // improvement 8: the OSP crab-only share: the hard bound on the legacy path, the implied f(1 - c) under the dynamic f
   vector[n_f_strata] eta_f;                     // review item 1B: logit f under the walk (0 otherwise)
   vector[n_f_strata] eta_c;                     // 2026-09-09: logit c under its walk (0 otherwise)
   vector<lower=0,upper=1>[n_f_strata] combo_c;  // 2026-09-09: the combo-trip share per stratum (0 when off)
@@ -711,6 +792,7 @@ transformed parameters {
         //   is byte-identical to the pre-2026-08-25 effort process.
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d] +
+          (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0) +   // A36: the Sunday increment
           (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0)) * O[d,s,g];
         // CPUE: AR deviation + weekend + holiday (B2_C, item 6a) + optional same-day-effort
         //   density-dependence (gamma_C, item 6b; only when estimate_cpue_density = 1). The
@@ -733,6 +815,10 @@ model {
   phi_C_scaled ~ beta(value_betashape_phi_C_scaled, value_betashape_phi_C_scaled);
   sigma_r_E ~ cauchy(0, value_cauchyDF_sigma_r_E);
   sigma_r_OSP ~ cauchy(0, value_cauchyDF_sigma_r_E);   // Phase 1: OSP overdispersion
+  if (effort_day_effect == 1) {   // D45 lever: one deviation per sampled day, partially pooled
+    uE_raw ~ std_normal();
+    sigma_uE[1] ~ normal(0, value_normal_sigma_uE);
+  }
   sigma_r_C ~ cauchy(0, value_cauchyDF_sigma_r_C);
   sigma_mu_E ~ cauchy(0, value_cauchyDF_sigma_mu_E);
   sigma_mu_C ~ cauchy(0, value_cauchyDF_sigma_mu_C);
@@ -740,6 +826,7 @@ model {
   B2 ~ normal(0, value_normal_sigma_B2);
   B1_C ~ normal(0, value_normal_sigma_B1_C);
   B2_C ~ normal(0, value_normal_sigma_B2_C);   // item 6a: holiday CPUE effect
+  if (sunday_split == 1) B1_sun[1] ~ normal(0, value_normal_sigma_B1_sun);   // A36
   B_open ~ normal(0, value_normal_sigma_B_open);  // improvement 4: opener effort covariates
   gamma_C ~ normal(0, 1);   // item 6b: proper prior; enters the likelihood only when estimate_cpue_density = 1
 
@@ -792,10 +879,14 @@ model {
     // One observation per contact day. With a handful of boats per day the beta-binomial
     // is close to binomial and kappa_I rests near its prior; it matters on the busy days
     // (20+ contacts), where one weather-driven fleet is not 20 independent trials.
-    for (i in 1:CFI_n)
-      cfi_crab[i] ~ beta_binomial(cfi_total[i],
-                                  f_crab[cfi_stratum[i]] * cfi_kappa[1],
-                                  (1 - f_crab[cfi_stratum[i]]) * cfi_kappa[1]);
+    // D40: under the volume term each contact day observes its own day's share.
+    if (n_fvol == 1) beta_fvol[1] ~ normal(0, fvol_beta_prior_sd);
+    for (i in 1:CFI_n) {
+      real p_cfi = f_crab[cfi_stratum[i]];
+      if (n_fvol == 1)
+        p_cfi = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[cfi_stratum[i]] + beta_fvol[1] * cfi_x[i]);
+      cfi_crab[i] ~ beta_binomial(cfi_total[i], p_cfi * cfi_kappa[1], (1 - p_cfi) * cfi_kappa[1]);
+    }
   }
   // 2026-09-09: the combo share's walk and its per-day observation (combo of the typed
   // crabbing boats). Proper priors unconditionally within the branch: a stratum with no
@@ -811,7 +902,10 @@ model {
                                    combo_c[cfc_stratum[i]] * cfc_kappa[1],
                                    (1 - combo_c[cfc_stratum[i]]) * cfc_kappa[1]);
   }
-  // improvement 8: the OSP crab-only stream. Binomial on the OBSERVED OSP daily totals,
+  // improvement 8 / A33: the OSP crab-only stream. Since B48 a BETA-BINOMIAL on the boats OSP
+  // SAMPLED that day (n = the day's rate x its total, the minimum-rate schedule as the fallback),
+  // observing f(1 - c) under the dynamic f; the hard lower bound further down is the LEGACY f
+  // construction only (D42). It sits outside the effort/CPUE likelihoods,
   // so f stays entirely out of the effort/CPUE likelihoods: the boat remains exactly
   // linear in f and the model CPUE remains invariant (the validated Phase 2/3 property).
   // Proper prior unconditionally, so an unused f_lower_param is decoupled-but-proper,
@@ -824,7 +918,12 @@ model {
       // contacts in the stratum c is data, otherwise the OSP share is a soft lower bound
       // on f whose width is c's walk prior.
       for (i in 1:OSPF_n) {
-        real p_osp = f_crab[osp_f_stratum[i]] * (1 - combo_c[osp_f_stratum[i]]);
+        // D40: the day's own share under the volume term (x from OSP's own daily total)
+        real f_osp = f_crab[osp_f_stratum[i]];
+        real p_osp;
+        if (n_fvol == 1)
+          f_osp = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[osp_f_stratum[i]] + beta_fvol[1] * osp_f_x[i]);
+        p_osp = f_osp * (1 - combo_c[osp_f_stratum[i]]);
         osp_f_crab[i] ~ beta_binomial(osp_f_total[i], p_osp * osp_f_kappa[1],
                                       (1 - p_osp) * osp_f_kappa[1]);
       }
@@ -869,7 +968,8 @@ model {
   //       observation eps parameters (and their centered funnel) are removed.
   for (i in 1:Gear_n) {
     Gear_I[i] ~ neg_binomial_2(
-      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+      lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
 
@@ -878,7 +978,8 @@ model {
   //         left lambda_E in group units mismatched to gear-hours h.)
   for (i in 1:T_n) {
     T_I[i] ~ neg_binomial_2(
-      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
+      lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
 
@@ -930,10 +1031,11 @@ model {
   sigma_IE ~ exponential(5);
   if (IE_n > 0) {
     for (i in 1:IE_n) {
-      IE_crabber_hours[i] ~ lognormal(
-        log(lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]]),
-        sigma_IE
-      );
+      real ie_pred = lambda_E_S[section_IE[i]][day_IE[i], 1] * L[day_IE[i]];
+      // A37 (D35): a boat I/E observation is boat TRIPS, so lambda_E (gear) is divided by the
+      // gear per boat group before the turnover multiplies it, as crab_bss_gear_resolved.stan does.
+      if (ie_group_scale == 1) ie_pred = ie_pred / R_G_boat;
+      IE_crabber_hours[i] ~ lognormal(log(ie_pred), sigma_IE);
     }
   }
 }
@@ -963,8 +1065,12 @@ generated quantities {
   real R_G_boat_out;   // POOL-1: gear per boat group (replaces R_T reporting)
   real kappa_OSP_out;  // Phase 1: OSP-to-trailer scale
   vector[n_f_strata] f_crab_out;   // Phase 3: per-stratum crabbing fraction
-  vector[n_f_strata] f_lower_out;  // improvement 8: OSP crab-only lower bound on f (item 1B: the implied crab-only share f(1-c))
+  vector[n_f_strata] f_lower_out;  // improvement 8: the OSP crab-only share (legacy path: the hard bound on f; item 1B / shipped: the implied crab-only share f(1-c))
   real osp_f_kappa_out;        // improvement 8: daily-share overdispersion of the OSP bound
+  // D40: the volume slope, and each stratum's share as the totals apply it (boat-weighted:
+  // sum_d V_d f_d / sum_d V_d). Zero-size when the term is off.
+  vector[n_fvol] beta_fvol_out;
+  vector[n_f_strata * n_fvol] f_crab_bw_out;
   real sigma_f_out;            // review item 1B: step SD of the logit-f walk (0 when the dynamic f is off)
   real cfi_kappa_out;          // review item 1B: contact-stream concentration (0 when off)
   vector[n_f_strata] combo_c_out;   // 2026-09-09: the combo-trip share per stratum (0 when its walk is off)
@@ -973,6 +1079,7 @@ generated quantities {
   real sigma_IE_out;
   real B1_C_out;
   real B2_C_out;       // item 6a
+  vector[sunday_split] B1_sun_out;   // A36: the Sunday increment, zero-size when the split is off
   vector[K_open] B_open_out;   // improvement 4 (labels travel out of band, see the driver)
   real gamma_C_out;    // item 6b
   vector[D] L_out;
@@ -989,6 +1096,7 @@ generated quantities {
   // constraint, gate these behind a data flag (available on request).
   vector[Gear_n] log_lik_gear;
   vector[T_n] log_lik_trailer;
+  vector[effort_day_effect] sigma_uE_out;   // D45 lever: the day-effect SD, zero-size when off
   vector[OSP_n] log_lik_osp;   // Phase 1
   vector[IntC] log_lik_catch;
 
@@ -1000,6 +1108,22 @@ generated quantities {
   f_crab_out = f_crab;         // Phase 2
   f_lower_out = f_lower;
   osp_f_kappa_out = (osp_crab_lower == 1) ? osp_f_kappa[1] : 0.0;       // improvement 8
+  if (n_fvol == 1) {
+    vector[n_f_strata] bw_num = rep_vector(0.0, n_f_strata);
+    vector[n_f_strata] bw_den = rep_vector(0.0, n_f_strata);
+    beta_fvol_out[1] = beta_fvol[1];
+    for (d in 1:D) {
+      real vd = 0;
+      real fd;
+      for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
+      vd = fmax(vd * L[d], 1e-9);
+      fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
+      bw_num[f_stratum[d]] += vd * fd;
+      bw_den[f_stratum[d]] += vd;
+    }
+    for (k in 1:n_f_strata)
+      f_crab_bw_out[k] = (bw_den[k] > 0) ? bw_num[k] / bw_den[k] : f_crab[k];
+  }
   sigma_f_out   = (n_f_dyn == 1) ? sigma_f[1]   : 0.0;                  // review item 1B
   cfi_kappa_out = (n_f_dyn == 1) ? cfi_kappa[1] : 0.0;
   combo_c_out   = combo_c;                                                // 2026-09-09 (zeros when off)
@@ -1008,21 +1132,25 @@ generated quantities {
   sigma_IE_out = sigma_IE;
   B1_C_out = B1_C;
   B2_C_out = B2_C;
+  if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];   // A36
   B_open_out = B_open;
   gamma_C_out = gamma_C;
   L_out = L;
   if (shared_tau == 1) tau_bar_out = tau_bar[1];
   else                 tau_bar_out = 0.0;
 
+  if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];
   // Mirror the model-block likelihood terms exactly (lines for Gear_I, T_I, c).
   for (i in 1:Gear_n) {
     log_lik_gear[i] = neg_binomial_2_lpmf(
-      Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G, r_E
+      Gear_I[i] | lambda_E_S[section_Gear[i]][day_Gear[i], 1] * R_G
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_Gear[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
   for (i in 1:T_n) {
     log_lik_trailer[i] = neg_binomial_2_lpmf(
-      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat, r_E
+      T_I[i] | lambda_E_S[section_T[i]][day_T[i], G] / R_G_boat
+        * (effort_day_effect == 1 ? exp(sigma_uE[1] * uE_raw[Eday_T[i]] - 0.5 * square(sigma_uE[1])) : 1.0), r_E
     );
   }
   for (i in 1:OSP_n) {   // Phase 1
@@ -1055,6 +1183,20 @@ generated quantities {
 
   for (g in 1:G) {
     for (d in 1:D) {
+      // D40: the day's own share under the volume term, from the model's daily boat volume
+      // (the OSP stream's mean); the stratum's share otherwise, bit-identical to before.
+      real fd = f_crab[f_stratum[d]];
+      if (n_fvol == 1) {
+        real vd = 0;
+        for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
+        vd = fmax(vd * L[d], 1e-9);
+        fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
+      }
+      // D45 lever: on a day with gear counts the reported effort and catch carry the fitted day deviation
+      // (mean one across days, so an unsampled day's expectation is the level); the literal 1.0 when off,
+      // and on every boat day (eday_of_day is built from the gear counts only).
+      real df = (effort_day_effect == 1 && eday_of_day[d] > 0)
+                ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0;
       for (s in 1:S) {
         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
         // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently
@@ -1065,7 +1207,7 @@ generated quantities {
         // lambda_C * effort unscaled would hand back a season total inflated by
         // 1 / (1 - theta_C) purely as an artefact of turning the feature on. zi_scale is
         // exactly 1.0 when the feature is off, so this is a no-op there.
-        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * f_crab[f_stratum[d]] * zi_scale;
+        lambda_Ctot_S[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;
         C_expected[s][d,g] = lambda_Ctot_S[s][d,g];
         C_expected_sum = C_expected_sum + C_expected[s][d,g];
 
@@ -1076,7 +1218,7 @@ generated quantities {
         }
         C_sum = C_sum + C[s][d,g];
 
-        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * f_crab[f_stratum[d]];
+        E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd * df;
         E_sum = E_sum + E[s][d,g];
       }
     }

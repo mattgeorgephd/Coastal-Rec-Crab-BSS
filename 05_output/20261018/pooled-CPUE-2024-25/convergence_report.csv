@@ -1,0 +1,5 @@
+"fit","ar_resolution","divergences","divergence_fraction","treedepth_pct","C_sum_rhat","E_sum_rhat","C_sum_neff","E_sum_neff","B1_C_rhat","impact_C_sd","impact_E_sd","distortion_C","distortion_E","pass_rhat","pass_neff","pass_div_fraction","pass_impact","pass_convergence","method_selected"
+"shore_ring_net_only_Dungeness_Kept","biweekly",57,0.0095,0,0.9995,0.9996,7601,7743,0.9997,0.0015,0.0019,0.0218,0.0243,TRUE,TRUE,TRUE,TRUE,TRUE,"BSS"
+"shore_all_gear_Dungeness_Kept","weekly",32,0.0032,0,0.9998,0.9998,11647,11190,1.0002,0.0016,0.0016,0.0407,0.0631,TRUE,TRUE,TRUE,TRUE,TRUE,"BSS"
+"private_boat_ring_net_only_Dungeness_Kept","monthly",8,0.0013,0,1.0005,1.0009,5142,6084,0.9996,6e-04,5e-04,0.065,0.2174,TRUE,TRUE,TRUE,TRUE,TRUE,"BSS"
+"private_boat_all_gear_Dungeness_Kept","monthly",0,0,0,1.0002,1,7708,10739,0.9998,0,0,0,0,TRUE,TRUE,TRUE,TRUE,TRUE,"BSS"

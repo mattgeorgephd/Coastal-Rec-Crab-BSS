@@ -1,0 +1,16 @@
+"Severity","Source","Message","Times"
+"warning","R warning (chunk bss-fits)","Examine the pairs() plot to diagnose sampling problems",3
+"warning","R warning (chunk bss-fits)","There were 11 divergent transitions after warmup. See https://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup to find out why this is a problem and how to eliminate them.",1
+"warning","R warning (chunk bss-fits)","There were 32 divergent transitions after warmup. See https://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup to find out why this is a problem and how to eliminate them.",1
+"warning","R warning (chunk bss-fits)","There were 9 divergent transitions after warmup. See https://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup to find out why this is a problem and how to eliminate them.",1
+"warning","R warning (chunk config)","package 'forcats' was built under R version 4.2.3",1
+"warning","R warning (chunk config)","package 'here' was built under R version 4.2.3",1
+"warning","R warning (chunk diag-extended)","Some Pareto k diagnostic values are too high. See help('pareto-k-diagnostic') for details.",3
+"warning","R warning (chunk input-figures)","Calling `case_when()` with size 1 LHS inputs and size >1 RHS inputs was deprecated in dplyr 1.2.0. ℹ This `case_when()` statement can result in subtle silent bugs and is very inefficient. Please use a series of if statements instead: ``` # Previously case_when(scalar_lhs1 ~ rhs1, scalar_lhs2 ~ rhs2, .default = default) # Now if (scalar_lhs1) { rhs1 } else if (scalar_lhs2) { rhs2 } else { default } ``` This warning is displayed once per session. Call `lifecycle::last_lifecycle_warnings()` to see where this warning was generated.",1
+"note","I/E","I/E stream dropped for shore/pot_closure: 2 in-window obs < ie_min_obs_shore = 3; sigma_IE left decoupled (GR-8 guard).",1
+"note","census","FRAMES DISAGREE on 6 tally day(s): the vessel tally and the charter roster give different trip counts. The larger of the two is used. See roster_reconciliation in census_roster_reconciliation.csv.",1
+"note","census","ROSTER-ONLY DAYS: 8 charter trip(s) on 8 day(s) with no vessel tally. They are in the frame because charter_frame = 'roster' unions the roster with the tally; a tally-only frame would carry 0 crab on those days.",1
+"note","census","UNSAMPLED DAYS TREATED AS NO OPERATION: 23 calendar day(s) in the census window have no tally row, and census_expansion = 'none' records them as days on which no vessel operated rather than imputing them. That is what the tally means; it is stated here because the alternative (census_expansion = 'day_type') would add catch on those days.",1
+"note","openers","Spillover diagnostic: Bottomfish is open most of the year (near-constant), and salmon is open only in summer (near-collinear with month); read those adjusted estimates with care.",1
+"note","openers","Spillover diagnostic: Nearby-dig vs any-dig agree on 197 of 197 sampled shore days (differ on 0); when 0, the nearby flag is not separable from a generic dig day this season.",1
+"note","openers","Spillover diagnostic: Opener OPEN-day counts in the sampled shore-effort series: salmon 33, halibut 23, bottomfish 103, nearby dig 69 (of 197 sampled days).",1

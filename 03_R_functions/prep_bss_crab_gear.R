@@ -458,6 +458,28 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   n_gear <- if(is_shore) nrow(eff_d) else 0L
   n_trailer <- if(!is_shore) nrow(eff_d) else 0L
   n_effort_obs <- n_gear + n_trailer
+  # 2026-10-18 (A39, the per-day effort effect; D45): one index per SAMPLED day for the effort
+  # counts, so the Stan day effect (effort_day_effect = 1) can share a deviation across a day's
+  # repeat counts. The same construction as prep_bss_crab_pooled.R.
+  .eday_levels <- sort(unique(eff_d$day_index))
+  .eday <- match(eff_d$day_index, .eday_levels)
+  # A40 (2026-10-19): THE IDENTIFICATION FLOOR. The day effect is identified only where a day carries
+  # repeat counts; with one count per day it is the count noise under another name and sigma_uE trades
+  # off with sigma_r_E along a ridge (B69: n_eff 301 on the shore pot-closure fit). Below the floor the
+  # term is OFF for this fit, which is the model without it bit for bit, and the run warnings say so.
+  .n_repeat_days <- sum(table(eff_d$day_index) >= 2L)
+  .ede_on <- isTRUE(params$effort_day_effect)
+  .ede_floor <- as.integer(params$effort_day_effect_min_repeat_days %||% 0L)
+  if (.ede_on && .n_repeat_days < .ede_floor) {
+    .ede_on <- FALSE
+    .msg <- sprintf(paste0("%s/%s: the per-day effort effect is OFF for this fit: %d sampled day(s) carry repeat counts, below ",
+                           "effort_day_effect_min_repeat_days = %d (A40); the fit is the model without the term, bit for bit"),
+                    population_name, gear_regime %||% "", .n_repeat_days, .ede_floor)
+    cat("  ", .msg, "\n")
+    if (exists("bss_warn", mode = "function")) bss_warn("effort day effect", .msg, severity = "note")
+  } else if (.ede_on) {
+    cat(sprintf("  Per-day effort effect ON for this fit: %d sampled day(s) carry repeat counts (floor %d)\n", .n_repeat_days, .ede_floor))
+  }
 
   cat(sprintf("  Effort obs (NB-marginalized): %d (Gear_n + T_n)\n", n_effort_obs))
 
@@ -470,7 +492,10 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
   # prep_bss_crab_pooled (Phase 1).
   osp_match <- tibble(event_date = as.Date(character()), day_index = integer(), count_quantity = numeric())
   if (!is_shore && isTRUE(params$use_osp_boat_counts)) {
-    osp_raw <- fetch_osp_boat_counts(params)
+    # D41 (c), 2026-10-19: the driver lifts the series into params (one file read per run, and an
+    # ingest ERROR stops the run there, not at the first boat fit); the read below serves a
+    # standalone call (the harness, a dump script).
+    osp_raw <- params$osp_boat_series %||% fetch_osp_boat_counts(params)
     # improvement 8: crab-only rows ride along as an attribute; prefer what the driver
     # already lifted, fall back to this read so the prep works standalone.
     if (is.null(params$osp_crab_rows)) params$osp_crab_rows <- attr(osp_raw, "osp_crab_rows")
@@ -487,7 +512,10 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
 
   # --- Phase 2/3 + improvement 8: crabbing-fraction f Stan data (boat only, per stratum;
   # see 03_R_functions/crab_fraction.R). The OSP crab-only lower bound enters here.
-  cf_data <- crab_fraction_stan_data(is_shore, days, params)
+  # D40: each day's observed boat volume (OSP total, else trailers x turnover centre),
+  # for the crabbing share's volume term; unused on shore and when the term is off.
+  f_day_volume <- if (!is_shore) crab_fraction_day_volume(days, eff_d, osp_match, eff_spec$L_data) else NULL
+  cf_data <- crab_fraction_stan_data(is_shore, days, params, day_volume = f_day_volume)
 
   # --- improvement 4: opener effort covariates for THIS fit --------------------
   # The driver ran the screen and stored the selection in params$opener_selected and the
@@ -531,9 +559,38 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
                                     params, population_name = population_name,
                                     n_informed = .n_L_informed)
 
+  # A41 (2026-10-20, D49 option (iii)): a fit below the floor keeps ONE tau_bar that no day observes.
+  # Its OSP boat totals, if any, then observe presence through the free scale kappa_OSP
+  # (osp_scale_is_tau = 0 for THIS fit; inert when OSP_n = 0), and the boat I/E stream, which observes
+  # presence times L directly, is dropped. .n_L_informed keeps the count that decided the refusal.
+  .shared_tau_refusal <- attr(.shared_tau, "refusal") %||% "none"
+  .osp_scale_is_tau_fit <- as.integer(isTRUE(params$osp_scale_is_tau))
+  if (identical(.shared_tau_refusal, "shared_prior")) {
+    .osp_scale_is_tau_fit <- 0L
+    if (IE_n > 0) {
+      .msg <- sprintf("Boat I/E stream dropped for %s/%s under the shared-turnover refusal (A41): its %d day(s) would observe the level no day may inform.",
+                      population_name, gear_regime %||% "?", IE_n)
+      cat("  ", .msg, "\n", sep = "")
+      if (exists("bss_warn", mode = "function")) bss_warn("I/E", .msg)
+      ie_match <- ie_match[0, , drop = FALSE]; IE_n <- 0L
+    }
+  }
+
+  # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
+  # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
+  # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
+  # fields and B1_sun stays zero-size.
+  .sun <- if (!is.null(days$day_type_num_sunday)) as.integer(days$day_type_num_sunday) else as.integer(bss_weekday(days$event_date) == "Sunday")
+  .sun_split <- as.integer(isTRUE(params$sunday_split))
+  # A35 (2026-10-16): the holiday increments' prior scale, from run_config (holiday_prior_sd;
+  # 1, the former hard-coded value, when the key is absent); A36: the Sunday increment's.
+  .hol_sd <- as.numeric(params$holiday_prior_sd %||% 1)
+  .sun_sd <- as.numeric(params$sunday_prior_sd %||% 0.5)
+
   stan_data <- list(
     D=D, G=G, S=S, P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
+    sunday_split=.sun_split, sun=.sun,   # A36
     # improvement 4: opener effort covariates (K_open = 0 reproduces the prior model)
     K_open = as.integer(open_spec$K_open),
     X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
@@ -590,6 +647,12 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     day_T = if(!is_shore) eff_d$day_index else integer(0),
     section_T = if(!is_shore) rep(1L,nrow(eff_d)) else integer(0),
     T_I = if(!is_shore) as.integer(eff_d$count_quantity) else integer(0),
+    # A39 (2026-10-18): the per-sampled-day index and the day effect, zero-size effect when off
+    effort_day_effect = as.integer(.ede_on),   # A40: the fit's own switch, after the identification floor
+    n_Eday = length(.eday_levels),
+    Eday_Gear = if(is_shore) as.integer(.eday) else integer(0),
+    Eday_T = if(!is_shore) as.integer(.eday) else integer(0),
+    value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5),
 
     # Phase 1b: OSP boat-count stream (empty for shore / when toggle off)
     OSP_n = OSP_n,
@@ -636,8 +699,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     value_cauchyDF_sigma_eps_C=2, value_cauchyDF_sigma_r_C=2,
     value_betashape_phi_E_scaled=2, value_betashape_phi_C_scaled=2,
     value_normal_sigma_B1=1,
-    value_normal_sigma_B2=1,
+    value_normal_sigma_B2=.hol_sd,   # A35: holiday_prior_sd
     value_normal_sigma_B1_C=1,
+    value_normal_sigma_B1_sun=.sun_sd,   # A36: sunday_prior_sd
     value_normal_sigma_B_open=1,   # improvement 4 (opener effort covariates)
     use_B1_C = as.integer(isTRUE(params$estimate_B1_C)),
     value_normal_mu_mu_C=log(0.5), value_normal_sigma_mu_C=2,
@@ -702,7 +766,14 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     cfc_crab               = cf_data$cfc_crab,
     cfc_combo              = cf_data$cfc_combo,
     cfc_kappa_prior_mu     = cf_data$cfc_kappa_prior_mu,
-    osp_scale_is_tau       = as.integer(isTRUE(params$osp_scale_is_tau)),
+    # D40 (2026-10-04): the crabbing share's day-level volume term (inert unless
+    # crab_fraction_volume = TRUE under the dynamic f; see crab_fraction.R)
+    f_volume               = cf_data$f_volume,
+    fvol_beta_prior_sd     = cf_data$fvol_beta_prior_sd,
+    fvol_centre            = cf_data$fvol_centre,
+    cfi_x                  = cf_data$cfi_x,
+    osp_f_x                = cf_data$osp_f_x,
+    osp_scale_is_tau       = .osp_scale_is_tau_fit,   # A41: 0 for a fit below the shared-turnover floor
 
     # --- D6 (2026-09-13): zero-inflated interview catch, ported from the pooled model ----
     # SHIPS OFF FOR THIS TRACK. catch_zi_tracks defaults to "pooled", so zi_catch is 0 here
@@ -755,6 +826,8 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     if (!nm %in% names(df)) return(rep(NA_real_, nrow(df)))
     suppressWarnings(as.numeric(df[[nm]]))
   }
+  attr(stan_data, "effort_day_repeat_days") <- .n_repeat_days   # A40: how many sampled days carry repeat counts
+  attr(stan_data, "shared_tau_refusal") <- .shared_tau_refusal   # A41: what this fit ran below the floor ("none" above it)
   attr(stan_data, "cpue_data") <- tibble(
     catch           = .col_num(int_d, "fish_count"),
     h               = as.numeric(eff_spec$h_fun(int_d)),

@@ -259,7 +259,7 @@ crab_fraction_strata_labels <- function(dates, params) {
 # block declares them unconditionally); they are inert unless crab_fraction_dynamic = 1
 # AND f is estimated. attr(., "f_strata") is a per-stratum audit table (label, walk
 # link, contact and OSP sums) that the driver writes beside the posterior f.
-crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
+crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE, day_volume = NULL) {
   D <- nrow(days)
   .say <- function(...) if (!isTRUE(quiet)) cat(...)
   apply_cf <- as.integer(!is_shore && isTRUE(params$use_crab_fraction))
@@ -295,7 +295,11 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     c_level_sd = as.numeric(params$crab_fraction_combo_level_sd %||% 1.5),
     c_walk_sd_prior = as.numeric(params$crab_fraction_combo_walk_sd_prior %||% 1.5),
     CFC_n = 0L, cfc_stratum = integer(0), cfc_crab = integer(0), cfc_combo = integer(0),
-    cfc_kappa_prior_mu = as.numeric(params$crab_fraction_combo_kappa_prior_mu %||% 20))
+    cfc_kappa_prior_mu = as.numeric(params$crab_fraction_combo_kappa_prior_mu %||% 20),
+    # D40 (2026-10-04): the day-level volume term, inert-valued
+    f_volume = 0L,
+    fvol_beta_prior_sd = as.numeric(params$crab_fraction_volume_beta_sd %||% 1),
+    fvol_centre = as.array(rep(0, K)), cfi_x = numeric(0), osp_f_x = numeric(0))
 
   neutral <- c(list(
     apply_crab_fraction = 0L, crab_fraction_estimate = 0L,
@@ -386,6 +390,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
           cfi$stratum <- as.integer(rk[keep])
           cfi$total   <- as.integer(round(tot[keep]))
           cfi$crab    <- pmin(as.integer(round(cr[keep])), cfi$total)
+          cfi$date    <- as.Date(rows$event_date[keep])
           cfi_days    <- as.integer(tabulate(cfi$stratum, nbins = K))
         }
         if (all(c("boats_crab_only", "boats_combo") %in% names(rows))) {
@@ -440,6 +445,7 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
         ospf$stratum <- as.integer(rk[keep])
         ospf$total   <- as.integer(round(rows$osp_total[keep]))
         ospf$crab    <- pmin(as.integer(round(rows$osp_crab_only[keep])), ospf$total)
+        ospf$boats   <- if ("osp_boat_total" %in% names(rows)) as.numeric(rows$osp_boat_total[keep]) else rep(NA_real_, sum(keep))
       }
     }
   }
@@ -453,6 +459,39 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
   combo_kappa <- params$crab_fraction_combo_kappa %||% 8
   a0 <- ifelse(use_osp & osp_flag == 1L, combo_mu * combo_kappa,       set_val * kappa)
   b0 <- ifelse(use_osp & osp_flag == 1L, (1 - combo_mu) * combo_kappa, (1 - set_val) * kappa)
+
+  # --- D40 (2026-10-04): the day-level volume term ------------------------------------
+  # logit f_d = eta_f[k] + beta_fvol * (log V_d - centre_k). V_d is the day's OBSERVED boat
+  # volume (crab_fraction_day_volume(): OSP's daily total, else the mean trailer count x the
+  # day's turnover centre), on the scale of the model's (lambda_E / R_G_boat) * L, which
+  # the Stan totals use on every day. centre_k is the mean log volume over the stratum's
+  # days that have one, so eta_f[k] is the share at the stratum's central volume and the
+  # slope describes WITHIN-stratum variation only (across months the walk does the work).
+  vol_req <- isTRUE(params$crab_fraction_volume %||% FALSE)
+  vol_on  <- vol_req && dyn_on && !is.null(day_volume) && length(day_volume) == D && any(is.finite(day_volume) & day_volume > 0)
+  if (vol_req && !vol_on && !isTRUE(quiet))
+    .say(sprintf("  NOTE: crab_fraction_volume = TRUE but the volume term is OFF here (%s).\n",
+                 if (!dyn_on) "it needs crab_fraction_dynamic = TRUE"
+                 else if (is.null(day_volume) || length(day_volume) != D) "no daily boat volume was supplied"
+                 else "no day in this fit has an observed boat volume"))
+  lv_day  <- if (vol_on) ifelse(is.finite(day_volume) & day_volume > 0, log(pmax(day_volume, 0.5)), NA_real_) else rep(NA_real_, D)
+  fv_centre <- rep(0, K)
+  if (vol_on) {
+    overall <- mean(lv_day, na.rm = TRUE)
+    fv_centre <- vapply(seq_len(K), function(k) { v <- lv_day[f_stratum == k]; if (any(is.finite(v))) mean(v, na.rm = TRUE) else overall }, numeric(1))
+  }
+  cfi_x <- rep(0, length(cfi$stratum)); cfi_x_missing <- 0L
+  if (vol_on && length(cfi$stratum)) {
+    di <- match(cfi$date, as.Date(days$event_date))
+    lv <- lv_day[di]
+    cfi_x_missing <- sum(!is.finite(lv))
+    cfi_x <- ifelse(is.finite(lv), lv - fv_centre[cfi$stratum], 0)
+  }
+  osp_x <- rep(0, length(ospf$stratum))
+  if (vol_on && length(ospf$stratum)) {
+    lv <- ifelse(is.finite(ospf$boats) & ospf$boats > 0, log(pmax(ospf$boats, 0.5)), NA_real_)
+    osp_x <- ifelse(is.finite(lv), lv - fv_centre[ospf$stratum], 0)
+  }
 
   dyn <- .dyn_inert(K)
   if (dyn_on) {
@@ -470,6 +509,14 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     dyn$cfc_stratum <- as.integer(cfc$stratum)
     dyn$cfc_crab    <- as.integer(cfc$crab)
     dyn$cfc_combo   <- as.integer(cfc$combo)
+    dyn$f_volume    <- as.integer(vol_on)
+    dyn$fvol_centre <- as.array(as.numeric(fv_centre))
+    dyn$cfi_x       <- as.numeric(cfi_x)
+    if (vol_on)
+      .say(sprintf(paste0("    Volume term (D40): logit f_d = eta_f + beta (log V_d - centre), beta ~ N(0, %.2f);",
+                          " %d of %d contact days and %d OSP days carry an observed volume; stratum centres %s boats/day.\n"),
+                   dyn$fvol_beta_prior_sd, length(cfi_x) - cfi_x_missing, length(cfi_x), sum(is.finite(ospf$boats) & ospf$boats > 0),
+                   paste(sprintf("%s=%.0f", strata, exp(fv_centre)), collapse = " ")))
     n_chains <- length(unique(walk$chain))
     .say(sprintf(paste0("  Crab fraction f (DYNAMIC, review item 1B): %d stratum/strata (%s) on %d walk chain(s);",
                         " %d contact days (%d boats, %d crabbing) enter per day; %d OSP crabbing-only days;",
@@ -526,6 +573,13 @@ crab_fraction_stan_data <- function(is_shore, days, params, quiet = FALSE) {
     osp_f_crab    = as.integer(ospf$crab),
     osp_f_kappa_prior_mu = params$crab_fraction_osp_kappa_prior_mu %||% 20),
     dyn)
+  # D40: osp_f_x always matches OSPF_n (zeros when the volume term is off)
+  out$osp_f_x <- as.numeric(osp_x)
+  attr(out, "f_volume_missing_contacts") <- cfi_x_missing
+  if (vol_on && cfi_x_missing > 0 && exists("bss_warn", mode = "function"))
+    bss_warn("crabbing fraction", sprintf(paste0("Volume term (D40): %d of %d contact day(s) have no observed boat volume (no OSP",
+                                                 " total, no trailer count) and are read at their stratum's central volume."),
+                                          cfi_x_missing, length(cfi_x)), severity = "note")
   attr(out, "f_strata") <- tibble(
     stratum = seq_len(K), label = strata,
     walk_prev = if (dyn_on) walk$prev else rep(0L, K), walk_gap = if (dyn_on) walk$gap else rep(1, K),
@@ -670,4 +724,33 @@ crab_fraction_source_rows <- function(dwg, ie_data, params, quiet = FALSE) {
     }
   }
   rows
+}
+
+
+# D40 (2026-10-04): each day's OBSERVED private-boat volume, for the crabbing share's
+# volume term. One value per row of `days` (NA where nothing was counted):
+#   OSP's daily total of returning private boats, where OSP counted that day;
+#   else the day's mean trailer count x the day's turnover centre (L_data, tau_boat),
+#   the trailer stream's mean x L, so both sources are on the scale of the model's daily
+#   boat volume (lambda_E / R_G_boat) * L, which the Stan totals use on every day.
+# eff_d: the fit's effort rows (event_date, count_quantity); osp_match: the fit's OSP rows
+# (event_date, count_quantity); L_data: the per-day turnover centre, aligned with days.
+crab_fraction_day_volume <- function(days, eff_d = NULL, osp_match = NULL, L_data = NULL) {
+  dts <- as.Date(days$event_date)
+  v <- rep(NA_real_, length(dts)); src <- rep(NA_character_, length(dts))
+  if (!is.null(eff_d) && nrow(eff_d) > 0 && length(L_data) == length(dts)) {
+    tm <- tapply(as.numeric(eff_d$count_quantity), as.Date(eff_d$event_date), mean, na.rm = TRUE)
+    i <- match(dts, as.Date(names(tm)))
+    tv <- as.numeric(tm)[i] * as.numeric(L_data)
+    ok <- is.finite(tv) & tv > 0
+    v[ok] <- tv[ok]; src[ok] <- "trailer x turnover"
+  }
+  if (!is.null(osp_match) && nrow(osp_match) > 0) {
+    i <- match(dts, as.Date(osp_match$event_date))
+    ov <- as.numeric(osp_match$count_quantity)[i]
+    ok <- is.finite(ov) & ov > 0
+    v[ok] <- ov[ok]; src[ok] <- "OSP total"
+  }
+  attr(v, "source") <- src
+  v
 }

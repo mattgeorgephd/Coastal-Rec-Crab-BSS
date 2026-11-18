@@ -180,6 +180,11 @@ write_manifest <- function(stages, base_dir) {
     paste("model       :", paste(get0("models", ifnotfound = model), collapse = " + ")),
     paste("git sha     :", if (length(git_sha)) git_sha else NA),
     paste("git tree    :", tree),
+    # 2026-10-17 (B66): the per-fit checkpoint directory, when one was set; the fits it loaded
+    # rather than sampled are named in each stage's run_warnings.csv and stan_console_*.log.
+    paste("fit cache   :", { .fc <- Sys.getenv("BSS_FIT_CACHE_DIR", unset = ""); if (nzchar(.fc))
+      sprintf("%s (BSS_FIT_CACHE_DIR; a fit whose Stan program, data, settings and seed matched a saved one was loaded, not sampled; run_warnings.csv names them)", .fc)
+      else "none (BSS_FIT_CACHE_DIR unset; every fit sampled)" }),
     "",
     "Stages:"), con)
   for (nm in names(stages)) {

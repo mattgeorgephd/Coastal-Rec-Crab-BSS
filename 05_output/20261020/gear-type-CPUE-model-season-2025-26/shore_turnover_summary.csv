@@ -1,0 +1,2 @@
+"method","n_days","tau_ratio_of_sums","tau_geomean","log_se_bootstrap","log_sd_between_days","tau_peak_based","weekday","weekend","n_days_in_window","n_days_total","tau_in_window","derived_window_only"
+"count-time-weighted ratio of sums",40,2.51587760402357,2.65568241564061,0.0418207456482745,0.330054159256732,1.66910889384824,2.49974104907543,2.52508004217165,17,40,2.59527065307602,FALSE

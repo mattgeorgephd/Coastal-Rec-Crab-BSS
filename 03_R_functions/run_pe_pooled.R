@@ -205,11 +205,19 @@ run_pe_pooled <- function(summ, days, params, population_name) {
       mutate(est_catch = est_total * coalesce(mean_cpue, .empty_cpue_fill))
     results[[cg]] <- sum(catch_strat$est_catch, na.rm=TRUE)
     results[[paste0("imputed_", cg)]] <- sum(catch_strat$est_catch[catch_strat$imputed_effort_stratum], na.rm = TRUE)
+    # D22 part 2 (2026-10-19, B73): the PE catch SE, from the stratum effort variance and a
+    # day-level ratio variance of the stratum CPUE (pe_catch_variance(), pe_effort_strata.R).
+    .cv <- pe_catch_variance(catch_strat, daily_cpue, effort_strat, daily_effort, days, params)
+    catch_strat <- .cv$strata
+    results$catch_se_by_group[[cg]] <- .cv$catch_se
+    results$catch_se_sampled_only_by_group[[cg]] <- .cv$catch_se_sampled_only
+    results$catch_var_terms[[cg]] <- .cv$terms
+    if (cg == "Dungeness_Kept") { results$catch_se <- .cv$catch_se; results$catch_se_sampled_only <- .cv$catch_se_sampled_only }
     # B44 (2026-09-28): the stratum catch, kept so the monthly split can spread each
     # (period x day_type) cell's own catch over its own calendar days (pe_monthly_split()),
     # instead of splitting the total by effort share at one season-wide CPUE.
     results$catch_strata[[cg]] <- catch_strat |>
-      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch)
+      dplyr::select(section_num, period, day_type, n_total_days, est_total, est_catch, cpue_used, cpue_days, cpue_var, cpue_var_source, catch_var_cell)
     if (cg == "Dungeness_Kept") results$pe_empty_cpue_source <- attr(empty_fill, "source")
 
     # P0: the PE's implied CPUE (catch / effort) must agree with the ratio-of-sums
@@ -243,8 +251,8 @@ run_pe_pooled <- function(summ, days, params, population_name) {
 
   results$effort_unit <- effort_unit_pe
   results$pe_cpue_check <- if (length(pe_check_rows)) bind_rows(pe_check_rows) else NULL
-  cat(sprintf("  PE %s: Effort=%s %s, Dung=%s\n", population_name,
-              format(round(results$effort_total),big.mark=","), effort_unit_pe,
-              format(round(results$Dungeness_Kept),big.mark=",")))
+  cat(sprintf("  PE %s: Effort=%s %s (SE %s), Dung=%s (SE %s; B73)\n", population_name,
+              format(round(results$effort_total),big.mark=","), effort_unit_pe, format(round(results$effort_se %||% NA), big.mark = ","),
+              format(round(results$Dungeness_Kept),big.mark=","), format(round(results$catch_se %||% NA), big.mark = ",")))
   return(results)
 }

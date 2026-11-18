@@ -1,0 +1,21 @@
+"population","subseason","n_interviews","gear_primary","share_median","share_lo95","share_hi95"
+"shore","ring_net_only",912,"Pot",0.00919162113321381,0.001934096085084,0.0204001520506995
+"shore","ring_net_only",912,"Ring Net",0.41035307141015,0.357743293091885,0.461577285190677
+"shore","ring_net_only",912,"Trap",0.511333696541694,0.458642953700575,0.564586102481805
+"shore","ring_net_only",912,"Snare",0.0645748183939238,0.0436296960772473,0.0893275883308114
+"shore","ring_net_only",912,"Other",0.00313409462762718,0,0.00832111339895438
+"shore","all_gear",3844,"Pot",0.330337578993374,0.303137762746693,0.358999961838103
+"shore","all_gear",3844,"Ring Net",0.140250842837815,0.120649671532446,0.161960394779286
+"shore","all_gear",3844,"Trap",0.468339722209465,0.437756356677499,0.500108057269147
+"shore","all_gear",3844,"Snare",0.0597474636963461,0.0470509320746987,0.0741529871018073
+"shore","all_gear",3844,"Other",0.00041025641025641,0,0.00106382978723404
+"private_boat","ring_net_only",2,"Pot",0,0,0
+"private_boat","ring_net_only",2,"Ring Net",0,0,0
+"private_boat","ring_net_only",2,"Trap",0,0,0
+"private_boat","ring_net_only",2,"Snare",0,0,0
+"private_boat","ring_net_only",2,"Other",1,1,1
+"private_boat","all_gear",268,"Pot",0.987784564131038,0.96807110080342,0.999478358390407
+"private_boat","all_gear",268,"Ring Net",0.0122154358689617,0.000521641609592674,0.03192889919658
+"private_boat","all_gear",268,"Trap",0,0,0
+"private_boat","all_gear",268,"Snare",0,0,0
+"private_boat","all_gear",268,"Other",0,0,0

@@ -3,16 +3,111 @@
 ## Development history
 
 - **Companion to:** `BSS-GH-pooled-CPUE-model-documentation.md`, which is **Method v2.0**, the live method of record (adopted 2026-09-12). Method v1.0, frozen against pooled code v7.4, is archived at `archive/method-v1.0-pooled-CPUE.md`; the entries below from before that date describe how the code outran it.
-- **Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's published numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted. Code **v7.7** (2026-07-11) moves the shore component onto the gear-deployment scale as well (POOL-7), so both fitted components now run on gear-deployments; it moves the publication shore number, so v7.7 must be re-run before the shore total is trusted. Code **v7.8** (2026-07-11) is a behavior-preserving repository refactor (helper functions extracted into `03_R_functions/`; all user toggles centralized into `run_config.R`) together with one number-moving completion fix: the pooled `run_pe` shore branch, which had been left on crabber-hours after v7.7, is ported onto the shared effort module so the shore PE matches the shore BSS unit. Code **v7.9** (2026-07-12) restructures `run_config.R` into the base parameter set, moves the per-population AR-resolution map into it, and tightens the pooled divergence-fraction backstop to 0.05 (P5/P7), with no estimate change. The current state is v7.9 plus the nine-item **Tier-2 + parity batch** (2026-07-13), validated by Run 1 (the authoritative run: pooled default, port total BSS 83,035) and cross-checked by the gear-resolved Run 2; that batch adds the pooled Stan terms `B2_C` / `B3` / `gamma_C` and the PE empty-stratum fallback among nine items, all detailed in the newest version-log entry and in `development_notes/PIPELINE_STATUS.md`.
+- **Scope:** the full version-by-version change log of the pooled-CPUE pipeline and its Stan model, plus the detailed working notes from the convergence-debugging effort. Method v1.0 corresponds to pipeline code **v7.4**. Code **v7.5** (2026-07-10) adds the pooled backlog fixes POOL-2/4/5/6; because POOL-2 (incomplete-trip filter, default on) changes the shore estimate, Method v1.0's documented numbers must be refreshed by a v7.5 re-run. Code **v7.6** (2026-07-10) then implements POOL-1 + POOL-3, moving the boat onto the gear-deployment scale; this moves the publication boat number too, so v7.6 must be re-run before the totals are trusted. Code **v7.7** (2026-07-11) moves the shore component onto the gear-deployment scale as well (POOL-7), so both fitted components now run on gear-deployments; it moves the publication shore number, so v7.7 must be re-run before the shore total is trusted. Code **v7.8** (2026-07-11) is a behavior-preserving repository refactor (helper functions extracted into `03_R_functions/`; all user toggles centralized into `run_config.R`) together with one number-moving completion fix: the pooled `run_pe` shore branch, which had been left on crabber-hours after v7.7, is ported onto the shared effort module so the shore PE matches the shore BSS unit. Code **v7.9** (2026-07-12) restructures `run_config.R` into the base parameter set, moves the per-population AR-resolution map into it, and tightens the pooled divergence-fraction backstop to 0.05 (P5/P7), with no estimate change. The current state is v7.9 plus the nine-item **Tier-2 + parity batch** (2026-07-13), validated by Run 1 (the authoritative run: pooled default, port total BSS 83,035) and cross-checked by the gear-resolved Run 2; that batch adds the pooled Stan terms `B2_C` / `B3` / `gamma_C` and the PE empty-stratum fallback among nine items, all detailed in the newest version-log entry and in `development_notes/PIPELINE_STATUS.md`.
+- **Correction (2026-09-29).** The scope line above was written at v7.9; the current state is Method v2.0 plus A30 and the 2026-09-28/29 changes (A31, B44 to B57), and the authoritative run is the one in the box at the top of `development_notes/PIPELINE_STATUS.md` (99,822 as of 2026-10-02, B61; 99,873 on 2026-09-29).
 - **Convention:** no em dashes.
 
-This file is the provenance record for the pooled model. The published method document summarizes this history in one screen (its Section 23) and refers here for the detail. Entries are newest-first. The model's first published, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
+This file is the provenance record for the pooled model. The method-of-record document summarizes this history in one screen (its Section 23) and refers here for the detail. Entries are newest-first. The model's first documented, operationally-frozen state is Method v1.0 (code v7.4); the entries below trace how it got there, from the post-critique baseline (v6.0) through the convergence work (v6.1 to v7.0) and the diagnostics and cross-validation additions (v7.1 to v7.4). Earlier shared milestones (v1 to v5) are summarized at the end and in `README.md`.
 
 A note on numbering: these version tags (v6.x, v7.x) are the internal development tags carried in the driver's header and in the Stan model headers. They are distinct from the published "Method v1.0" label, which names the frozen method rather than a code revision. Method v1.0 = code v7.4.
 
 ------------------------------------------------------------------------
 
 ## Version log
+
+### 2026-10-20, A41: A FIT BELOW THE SHARED-TURNOVER FLOOR KEEPS ONE UNOBSERVED tau_bar (D49 OPTION (iii), MATT); D19 CLOSED KEEPING local
+
+Matt's two decisions. A41: `bss_shared_tau_data()` no longer falls back to per-day draws below the
+informed-day floor; under the shipped `shared_tau_refusal = "shared_prior"` it keeps the shared
+structure (one `tau_bar ~ lognormal(log(centre), tau_boat_prior_sigma)` scaling every day with the
+fixed day spread) and flags the refusal, and the prep then sets `osp_scale_is_tau = 0` for that fit
+and drops its boat I/E stream, so no day observes the level: the boat effort of a season without OSP
+days is centred on the calibration centre and carries the prior's whole uncertainty, where the
+per-day draws had centred it 13% above and averaged the uncertainty away (D49). `"per_day"` is
+the former fallback bit for bit. The refusal mode travels as an attribute of the Stan data list, so
+the fit cache key and every 2024-25 data list are untouched (checked by dump, both tracks, every
+fit, and then by a 2024-25 re-sample that reproduced B70 draw for draw, B76); `fit_data_summary.csv` gains `shared_tau_refusal`, `structural_params` marks the unobserved
+`tau_bar`, and section 12.2 says the level is its prior. The rule is CHANGE_REGISTER A41, written
+before the renders (B76). D19: `pe_empty_stratum = "local"` stays, closed on the B70 re-measurement.
+
+### 2026-10-19, B72 TO B75: THE OSP ABSENT-DAY KEY, THE PE CATCH SE IN THE REPORT, AND THE 2025-26 READINESS RENDER'S REPORT FIXES
+
+Reporting and reader changes while OSP's answers are awaited; no Stan data and no fit changes
+(the authoritative run, B70, stands). B72: the driver stops on an OSP ingest error instead of
+skipping the stream, lifts the OSP series into `params` for the prep, writes `osp_absent_days.csv`
+(the days with boats and no crab-only value, read as `osp_absent_day` says, D39), sets OSP's
+observed crab-only share beside the model's `f(1 - c)` by month in section 12.3, and the
+comparison carries `pe_f_source`. B73: the PE catch SE (`pe_catch_variance()`) in the comparison,
+the PE table, the port total (`PE_se`) and the monthly panels, and a PE-reported component enters
+the port draws as seeded lognormal draws with that SE (`.pe_fallback_draws()`) instead of a
+constant. B75, the 2025-26 readiness render (campaign 1z.18), fixed what reading it on a season
+with a PE-reported component and a refused shared turnover exposed: the component table's PE row
+shows the point with the quantiles of its port draws, not +/- 1.96 SE, which ran below zero at a
+CV of 1 (`f352787`); the absent-day sentence prints whenever the file exists (`f352787`); and
+section 12.2, "Turnover as fitted", builds its rows from `fit_data_summary.csv`, so a fit whose
+shared turnover is REFUSED has a row naming the per-day prior its `L` sits at, median, mean and
+log-SD, with the D49 note (`b03743a`). The harness pins each; the turnover chunk is evaluated
+against the readiness render's folder.
+
+### 2026-10-19, A40: THE IDENTIFICATION FLOOR ON THE PER-DAY EFFORT EFFECT; THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 86,497 (B70, B71)
+
+Matt's option (a) for B69: `effort_day_effect = TRUE` again with `effort_day_effect_min_repeat_days = 5`.
+Each fit switches the term on only when at least that many of its sampled days carry two or more
+counts; below the floor the fit's Stan data carry `effort_day_effect = 0`, the model without the term
+bit for bit, with a run warning, and `fit_data_summary.csv` records the switch and the count. On 2024-25
+the two all-gear fits of each track carry the term and the four pot-closure fits do not. The A40 rule
+adds clause (5): the fits with the term off reproduce B67 draw for draw. The render (B70, the same day) met every clause: the pot-closure fits identical to B67 draw for draw, the all-gear fits identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 (86,113) replaced: against it the shore all-gear fit 30,804 to 31,130, the boat all-gear 35,403 to 35,462, the pot-closure fits unchanged, the half-width +1.8%, the shared boat turnover 3.16 to 2.97 in the posterior mean. Every fit was a cache miss because the key digested the data's attributes; B71 fixes the key.
+
+### 2026-10-18, A39: THE PER-DAY EFFORT EFFECT ADOPTED ON BOTH TRACKS (PENDING ITS RENDER); D24 CLOSED BY DECISION (B68, 1z.14, 1z.15)
+
+Matt's decisions on the 1z.14 pricing batch: keep 2.477 for the derived shore turnover centre (D24
+closed; the window-only centre's price, -4.5% on the port, is quoted as the sensitivity), and adopt
+the per-day effort effect on both tracks (A39, closing D45). The term, built the same day as the B68
+lever (`effort_day_effect`; one multiplicative deviation per sampled day shared by its repeat
+counts, mean one across days, `sigma_uE ~ half-normal(0, 0.5)`; the first cut lacked the mean-one
+correction and read the shore all-gear effort 5.8% low), now ships TRUE in section 2.1 of
+`run_config.R` with the A39 rule written before its render; both drivers report `sigma_uE_out`. The
+pooled OFF path reproduces the A38 refits draw for draw. Priced on the container: the shore
+all-gear interval half-width +7.5% with the point +1.1%, the boat +4.0% and +0.2%, the port SD +2.5%.
+D29's span was re-measured under the current model the same day (35,403 to 38,767 on the boat
+all-gear fit, the port +3.8%). The render (B69, the same evening) met clauses (1) to (3) of the rule and failed clause (4) on the pooled shore pot-closure fit (`sigma_uE` n_eff 301, one count per day); per the rule the key is back to FALSE pending Matt's decision (an identification floor recommended).
+
+### 2026-10-18, THE AUTHORITATIVE RUN MOVES TO THE CONTAINER RENDER OF A35 TO A38: 86,113 (B66, B67)
+
+Four changes landed on 2026-10-16 (CHANGE_REGISTER A35 to A38): the holiday increments' prior at
+normal(0, `holiday_prior_sd` = 0.5); a Saturday/Sunday split of the weekend EFFORT effect
+(`sunday_split`, a Sunday increment `B1_sun` on both tracks, the CPUE weekend effect left pooled);
+the pooled prep's boat I/E path (`use_boat_ie` on both tracks, closing D35, inert on 2024-25); and
+the two shore fits' draws paired comonotonically in `tau_bar` before the port sum
+(`port_tau_coupling`, Matt's option (i) for D44, `03_R_functions/bss_port_tau_coupling.R`). A
+17-arm container batch previewed the first two (campaign 1z.12). On 2026-10-17 `bss_stan_fit()`
+gained a per-fit checkpoint (B66, `BSS_FIT_CACHE_DIR`, inert unless set) and the shipped file was
+rendered on the cloud container from `91ab2a2`: **`05_output/20261017/pooled-CPUE-2024-25`, 86,113
+[72,407, 103,557]**, cross-check -0.27%, every clause of the A35/A36 rule met (B67, campaign 1z.13).
+Matt accepted it as the authoritative run on 2026-10-18, the first not rendered on his machine
+(R 4.3.3, rstan 2.32.5 against the lock's R 4.2.2, rstan 2.32.7). Against B65: the shore all-gear
+fit 32,455 to 30,804 (a Sunday at 0.71 of a Saturday on four sampled Sundays), the boat all-gear
+35,211 to 35,403 (the boat's Sunday 0.89, beside OSP's raw 0.87), the port SD +4.8% from A38 with
+the medians untouched. The same session registered D43 to D48 from the October sampling-design
+findings and dropped the unverified Pollock attribution (D48).
+
+### 2026-10-02, THE AUTHORITATIVE RUN AT THE A31 CODE: 99,822; D29 KEPT MONTHLY WITH ITS SPAN (B57 to B63)
+
+The overnight batch (`06_diagnostics/run_authoritative_batch_2026-09-29.R`, B58) rendered
+`run_config.R` as shipped at `2523e8e`, the first render at the A31 code with `init_r = 0.5`:
+**`05_output/20260929/pooled-CPUE-2024-25-220449`, 99,822 [82,090, 124,718]**, the authoritative
+run (B61). Every component sits within 0.02 posterior SD of the 2026-09-28 run (99,873); A31
+changed the sampler, not the answer (the shore all-gear fit 0.49% divergent, against 4.07%). At
+rstan's default radius the model passes every gate as well (R2), so `init_r = 0.5` is a precaution.
+Before it, Matt's render at 0.5 of the pre-A31 code (B57) failed the shore pot-closure gate and
+was never authoritative. The boat all-gear AR period was fitted at every rung (D29): monthly
+47,105, biweekly 50,800, weekly 53,651 (full posterior), daily inadequate; held-out weeks cannot
+choose, so monthly stays and the span (the port 99,822 to 106,380) is reported as resolution
+uncertainty. The gear cross-check moved to -0.53% when D3 and D6 were adopted on that track (A32;
+the pooled model did not change). Code on this track since: `prep_days_crab()`'s `period` as an
+if/else (output-identical, dplyr 1.2.0), `bss_load_packages()` stopping in a batch stage that
+inherited `RENV_PROJECT` (B62), and a refused shared boat turnover written to `run_warnings.csv`
+(B63; inert on 2024-25, where both boat fits clear the floor).
 
 ### 2026-09-29 (second entry), THE DURABLE FUNNEL FIX, FOUR DEFECTS CLOSED AND THE REPORT REBUILT (A31, B52 to B56)
 
@@ -38,7 +133,7 @@ a CHANGE_REGISTER row; in one line each:
   turnovers, fit settings, components, BSS catch by mode, adequacy, prior influence, block CV,
   sampler health, `tau_bar` and `f` on the page; eight defects in what it printed fixed.
 
-### 2026-09-29, THE MODEL OF RECORD AS OF THIS DATE: B44 to B51, the re-render at the current code, and `init_r = 0.5` (on `main`)
+### 2026-09-29, THE AUTHORITATIVE RUN RE-RENDERED AT B44 to B49; `init_r = 0.5` (B51) SHIPPED AFTER IT (on `main`)
 
 **The model of record is the pooled model as of 2026-09-29.** The method is still Method v2.0 plus
 the boat advisory term (A30); what changed is the code under it and one sampler setting. The
@@ -68,8 +163,8 @@ What landed between the two entries, in one line each (CHANGE_REGISTER has every
   2, so a render of the shipped file agrees with it within Monte Carlo error, not to the crab.
 
 Decisions recorded the same days: D4 (the catch likelihood stays as it is), D8 (pre-2024-25
-seasons out of scope), the licensing confirmations (NOTICE C1 to C4). Open and next: the first
-render at `init_r = 0.5`; T2.5 (the durable fix for the funnel); D29, D24 and D2.
+seasons out of scope), the licensing confirmations (NOTICE C1 to C4). Open and next, as it stood then: the first
+render at `init_r = 0.5` (it ran: B57, a gate failure on the pre-A31 model); T2.5 (done the same day, A31); D29, D24 and D2.
 
 ### 2026-09-28, THE METHOD OF RECORD RENDERED: a new authoritative run, and what reading it found (branch `OSP-boat-count-incorporation`)
 

@@ -1,0 +1,6 @@
+"population","subseason","gear_type","BSS_median","BSS_lo95","BSS_hi95","PE_catch","method"
+"shore","ring_net_only","All",9540,7266,12598,NA,"BSS"
+"shore","all_gear","All",32442,26136,40506,NA,"BSS"
+"private_boat","ring_net_only","All",1280,526,4569,NA,"BSS"
+"private_boat","all_gear","All",35238,25333,50027,NA,"BSS"
+"comm_charter","census","Pot",NA,NA,NA,8538,"Commercial census + charter expansion"

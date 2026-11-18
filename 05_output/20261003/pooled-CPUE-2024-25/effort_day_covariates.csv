@@ -1,0 +1,5 @@
+"fit","population","subseason","covariate","source","days_flagged","column_sum","fit_days","coef_median","coef_lo95","coef_hi95","rate_ratio"
+"shore_ring_net_only_Dungeness_Kept","shore","ring_net_only","(none)",NA,NA,NA,76,NA,NA,NA,NA
+"shore_all_gear_Dungeness_Kept","shore","all_gear","(none)",NA,NA,NA,289,NA,NA,NA,NA
+"private_boat_ring_net_only_Dungeness_Kept","private_boat","ring_net_only","(none)",NA,NA,NA,76,NA,NA,NA,NA
+"private_boat_all_gear_Dungeness_Kept","private_boat","all_gear","nws_sca_any","marine hazard",102,102,289,-1.165,-1.454,-0.872,"0.31 (0.23-0.42)"

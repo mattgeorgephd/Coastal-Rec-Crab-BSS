@@ -36,7 +36,8 @@
 bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
   na_row <- list(p_loo = NA_real_, p_loo_frac = NA_real_, p_loo_worst_stream = NA_character_,
                  n_obs_loo = NA_integer_, n_pareto_bad = NA_integer_,
-                 cov50_gear = NA_real_, cov50_catch = NA_real_, pit_mean_catch = NA_real_)
+                 cov50_gear = NA_real_, cov50_catch = NA_real_, pit_mean_catch = NA_real_,
+                 cov50_trailer = NA_real_)
   if (is.null(fit) || is.null(stan_data)) return(na_row)
   # 2026-09-07 DEFECT FIX. bss_ppc_calibration() calls set.seed() unconditionally, and both
   # it and save_run_diagnostics() take a RANDOM SUBSET of draws. Calling this helper inside
@@ -111,6 +112,9 @@ bss_rung_adequacy <- function(fit, stan_data, quiet = TRUE) {
         if (length(v)) v[1] else NA_real_
       }
       r$cov50_gear     <- pick("gear",  "coverage_50")
+      # 2026-09-29 (D29): the boat fits carry no gear stream, so without this a boat ladder
+      # logged no effort coverage at all; the trailer stream is the boat's effort stream.
+      r$cov50_trailer  <- pick("trailer", "coverage_50")
       r$cov50_catch    <- pick("catch", "coverage_50")
       r$pit_mean_catch <- pick("catch", "pit_mean")
     }

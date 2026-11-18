@@ -53,6 +53,10 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
       day_type == "holiday" ~ 3L),
     day_type_num_weekend = as.integer(day_type %in% c("weekend","holiday")),
     day_type_num_holiday = as.integer(day_type == "holiday"),
+    # 2026-10-16 (A36): the CALENDAR Sunday, for the Saturday/Sunday split of the BSS weekend
+    # effort effect (run_config sunday_split). It is the weekday alone: a holiday that falls on
+    # a Sunday carries w, holiday AND sun, and days_wkend does not move it.
+    day_type_num_sunday = as.integer(day == "Sunday"),
     # 2026-09-28 (B46): weeks are ISO 8601 weeks keyed WITH their ISO year (%G-%V, Monday
     # start, as %W was). %W restarts at 0 every 1 January, so (a) the PE's (week x day_type)
     # strata pooled week N of one year with week N of the next whenever a window spans both
@@ -64,10 +68,10 @@ prep_days_crab <- function(date_begin, date_end, params, L_eff_model = NULL) {
     iso_year = as.numeric(format(event_date,"%G")),
     month = as.numeric(format(event_date,"%m")),
     year = as.numeric(format(event_date,"%Y")),
-    period = case_when(
-      period_pe == "month" ~ year * 100 + month,
-      TRUE                 ~ iso_year * 100 + week
-    ),
+    # 2026-10-02: an if/else, not case_when(). period_pe is ONE value for the whole window, and
+    # dplyr 1.2.0 (the renv.lock version) soft-deprecates a case_when() whose conditions are
+    # all scalars while its outcomes are columns. The result is identical (harness section 95).
+    period = if (isTRUE(period_pe == "month")) year * 100 + month else iso_year * 100 + week,
     day_index = as.integer(seq_along(event_date)),
     week_index = as.integer(factor(
       paste(iso_year, sprintf("%02d", week)),

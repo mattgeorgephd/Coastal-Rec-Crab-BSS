@@ -1,0 +1,2 @@
+"fit","n_obs","beta","beta_se","beta_lo95","beta_hi95","assumed_beta","hours_per_gear_median","saturation_flag","status"
+"shore_ring_net_only_Dungeness_Kept",352,0.395714289199124,0.0763080483665832,0.246150514400621,0.545278063997627,1,3.5,TRUE,"estimated"

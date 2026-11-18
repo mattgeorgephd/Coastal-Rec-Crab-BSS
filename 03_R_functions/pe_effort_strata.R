@@ -311,20 +311,24 @@ pe_build_effort_strata <- function(daily_effort, days, params) {
 # daily_effort the sampled days; day_month event_date -> .pe_month. Returns
 # c(imputed_imputed, imputed_sampled), each a variance contribution (>= 0).
 # ---------------------------------------------------------------------------
-pe_donor_covariance <- function(st, daily_effort, day_month) {
+pe_donor_covariance <- function(st, daily_effort, day_month, w = NULL) {
+  # D22 (2), 2026-10-19 (B73): `w` is a per-cell weight aligned with the rows of st (the cell's
+  # CPUE when the catch variance propagates these effort covariances; absent, 1, and the
+  # arithmetic below is the effort's own, bit for bit).
+  st$.w <- if (is.null(w)) 1 else as.numeric(w)
   imp <- st[st$imputed_effort_stratum %in% TRUE & is.finite(st$donor_sd), , drop = FALSE]
   if (!nrow(imp)) return(c(imputed_imputed = 0, imputed_sampled = 0))
   grp <- split(imp, imp$donor_key)
   # the sampled days, keyed to every donor group they could belong to
   de <- daily_effort |> dplyr::left_join(day_month, by = "event_date")
-  samp <- st[st$n_sampled >= 1L, c("section_num", "period", "day_type", "n_sampled", "n_total_days"), drop = FALSE]
+  samp <- st[st$n_sampled >= 1L, c("section_num", "period", "day_type", "n_sampled", "n_total_days", ".w"), drop = FALSE]
   ii <- 0; is <- 0
   for (g in names(grp)) {
     x   <- grp[[g]]
     n_G <- max(x$donor_mean_n[1], 1)
     v_G <- x$donor_sd[1]^2 / n_G          # Var(ybar_G)
-    A_G <- sum(x$n_total_days)
-    ii  <- ii + (A_G^2 - sum(x$n_total_days^2)) * v_G
+    A_G <- sum(x$n_total_days * x$.w)
+    ii  <- ii + (A_G^2 - sum((x$n_total_days * x$.w)^2)) * v_G
     in_G <- if (startsWith(g, "md:")) {
       parts <- strsplit(sub("^md:", "", g), ":", fixed = TRUE)[[1]]
       as.character(de$.pe_month) == parts[1] & de$day_type == paste(parts[-1], collapse = ":")
@@ -335,7 +339,7 @@ pe_donor_covariance <- function(st, daily_effort, day_month) {
       m <- de[in_G, , drop = FALSE] |>
         dplyr::count(section_num, period, day_type, name = "m_jG") |>
         dplyr::inner_join(samp, by = c("section_num", "period", "day_type"))
-      B_G <- sum(m$n_total_days * m$m_jG / pmax(m$n_sampled, 1))
+      B_G <- sum(m$n_total_days * m$.w * m$m_jG / pmax(m$n_sampled, 1))
       is  <- is + 2 * A_G * v_G * B_G
     }
   }
@@ -398,4 +402,129 @@ pe_effort_stratum_report <- function(st, population_name, params) {
                 k$n_empty_days, format(round(k$zeroed_effort_bias), big.mark = ","),
                 100 * k$zeroed_effort_bias / max(tot, 1)))
   invisible(list(effort_total = tot, effort_se = se, effort_se_sampled_only = se0))
+}
+
+# ---------------------------------------------------------------------------
+# pe_catch_variance(): THE PE CATCH SE  (D22 part 2; 2026-10-19, B73)
+# -----------------------------------------------------------------------------
+# Until B73 the PE reported an effort SE and NO catch SE at all: the PE side of
+# pe_vs_bss_comparison.csv was a point against a posterior interval, and a component that
+# reports its PE (the gate failed, or too few interviews) entered the port total as a
+# CONSTANT (CHANGE_REGISTER D22). A stratum's PE catch is est_catch_h = E_h x R_h: the
+# expanded effort (pe_build_effort_strata) times the stratum CPUE, a ratio of sums over its
+# interview days (or the fill, pe_empty_cpue_fill, where it has none). Effort and CPUE come
+# from different sampling processes (counts; interviews), taken as independent, so
+#   Var(E_h R_h) = E_h^2 Var(R_h) + R_h^2 Var(E_h) + Var(E_h) Var(R_h).
+# THE CPUE VARIANCE, with the DAY as the sampling unit (interviews on one day share that
+# day's conditions, so treating them as independent would understate it):
+#   n_h >= 2 days   the ratio-of-sums linearisation: Var(R_h) = n/(n-1) sum(e_d^2) / H_h^2,
+#                   e_d = c_d - R_h h_d the day's residual, H_h = sum(h_d) the denominator.
+#   n_h == 1        the day's residual variance is borrowed from the finest level with two or
+#                   more interview days containing the cell (its month, else the sub-season),
+#                   s_D^2 = sum(e_d^2)/(n_D - 1), and scaled to one day at the donor's mean
+#                   denominator: Var = s_D^2 / hbar_D^2 (the collapsed-stratum reading, as the
+#                   effort's single-day cells).
+#   n_h == 0        the CPUE IS the fill's ratio R_G (the month's under pe_empty_stratum =
+#   (filled)        "local" when it has an interview day, else the sub-season's), so the error
+#                   has the donor ratio's own sampling error, Var(R_G) = s_D^2 / (n_G hbar_G^2),
+#                   plus, under pe_variance = "impute_aware", one day's worth of between-day
+#                   spread, s_D^2 / hbar_D^2, for this cell's true rate not being the donor's;
+#                   "donor_mean_only" drops the second term; a "zero" fill has no variance
+#                   because the omission is a bias, as for the effort.
+#   "sampled_only"  the historical arithmetic for comparison: Var(R_h) only where n_h >= 2,
+#                   the effort's se_total_sampled_only, no covariances.
+# THE COVARIANCES the sum of cells omits, both carried under impute_aware / donor_mean_only:
+#   effort  cells that borrow one effort donor mean covary through it; the effort module's
+#           pe_donor_covariance() terms, here weighted by the cells' CPUE (w = R);
+#   CPUE    cells filled from one donor ratio R_G covary through it: imputed x imputed
+#           ((sum E_i)^2 - sum E_i^2) Var(R_G); imputed x sampled 2 (sum E_i) sum_j E_j
+#           Cov(R_G, R_j), Cov(R_G, R_j) = m_jG s_D^2 / (H_G H_j) for the m_jG interview days
+#           of cell j inside G (residuals of a common variance).
+# NOT carried, stated: the day's effort count and the day's interviews may covary (a day
+# that keeps boats in also lowers the catch rate); the commercial and charter SE is the
+# census component's own (estimate_comm_charter). Both PE runners call this after the stratum
+# catch, so the two tracks cannot drift.
+# ---------------------------------------------------------------------------
+pe_catch_variance <- function(catch_strat, daily_cpue, effort_strat, daily_effort, days, params) {
+  vmode <- params$pe_variance %||% "impute_aware"
+  cmode <- params$pe_empty_stratum %||% "local"
+  st <- as.data.frame(catch_strat)
+  day_month <- days |> dplyr::select(event_date, .pe_month = month)
+  dc <- as.data.frame(daily_cpue) |> dplyr::left_join(day_month, by = "event_date")
+  dc <- dc[is.finite(dc$hrs) & dc$hrs > 0, , drop = FALSE]
+  ratio_stats <- function(d) {
+    n <- nrow(d); H <- sum(d$hrs); R <- if (H > 0) sum(d$catch) / H else NA_real_
+    e <- if (n) d$catch - R * d$hrs else numeric(0)
+    list(n = n, H = H, R = R, s2 = if (n >= 2) sum(e^2) / (n - 1) else NA_real_, hbar = if (n > 0) H / n else NA_real_,
+         v_own = if (n >= 2 && H > 0) (n / (n - 1)) * sum(e^2) / H^2 else NA_real_)
+  }
+  all_st   <- ratio_stats(dc)
+  month_st <- lapply(split(dc, dc$.pe_month), ratio_stats)
+  spread_of <- function(m) {   # the finest level with two or more interview days: (s2, hbar, level)
+    ms <- month_st[[as.character(m)]]
+    if (!is.null(ms) && ms$n >= 2 && is.finite(ms$s2)) list(s2 = ms$s2, hbar = ms$hbar, level = "month")
+    else if (all_st$n >= 2 && is.finite(all_st$s2)) list(s2 = all_st$s2, hbar = all_st$hbar, level = "sub-season")
+    else list(s2 = NA_real_, hbar = NA_real_, level = "none")
+  }
+  fill_donor_of <- function(m) {   # the donor the CPUE fill actually used (pe_empty_cpue_fill)
+    ms <- month_st[[as.character(m)]]
+    if (identical(cmode, "zero")) return(list(key = "zero", n = 0, hbar = NA_real_))
+    if (identical(cmode, "local") && !is.null(ms) && ms$n >= 1 && is.finite(ms$R)) list(key = paste0("month:", m), n = ms$n, H = ms$H, hbar = ms$hbar)
+    else list(key = "all", n = all_st$n, H = all_st$H, hbar = all_st$hbar)
+  }
+  key  <- paste(st$section_num, st$period, st$day_type)
+  dkey <- paste(dc$section_num, dc$period, dc$day_type)
+  R_used <- as.numeric(dplyr::coalesce(st$mean_cpue, st$.empty_cpue_fill))
+  n_days <- vapply(key, function(k) sum(dkey == k), numeric(1))
+  v_R <- rep(0, nrow(st)); v_R0 <- rep(0, nrow(st)); src <- rep("none", nrow(st)); dkey_fill <- rep(NA_character_, nrow(st))
+  for (i in seq_len(nrow(st))) {
+    m <- st$.pe_month[i]
+    if (n_days[i] >= 2) {
+      own <- ratio_stats(dc[dkey == key[i], , drop = FALSE])
+      v_R[i] <- own$v_own; v_R0[i] <- own$v_own; src[i] <- sprintf("own interview days (%d)", own$n)
+    } else if (n_days[i] == 1) {
+      sp <- spread_of(m)
+      v_R[i] <- if (identical(vmode, "sampled_only") || !is.finite(sp$s2)) 0 else sp$s2 / sp$hbar^2
+      src[i] <- if (identical(vmode, "sampled_only")) "none (single interview day, sampled_only)" else paste0("collapsed stratum: ", sp$level)
+    } else {
+      fd <- fill_donor_of(m); dkey_fill[i] <- fd$key
+      if (identical(fd$key, "zero") || identical(vmode, "sampled_only") || fd$n < 1) { v_R[i] <- 0; src[i] <- if (identical(fd$key, "zero")) "zero fill (a bias, no variance)" else "none (filled, sampled_only)" }
+      else {
+        sp <- spread_of(m)
+        v_G <- if (is.finite(sp$s2)) sp$s2 / (fd$n * fd$hbar^2) else 0
+        v_B <- if (identical(vmode, "impute_aware") && is.finite(sp$s2)) sp$s2 / sp$hbar^2 else 0
+        v_R[i] <- v_G + v_B
+        src[i] <- paste0(if (identical(vmode, "impute_aware")) "imputed (donor ratio + between-day): " else "imputed (donor ratio only): ", fd$key, " / spread ", sp$level)
+      }
+    }
+  }
+  E  <- as.numeric(st$est_total); vE <- tidyr::replace_na(as.numeric(st$se_total)^2, 0); vE0 <- tidyr::replace_na(as.numeric(st$se_total_sampled_only)^2, 0)
+  R  <- tidyr::replace_na(R_used, 0)
+  cells  <- E^2 * v_R  + R^2 * vE  + vE  * v_R
+  cells0 <- E^2 * v_R0 + R^2 * vE0 + vE0 * v_R0
+  cov_eff <- c(imputed_imputed = 0, imputed_sampled = 0); cov_cpue <- 0
+  if (vmode %in% c("impute_aware", "donor_mean_only")) {
+    cov_eff <- pe_donor_covariance(effort_strat, daily_effort, day_month, w = R[match(paste(effort_strat$section_num, effort_strat$period, effort_strat$day_type), key)])
+    filled <- which(n_days == 0 & !is.na(dkey_fill) & dkey_fill != "zero")
+    for (g in unique(dkey_fill[filled])) {
+      ids <- filled[dkey_fill[filled] == g]
+      m_g <- st$.pe_month[ids[1]]; sp <- spread_of(m_g); fd <- fill_donor_of(m_g)
+      if (!is.finite(sp$s2) || fd$n < 1) next
+      v_G <- sp$s2 / (fd$n * fd$hbar^2)
+      sumE <- sum(E[ids]); cov_cpue <- cov_cpue + (sumE^2 - sum(E[ids]^2)) * v_G
+      in_G <- if (startsWith(g, "month:")) dc$.pe_month == as.numeric(sub("^month:", "", g)) else rep(TRUE, nrow(dc))
+      js <- which(n_days >= 1)
+      for (j in js) {
+        rows <- dkey == key[j] & in_G
+        if (!any(rows)) next
+        H_j <- sum(dc$hrs[dkey == key[j]]); m_jG <- sum(rows)
+        cov_cpue <- cov_cpue + 2 * sumE * E[j] * m_jG * sp$s2 / (fd$H * H_j)
+      }
+    }
+  }
+  total <- sum(cells) + sum(cov_eff) + cov_cpue
+  st$cpue_used <- R_used; st$cpue_days <- as.integer(n_days); st$cpue_var <- v_R; st$cpue_var_source <- src; st$catch_var_cell <- cells
+  list(catch_var = total, catch_se = sqrt(max(total, 0)), catch_se_sampled_only = sqrt(max(sum(cells0), 0)),
+       terms = c(cells = sum(cells), cov_effort = sum(cov_eff), cov_cpue = cov_cpue, cells_sampled_only = sum(cells0)),
+       strata = st)
 }

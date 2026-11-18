@@ -1,0 +1,3 @@
+"population","catch_group","component","role","reference","n_draws","n_ref","tau_median"
+"shore","Dungeness_Kept","shore_all_gear_Dungeness_Kept","reference (keeps its draws)","shore_all_gear_Dungeness_Kept",10000,10000,2.38024023803827
+"shore","Dungeness_Kept","shore_ring_net_only_Dungeness_Kept","re-indexed to the reference's tau_bar quantiles","shore_all_gear_Dungeness_Kept",6000,10000,2.48135939375123
