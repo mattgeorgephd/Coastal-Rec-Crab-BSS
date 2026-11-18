@@ -8360,5 +8360,33 @@ local({
       grepl("| **CLOSED 2026-10-20 (Matt: keep `local`, on the B70 re-measurement below).", cr, fixed = TRUE))
 })
 
+# ---------- B77 (2026-11-18): pull request #8 merged; main is the method of record ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  f8 <- "07_documentation/archive/PR-8-merge-OSP-boat-count-incorporation.md"
+  chk("B77 archive: the pull request #8 description is archived with a merged banner naming the merge commit and the head, and the body it carried",
+      file.exists(f8) && { a8 <- rdf(f8)
+        grepl("**ARCHIVED: MERGED 2026-11-18.**", a8, fixed = TRUE) && grepl("merge commit `27d68c7`, from head `fa0186b`", a8, fixed = TRUE) &&
+        grepl("# Merge `OSP-boat-count-incorporation` into `main`, the second span: A31 to A41, B50 to B76", a8, fixed = TRUE) &&
+        grepl("**Status (2026-10-20, `0075c8f`): A41 ADOPTED AND RENDERED", a8, fixed = TRUE) })
+  rm_ <- rdf("README.md"); cl <- rdf("07_documentation/CLAUDE.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
+  st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); dr <- rdf("07_documentation/README.md"); ir <- rdf("04_input_files/README.md"); rc <- rdf("run_config.R")
+  chk("B77 pointers: README, CLAUDE.md, run_config.R, the register (header, Branch line, B77 row), the status Repo line and the documentation README all say main is the method of record after pull request #8 (27d68c7) and that the branch restarted from main",
+      grepl("- **Status:** **`main` is the method of record.**", rm_, fixed = TRUE) && grepl("on 2026-11-18 (merge commit `27d68c7`, 59 commits: A31 to A41, B50 to B76 and the current authoritative run, B70)", rm_, fixed = TRUE) &&
+      grepl("restarted from `main` after the merge", rm_, fixed = TRUE) &&
+      grepl("which merged into `main` on 2026-11-18 (merge commit `27d68c7`, 59 commits;", cl, fixed = TRUE) && grepl("**`main` is the method of record**: Method v2.0 with A30 to A41 and the authoritative run B70.", cl, fixed = TRUE) &&
+      grepl("and again on 2026-11-18 (pull request\n# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record.", rc, fixed = TRUE) &&
+      grepl("**Last updated:** 2026-11-18 (**MERGED: pull request #8 merged `OSP-boat-count-incorporation` into `main` on 2026-11-18 (merge commit `27d68c7`", cr, fixed = TRUE) &&
+      grepl("**Branch:** `OSP-boat-count-incorporation`, restarted from `main` after [pull request #8]", cr, fixed = TRUE) && grepl("| B77 | **After the second merge: the documentation says `main` is the method of record**", cr, fixed = TRUE) &&
+      grepl("**Repo:** `Coastal-Rec-Crab-BSS`. **The work is on branch `main`, which is the method of record:**", st, fixed = TRUE) && grepl("on 2026-11-18 (PR #8, merge commit `27d68c7`:", st, fixed = TRUE) &&
+      grepl("| `archive/PR-8-merge-OSP-boat-count-incorporation.md` |", dr, fixed = TRUE) && grepl("pull request #8 on 2026-11-18, after which the branch was restarted from `main`", dr, fixed = TRUE))
+  chk("B77 inventory: the workbook the merged head carried (razor-clam-dig-dates-2021-2026.xlsx, 2026-11-02) is on disk, inventoried as read by no code path, and indeed read by none",
+      file.exists("04_input_files/razor-clam-dig-dates-2021-2026.xlsx") && grepl("| `razor-clam-dig-dates-2021-2026.xlsx` | none yet: read by NO code path |", ir, fixed = TRUE) &&
+      grepl("`razor-clam-dig-dates-2021-2026.xlsx` (added 2026-11-02; read by no code path yet)", rm_, fixed = TRUE) &&
+      # comment lines excepted: prep_fishery_events.R and run_config.R say in comments that the per-fishery
+      # razor-clam-dig-dates*.xlsx workbooks were RETIRED as sources on 2026-07-16, which is the point
+      !any(grepl("razor-clam-dig-dates", grep("^\\s*#", unlist(lapply(c(list.files("03_R_functions", full.names = TRUE), list.files("01_BSS_models", pattern = "\\.Rmd$", full.names = TRUE), "run_config.R", "run_estimation.R"), readLines, warn = FALSE)), value = TRUE, invert = TRUE), fixed = TRUE)))
+})
+
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
 if (bad > 0) quit(status = 1)
