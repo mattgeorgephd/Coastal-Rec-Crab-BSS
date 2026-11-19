@@ -335,6 +335,8 @@ read_arm <- function(sid, dir) {
   wm <- as.integer(BASE$marine_hazard_winter_months %||% c(12, 1, 2))
   winter <- if (is.null(boat_m)) NA_real_ else sum(boat_m$median[as.integer(substr(boat_m$Month, 6, 7)) %in% wm])
   term <- function(nm, col) if (is.null(co) || !nm %in% co$term) NA_real_ else co[[col]][co$term == nm][1]
+  ck <- rd(file.path(EVIDENCE, sid), "blockint_checks.csv")          # desk_advisory_block_cv_2026-11-19.R (R3a); absent until it has run
+  ckv <- function(col) if (is.null(ck) || !col %in% names(ck)) NA_real_ else .num1(ck[[col]])
   arm <- data.frame(
     stage = sid, season = SEASONS[[.season_of(sid)]]$label, arm = .arm_of(sid), folder = sub(paste0("^", .root, "/"), "", dir),
     platform = .stamp_field(dir, "platform"), git = .stamp_field(dir, "git"), minutes = .num1(.stamp_field(dir, "minutes")),
@@ -347,7 +349,10 @@ read_arm <- function(sid, dir) {
     b_const = term("nws_sca_any", "mean"), b_const_sd = term("nws_sca_any", "sd"), b_const_lo = term("nws_sca_any", "q2.5"), b_const_hi = term("nws_sca_any", "q97.5"),
     b_winter = term("nws_sca_any_winter", "mean"), b_winter_sd = term("nws_sca_any_winter", "sd"), b_winter_lo = term("nws_sca_any_winter", "q2.5"), b_winter_hi = term("nws_sca_any_winter", "q97.5"),
     b_rest = term("nws_sca_any_rest", "mean"), b_rest_sd = term("nws_sca_any_rest", "sd"), b_rest_lo = term("nws_sca_any_rest", "q2.5"), b_rest_hi = term("nws_sca_any_rest", "q97.5"),
-    b_rhat_max = if (is.null(co)) NA_real_ else max(co$rhat), b_neff_min = if (is.null(co)) NA_real_ else min(co$n_eff), stringsAsFactors = FALSE)
+    b_rhat_max = if (is.null(co)) NA_real_ else max(co$rhat), b_neff_min = if (is.null(co)) NA_real_ else min(co$n_eff),
+    day_effect_sd = ckv("sigma_uE_mean"), day_effect_sd_sd = ckv("sigma_uE_sd"), day_effect_sd_lo = ckv("sigma_uE_q2.5"), day_effect_sd_hi = ckv("sigma_uE_q97.5"),
+    block_weeks = ckv("weeks"), block_weeks_reliable_conditional = ckv("reliable_conditional"), block_weeks_reliable_integrated = ckv("reliable_integrated"),
+    stringsAsFactors = FALSE)
   monthly <- if (is.null(boat_m)) NULL else data.frame(stage = sid, season = arm$season, arm = arm$arm, month = boat_m$Month, boat_catch_median = boat_m$median,
                                                        boat_catch_lo95 = boat_m$lo95, boat_catch_hi95 = boat_m$hi95, stringsAsFactors = FALSE)
   list(arm = arm, monthly = monthly)
@@ -411,6 +416,22 @@ if (!length(have)) { cat("\nNo arm is rendered yet; the desk stage is all there 
          sprintf("%+.1f nats, paired SE %.1f, ratio %+.2f; %d of %d weeks reliable, %d positive", pr$diff, pr$se, pr$ratio, pr$n_used, pr$n_blocks, pr$n_positive),
          "above +2 SE PASS; below -2 FAIL; evaluable at 70% and 8 weeks", if (!ev) "REVIEW" else band(pr$ratio, "PASS", "REVIEW", "FAIL"),
          if (!ev) "not evaluable (unreliable weeks or an ineligible arm)" else "the term on the season's held-out weeks") }
+  # R3a (the addendum): the same comparison on the tables with the day deviation integrated out. The desk script
+  # desk_advisory_block_cv_2026-11-19.R computes them and their preconditions; this runner only reads them.
+  bi <- rd(dirname(OUT("blockint")), basename(OUT("blockint")))
+  bi_row <- function(sn, pair) { if (is.null(bi)) return(NULL)
+    x <- bi[bi$season == SEASONS[[sn]]$label & bi$pair == pair & grepl("integrated", bi$table) & bi$week_set == "all weeks", , drop = FALSE]
+    if (!nrow(x)) NULL else if ("joint" %in% x$stream) x[x$stream == "joint", ] else x[x$stream == "trailer", ] }
+  pre_ok <- function(sid) { k <- rd(file.path(EVIDENCE, sid), "blockint_checks.csv")
+    !is.null(k) && isTRUE(as.logical(k$precondition_i)) && isTRUE(as.logical(k$precondition_ii)) }
+  for (sn in names(SEASONS)) { pr <- bi_row(sn, "const - off"); if (is.null(pr)) next
+    pre <- pre_ok(paste0(sn, "-const")) && pre_ok(paste0(sn, "-off"))
+    ev <- pre && isTRUE(as.logical(pr$evaluable)) && elig(paste0(sn, "-const")) && elig(paste0(sn, "-off"))
+    vrow(sn, sprintf("R3a const against off on held-out weeks, the day deviation integrated out (%s row)", pr$stream),
+         sprintf("%+.1f nats, paired SE %.1f, ratio %+.2f; %d of %d weeks reliable, %d positive; preconditions (i) and (ii) %s", pr$diff, pr$se, pr$ratio,
+                 pr$n_used, pr$n_weeks, pr$n_positive, if (pre) "met in both arms" else "NOT met"),
+         "above +2 SE PASS; below -2 FAIL; evaluable at 70% and 8 weeks", if (!ev) "REVIEW" else band(pr$ratio, "PASS", "REVIEW", "FAIL"),
+         if (!ev) "not evaluable (a precondition, unreliable weeks or an ineligible arm)" else "the addendum's instrument, reported beside R3") }
   # R4 and R5
   dd <- list()
   for (sn in names(SEASONS)) { sid <- paste0(sn, "-split"); if (!sid %in% have) next
@@ -423,7 +444,10 @@ if (!length(have)) { cat("\nNo arm is rendered yet; the desk stage is all there 
       pc <- pairs[pairs$season == a$season & pairs$pair == "split - const", , drop = FALSE]
       cat_ok <- { x <- pc[pc$statistic == "pointwise LOO, paired" & pc$stream == "catch", ]; nrow(x) == 1 && is.finite(x$ratio) && abs(x$ratio) <= 2 }
       blk <- { x <- pc[pc$statistic == "block CV, held-out weeks", ]; x <- if ("joint" %in% x$stream) x[x$stream == "joint", ] else x[x$stream == "trailer", ]; nrow(x) == 1 && is.finite(x$ratio) && x$ratio >= -2 }
-      extra <- sprintf("; catch stream unmoved %s, block CV not below -2 SE %s: the split %s its place on this season", cat_ok, blk, if (cat_ok && blk) "EARNS" else "does not earn")
+      b4 <- bi_row(sn, "split - const"); blk_i <- !is.null(b4) && isTRUE(as.logical(b4$evaluable)) && is.finite(b4$ratio) && b4$ratio >= -2
+      extra <- sprintf("; catch stream unmoved %s; block CV not below -2 SE: %s on the conditional table (R4 as written), %s on the integrated one (the addendum%s): the split %s its place on this season",
+                       cat_ok, blk, blk_i, if (is.null(b4)) ", not computed yet" else sprintf(", %+.1f nats at %+.2f SE over %d of %d weeks", b4$diff, b4$ratio, b4$n_used, b4$n_weeks),
+                       if (cat_ok && blk && blk_i) "EARNS" else if (cat_ok && blk_i) "EARNS on the integrated table only" else "does not earn")
     }
     vrow(sid, "R4 the season split on this season's boat all-gear fit",
          sprintf("winter %.2f [%.2f, %.2f], rest %.2f [%.2f, %.2f]; winter - rest %+.2f (SD %.2f, z %+.2f)%s", a$b_winter, a$b_winter_lo, a$b_winter_hi,
