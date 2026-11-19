@@ -494,6 +494,7 @@ a multi-hour fit, and none of them changes an estimate.
 | `osp_coverage_audit.csv` | which days the OSP stream covers, and how its counts compare with the trailer counts on the overlap days |
 | `shift_coverage_*.csv`, `contact_hour_*.csv` | what fraction of a day's boat returns the sampler shifts cover, and whether the trip-type mix drifts with the hour inside them |
 | `cpue_saturation_*`, `ppc_calibration_*`, `ppc_byobs_*` | posterior predictive checks: does the fitted observation model reproduce the observed count distribution |
+| `loo_block_*` | does the model predict a week of effort counts it has not seen (the held-out-week check, B39)? Read the reliable share before the difference. **Since the per-day effort effect (A39) it returns mostly unusable weeks on a fit that carries the term** (12 of 42 on the authoritative run's boat all-gear fit, 39 of 42 before): the check conditions on each day's deviation, which a held-out week's counts are what identify. The repair, the day deviation integrated out, exists as a desk script and is not yet in the drivers (D54) |
 | `pe_empty_effort_strata.csv` | how much of the design-based estimate is imputed, and what it would be under the other levers |
 | `tau_sensitivity_*` | how the boat component moves across a grid of turnover prior centres |
 | `fishery_spillover_raw.csv`, `fishery_spillover_adjusted.csv` | do other fisheries' openers coincide with effort surges that a constant crabbing fraction would mis-convert |
@@ -1690,9 +1691,16 @@ D20.
 2026-09-27 (Sections 14.2 and 21a) lowers boat effort on an advisory day by a factor fitted to
 the trailer and OSP counts, which count every private vessel. If crabbing boats stay in port
 on an advisory day at a different rate from finfish boats (a bay crabber does not cross the
-bar; a salmon boat must), the crabbing fraction differs on those days and the monthly `f`
-cannot see it. Not measured; the size is bounded by the advisory days' share of the boat catch.
-Tracked as D30.
+bar; a salmon boat must), the crabbing fraction differs on those days. **Measured 2026-11-19
+(B81) for March to September, and found carried by the model.** On the 115 OSP days of 2024-25
+after the pot opening, crab-only boats are 29.1% of the sampled boats on the 25 advisory days
+against 11.8% on the others (odds ratio 2.82 [1.55, 5.15]): crabbing boats are deterred less.
+Beyond what the day's boat volume predicts there is no detectable difference (1.21 [0.70,
+2.08]), so the day-level volume term of the crabbing share (A34, `beta_fvol` -0.76) already
+carries it: an advisory day in a month with a crabbing share of 0.30 has 0.32 times the boats
+and about 0.54 times the crabbing boats. What remains open is December to February, where OSP
+has no day and a share near 0.9 leaves the volume term no room, so there the coefficient
+fitted to all boats is applied to crabbers nearly unchanged (item 13). Tracked as D30.
 
 **13. The advisory term is one coefficient for the season, and the winter effect is probably
 smaller.** Every sampled launch day of four seasons (794 days) puts the advisory-day rate ratio

@@ -79,7 +79,7 @@ p1 <- ggplot(d1, aes(mlab, mean_y, colour = grp, group = grp)) +
   scale_colour_manual(values = c("advisory in effect (04:00 to 16:00)" = C_ADV, "no advisory" = C_CLEAR)) +
   scale_size_area(max_size = 5, guide = "none") + scale_y_continuous(trans = "log1p", breaks = c(0, 2, 5, 10, 25, 50, 100)) +
   labs(title = "On an advisory day there are fewer trailers at the launch",
-       subtitle = "Mean daily trailer count on sampled launch days, by month; point area is the number of days.\nShaded: December to February, where the two lines come closest.",
+       subtitle = "Mean daily trailer count on sampled launch days, by month; point area is the number\nof days. Shaded: December to February, where the two lines come closest.",
        x = NULL, y = "trailers per sampled day (log scale)",
        caption = "Source: effort_combined.xlsx (Westport and Ocean Shores launches) and nws_marine_hazards.xlsx,\nthrough marine_hazard_flag_series(), the production definition of an advisory day.") +
   theme_brief()
@@ -116,7 +116,7 @@ p2 <- ggplot(d2, aes(y = label, colour = season)) +
   geom_text(aes(x = exp(hi) * 1.06, label = sprintf("%.2f [%.2f, %.2f]", exp(est), exp(lo), exp(hi))), hjust = 0, size = 3.1, colour = "#222222") +
   scale_x_log10(limits = c(0.13, 1.6), breaks = c(0.15, 0.2, 0.3, 0.5, 0.75, 1)) +
   scale_colour_manual(values = c("2024-25" = C_CLEAR, "2025-26" = C_ADV), guide = "none") + scale_shape_manual(values = c("fitted model" = 16, "desk regression" = 1)) +
-  labs(title = "The advisory effect is the same size on the second season",
+  labs(title = "The advisory effect on the two seasons",
        subtitle = "Trailers on an advisory day as a share of an ordinary day's, with 95% intervals (log scale).",
        x = "rate ratio (1 = no effect)", y = NULL,
        caption = "Source: bss_full_summary_private_boat_all_gear_*.csv of the named runs (B_open_out[1]);\n05_output/advisory_replication_2026-11-19_arms.csv and _transfer.csv.") +
@@ -137,7 +137,7 @@ if (is.null(tr)) { skip("fig3, fig4", "the transfer table is not written yet") }
     facet_wrap(~what, ncol = 1, scales = "free_x") +
     scale_colour_manual(values = c("all weeks" = "#222222", "rest weeks" = C_ADV, "winter weeks" = C_CLEAR), guide = guide_legend(reverse = TRUE)) +
     labs(title = "A coefficient measured on one season predicts the other's held-out weeks",
-         subtitle = "Held-out log predictive density gained, summed over the target season's weeks.\nWhiskers are 2 paired standard errors, so a whisker clear of zero is a difference at more than 2 SE.",
+         subtitle = "Held-out log predictive density gained, summed over the target season's weeks.\nWhiskers are 2 paired standard errors: one clear of zero is a difference beyond 2 SE.",
          x = "gain in nats (positive: the first model predicts better)", y = NULL,
          caption = "Source: 05_output/advisory_replication_2026-11-19_transfer.csv. Desk regression on sampled launch days;\nthe coefficient is carried over from the source season, not re-estimated on the target.") +
     theme_brief() + theme(panel.grid.major.y = element_blank())
@@ -223,7 +223,7 @@ if (is.null(d6) || !nrow(d6)) { skip("fig6", "a const and an off arm of one seas
     scale_fill_manual(values = c("December to February" = C_CLEAR, "rest of the season" = C_ADV, "week not reliable (not counted)" = C_LIGHT)) +
     scale_x_date(date_breaks = "1 month", date_labels = "%b") +
     labs(title = "The fitted model on held-out weeks: with the advisory term against without it",
-         subtitle = "Each bar is one week held out of the boat all-gear fit: the gain in its predictive\ndensity from the term, with the day deviation integrated out (the repaired check of Figure 5).",
+         subtitle = "Each bar is one week held out of the boat all-gear fit: the gain in its predictive\ndensity from the term, with the day deviation integrated out (the repair of Figure 5).",
          x = "week held out", y = "gain in nats",
          caption = "Source: 05_output/advisory_replication_2026-11-19_blockint_weeks.csv (const minus off, the integrated table).") +
     theme_brief()
@@ -255,35 +255,90 @@ if (is.null(sp) || !nrow(sp)) { skip("fig7", "no split arm is rendered yet") } e
     scale_x_log10(breaks = c(0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5)) +
     scale_colour_manual(values = c("December to February" = C_CLEAR, "rest of the season" = C_ADV), guide = guide_legend(reverse = TRUE)) +
     labs(title = "The advisory effect in the winter months and in the rest of the season",
-         subtitle = "Trailers on an advisory day as a share of an ordinary day's, estimated separately for December to\nFebruary and for the other months. 95% intervals, log scale.",
+         subtitle = "Trailers on an advisory day as a share of an ordinary day's, estimated separately for\nDecember to February and for the other months. 95% intervals, log scale.",
          x = "rate ratio (1 = no effect)", y = NULL,
-         caption = "Source: 05_output/advisory_replication_2026-11-19_arms.csv (b_winter, b_rest) and marine_hazard_2026-09-27_season_split_screen.csv.\nThe combined row is the precision-weighted mean of the two seasons' coefficients.") +
+         caption = "Source: 05_output/advisory_replication_2026-11-19_arms.csv (b_winter, b_rest) and\n05_output/marine_hazard_2026-09-27_season_split_screen.csv. The combined row is the precision-weighted mean of the\ntwo seasons' fitted coefficients.") +
     theme_brief() + theme(panel.grid.major.y = element_blank())
   save_fig(p7, "fig7_winter_against_rest.png", 7.2, 4.9)
 }
 
-# ---- Figure 8: what the shape does to the boat estimate, month by month ---------------------------
-if (is.null(monthly) || !nrow(monthly)) { skip("fig8", "no arm is rendered yet") } else {
-  m <- monthly |> mutate(mon = as.integer(substr(month, 6, 7)), mlab = factor(month.abb[mon], levels = c("Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug")),
-                         armlab = c(const = "constant term (shipped)", split = "winter and rest split", off = "no term")[arm]) |>
-    filter(!is.na(mlab)) |> group_by(season, arm, armlab, mlab) |> summarise(v = sum(boat_catch_median), .groups = "drop")
-  p8 <- ggplot(m, aes(mlab, v, colour = armlab, group = armlab)) +
-    annotate("rect", xmin = 3.5, xmax = 6.5, ymin = 0, ymax = Inf, fill = C_BAND) +
+# ---- Figure 8: boundary or fleet? the advisory effect against the month's crabbing share (B82) ------
+fcm <- tab("fleet_composition_months"); fcr <- tab("fleet_composition")
+if (is.null(fcm) || is.null(fcr)) { skip("fig8", "the fleet-composition tables are not written yet") } else {
+  pt <- fcm |> filter(is.finite(log_rr), se_log_rr < 2) |>
+    mutate(lo = exp(log_rr - 1.96 * se_log_rr), hi = exp(log_rr + 1.96 * se_log_rr), rr = exp(log_rr), winter = as.integer(substr(ym, 6, 7)) %in% wm,
+           lab = month.abb[as.integer(substr(ym, 6, 7))],
+           left = season == "2024-25" & ym %in% c("2025-01", "2025-03"),                       # three labels would sit on a neighbour: these go left,
+           ymul = ifelse(season == "2024-25" & ym == "2024-12", 1.2, ifelse(season == "2025-26" & ym == "2025-12", 0.84, 1)))   # and the two Decembers part
+  val <- function(q) fcr$estimate[grepl(q, fcr$quantity, fixed = TRUE)][1]
+  bc <- log(val("exp(b_crab)")); bo <- log(val("exp(b_other)"))
+  S_M <- "two responses, weighted by the crabbing share"; S_W <- "the winter split (two levels)"
+  cur <- tibble(f = seq(0.12, 0.96, by = 0.01), rr = f * exp(bc) + (1 - f) * exp(bo), form = S_M)
+  mw <- fcm |> mutate(winter = as.integer(substr(ym, 6, 7)) %in% wm) |> group_by(winter) |> summarise(x0 = min(f), x1 = max(f), rr = exp(first(fit_W)), .groups = "drop") |> mutate(form = S_W)
+  p8 <- ggplot() +
+    geom_hline(yintercept = 1, colour = "#333333", linewidth = 0.4) +
+    geom_segment(data = mw, aes(x = x0, xend = x1, y = rr, yend = rr, linetype = form), colour = "#222222", linewidth = 0.7) +
+    geom_line(data = cur, aes(f, rr, linetype = form), colour = "#222222", linewidth = 0.7) +
+    geom_errorbar(data = pt, aes(f, ymin = pmax(lo, 0.02), ymax = pmin(hi, 4), colour = winter), width = 0, linewidth = 0.45, alpha = 0.75) +
+    geom_point(data = pt, aes(f, rr, colour = winter, shape = season), size = 2.6) +
+    geom_text(data = pt[!pt$left, ], aes(f, rr * ymul, label = lab), nudge_x = 0.02, size = 2.9, colour = "#444444", hjust = 0) +
+    geom_text(data = pt[pt$left, ], aes(f, rr * ymul, label = lab), nudge_x = -0.02, size = 2.9, colour = "#444444", hjust = 1) +
+    scale_y_log10(breaks = c(0.05, 0.1, 0.2, 0.4, 0.7, 1, 2), limits = c(0.02, 4)) + scale_x_continuous(breaks = seq(0.2, 1, by = 0.2), limits = c(0.1, 1)) +
+    scale_colour_manual(values = c(`TRUE` = C_CLEAR, `FALSE` = C_ADV), labels = c(`TRUE` = "December to February", `FALSE` = "other months")) +
+    scale_shape_manual(values = c("2024-25" = 16, "2025-26" = 17)) + scale_linetype_manual(values = setNames(c("solid", "22"), c(S_M, S_W))) +
+    labs(title = "The advisory effect against the month's crabbing share",
+         subtitle = "Each point is one month of one season: trailers on advisory days as a share of other\ndays', against the share of boats that were crabbing that month. 95% intervals, log scale.",
+         x = "crabbing share of the month's boats (fitted, B70 and B76)", y = "rate ratio (1 = no effect)",
+         caption = "Source: 05_output/advisory_replication_2026-11-19_fleet_composition_months.csv and _fleet_composition.csv (B82).\nThe lines are fitted to the daily counts of both seasons, not to these points. Months with fewer than three\nadvisory days or three other days are not drawn.") +
+    theme_brief() + guides(colour = guide_legend(order = 1), shape = guide_legend(order = 2), linetype = guide_legend(order = 3)) +
+    theme(legend.box = "vertical", legend.box.just = "left", legend.spacing.y = unit(2, "pt"), legend.margin = margin(0, 0, 0, 0), legend.key.height = unit(12, "pt"))
+  save_fig(p8, "fig8_advisory_effect_against_crab_share.png", 7.2, 5.6)
+}
+
+# ---- A table for Section 4.7: the boat effort and catch by month and day class under each arm --------
+# Sums of the daily posterior medians of the arms' kept bss_daily_* files, so the rows add to slightly less
+# than the arms' totals (a median of a sum is not the sum of the medians); the comparison between arms is
+# what the table is for. Written beside the other tables of the item.
+dc <- list()
+for (sn in names(SLAB)) for (a in c("const", "off", "split")) { st <- paste0(sn, "-", a)
+  ef <- rdf(file.path(EV, st, sprintf("bss_daily_effort_%s.csv", FITB))); ca <- rdf(file.path(EV, st, sprintf("bss_daily_catch_%s.csv", FITB)))
+  pw <- rdf(file.path(EV, st, sprintf("loo_pointwise_trailer_%s.csv", FITB))); if (is.null(ef) || is.null(ca) || is.null(pw)) next
+  ef$event_date <- as.Date(ef$event_date); ca$event_date <- as.Date(ca$event_date)
+  flg <- marine_hazard_flag_series(run_config, date_start = min(ef$event_date), date_end = max(ef$event_date))
+  dc[[st]] <- tibble(event_date = ef$event_date, effort = ef$median, catch = ca$median[match(ef$event_date, ca$event_date)]) |>
+    mutate(advisory = as.integer(flg$nws_sca_any[match(event_date, as.Date(flg$event_date))]), sampled = event_date %in% as.Date(pw$event_date),
+           month = format(event_date, "%Y-%m"), season = SLAB[[sn]], arm = a) }
+dc <- bind_rows(dc)
+if (nrow(dc)) {
+  dcm <- dc |> group_by(season, arm, month, advisory) |> summarise(days = n(), sampled_days = sum(sampled), effort = sum(effort), catch = sum(catch), .groups = "drop")
+  utils::write.csv(dcm, file.path("05_output", "advisory_replication_2026-11-19_dayclass.csv"), row.names = FALSE)
+  cat("wrote 05_output/advisory_replication_2026-11-19_dayclass.csv\n")
+}
+
+# ---- Figure 9: what the shape does to the boat estimate, month by month ---------------------------
+if (is.null(monthly) || !nrow(monthly)) { skip("fig9", "no arm is rendered yet") } else {
+  m <- monthly |> mutate(armlab = c(const = "constant term (shipped)", split = "winter and rest split", off = "no term")[arm]) |>
+    group_by(season) |> mutate(pos = match(month, sort(unique(month)))) |> ungroup()      # the season's months in order: September twice, at its two ends
+  ax <- m |> distinct(season, month, pos) |> mutate(lab = month.abb[as.integer(substr(month, 6, 7))])
+  win <- m |> filter(as.integer(substr(month, 6, 7)) %in% wm) |> group_by(season) |> summarise(x0 = min(pos) - 0.5, x1 = max(pos) + 0.5, .groups = "drop")
+  p9 <- ggplot(m, aes(pos, boat_catch_median, colour = armlab, group = armlab)) +
+    geom_rect(data = win, aes(xmin = x0, xmax = x1, ymin = 0, ymax = Inf), inherit.aes = FALSE, fill = C_BAND) +
     geom_line(linewidth = 0.7) + geom_point(size = 1.9) +
     facet_wrap(~season, ncol = 1, scales = "free_y") +
     scale_colour_manual(values = c("constant term (shipped)" = "#222222", "winter and rest split" = C_ADV, "no term" = C_CLEAR)) +
+    scale_x_continuous(breaks = sort(unique(ax$pos)), labels = ax$lab[match(sort(unique(ax$pos)), ax$pos)]) +
     scale_y_continuous(labels = scales::comma) +
     labs(title = "Private-boat catch by month under each form of the term",
-         subtitle = "Posterior medians. Shaded: December to February.\n2025-26 is a readiness render and none of its figures is an estimate.",
+         subtitle = "Posterior medians. Shaded: December to February. September to November is the\npot closure, where the term is not applied. 2025-26 is a readiness render: none of\nits figures is an estimate.",
          x = NULL, y = "private-boat catch, crab",
          caption = "Source: 05_output/advisory_replication_2026-11-19_monthly.csv (monthly_estimates_by_mode.csv of each arm).") +
-    theme_brief()
-  save_fig(p8, "fig8_monthly_boat_catch_by_arm.png", 7, 5.2)
+    theme_brief() + theme(panel.grid.minor.x = element_blank())
+  save_fig(p9, "fig9_monthly_boat_catch_by_arm.png", 7.2, 5.6)
 }
 
-# ---- Figure 9: each arm against the shipped one ---------------------------------------------------
-if (is.null(arms) || !any(arms$arm == "const")) { skip("fig9", "no const arm is rendered yet") } else {
-  a9 <- arms |> group_by(season) |> mutate(ref_tot = boat_all_gear_catch[arm == "const"][1], ref_win = boat_winter_months_catch[arm == "const"][1],
+# ---- Figure 10: each arm against the shipped one ---------------------------------------------------
+if (is.null(arms) || !any(arms$arm == "const")) { skip("fig10", "no const arm is rendered yet") } else {
+  a10 <- arms |> group_by(season) |> mutate(ref_tot = boat_all_gear_catch[arm == "const"][1], ref_win = boat_winter_months_catch[arm == "const"][1],
                                            ref_port = port_total[arm == "const"][1]) |> ungroup() |> filter(arm != "const") |>
     transmute(season, armlab = c(split = "winter and rest split", off = "no term")[arm],
               `boat catch, December to February` = 100 * (boat_winter_months_catch / ref_win - 1),
@@ -291,7 +346,7 @@ if (is.null(arms) || !any(arms$arm == "const")) { skip("fig9", "no const arm is 
               `port total` = 100 * (port_total / ref_port - 1)) |>
     pivot_longer(-c(season, armlab), names_to = "what", values_to = "pct") |>
     mutate(what = factor(what, levels = rev(c("boat catch, December to February", "boat all-gear catch, whole season", "port total"))))
-  p9 <- ggplot(a9, aes(pct, what, fill = armlab)) +
+  p10 <- ggplot(a10, aes(pct, what, fill = armlab)) +
     geom_vline(xintercept = 0, colour = "#333333", linewidth = 0.4) +
     geom_col(position = position_dodge(width = 0.75), width = 0.7) +
     geom_text(aes(label = sprintf("%+.1f%%", pct), hjust = ifelse(pct >= 0, -0.12, 1.12)), position = position_dodge(width = 0.75), size = 3.1, colour = "#222222") +
@@ -301,9 +356,9 @@ if (is.null(arms) || !any(arms$arm == "const")) { skip("fig9", "no const arm is 
     labs(title = "What changing the term would do, against the shipped constant term",
          subtitle = "Percent change in the posterior median, by season.",
          x = "change against the constant term, percent", y = NULL,
-         caption = "Source: 05_output/advisory_replication_2026-11-19_arms.csv. 2025-26 is a readiness render (D18): its changes are shown, its levels are not estimates.") +
+         caption = "Source: 05_output/advisory_replication_2026-11-19_arms.csv. 2025-26 is a readiness render (D18):\nits changes are shown, its levels are not estimates.") +
     theme_brief() + theme(panel.grid.major.y = element_blank())
-  save_fig(p9, "fig9_arms_against_shipped.png", 7, 4.8)
+  save_fig(p10, "fig10_arms_against_shipped.png", 7, 4.8)
 }
 
 # ---- The Word file ---------------------------------------------------------------------------------

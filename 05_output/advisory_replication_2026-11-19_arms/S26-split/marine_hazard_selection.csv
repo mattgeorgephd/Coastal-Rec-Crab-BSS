@@ -1,0 +1,5 @@
+"population","covariate","label","p_adj","selected","reason","adj_estimate","rate_ratio","p_raw","rate_ratio_per_count"
+"private_boat","nws_sca_any","NWS SCA or higher, any zone",NA,FALSE,"not named",-1.30663600343416,0.270729258546821,3.60529818261355e-07,0.306670347710943
+"private_boat","bar_restriction","USCG bar restriction (sampler tick)",NA,FALSE,"not named",-1.65976090878201,0.190184446096903,0.000116361849076473,0.197958370432675
+"private_boat","nws_sca_any_winter","NWS SCA or higher, any zone, winter months",NA,TRUE,"manual",-0.793313858678198,0.452343307003006,0.364114031162931,0.443226164556148
+"private_boat","nws_sca_any_rest","NWS SCA or higher, any zone, the other months",NA,TRUE,"manual",-1.36037377658908,0.256564861090466,6.57592423606683e-07,0.293946773605455

@@ -1,0 +1,8 @@
+stage: S26-off
+tag: AR-S26-off
+digest: 5a50668d87
+git: e4f88f8
+tree_clean_of_code: TRUE
+platform: R version 4.6.2 (2026-10-29); rstan 2.32.7; StanHeaders 2.32.10
+minutes: 16.6
+rendered: 2026-11-19 04:40:42 UTC

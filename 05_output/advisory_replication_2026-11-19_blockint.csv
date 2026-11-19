@@ -1,0 +1,19 @@
+"season","pair","table","stream","week_set","n_weeks","n_used","reliable_share","diff","se","ratio","n_positive","evaluable"
+"2025-26","const - off","day deviation integrated out (R3a)","trailer","all weeks",41,39,0.951219512195122,17.4215192286482,6.6616959524032,2.61517777952075,27,TRUE
+"2025-26","const - off","day deviation integrated out (R3a)","trailer","winter weeks (December to February)",13,13,1,2.7532193645948,4.06897064075003,0.676637805400164,8,FALSE
+"2025-26","const - off","day deviation integrated out (R3a)","trailer","rest of the season",28,26,0.928571428571429,14.6682998640534,5.28738546133727,2.77420664169688,19,FALSE
+"2025-26","const - off","conditional on the day deviation (R3)","trailer","all weeks",41,7,0.170731707317073,1.71877176770055,2.04270841042844,0.84141806971855,4,FALSE
+"2025-26","const - off","conditional on the day deviation (R3)","trailer","winter weeks (December to February)",13,5,0.384615384615385,-0.661710027378343,1.15760993281211,-0.571617440920615,2,FALSE
+"2025-26","const - off","conditional on the day deviation (R3)","trailer","rest of the season",28,2,0.0714285714285714,2.38048179507889,0.106032757847069,22.450437425312,2,FALSE
+"2025-26","split - const","day deviation integrated out (R3a)","trailer","all weeks",41,41,1,0.58845972956672,2.52721153710015,0.23284941562191,23,TRUE
+"2025-26","split - const","day deviation integrated out (R3a)","trailer","winter weeks (December to February)",13,13,1,0.027224091795738,2.07321392245838,0.0131313471807368,8,FALSE
+"2025-26","split - const","day deviation integrated out (R3a)","trailer","rest of the season",28,28,1,0.561235637770982,1.5311117571669,0.366554325733522,15,FALSE
+"2025-26","split - const","conditional on the day deviation (R3)","trailer","all weeks",41,8,0.195121951219512,0.948493756335643,0.385048033009356,2.46331282079968,5,FALSE
+"2025-26","split - const","conditional on the day deviation (R3)","trailer","winter weeks (December to February)",13,3,0.230769230769231,0.452630662488922,0.350419519953239,1.29168221721587,2,FALSE
+"2025-26","split - const","conditional on the day deviation (R3)","trailer","rest of the season",28,5,0.178571428571429,0.495863093846722,0.231447032004757,2.1424474081678,3,FALSE
+"2025-26","split - off","day deviation integrated out (R3a)","trailer","all weeks",41,39,0.951219512195122,16.9330040685824,6.66904731582967,2.53904392436835,27,TRUE
+"2025-26","split - off","day deviation integrated out (R3a)","trailer","winter weeks (December to February)",13,13,1,2.78044345639053,2.1900324707282,1.2695900602177,8,FALSE
+"2025-26","split - off","day deviation integrated out (R3a)","trailer","rest of the season",28,26,0.928571428571429,14.1525606121919,6.28335823442315,2.25238798810763,19,FALSE
+"2025-26","split - off","conditional on the day deviation (R3)","trailer","all weeks",41,5,0.121951219512195,2.25385437375341,1.93547807485553,1.16449491370325,4,FALSE
+"2025-26","split - off","conditional on the day deviation (R3)","trailer","winter weeks (December to February)",13,3,0.230769230769231,-0.449162523395549,0.63437026003086,-0.708044736166697,2,FALSE
+"2025-26","split - off","conditional on the day deviation (R3)","trailer","rest of the season",28,2,0.0714285714285714,2.70301689714896,0.21976940215968,12.2993322572949,2,FALSE

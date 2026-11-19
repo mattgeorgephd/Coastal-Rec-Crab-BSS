@@ -1,0 +1,10 @@
+"season","pair","statistic","stream","n_blocks","n_used","reliable_share","diff","se","ratio","n_positive","identical"
+"2025-26","const - off","block CV, held-out weeks","trailer",41,7,0.170731707317073,1.71877176770055,2.04270841042844,0.84141806971855,4,FALSE
+"2025-26","const - off","pointwise LOO, paired","catch",247,247,NA,0.130799999999992,0.0682349212027447,1.91690702787433,NA,FALSE
+"2025-26","const - off","pointwise LOO, paired","trailer",369,369,NA,9.2387,4.34870776741931,2.12447018611292,NA,FALSE
+"2025-26","split - const","block CV, held-out weeks","trailer",41,8,0.195121951219512,0.948493756335643,0.385048033009356,2.46331282079968,5,FALSE
+"2025-26","split - const","pointwise LOO, paired","catch",247,247,NA,0.00270000000000847,0.0658296681083235,0.0410149417063077,NA,FALSE
+"2025-26","split - const","pointwise LOO, paired","trailer",369,369,NA,2.8272,1.50780475877941,1.87504382350449,NA,FALSE
+"2025-26","split - off","block CV, held-out weeks","trailer",41,5,0.121951219512195,2.25385437375341,1.93547807485553,1.16449491370325,4,FALSE
+"2025-26","split - off","pointwise LOO, paired","catch",247,247,NA,0.133500000000001,0.0491039415237794,2.71872269022134,NA,FALSE
+"2025-26","split - off","pointwise LOO, paired","trailer",369,369,NA,12.0659,4.27910233557404,2.81972690853661,NA,FALSE

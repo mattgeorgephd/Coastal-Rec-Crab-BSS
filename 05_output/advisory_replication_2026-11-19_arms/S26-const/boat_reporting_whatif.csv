@@ -1,0 +1,4 @@
+"stage","reporting","days_carrying_a_deviation","effort_median","effort_lo95","effort_hi95","expected_catch_median","expected_catch_lo95","expected_catch_hi95","effort_over_reported","catch_over_reported"
+"S26-const","as reported: every boat day keeps the level",0,10651.6278426348,4008.33036495138,30697.7802253167,21045.3458505094,7703.47316731045,59869.8651681621,1,1
+"S26-const","the deviation carried on every sampled trailer day",177,10156.1778617045,3837.75866573387,27967.9389975451,20124.9237255022,7384.12694568021,55756.0561554092,0.95348598465417,0.956264813534298
+"S26-const","the deviation carried on sampled trailer days with no OSP count",177,10156.1778617045,3837.75866573387,27967.9389975451,20124.9237255022,7384.12694568021,55756.0561554092,0.95348598465417,0.956264813534298

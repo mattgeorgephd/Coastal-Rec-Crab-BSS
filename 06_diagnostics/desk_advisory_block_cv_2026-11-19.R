@@ -34,9 +34,14 @@
 # 42 joint weeks are reliable (39 of 42 on B65). The standard remedy is to integrate the
 # latent out of both the ratio and the score, so the question asked of a held-out day is
 # the one an unsampled day poses: what do the counts look like when the day's deviation is
-# not known? (Vehtari, Mononen, Tolvanen, Sivula and Winther 2016, J. Mach. Learn. Res.
-# 17(103), integrated importance sampling for latent variable models; Merkle, Furr and
-# Rabe-Hesketh 2019, Psychometrika 84:802-829, conditional against marginal likelihoods.)
+# not known? This is integrated importance sampling: Li, Qiu, Zhang and Feng 2016, Statistics
+# and Computing 26(4):881-897, who integrate out the latent variables tied to the held-out
+# unit before the importance-sampling approximation and find it substantially better than the
+# non-integrated form. See also Merkle, Furr and Rabe-Hesketh 2019, Psychometrika
+# 84(3):802-829 (conditional against marginal likelihoods), and Vehtari, Mononen, Tolvanen,
+# Sivula and Winther 2016, J. Mach. Learn. Res. 17(103):1-38 (leave-one-out approximations
+# for latent variable models). The reliability bar is Vehtari, Simpson, Gelman, Yao and
+# Gabry 2024, J. Mach. Learn. Res. 25(72):1-58.
 #
 # WHAT IT COMPUTES. For a sampled day d with trailer counts y_d1 .. y_dm,
 #     p(y_d | theta) = integral of  prod_j NB2(y_dj | lambda_d / R_G_boat
@@ -76,8 +81,22 @@
 #        MARGINAL mean lambda_d / R_G_boat, the quantity the reported boat effort is built
 #        from (crab_bss_pooled.stan carries no day deviation into a boat day's effort). It is
 #        reported, never judged (the rule's R7): it shows what an arm credits to a day class.
+#   05_output/advisory_replication_2026-11-19_arms/<stage>/boat_reporting_whatif.csv
+#        the arm's boat all-gear effort and expected catch as reported (a boat day keeps the
+#        LEVEL: A39 treats the trailer counts' shared deviation as a snapshot nuisance, on
+#        the premise that OSP's every-boat total pins the day), and what the SAME fit reports
+#        if a sampled day's fitted deviation is carried into its effort and catch as it is
+#        for the shore: on every sampled trailer day, and on the sampled trailer days with no
+#        OSP count. Exact for the reporting rule, because generated quantities do not feed
+#        back into the fit; it holds the day's crabbing share at its fitted value. Reported,
+#        never judged.
 #   05_output/advisory_replication_2026-11-19_blockint.csv        the pairs, by week set
 #   05_output/advisory_replication_2026-11-19_blockint_weeks.csv  the per-week rows behind them
+#   05_output/advisory_replication_2026-11-19_robustness.csv      for the comparisons the rule reads
+#        (the transfer test's and the block CV's), what the paired standard error assumes and
+#        what happens without it: the lag-1 autocorrelation of the weekly differences, a
+#        Newey-West standard error (Bartlett weights, 4 lags), and a sign test. Reported, never
+#        judged: the rule's thresholds are on the paired standard error.
 #
 # HOW TO RUN (from the repository root, after the arms are rendered)
 #   BSS_FIT_CACHE_DIR=<dir> Rscript 06_diagnostics/desk_advisory_block_cv_2026-11-19.R
@@ -167,7 +186,7 @@ one_arm <- function(sid) {
     if (!is.null(ll) && ncol(ll) == Tn) {
       gap <- max(abs(apply(ll, 2, .bcv_lmeanexp) - pw$lpd))
       if (gap < 5e-4) {                                      # the file rounds lpd to four decimals
-        pars <- c("lambda_E_S", "r_E", "R_G_boat", "log_lik_trailer", if ((sd_[["OSP_n"]] %||% 0) > 0) "log_lik_osp",
+        pars <- c("lambda_E_S", "r_E", "R_G_boat", "log_lik_trailer", "E", "C_expected", if ((sd_[["OSP_n"]] %||% 0) > 0) "log_lik_osp",
                   if (identical(as.integer(sd_[["effort_day_effect"]] %||% 0L), 1L)) c("sigma_uE", "uE_raw"))
         ex <- rstan::extract(fit, pars = pars); hit <- f; lpd_gap <- gap
       }
@@ -195,10 +214,31 @@ one_arm <- function(sid) {
   cal <- do.call(rbind, lapply(names(cls), function(nm) { k <- which(cls[[nm]]); if (!length(k)) return(NULL)
     e <- rowSums(mu0[, k, drop = FALSE]); o <- sum(y[k])
     data.frame(stage = sid, day_class = nm, counts = length(k), days = length(unique(od[k])), observed_trailers = o, expected_trailers_mean = mean(e),
-               expected_lo95 = unname(stats::quantile(e, 0.025)), expected_hi95 = unname(stats::quantile(e, 0.975)),
-               expected_over_observed = mean(e) / o, ratio_lo95 = unname(stats::quantile(e, 0.025)) / o, ratio_hi95 = unname(stats::quantile(e, 0.975)) / o, stringsAsFactors = FALSE) }))
+               expected_trailers_median = stats::median(e), expected_lo95 = unname(stats::quantile(e, 0.025)), expected_hi95 = unname(stats::quantile(e, 0.975)),
+               expected_over_observed = mean(e) / o, median_over_observed = stats::median(e) / o,
+               ratio_lo95 = unname(stats::quantile(e, 0.025)) / o, ratio_hi95 = unname(stats::quantile(e, 0.975)) / o, stringsAsFactors = FALSE) }))
   utils::write.csv(cal, file.path(ev, "trailer_calibration.csv"), row.names = FALSE)
   cat(sprintf("  expected over observed trailers: all %.3f; advisory days %.3f; other days %.3f\n", cal$expected_over_observed[1], cal$expected_over_observed[2], cal$expected_over_observed[3]))
+  # what the same fit reports if a sampled day's own deviation is carried (reported, never judged)
+  if (has_ue && !is.null(ex$E) && !is.null(ex$C_expected)) {
+    sg <- as.numeric(ex$sigma_uE); ed <- as.integer(sd_[["Eday_T"]])[seq_len(Tn)]; uu <- as.matrix(ex$uE_raw)
+    Ed <- apply(ex$E, c(1, 3), sum); Cd <- apply(ex$C_expected, c(1, 3), sum)                 # [draws x days], summed over sections and gear groups
+    sday <- sort(unique(day)); dev <- matrix(1, nd, ncol(Ed))
+    for (dd in sday) dev[, dd] <- exp(sg * uu[, ed[match(dd, day)]] - 0.5 * sg^2)
+    osp_days <- if ((sd_[["OSP_n"]] %||% 0) > 0) unique(as.integer(sd_[["day_OSP"]])[seq_len(sd_[["OSP_n"]])]) else integer(0)
+    dev_no_osp <- dev; if (length(osp_days)) dev_no_osp[, osp_days] <- 1
+    qs <- function(x) c(median = stats::median(x), lo95 = unname(stats::quantile(x, 0.025)), hi95 = unname(stats::quantile(x, 0.975)))
+    wf <- function(label, dv, ndays) { e <- qs(rowSums(Ed * dv)); cc <- qs(rowSums(Cd * dv))
+      data.frame(stage = sid, reporting = label, days_carrying_a_deviation = ndays, effort_median = e[["median"]], effort_lo95 = e[["lo95"]], effort_hi95 = e[["hi95"]],
+                 expected_catch_median = cc[["median"]], expected_catch_lo95 = cc[["lo95"]], expected_catch_hi95 = cc[["hi95"]], stringsAsFactors = FALSE) }
+    wi <- rbind(wf("as reported: every boat day keeps the level", matrix(1, nd, ncol(Ed)), 0L),
+                wf("the deviation carried on every sampled trailer day", dev, length(sday)),
+                wf("the deviation carried on sampled trailer days with no OSP count", dev_no_osp, length(setdiff(sday, osp_days))))
+    wi$effort_over_reported <- wi$effort_median / wi$effort_median[1]; wi$catch_over_reported <- wi$expected_catch_median / wi$expected_catch_median[1]
+    utils::write.csv(wi, file.path(ev, "boat_reporting_whatif.csv"), row.names = FALSE)
+    cat(sprintf("  reporting what-if, expected catch: as reported %.0f; deviation carried on every sampled day %.0f (%.3f); on sampled days with no OSP count %.0f (%.3f)\n",
+                wi$expected_catch_median[1], wi$expected_catch_median[2], wi$catch_over_reported[2], wi$expected_catch_median[3], wi$catch_over_reported[3]))
+  }
   if (CALIBRATION_ONLY) return(invisible(cal))
   wk_obs <- bss_block_weeks(pw$event_date)
   streams_c <- list(trailer = list(ll = ex$log_lik_trailer, block = wk_obs))
@@ -287,6 +327,32 @@ pairs_all <- function() {
   list(pairs = if (length(P)) do.call(rbind, P) else NULL, weeks = if (length(W)) do.call(rbind, W) else NULL)
 }
 
+# ---------------------------------------------------------------------------
+# What the paired standard error assumes (weeks independent), and the readings without it.
+# ---------------------------------------------------------------------------
+robust_row <- function(d, label_cols) {
+  n <- length(d); if (n < 6) return(NULL)
+  m <- mean(d); e <- d - m; g <- function(l) sum(e[seq_len(n - l)] * e[seq_len(n - l) + l]) / n
+  L <- 4L; lrv <- g(0) + 2 * sum(vapply(seq_len(L), function(l) (1 - l / (L + 1)) * g(l), numeric(1)))
+  se_iid <- sqrt(n) * stats::sd(d); se_nw <- sqrt(max(lrv, 0) * n); pos <- sum(d > 0)
+  cbind(label_cols, data.frame(n_weeks = n, sum = sum(d), se_paired = se_iid, ratio_paired = sum(d) / se_iid, lag1_autocorrelation = g(1) / g(0),
+                               se_newey_west_4 = se_nw, ratio_newey_west_4 = if (se_nw > 0) sum(d) / se_nw else NA_real_, n_positive = pos,
+                               sign_test_p_one_sided = stats::pbinom(pos - 1, n, 0.5, lower.tail = FALSE), stringsAsFactors = FALSE))
+}
+robustness <- function(weeks) {
+  out <- list()
+  tw <- rd(OUT("transfer_weeks"))
+  if (!is.null(tw)) for (tg in c("2025-26", "2024-25")) { src <- setdiff(c("2025-26", "2024-25"), tg)
+    x <- tw[tw$target == tg & tw$source == src & tw$scored %in% TRUE, ]; x <- x[order(x$week), ]
+    for (cmp in list(c("TC", "M0", "R2: carried coefficient against no term"), c("TS", "TC", "R6: carried split against carried constant")))
+      out[[length(out) + 1]] <- robust_row(x[[cmp[1]]] - x[[cmp[2]]], data.frame(instrument = "transfer test", comparison = cmp[3], target_season = tg, source = src, stringsAsFactors = FALSE)) }
+  if (!is.null(weeks)) for (sn in unique(weeks$season)) for (pr in c("const - off", "split - const")) {
+    x <- weeks[weeks$season == sn & weeks$pair == pr & grepl("integrated", weeks$table), ]; if (!nrow(x)) next
+    x <- x[x$stream == (if ("joint" %in% x$stream) "joint" else "trailer") & x$used %in% TRUE, ]; x <- x[order(x$block), ]
+    out[[length(out) + 1]] <- robust_row(x$diff, data.frame(instrument = "fitted model, held-out weeks (R3a table)", comparison = pr, target_season = sn, source = "its own fit", stringsAsFactors = FALSE)) }
+  if (length(out)) do.call(rbind, out) else NULL
+}
+
 if (!READ_ONLY) for (sid in STAGES) tryCatch(one_arm(sid), error = function(e) cat(sprintf("  *** %s FAILED: %s\n", sid, conditionMessage(e))))
 res <- pairs_all()
 if (is.null(res$pairs)) { cat("\nNo pair of arms has its tables yet.\n")
@@ -298,3 +364,8 @@ if (is.null(res$pairs)) { cat("\nNo pair of arms has its tables yet.\n")
       s$diff[i], s$se[i], s$ratio[i], s$n_used[i], s$n_weeks[i], s$n_positive[i], if (isTRUE(s$evaluable[i])) "" else "  [not evaluable]"))
   cat(sprintf("\nWrote %s and %s\n", basename(OUT("blockint")), basename(OUT("blockint_weeks"))))
 }
+rb <- robustness(res$weeks)
+if (!is.null(rb)) { utils::write.csv(rb, OUT("robustness"), row.names = FALSE)
+  cat("\n== What the paired SE assumes, and the readings without it ==\n")
+  for (i in seq_len(nrow(rb))) cat(sprintf("  %-40s %-44s %s: %+6.1f, paired %.2f SE, Newey-West %.2f SE, lag-1 r %+.2f, %d of %d positive (sign test p %.4f)\n", rb$instrument[i], rb$comparison[i],
+      rb$target_season[i], rb$sum[i], rb$ratio_paired[i], rb$ratio_newey_west_4[i], rb$lag1_autocorrelation[i], rb$n_positive[i], rb$n_weeks[i], rb$sign_test_p_one_sided[i])) }
