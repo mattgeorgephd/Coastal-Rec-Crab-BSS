@@ -86,6 +86,12 @@ The per-batch review documents below are the raw material that narrative was bui
 | `GR-7-per-gear-CPUE-design.md` | Design note for the gear-resolved per-gear CPUE work. |
 | `marine-hazard-covariates-2026-09-25.md` | Design note for the NWS marine hazard effort covariates (A30): the flag definitions, the archive, the ladder design and its decision rule. The term it designed is the method of record since 2026-09-27. |
 
+**Decision briefs** (2026-11-19 onward). One document per open decision, written for the person who decides: the issue explained with figures, the evidence, and each option with its positives and negatives. The register row stays the authority for the item's status; the brief is the long form. Figures live in `development_notes/figures/<item>/` and are redrawn from committed material by a `06_diagnostics/desk_*_brief_figures_*.R` script.
+
+| File | Decision |
+|---|---|
+| `D51-shore-ie-likelihood-brief-2026-11-19.md` | **D51, open:** the shore I/E likelihood compares Float 20's arrivals with a level calibrated to both floats' gear and reads the turnover about 18% low wherever it binds. Four options, (a) leave it, (b) drop the shore I/E stream, (c) put the Float 20 share into the prediction, (d) observe the day's own turnover, with a recommendation for (b) and what would overturn it. |
+
 **OSP boat-count and crabbing-fraction design + validation notes.** `WBL-boat-count-plan.md` (its stale rendered `.html` was removed 2026-09-27), `phase1-osp-second-stream.md`, `phase1b-osp-gear-resolved.md`, `phase2-crab-fraction.md`, `phase2b-crab-fraction-pe.md`, `phase3-time-varying-f-and-osp-tau.md`, `osp-validation-review-2026-07-31.md`, and `osp_trailer_overlap.png`.
 
 ## Change register

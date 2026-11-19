@@ -198,6 +198,7 @@ one_window <- function(season, spec) {
              n_ie_obs_fit = fds$n_ie_obs[fds$fit == sprintf("shore_%s_Dungeness_Kept", key)][1],
              n_count_days_fit = length(cdays), mean_log_day_effect_all_count_days = mlog(dev$day_effect),
              prior_mu = pr$tau_shore_prior_mu, prior_sd = pr$tau_shore_prior_sigma, shared_tau_sigma = p$shared_tau_sigma,
+             log_sd_days_pooled = st$log_sd_days,   # between-day log-SD of the daily derivation ratios, all I/E days
              Pbar = presence_at_counts,
              tau_derivation = arrivals / Pbar,           # the derivation's reading on the day
              tau_likelihood = arrivals / lambda,         # what the I/E likelihood sees on the day
@@ -215,7 +216,7 @@ by_day <- bind_rows(lapply(res, `[[`, "by_day")) |>
   select(season_window, run, fit, event_date, day_type, arrivals, peak, Pbar, lambda, L_day, day_effect,
          n_counts, n_counts_in_survey, counts_off_schedule, f17_observed, count_hours, G20, G17, Gtot, P_c_A, P_c_B,
          R_G, tau_bar, sigma_IE, sigma_uE, n_ie_obs_fit, n_count_days_fit, mean_log_day_effect_all_count_days,
-         prior_mu, prior_sd, shared_tau_sigma, tau_derivation, tau_likelihood,
+         prior_mu, prior_sd, shared_tau_sigma, log_sd_days_pooled, tau_derivation, tau_likelihood,
          F_total, F_smooth, F_cover, F_gear_A, F_time_A, F_gear_B, F_time_B,
          survey_start, survey_end, on_first_interval, balance_at_end)
 
@@ -225,7 +226,7 @@ factors <- by_day |> group_by(season_window, run, fit) |>
   summarise(
     n_ie_days = n(), n_ie_obs_fit = first(n_ie_obs_fit), n_with_counts = sum(is.finite(F_cover)),
     tau_bar_fit = first(tau_bar), R_G = first(R_G), sigma_IE = first(sigma_IE), sigma_uE = first(sigma_uE),
-    prior_mu = first(prior_mu), prior_sd = first(prior_sd), shared_tau_sigma = first(shared_tau_sigma),
+    prior_mu = first(prior_mu), prior_sd = first(prior_sd), shared_tau_sigma = first(shared_tau_sigma), log_sd_days_pooled = first(log_sd_days_pooled),
     tau_derivation_geomean = gm(tau_derivation), tau_derivation_ratio_of_sums = sum(arrivals) / sum(Pbar),
     tau_likelihood_geomean = gm(tau_likelihood), tau_likelihood_ratio_of_sums = sum(arrivals) / sum(lambda),
     # the rule's scale: mean logs over the I/E days
@@ -260,8 +261,14 @@ factors <- by_day |> group_by(season_window, run, fit) |>
     # ... with the Float 20 share of the day's gear in the I/E prediction (the likelihood's centre moves by f_cover)
     tau_bar_desk_cover = exp((w_prior * log(prior_mu) + w_lik * (log(tau_likelihood_geomean) + f_cover)) / (w_prior + w_lik)),
     tau_bar_desk_cover_over_fit = tau_bar_desk_cover / tau_bar_desk,   # the effort and the catch scale by this (desk over desk)
-    tau_bar_prior_over_fit = prior_mu / tau_bar_fit) |>                # ... and by this with the I/E stream dropped (the centre over the fitted value)
-  select(-w_prior, -w_lik)
+    tau_bar_prior_over_fit = prior_mu / tau_bar_fit,                   # ... and by this with the I/E stream dropped (the centre over the fitted value)
+    # ... and with the day's OWN turnover (arrivals over the tally's presence at the season's count hours) observed on L[d]
+    # instead (D51 option (d)): the likelihood's centre is the derivation's reading on the fit's own days, a day's log ratio
+    # carrying the between-day log-SD of the pooled derivation
+    w_own = ifelse(n_ie_obs_fit > 0, n_ie_obs_fit / log_sd_days_pooled^2, 0),
+    tau_bar_desk_own = exp((w_prior * log(prior_mu) + w_own * log(tau_derivation_geomean)) / (w_prior + w_own)),
+    tau_bar_desk_own_over_fit = tau_bar_desk_own / tau_bar_desk) |>
+  select(-w_prior, -w_lik, -w_own)
 
 # ---- 4. EVERY I/E DAY IN THE WORKBOOK, COUNT BY COUNT (the two factors that need no fit) --
 all_counts <- bind_rows(lapply(2022:2025, function(y) {
@@ -289,6 +296,24 @@ by_season <- by_count |> filter(is.finite(presence_balance)) |> group_by(season)
   left_join(R_G_season, by = "season") |>
   mutate(F_gear_ratio_of_sums_10_to_15 = gear_per_present_10_to_15 / R_G_all_gear_fit,
          F_gear_ratio_of_sums_all = gear_per_present_all / R_G_all_gear_fit)
+# IS THE TALLY ONE FLOAT'S OR TWO? If the WDF20 tally counted the crabbers of Floats 17-21 as well, its presence
+# would be both floats' gear over R_G, and Float 20's gear per present crabber would read R_G over the two-float
+# ratio, about 1.05, not R_G. A bootstrap over I/E days (the counts of a day stay together) says how far the
+# measured value at the regular count hours is from that alternative.
+boot_gpp <- function(s, n_boot = 4000, seed = 20261119L) {
+  d <- by_count[by_count$season == s & is.finite(by_count$presence_balance) & by_count$hour_class == "10:00 to 15:00", , drop = FALSE]
+  days <- unique(d$event_date)
+  if (length(days) < 3) return(c(se = NA_real_, lo = NA_real_, hi = NA_real_))
+  idx <- split(seq_len(nrow(d)), d$event_date)
+  b <- bss_with_seed(seed, replicate(n_boot, { i <- unlist(idx[sample(length(idx), replace = TRUE)], use.names = FALSE)
+                                                sum(d$f20_gear[i]) / sum(d$presence_balance[i]) }))
+  c(se = stats::sd(b), lo = unname(stats::quantile(b, 0.025)), hi = unname(stats::quantile(b, 0.975)))
+}
+bt <- t(vapply(by_season$season, boot_gpp, numeric(3)))
+by_season <- by_season |>
+  mutate(gpp_10_to_15_boot_se = bt[, "se"], gpp_10_to_15_lo95 = bt[, "lo"], gpp_10_to_15_hi95 = bt[, "hi"],
+         gpp_if_tally_covered_both_floats = R_G_all_gear_fit / two_float_ratio_all_days,
+         se_above_both_floats_alternative = (gear_per_present_10_to_15 - gpp_if_tally_covered_both_floats) / gpp_10_to_15_boot_se)
 
 # ---- 5. PRINT ----------------------------------------------------------------------------
 op <- options(width = 240); on.exit(options(op), add = TRUE)
@@ -340,9 +365,14 @@ if (nrow(long)) cat(sprintf("   the %d day(s) the tally ran past 20:00 (%s): %s 
 cat("\n== DESK APPROXIMATION of tau_bar (precision-weighted prior and I/E likelihood, log scale; NOT a fit)\n")
 print(as.data.frame(factors |> filter(n_ie_obs_fit > 0) |> transmute(season_window, fit = sub("shore_", "", fit), n_fit = n_ie_obs_fit, sigma_IE = r3(sigma_IE),
         prior = r3(prior_mu), prior_sd = r3(prior_sd), lik_centre = r3(tau_likelihood_geomean), tau_bar_fit = r3(tau_bar_fit), tau_bar_desk = r3(tau_bar_desk),
-        with_float20_share = r3(tau_bar_desk_cover), effort_ratio_cover = r3(tau_bar_desk_cover_over_fit), effort_ratio_no_ie = r3(tau_bar_prior_over_fit))), row.names = FALSE)
+        with_float20_share = r3(tau_bar_desk_cover), effort_ratio_cover = r3(tau_bar_desk_cover_over_fit), effort_ratio_no_ie = r3(tau_bar_prior_over_fit),
+        own_turnover = r3(tau_bar_desk_own), effort_ratio_own = r3(tau_bar_desk_own_over_fit), log_sd_days = r3(log_sd_days_pooled))), row.names = FALSE)
 cat("\n== EVERY I/E DAY WITH A SAME-DAY FLOAT 20 COUNT, by season: gear per present crabber (ratio of sums, the running balance) and the two-float ratio (observed Float 17-21 counts)\n")
 print(as.data.frame(by_season |> mutate(across(where(is.double), r3))), row.names = FALSE)
+cat("\n== IS THE TALLY ONE FLOAT'S OR TWO? Float 20 gear per present crabber at 10:00 to 15:00 against R_G (one float) and R_G over the two-float ratio (both floats)\n")
+print(as.data.frame(by_season |> filter(is.finite(R_G_all_gear_fit)) |> transmute(season, counts = n_10_to_15, measured = r3(gear_per_present_10_to_15),
+        boot_se = r3(gpp_10_to_15_boot_se), lo95 = r3(gpp_10_to_15_lo95), hi95 = r3(gpp_10_to_15_hi95), if_one_float = r3(R_G_all_gear_fit),
+        if_both_floats = r3(gpp_if_tally_covered_both_floats), se_above_both = r2(se_above_both_floats_alternative))), row.names = FALSE)
 
 # ---- 6. WRITE ----------------------------------------------------------------------------
 source("03_R_functions/batch_verdict_helpers.R")   # merge_csv_by

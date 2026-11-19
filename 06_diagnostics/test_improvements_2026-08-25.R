@@ -8473,7 +8473,7 @@ local({
   chk("B78 campaign and status: Section 1z.20 exists and is in the git-anchor table with both commits; the status box states the authoritative run's exposure and Tier 1 carries the decision",
       grepl("### 1z.20 The D50 shore turnover comparison: the fit's I/E likelihood reads one float against two (2026-11-18)", vc, fixed = TRUE) &&
       grepl("2026-11-18 (B78: the rule `8af6e2f`, the desk script and its tables `f2be2ff`,", vc, fixed = TRUE) && grepl("no fit; 1z.20) |", vc, fixed = TRUE) &&
-      grepl("**Last updated:** 2026-11-18 (Section 1z.20:", vc, fixed = TRUE) &&
+      grepl("2026-11-18: Section 1z.20: the D50 shore turnover desk comparison (B78)", vc, fixed = TRUE) &&
       grepl("> **A known exposure of this run, found 2026-11-18 (B78, D51; nothing changed).**", st, fixed = TRUE) &&
       grepl("- **[NEW 2026-11-18, B78; D51 OPEN for Matt; D52 recorded] The shore I/E likelihood compares one float with two.**", st, fixed = TRUE))
   chk("B78 method and guides: the method document carries the caution beside the I/E likelihood and limitation 17, the season guide says what to expect until D51 is decided, the input README and CLAUDE.md carry the workbook quirk and D51, and both folder READMEs list the script and its tables",
@@ -8486,6 +8486,53 @@ local({
       grepl("- **`crabber_flow` in `ingress_egress.xlsx` is 0 on each day's first and last interval row**", cl, fixed = TRUE) &&
       grepl("| `desk_shore_turnover_d50_2026-11-18.R` | **DESK, seconds, no MCMC** (B78, for D50 and D51).", dg, fixed = TRUE) &&
       grepl("`shore_turnover_d50_2026-11-18_{by_day,factors,by_count,by_season}.csv` are the D50 shore turnover desk comparison", orr, fixed = TRUE))
+})
+
+# ---------- B79 (2026-11-19): the D51 decision brief, its figures, and the two measurements made for it ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  br <- "07_documentation/development_notes/D51-shore-ie-likelihood-brief-2026-11-19.md"
+  fg <- "06_diagnostics/desk_d51_brief_figures_2026-11-19.R"
+  chk("B79 brief: the D51 decision brief exists, carries no em dash, describes all four options each with its positives and its negatives, and every figure it links is on disk",
+      file.exists(br) && { b <- rdf(br)
+        imgs <- regmatches(b, gregexpr("\\]\\(figures/D51/[^)]+\\.png\\)", b))[[1]]; imgs <- sub("^\\]\\(", "", sub("\\)$", "", imgs))
+        !grepl("—", b, fixed = TRUE) && length(imgs) == 8 && all(file.exists(file.path(dirname(br), imgs))) &&
+        all(vapply(c("### Option (a): leave the model as it is, and state the bias", "### Option (b): drop the shore I/E stream from the fits",
+                     "### Option (c): put the Float 20 share into the I/E prediction", "### Option (d): observe the day's own turnover"),
+                   function(h) grepl(h, b, fixed = TRUE), logical(1))) &&
+        lengths(regmatches(b, gregexpr("**Positives**", b, fixed = TRUE))) == 4 && lengths(regmatches(b, gregexpr("**Negatives**", b, fixed = TRUE))) == 4 &&
+        grepl("**I recommend (b).**", b, fixed = TRUE) && grepl("**Where this argument could be wrong.**", b, fixed = TRUE) &&
+        grepl("**The rule certified neither reading.**", b, fixed = TRUE) })
+  chk("B79 figures: the figure script fits nothing and reads only the committed tables, the shore counts and the tally",
+      file.exists(fg) && { code <- paste(grep("^\\s*#", readLines(fg, warn = FALSE), invert = TRUE, value = TRUE), collapse = "\n")
+        !grepl("bss_stan_fit\\(|rstan::|sampling\\(|rmarkdown::render", code) && grepl("shore_turnover_d50_2026-11-18_%s.csv", code, fixed = TRUE) })
+  fa <- "05_output/shore_turnover_d50_2026-11-18_factors.csv"; bs <- "05_output/shore_turnover_d50_2026-11-18_by_season.csv"
+  if (all(file.exists(c(fa, bs)))) {
+    f <- utils::read.csv(fa, stringsAsFactors = FALSE); sn <- utils::read.csv(bs, stringsAsFactors = FALSE)
+    n26 <- f[f$season_window == "2025-26" & f$fit == "shore_all_gear", ]; n25 <- f[f$season_window == "2024-25" & f$fit == "shore_all_gear", ]
+    s26 <- sn[sn$season == "2025-26", ]; s25 <- sn[sn$season == "2024-25", ]
+    near <- function(x, y, tol = 5e-4) length(x) == 1 && is.finite(x) && abs(x - y) <= tol
+    chk("B79 option (d): the day's own turnover observed on L[d] puts tau_bar at 2.400 on B70 (ratio 1.006) and 2.595 on 2025-26 (ratio 1.127), by the same precision weighting",
+        near(n25$tau_bar_desk_own, 2.4002) && near(n26$tau_bar_desk_own, 2.5946) && near(n25$tau_bar_desk_own_over_fit, 1.0059) && near(n26$tau_bar_desk_own_over_fit, 1.1275) &&
+        near(n25$log_sd_days_pooled, 0.3441) && near(n26$log_sd_days_pooled, 0.3300))
+    chk("B79 one float or two: at the regular count hours the Float 20 gear per present crabber sits on the one-float value and more than 2 bootstrap SE above the two-float one, in both seasons",
+        near(s26$gear_per_present_10_to_15, 1.2399) && near(s26$gpp_if_tally_covered_both_floats, 1.0506, 1e-3) && near(s26$gpp_10_to_15_boot_se, 0.076, 0.004) &&
+        s26$se_above_both_floats_alternative > 2.2 && s26$se_above_both_floats_alternative < 2.8 &&
+        near(s25$gear_per_present_10_to_15, 1.2931) && near(s25$gpp_if_tally_covered_both_floats, 1.0569, 1e-3) && near(s25$gpp_10_to_15_boot_se, 0.106, 0.006) &&
+        s25$se_above_both_floats_alternative > 2.0 && s25$se_above_both_floats_alternative < 2.5 &&
+        s26$gpp_10_to_15_lo95 > s26$gpp_if_tally_covered_both_floats && s25$gpp_10_to_15_lo95 > s25$gpp_if_tally_covered_both_floats)
+  } else skp("B79 tables: the factors and by_season CSVs")
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); dr <- rdf("07_documentation/README.md"); dg <- rdf("06_diagnostics/README.md")
+  chk("B79 pointers: the register (B79, and D51 with option (d)'s desk value, the weakest link and the brief), the campaign addendum, the status entry and both READMEs name the brief",
+      grepl("| B79 | **The D51 decision brief, with figures; the desk comparison extended by two measurements the brief needed**", cr, fixed = TRUE) &&
+      grepl("**DONE 2026-11-19; D51 stays OPEN, the decision is Matt's**", cr, fixed = TRUE) &&
+      grepl("Desk (B79): `tau_bar` 2.400 on B70 (+0.6% on the shore all-gear fit, +0.2% on the port) and 2.595 on 2025-26 (+12.7%)", cr, fixed = TRUE) &&
+      grepl("**The weakest link (B79):**", cr, fixed = TRUE) &&
+      grepl("- **Addendum, 2026-11-19 (B79): the decision brief and two measurements made for it.**", vc, fixed = TRUE) &&
+      grepl("**The decision brief (B79, 2026-11-19) is `D51-shore-ie-likelihood-brief-2026-11-19.md`:**", st, fixed = TRUE) &&
+      grepl("| `D51-shore-ie-likelihood-brief-2026-11-19.md` | **D51, open:**", dr, fixed = TRUE) &&
+      grepl("| `desk_d51_brief_figures_2026-11-19.R` | **DESK, seconds, no MCMC** (B79).", dg, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
