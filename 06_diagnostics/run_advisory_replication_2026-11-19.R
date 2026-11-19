@@ -327,17 +327,18 @@ pair_rows <- function(sn, a, b, dirs) {          # arm a minus arm b
   out <- list()
   for (stream in c("joint", "trailer", "osp")) {
     ta <- block_tab(da, stream); tb <- block_tab(db, stream); if (is.null(ta) || is.null(tb)) next
-    cmp <- bss_block_cv_compare(ta, tb)
+    cmp <- bss_block_cv_compare(tb, ta)          # the helper returns its SECOND table minus its first; this row is a minus b
     out[[stream]] <- cbind(data.frame(season = SEASONS[[sn]]$label, pair = sprintf("%s - %s", a, b), statistic = "block CV, held-out weeks", stream = stream, stringsAsFactors = FALSE),
                            cmp[, c("n_blocks", "n_used", "reliable_share", "diff", "se", "ratio", "n_positive", "identical")])
   }
   for (stream in c("catch", "trailer")) {
     pa <- file.path(da, sprintf("loo_pointwise_%s_%s.csv", stream, FIT_BOAT)); pb <- file.path(db, sprintf("loo_pointwise_%s_%s.csv", stream, FIT_BOAT))
     if (!file.exists(pa) || !file.exists(pb)) next
-    el <- tryCatch(loo_elpd_paired(pa, pb), error = function(e) NULL); if (is.null(el)) next
+    el <- tryCatch(loo_elpd_paired(pb, pa), error = function(e) NULL); if (is.null(el)) next     # likewise: second minus first
     out[[paste0("pt_", stream)]] <- data.frame(season = SEASONS[[sn]]$label, pair = sprintf("%s - %s", a, b), statistic = "pointwise LOO, paired", stream = stream,
       n_blocks = el$n %||% NA, n_used = el$n %||% NA, reliable_share = NA_real_, diff = el$elpd_diff, se = el$se_diff,
-      ratio = if (isTRUE(el$se_diff > 0)) el$elpd_diff / el$se_diff else NA_real_, n_positive = el$positives %||% NA, identical = isTRUE(el$zeros == el$n), stringsAsFactors = FALSE)
+      ratio = if (isTRUE(el$se_diff > 0)) el$elpd_diff / el$se_diff else NA_real_, n_positive = NA_integer_,
+      identical = isTRUE(abs(el$elpd_diff) < 1e-8), stringsAsFactors = FALSE)
   }
   do.call(rbind, out)
 }
