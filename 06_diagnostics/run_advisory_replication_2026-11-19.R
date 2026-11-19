@@ -71,6 +71,33 @@
 #       at 1.2 SE and the OSP stream carried the evidence; the 2025-26 all-gear fit has only
 #       the trailer stream, so REVIEW is the likely outcome there and would not be evidence
 #       against the term. R2 is the instrument with power for that season.
+#   R3a ADDENDUM, WRITTEN 2026-11-19 AFTER S26-const ALONE HAD BEEN READ AND BEFORE ANY OTHER ARM
+#       FINISHED (so before any pair of arms existed). R3's instrument is not evaluable under the
+#       current model, and the expectation stated for it below was wrong. Since the per-day
+#       effort effect (A39) the PSIS leave-one-week-out is reliable on 12 of 42 joint weeks of
+#       the authoritative run B70 (39 of 42 on B65, 38 of 42 on B67, the renders before it) and
+#       on 12 of 41 trailer weeks of S26-const, whose table is B76's. A held-out week's trailer
+#       counts are what identify those days' deviations uE, so conditional on uE the importance
+#       ratios are heavy-tailed. The expectation of PASS on 2024-25 was written from the
+#       2026-09-26 block CV without opening B70's committed table (a C row; D54).
+#       R3 STAYS AS WRITTEN and will read REVIEW, not evaluable, on both seasons. R3a is the
+#       SAME comparison (const minus off per season; the joint row where the fit has two effort
+#       streams, the trailer row where it has one), the SAME evaluability (70% of weeks reliable
+#       in both arms, at least 8) and the SAME thresholds (above +2 paired SE PASS, below -2
+#       FAIL, between REVIEW), on the block CV with each held-out trailer day's deviation
+#       INTEGRATED OUT of both the importance ratio and the score:
+#         p(y_d | theta) = integral of prod_j NB2(y_dj | lambda_d / R_G_boat
+#                          * exp(sigma_uE z - sigma_uE^2 / 2), r_E) N(z | 0, 1) dz
+#       by quadrature on a fixed grid in z (the integrated form of Vehtari et al. 2016 and
+#       Merkle, Furr and Rabe-Hesketh 2019); the OSP likelihood carries no day deviation and
+#       enters unchanged. Preconditions, checked before a comparison is opened: (i) the
+#       conditional log-likelihood rebuilt from the cached fit's draws reproduces the fit's own
+#       log_lik_trailer to 1e-6; (ii) doubling the grid moves no week's leave-out elpd by more
+#       than 0.01 nats. Wherever R4 (b) reads a block CV row it is read on both tables. R3a is
+#       reported BESIDE R3, never in its place. EXPECTED: evaluable on both seasons; PASS on
+#       2024-25, where the OSP stream is; REVIEW on 2025-26. Known when this was written:
+#       S26-const's coefficient, totals and block table (equal to B76's committed ones) and
+#       the transfer test; no off or split arm (desk_advisory_block_cv_2026-11-19.R).
 #   R4  D32 PER SEASON (the ladder's rule 9, restated). On the split arm's boat all-gear fit:
 #       (a) the winter coefficient's 95% interval covers 0: this season cannot place it;
 #       (b) both identified and the 95% interval of winter - rest (independent normals)
@@ -297,7 +324,12 @@ keep_evidence <- function(sid, dir) {
 read_arm <- function(sid, dir) {
   cr <- rd(dir, "convergence_report.csv"); ct <- rd(dir, "component_totals.csv"); pv <- rd(dir, "pe_vs_bss_comparison.csv")
   mm <- rd(dir, "monthly_estimates_by_mode.csv"); co <- coef_rows(dir)
-  gate <- !is.null(cr) && all(as.logical(cr$pass_convergence)); ar <- if (is.null(cr)) NA else cr$ar_resolution[cr$fit == FIT_BOAT][1]
+  # R1 is about FITS. A component the driver did not fit (too few interviews: its row carries no AR resolution and
+  # "PE (insufficient data)") is not a failed fit; the first reading of S26-const counted the 2025-26 boat pot-closure
+  # component, which has two interviews, as one (CHANGE_REGISTER C row, 2026-11-19).
+  fitted <- if (is.null(cr)) logical(0) else !is.na(cr$ar_resolution)
+  gate <- !is.null(cr) && any(fitted) && all(as.logical(cr$pass_convergence[fitted])) && isTRUE(fitted[cr$fit == FIT_BOAT])
+  ar <- if (is.null(cr)) NA else cr$ar_resolution[cr$fit == FIT_BOAT][1]
   comp <- function(nm, col) if (is.null(ct)) NA_real_ else .num1(ct[[col]][ct$Component == nm])
   boat_m <- if (is.null(mm)) NULL else mm[mm$Mode == "Private Boat", , drop = FALSE]
   wm <- as.integer(BASE$marine_hazard_winter_months %||% c(12, 1, 2))
@@ -306,7 +338,7 @@ read_arm <- function(sid, dir) {
   arm <- data.frame(
     stage = sid, season = SEASONS[[.season_of(sid)]]$label, arm = .arm_of(sid), folder = sub(paste0("^", .root, "/"), "", dir),
     platform = .stamp_field(dir, "platform"), git = .stamp_field(dir, "git"), minutes = .num1(.stamp_field(dir, "minutes")),
-    gate_all_fits = gate, n_fits = if (is.null(cr)) NA_integer_ else nrow(cr), boat_all_gear_ar = ar,
+    gate_all_fits = gate, n_fits = if (is.null(cr)) NA_integer_ else sum(fitted), boat_all_gear_ar = ar,
     boat_all_gear_divergence_fraction = if (is.null(cr)) NA_real_ else .num1(cr$divergence_fraction[cr$fit == FIT_BOAT]),
     boat_all_gear_catch = comp("Private boat, All gear", "Median"), boat_all_gear_catch_lo = comp("Private boat, All gear", "lo"),
     boat_all_gear_catch_hi = comp("Private boat, All gear", "hi"),
