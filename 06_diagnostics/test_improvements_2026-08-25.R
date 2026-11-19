@@ -4718,7 +4718,8 @@ local({
   LIVE <- c("run_improvements_2026-09-08",   # run_gear_ar_zi_2026-09-13 moved to SUP on 2026-10-02 (B62)
             "run_rg_sweep",
             "run_marine_hazard_batch_2026-09-25",   # 2026-09-25: A30 / B35
-            "run_marine_block_cv_2026-09-26")       # D37 (2026-09-29): B39's runner was in neither list
+            "run_marine_block_cv_2026-09-26",       # D37 (2026-09-29): B39's runner was in neither list
+            "run_advisory_replication_2026-11-19")  # 2026-11-19 (B80): the advisory term on a second season
   chk("diagnostics: the superseded-runner helper exists and offers an override",
       file.exists("03_R_functions/bss_superseded_runner.R") &&
       { t <- flat(rd("03_R_functions/bss_superseded_runner.R"))
