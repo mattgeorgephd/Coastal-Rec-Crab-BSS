@@ -17,3 +17,21 @@
 "2025-26","split - off","conditional on the day deviation (R3)","trailer","all weeks",41,5,0.121951219512195,2.25385437375341,1.93547807485553,1.16449491370325,4,FALSE
 "2025-26","split - off","conditional on the day deviation (R3)","trailer","winter weeks (December to February)",13,3,0.230769230769231,-0.449162523395549,0.63437026003086,-0.708044736166697,2,FALSE
 "2025-26","split - off","conditional on the day deviation (R3)","trailer","rest of the season",28,2,0.0714285714285714,2.70301689714896,0.21976940215968,12.2993322572949,2,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","joint","all weeks",42,36,0.857142857142857,0.324999304592088,1.72477970316384,0.188429457974214,19,TRUE
+"2024-25","split - const","day deviation integrated out (R3a)","joint","winter weeks (December to February)",13,13,1,0.220214797106371,1.68025443742767,0.131060387165828,7,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","joint","rest of the season",29,23,0.793103448275862,0.104784507485717,0.545732077289059,0.192007235503248,12,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","trailer","all weeks",37,32,0.864864864864865,0.156019405519896,1.6654012629073,0.0936827712304792,16,TRUE
+"2024-25","split - const","day deviation integrated out (R3a)","trailer","winter weeks (December to February)",13,13,1,0.220214797106371,1.68025443742767,0.131060387165828,7,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","trailer","rest of the season",24,19,0.791666666666667,-0.0641953915864746,0.286237130261031,-0.224273460008253,9,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","osp","all weeks",29,23,0.793103448275862,0.165537902621447,0.424580605623101,0.389885690559295,14,TRUE
+"2024-25","split - const","day deviation integrated out (R3a)","osp","winter weeks (December to February)",0,0,NA,NA,NA,NA,0,FALSE
+"2024-25","split - const","day deviation integrated out (R3a)","osp","rest of the season",29,23,0.793103448275862,0.165537902621447,0.424580605623101,0.389885690559295,14,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","joint","all weeks",42,9,0.214285714285714,-0.753346590957609,0.94086443763149,-0.800696211724259,3,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","joint","winter weeks (December to February)",13,3,0.230769230769231,-0.46100494359673,1.00085089592798,-0.460613009862263,1,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","joint","rest of the season",29,6,0.206896551724138,-0.292341647360879,0.341243017724118,-0.856696348867793,2,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","trailer","all weeks",37,5,0.135135135135135,-0.49423794567477,0.933489355527262,-0.529452149345195,2,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","trailer","winter weeks (December to February)",13,3,0.230769230769231,-0.46100494359673,1.00085089592798,-0.460613009862263,1,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","trailer","rest of the season",24,2,0.0833333333333333,-0.03323300207804,0.11645071708492,-0.285382545594849,1,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","osp","all weeks",29,6,0.206896551724138,-0.254074671491879,0.293618992114325,-0.865320971447758,2,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","osp","winter weeks (December to February)",0,0,NA,NA,NA,NA,0,FALSE
+"2024-25","split - const","conditional on the day deviation (R3)","osp","rest of the season",29,6,0.206896551724138,-0.254074671491879,0.293618992114325,-0.865320971447758,2,FALSE

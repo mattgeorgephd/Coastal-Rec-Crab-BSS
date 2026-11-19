@@ -1,0 +1,8 @@
+stage: S25-split
+tag: AR-S25-split
+digest: dcc78d6e9d
+git: 8c77dea
+tree_clean_of_code: TRUE
+platform: R version 4.6.2 (2026-10-29); rstan 2.32.7; StanHeaders 2.32.10
+minutes: 34.0
+rendered: 2026-11-19 06:08:05 UTC
