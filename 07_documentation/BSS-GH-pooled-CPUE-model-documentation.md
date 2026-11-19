@@ -494,7 +494,7 @@ a multi-hour fit, and none of them changes an estimate.
 | `osp_coverage_audit.csv` | which days the OSP stream covers, and how its counts compare with the trailer counts on the overlap days |
 | `shift_coverage_*.csv`, `contact_hour_*.csv` | what fraction of a day's boat returns the sampler shifts cover, and whether the trip-type mix drifts with the hour inside them |
 | `cpue_saturation_*`, `ppc_calibration_*`, `ppc_byobs_*` | posterior predictive checks: does the fitted observation model reproduce the observed count distribution |
-| `loo_block_*` | does the model predict a week of effort counts it has not seen (the held-out-week check, B39)? Read the reliable share before the difference. **Since the per-day effort effect (A39) it returns mostly unusable weeks on a fit that carries the term** (12 of 42 on the authoritative run's boat all-gear fit, 39 of 42 before): the check conditions on each day's deviation, which a held-out week's counts are what identify. The repair, the day deviation integrated out, exists as a desk script and is not yet in the drivers (D54) |
+| `loo_block_*` | does the model predict a week of effort counts it has not seen (the held-out-week check, B39)? Read the reliable share before the difference. **Since the per-day effort effect (A39) it returns mostly unusable weeks on a fit that carries the term** (12 of 42 on the authoritative run's boat all-gear fit, 38 of 42 on the render before the term): the check conditions on each day's deviation, which a held-out week's counts are what identify. The repair, the day deviation integrated out, exists as a desk script and is not yet in the drivers (D54) |
 | `pe_empty_effort_strata.csv` | how much of the design-based estimate is imputed, and what it would be under the other levers |
 | `tau_sensitivity_*` | how the boat component moves across a grid of turnover prior centres |
 | `fishery_spillover_raw.csv`, `fishery_spillover_adjusted.csv` | do other fisheries' openers coincide with effort surges that a constant crabbing fraction would mis-convert |
@@ -1702,14 +1702,23 @@ and about 0.54 times the crabbing boats. What remains open is December to Februa
 has no day and a share near 0.9 leaves the volume term no room, so there the coefficient
 fitted to all boats is applied to crabbers nearly unchanged (item 13). Tracked as D30.
 
-**13. The advisory term is one coefficient for the season, and the winter effect is probably
-smaller.** Every sampled launch day of four seasons (794 days) puts the advisory-day rate ratio
-at 0.43 in December to February against 0.22 in the rest of the season; the 2024-25 fit cannot
-identify a separate winter coefficient (-0.59 [-1.24, +0.06]), so the method carries the
-season-wide 0.31 into the winter, where it probably over-corrects. The season total is
-insensitive to the shape (the split rung moved it by 0.06%); the winter months' estimates are
-not (January +15% under the split against +29% under the constant term). A multi-season fit
-is the test. Tracked as D32.
+**13. The advisory term is one coefficient for the season, and the winter effect is smaller.**
+Established on two seasons (B80, 2026-11-19): the split arm's winter coefficient is -0.64
+[-1.31, +0.02] on 2024-25 and -0.80 [-1.37, -0.20] on 2025-26 against -1.23 and -1.56 for the
+rest of each season, and together the two put winter minus rest at +0.67 (SE 0.27, 2.5 SE): a
+rate ratio of about 0.48 on a winter advisory day against 0.26 in the rest of the season. (The
+four-season desk screen of 2026-09-27 read 0.43 against 0.22.) The method carries the
+season-wide 0.32 into the winter, where it over-corrects. **What that costs is small and
+known.** A model with a separate winter coefficient predicts held-out weeks no better (+0.3
+and +0.6 nats at 0.2 SE on the two seasons), and on the authoritative run it reads the port
+total 86,555 against 86,497 (+0.1%) and the December to February boat catch 4,668 against
+4,787 (-2.5%); the arm with no term at all reads 4,306 there, which bounds the whole
+question. No held-out test, on either season, registers anything in the winter weeks, whose
+days hold a handful of trailers. A reason for the difference is credible and not proven: in
+the winter about nine boats in ten are crabbing and crabbing boats are deterred less than the
+rest of the fleet (item 12; B81, B82). Whether to keep one coefficient, adopt the split or
+build a fleet-composition form is a decision for Matt
+(`development_notes/A30-advisory-term-brief-2026-11-19.docx`). Tracked as D32.
 
 **14. Seasons before 2024-25 are out of scope (Matt, 2026-09-28).** 2022-23 and 2023-24 were
 exploratory: insufficient sampling coverage and not the current protocol (2023-24 has one peak
@@ -1807,7 +1816,9 @@ a season-split rung (Section 1z):
   1,372 with a coefficient identified at 3.5 SE; the decision (2026-09-27) confines the term to
   the all-gear window, where the harvest is, and the pot-closure boat fit stays covariate-free.
 
-**Two limitations travel with the term** (Section 20). A boat term describes ALL private
+**Two limitations travel with the term** (Section 20; both were re-measured on 2026-11-19, and
+items 12 and 13 there carry the current reading, which this paragraph, written at adoption,
+does not). A boat term describes ALL private
 vessels: the monthly crabbing fraction cannot see whether crabbing boats stay in port on an
 advisory day at a different rate from finfish boats (D30). And the term is one coefficient for
 the season, while the four-season trailer record says the winter effect is about half the
@@ -1818,6 +1829,30 @@ against 47,319) while halving the winter months' correction (January +15% agains
 the constant term probably over-corrects the winter months and the season total is
 insensitive to that shape (D32). Design, evidence and caveats:
 `development_notes/marine-hazard-covariates-2026-09-25.md`.
+
+**On a second season (2026-11-19, B80 to B83; `VALIDATION_CAMPAIGN.md` Section 1z.21).** The
+term was adopted on one season, and the test on a season it was not chosen on was run once
+2025-26 had a full season of trailer counts, each reading rule committed before its
+measurement. The coefficient fitted on 2024-25 (-1.15), carried to 2025-26 without
+re-estimation, improves the prediction of that season's held-out weeks by 36.6 nats at 4.5
+paired SE; the two seasons' fitted coefficients, -1.15 and -1.32, are 0.7 SE apart. In the
+fitted model, weeks held out of the boat all-gear fit are predicted better with the term on
+both seasons: +17.4 nats at 2.6 SE on 2025-26 (trailer counts alone) and +24.3 at 3.0 SE on
+2024-25 (OSP +18.1 at 3.9 SE, trailer +6.4 at 1.2 SE), the adoption figures above reproduced on
+the current model. Those two readings use the held-out-week check with each day's deviation
+integrated out, because the check as the drivers compute it has returned mostly unusable
+weeks since the per-day effort effect was adopted (D54; Section 12); the integrated form was
+specified before any comparison existed and agrees with an exact refit of two held-out weeks
+to 0.02 nats. **What the term is worth to the estimate depends on whether the OSP counts are
+there.** On 2024-25, where they hold the boat level on 130 days from 8 March, the estimate
+with the term is +0.7% on the boat all-gear catch and +0.3% on the port against the model
+without it (it was +3.8% and +1.85% when adopted, before the OSP crab-only count, the
+day-level crabbing share and the per-day effect), and what it changes is December to
+February (4,306 without it, 4,787 with). On a fit with no OSP day after the pot opening, which
+is 2025-26 until its OSP record arrives, the sign is the other way and the size is larger
+(-8.6% on that fit's boat all-gear figure, in the summer months): there the model without the
+term credits advisory days with 2.8 times the trailers counted on them. The term is
+unchanged.
 
 **Rendered.** The method of record's first production render was
 `05_output/20260927/pooled-CPUE-canonical-2024-25` (96,118, superseded 2026-09-28 by the
@@ -1861,6 +1896,7 @@ Newest first. The full version-by-version log with working notes is
 `BSS-GH-pooled-CPUE-model-development-history.md`; every change on the current branch with
 its status and evidence is `development_notes/CHANGE_REGISTER.md`.
 
+- **2026-11-19.** B80 to B83: the boat advisory term on a second season (six renders of the pooled driver on 2025-26 and 2024-25, a transfer test, two desk checks and an exact refit; every rule written before its measurement; campaign 1z.21). The method does not change. The term carries: its 2024-25 coefficient predicts 2025-26's held-out weeks at 4.5 SE, and the fitted model predicts held-out weeks better with it on both seasons. The winter effect is established as the weaker one and is immaterial to the authoritative total (limitation 13). Crabbing boats are deterred less than the rest of the fleet, and the volume term of the crabbing share already carries that from March to September (limitation 12). Found on the way: the held-out-week check has returned mostly unusable weeks since the per-day effort effect (D54; Section 12), CRAN's current Stan no longer parses the models (D53), and on a boat day with no OSP count the day's own counts do not move its reported effort (D55). The decision brief is `development_notes/A30-advisory-term-brief-2026-11-19.docx`.
 - **2026-11-18.** B78: the D50 shore turnover desk comparison (no fit; the rule written before its table; campaign 1z.20). The method does not change. It found that the shore I/E likelihood compares Float 20's arrivals with a level calibrated to both floats' gear, so the fit reads the turnover about 18% low wherever the stream binds, and that the derivation is the reading to trust (the caution in Section 14.2, limitation 17; D51, with Matt). Pull requests #8 and #9 merged the branch into `main` the same day.
 - **2026-10-20.** A41 (Matt's option (iii) for D49): a fit below the shared-turnover floor keeps one `tau_bar` at its prior that no day observes (`shared_tau_refusal = "shared_prior"`; the fit's `osp_scale_is_tau` 0, its boat I/E dropped); the per-day fallback stays as `"per_day"`; no 2024-25 fit changes (every one clears the floor; the Stan data identical field for field), the 2025-26 readiness record re-rendered under it (B76; limitation 16). D19 closed by Matt keeping `pe_empty_stratum = "local"` (limitation 4).
 - **2026-10-19.** B75: the 2025-26 readiness render, the novel-season workflow end to end on both tracks on the container (campaign 1z.18; nothing citable, D18), every check met, the cross-check PASS at -0.24%; it found D49 (a refused shared turnover's per-day draws sum at the lognormal mean, 13% above the centre; limitation 16, Matt's decision) and D50 (the season's PE/BSS gaps), and fixed three report gaps (the gear driver's sensitivity column, the PE component row's interval, the turnover table's omission of a refused fit). B73: the PE has a catch SE (Section 15; D22 part 2 closed) and a PE-reported component enters the port total with it; B72: `osp_absent_day`, how an OSP day with boats and no crab-only value is read (D39; shipped "unclassified"), and the report's OSP table beside the model's `f(1 - c)` (D41). A40: the identification floor on the per-day effort effect (`effort_day_effect_min_repeat_days = 5`; Section 14.2), Matt's option (a) after A39's render (B69) failed clause (4) of its rule on the pooled shore pot-closure fit; `effort_day_effect = TRUE` again; rendered the same day (B70): every clause of the A40 rule met, the fits with the term off identical to B67 draw for draw and those with it on identical to B69, the port 86,497 [72,869, 104,595], cross-check -0.25%; accepted by Matt the same day as the authoritative run, B67 replaced (+0.4% on the port; the shared boat turnover 3.16 to 2.97 in the posterior mean).

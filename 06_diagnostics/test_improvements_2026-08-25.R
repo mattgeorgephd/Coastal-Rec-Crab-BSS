@@ -8474,7 +8474,7 @@ local({
       grepl("| D52 | **On an I/E day the gear counts follow the tally's schedule, and the fit reads them as regular counts; three smaller things the same tally showed**", cr, fixed = TRUE))
   chk("B78 campaign and status: Section 1z.20 exists and is in the git-anchor table with both commits; the status box states the authoritative run's exposure and Tier 1 carries the decision",
       grepl("### 1z.20 The D50 shore turnover comparison: the fit's I/E likelihood reads one float against two (2026-11-18)", vc, fixed = TRUE) &&
-      grepl("2026-11-18 (B78: the rule `8af6e2f`, the desk script and its tables `f2be2ff`,", vc, fixed = TRUE) && grepl("no fit; 1z.20) |", vc, fixed = TRUE) &&
+      grepl("2026-11-18 (B78: the rule `8af6e2f`, the desk script and its tables `f2be2ff`,", vc, fixed = TRUE) && grepl("no fit; 1z.20)", vc, fixed = TRUE) &&   # 2026-11-19: the row now runs on to 1z.21, so the closing bar is no longer here
       grepl("2026-11-18: Section 1z.20: the D50 shore turnover desk comparison (B78)", vc, fixed = TRUE) &&
       grepl("> **A known exposure of this run, found 2026-11-18 (B78, D51; nothing changed).**", st, fixed = TRUE) &&
       grepl("- **[NEW 2026-11-18, B78; D51 OPEN for Matt; D52 recorded] The shore I/E likelihood compares one float with two.**", st, fixed = TRUE))
@@ -8535,6 +8535,161 @@ local({
       grepl("**The decision brief (B79, 2026-11-19) is `D51-shore-ie-likelihood-brief-2026-11-19.md`:**", st, fixed = TRUE) &&
       grepl("| `D51-shore-ie-likelihood-brief-2026-11-19.md` | **D51, open:**", dr, fixed = TRUE) &&
       grepl("| `desk_d51_brief_figures_2026-11-19.R` | **DESK, seconds, no MCMC** (B79).", dg, fixed = TRUE))
+})
+
+# ---------- B80 to B83, D54 and D55 (2026-11-19): the boat advisory term on a second season ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  rc <- function(f) if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE) else NULL
+  near <- function(x, y, tol = 5e-4) length(x) == 1 && is.finite(x) && abs(x - y) <= tol
+  FITB <- "private_boat_all_gear_Dungeness_Kept"; EV <- "05_output/advisory_replication_2026-11-19_arms"
+  # D54: the committed runs themselves show the check's collapse at A39
+  blk <- function(dir) rc(file.path("05_output", dir, sprintf("loo_block_joint_%s.csv", FITB)))
+  b70 <- blk("20261019/pooled-CPUE-2024-25"); b67 <- blk("20261017/pooled-CPUE-2024-25"); b65 <- blk("20261003/pooled-CPUE-2024-25")
+  b76 <- rc(file.path("05_output", "20261020/pooled-CPUE-season-2025-26", sprintf("loo_block_trailer_%s.csv", FITB)))
+  chk("D54: since the per-day effort effect the held-out-week check is usable on 12 of 42 joint weeks of the authoritative run (38 and 39 of 42 on the two renders before it) and on 12 of 41 weeks of the 2025-26 render",
+      !is.null(b70) && !is.null(b67) && !is.null(b65) && !is.null(b76) && nrow(b70) == 42 && sum(b70$reliable) == 12 && sum(b67$reliable) == 38 && sum(b65$reliable) == 39 &&
+      nrow(b76) == 41 && sum(b76$reliable) == 12)
+  # ... and the loss follows the term fit by fit: the 2024-25 pot-closure fits (A40's floor keeps the term off) are unchanged,
+  # the 2025-26 shore pot-closure fit (term on) has no usable week, and the shore all-gear table, already weak under its weekly AR
+  # (campaign 1y.1), is down to 1 of 38
+  nrel <- function(dir, stem) { d <- rc(file.path("05_output", dir, sprintf("loo_block_%s_Dungeness_Kept.csv", stem))); if (is.null(d)) c(NA_integer_, NA_integer_) else c(sum(d$reliable), nrow(d)) }
+  R65 <- "20261003/pooled-CPUE-2024-25"; R67 <- "20261017/pooled-CPUE-2024-25"; R70 <- "20261019/pooled-CPUE-2024-25"; R76 <- "20261020/pooled-CPUE-season-2025-26"
+  chk("D54: the loss follows the term fit by fit: shore all-gear 15, 10, 1 of 38 weeks on B65, B67, B70 and 0 of 40 on B76; the 2024-25 pot-closure fits (term off) unchanged at shore 8, 9, 9 and boat 8, 8, 8 of 11; the 2025-26 shore pot-closure fit (term on) 0 of 11",
+      identical(nrel(R65, "gear_shore_all_gear"), c(15L, 38L)) && identical(nrel(R67, "gear_shore_all_gear"), c(10L, 38L)) && identical(nrel(R70, "gear_shore_all_gear"), c(1L, 38L)) &&
+      identical(nrel(R76, "gear_shore_all_gear"), c(0L, 40L)) && identical(nrel(R76, "gear_shore_ring_net_only"), c(0L, 11L)) &&
+      identical(nrel(R65, "gear_shore_ring_net_only"), c(8L, 11L)) && identical(nrel(R67, "gear_shore_ring_net_only"), c(9L, 11L)) && identical(nrel(R70, "gear_shore_ring_net_only"), c(9L, 11L)) &&
+      all(vapply(c(R65, R67, R70), function(r) identical(nrel(r, "joint_private_boat_ring_net_only"), c(8L, 11L)), logical(1))))
+  chk("D54: the register and the brief say the loss follows the term and that the shore all-gear table was weak before it",
+      grepl("The loss follows the term fit by fit", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
+      grepl("15 of 38 on B65, 10 of 38 on B67", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
+      grepl("its table was mostly unusable before the per-day effect too", rdf("07_documentation/development_notes/A30-advisory-term-brief-2026-11-19.md"), fixed = TRUE))
+  # R3a's preconditions and the repair, arm by arm
+  arms <- c("S26-const", "S26-off", "S26-split", "S25-const", "S25-split", "S25-off")
+  ck <- lapply(arms, function(a) rc(file.path(EV, a, "blockint_checks.csv"))); names(ck) <- arms
+  if (!any(vapply(ck, is.null, logical(1)))) {
+    k <- do.call(rbind, ck)
+    chk("B80 R3a preconditions: on all six arms the script reproduces the fit's own trailer likelihood to 1e-6 and doubling the quadrature grid moves no week by 0.01 nats; the cached fit is the arm's (pointwise lpd) and the conditional table is the driver's",
+        nrow(k) == 6 && all(as.logical(k$precondition_i)) && all(as.logical(k$precondition_ii)) && all(k$conditional_loglik_max_abs_gap < 1e-9) &&
+        all(k$grid_doubling_max_abs_elpd_gap < 1e-9) && all(k$pointwise_lpd_max_abs_gap < 5e-4) && all(k$conditional_block_table_max_abs_gap < 1e-9) && all(k$n_draws == 10000))
+    chk("B80 the repair restores the check: at least 88% of weeks usable on every arm with the day deviation integrated out (37 to 41), at most a third of them as the pipeline computes it (7 to 14)",
+        all(k$reliable_integrated / k$weeks >= 0.88) && all(k$reliable_conditional / k$weeks <= 1 / 3) && min(k$reliable_integrated) == 37 && max(k$reliable_conditional) == 14)
+  } else skp("B80 R3a: the six arms' blockint_checks.csv")
+  # B81
+  cs <- rc("05_output/advisory_replication_2026-11-19_crab_share.csv")
+  if (!is.null(cs)) {
+    ma <- cs[grepl("^Ma", cs$model) & cs$n_basis == "schedule minimum", ]; mb <- cs[grepl("^Mb", cs$model) & cs$n_basis == "schedule minimum", ]
+    mb2 <- cs[grepl("^Mb", cs$model) & cs$n_basis == "every boat sampled", ]
+    chk("B81 (R9): on 115 OSP days after the pot opening, 25 advisory, the crab-only share is 29.1% against 11.8% (odds ratio 2.82 [1.55, 5.15]) and beyond the day's volume there is no differential (1.21 [0.70, 2.08]; 1.04 at the other bound of D2)",
+        near(ma$days, 115) && near(ma$advisory_days, 25) && near(ma$share_advisory_days, 0.2914, 1e-3) && near(ma$share_other_days, 0.1178, 1e-3) &&
+        near(ma$odds_ratio, 2.82, 0.01) && near(ma$or_lo95, 1.55, 0.01) && near(ma$or_hi95, 5.15, 0.01) &&
+        near(mb$odds_ratio, 1.21, 0.01) && mb$lo95 < 0 && mb$hi95 > 0 && near(mb2$odds_ratio, 1.04, 0.01) && mb2$lo95 < 0 && mb2$hi95 > 0 &&
+        grepl("no differential beyond volume", mb$reading, fixed = TRUE) && near(mb$log_volume_coef, -0.851, 2e-3))
+  } else skp("B81: the crab-share table")
+  # B82
+  fc <- rc("05_output/advisory_replication_2026-11-19_fleet_composition.csv")
+  if (!is.null(fc)) {
+    g <- function(q) fc[grepl(q, fc$quantity, fixed = TRUE), ][1, ]
+    f1 <- g("per unit of crabbing share"); wr <- g("winter minus rest"); orr <- g("implied odds ratio"); cb <- g("exp(b_crab)"); ob <- g("exp(b_other)")
+    fw <- g("held-out log score, F minus W"); aic <- g("AIC, W minus F")
+    chk("B82 (R10): the advisory effect weakens with the crabbing share (+1.39 [0.37, 2.42]); the boundary and the share cannot be told apart (AIC -4.1 for the boundary, held-out -4.5 at 0.9 SE); the mixture puts crabbing boats at 0.43 and other boats at 0.12, odds ratio 3.71 [1.06, 12.96]",
+        near(f1$estimate, 1.394, 2e-3) && f1$lo95 > 0 && near(wr$estimate, 1.007, 2e-3) && near(wr$se, 0.294, 2e-3) &&
+        near(aic$estimate, -4.09, 0.02) && near(fw$estimate, -4.51, 0.02) && abs(fw$estimate / fw$se) < 2 &&
+        near(cb$estimate, 0.428, 2e-3) && near(ob$estimate, 0.115, 2e-3) && near(orr$estimate, 3.71, 0.01) && orr$lo95 > 1 && grepl("AGREEMENT", orr$note, fixed = TRUE))
+  } else skp("B82: the fleet-composition table")
+  for (sc in c("desk_advisory_block_cv_2026-11-19.R", "desk_advisory_crab_share_2026-11-19.R", "desk_advisory_fleet_composition_2026-11-19.R", "desk_advisory_transfer_2026-11-19.R")) {
+    f <- file.path("06_diagnostics", sc)
+    chk(sprintf("B80 to B82: %s samples nothing (no Stan fit, no driver render)", sc),
+        file.exists(f) && { code <- paste(grep("^\\s*#", readLines(f, warn = FALSE), invert = TRUE, value = TRUE), collapse = "\n")
+          !grepl("bss_stan_fit\\(|rstan::sampling|rstan::stan\\(|sampling\\(|rmarkdown::render", code) })
+  }
+  # B83: the acceptance test of the repaired check
+  xr <- rc("05_output/advisory_replication_2026-11-19_exact_refit.csv")
+  if (!is.null(xr)) {
+    chk("B83 (R11): the repaired check is within 0.25 nats of an exact refit on both weeks its rule selects, the largest Pareto k (2026-W19, 0.69) and the median (2025-W51, 0.28); the gaps are -0.022 and +0.020, both refits read",
+        nrow(xr) == 2 && identical(xr$week, c("2026-W19", "2025-W51")) && all(xr$stage == "S26-const") && all(as.logical(xr$refit_read)) && all(as.logical(xr$accepted)) &&
+        near(xr$gap[1], -0.0224, 2e-3) && near(xr$gap[2], 0.0203, 2e-3) && all(abs(xr$gap) <= 0.25) && near(xr$pareto_k_integrated[1], 0.694, 2e-3) && all(xr$refit_divergent_fraction == 0) &&
+        all(xr$refit_rhat_E_sum < 1.01))
+    rr <- "06_diagnostics/run_block_cv_exact_refit_2026-11-19.R"
+    chk("B83: the exact-refit runner ships DRY_RUN TRUE, samples only under --go, and takes its weeks from the committed integrated table by rule",
+        file.exists(rr) && { t <- paste(readLines(rr, warn = FALSE), collapse = "\n")
+          grepl("\nDRY_RUN <- TRUE", t, fixed = TRUE) && grepl("if (\"--go\" %in% .args", t, fixed = TRUE) && grepl("ok$block[nrow(ok)], ok$block[ceiling(nrow(ok) / 2)]", t, fixed = TRUE) })
+  } else skp("B83: the exact-refit table")
+  # B80: the six arms, the rule's readings, and the brief
+  ar <- rc("05_output/advisory_replication_2026-11-19_arms.csv"); vd <- rc("05_output/advisory_replication_2026-11-19_verdicts.csv")
+  bi <- rc("05_output/advisory_replication_2026-11-19_blockint.csv"); tr <- rc("05_output/advisory_replication_2026-11-19_transfer.csv")
+  if (!is.null(ar) && !is.null(vd) && !is.null(bi)) {
+    a <- function(st, col) ar[[col]][ar$stage == st]
+    chk("B80 R1 and the platform: six arms, all eligible, every boat all-gear fit monthly; the shipped configuration reads the authoritative total on 2024-25 (35,462 boat all-gear, port 86,497) and B76's on 2025-26 (21,045; 45,233)",
+        nrow(ar) == 6 && all(as.logical(ar$eligible)) && all(ar$boat_all_gear_ar == "monthly") && all(ar$n_fits == ifelse(grepl("^S25", ar$stage), 4, 3)) &&
+        near(a("S25-const", "boat_all_gear_catch"), 35462.04, 0.5) && near(a("S25-const", "port_total"), 86496.54, 0.5) &&
+        near(a("S26-const", "boat_all_gear_catch"), 21045.35, 0.5) && near(a("S26-const", "port_total"), 45233.03, 0.5) &&
+        near(a("S25-const", "b_const"), -1.1455, 1e-3) && near(a("S26-const", "b_const"), -1.3207, 1e-3))
+    b <- function(sn, pair, tab, stream, ws = "all weeks") bi[bi$season == sn & bi$pair == pair & grepl(tab, bi$table) & bi$stream == stream & bi$week_set == ws, ]
+    r26 <- b("2025-26", "const - off", "integrated", "trailer"); r25 <- b("2024-25", "const - off", "integrated", "joint")
+    c26 <- b("2025-26", "const - off", "conditional", "trailer"); c25 <- b("2024-25", "const - off", "conditional", "joint")
+    chk("B80 R3 and R3a: as the pipeline computes it the held-out-week comparison is not evaluable on either season (7 of 41, 9 of 42 weeks); with the day deviation integrated out the term gains +17.4 nats at 2.6 SE on 2025-26 and +24.3 at 3.0 SE on 2024-25, both evaluable, both PASS",
+        nrow(r26) == 1 && nrow(r25) == 1 && !as.logical(c26$evaluable) && !as.logical(c25$evaluable) && c26$n_used == 7 && c25$n_used == 9 &&
+        as.logical(r26$evaluable) && as.logical(r25$evaluable) && near(r26$diff, 17.42, 0.02) && near(r26$ratio, 2.62, 0.02) && r26$n_used == 39 &&
+        near(r25$diff, 24.33, 0.05) && near(r25$ratio, 3.05, 0.02) && r25$n_used == 37 &&
+        sum(grepl("^R3a", vd$criterion) & vd$verdict == "PASS") == 2 && sum(grepl("^R3 const", vd$criterion) & vd$verdict == "REVIEW") == 2)
+    w26 <- b("2025-26", "const - off", "integrated", "trailer", "winter weeks (December to February)"); w25 <- b("2024-25", "const - off", "integrated", "joint", "winter weeks (December to February)")
+    s26 <- b("2025-26", "split - const", "integrated", "trailer"); s25 <- b("2024-25", "split - const", "integrated", "joint")
+    chk("B80: the winter weeks register nothing on either season (below 1 SE), and the split predicts held-out weeks no better than the constant (below 0.5 SE on both)",
+        abs(w26$ratio) < 1 && abs(w25$ratio) < 1 && w26$n_weeks == 13 && w25$n_weeks == 13 && abs(s26$ratio) < 0.5 && abs(s25$ratio) < 0.5)
+    r5 <- vd[grepl("^R5", vd$criterion), ]; r4 <- vd[grepl("^R4", vd$criterion), ]
+    chk("B80 R4 and R5: branch (b) on 2025-26 (winter -0.80, rest -1.56) and (a) on 2024-25 (winter -0.64 [-1.31, +0.02]); over the two seasons winter minus rest +0.67 at 2.5 SE, ESTABLISHED, the winter the smaller reduction",
+        near(a("S26-split", "b_winter"), -0.7957, 2e-3) && near(a("S26-split", "b_rest"), -1.5570, 2e-3) && near(a("S25-split", "b_winter"), -0.6381, 2e-3) &&
+        a("S25-split", "b_winter_hi") > 0 && a("S26-split", "b_winter_hi") < 0 && nrow(r5) == 1 && grepl("+0.67 (SE 0.27, z +2.53)", r5$observed, fixed = TRUE) &&
+        grepl("ESTABLISHED over the two seasons: the winter effect is the smaller reduction", r5$why, fixed = TRUE) &&
+        any(grepl("^\\(b\\)", r4$why[r4$stage == "S26-split"])) && any(grepl("^\\(a\\)", r4$why[r4$stage == "S25-split"])))
+    chk("B80 R7: on the authoritative season the term is worth +0.7% on the boat all-gear catch and the split moves the port by +0.1%; on 2025-26 the arm without the term is 9.4% higher",
+        near(a("S25-const", "boat_all_gear_catch") / a("S25-off", "boat_all_gear_catch"), 1.0072, 5e-4) && near(a("S25-split", "port_total") / a("S25-const", "port_total"), 1.0007, 3e-4) &&
+        near(a("S26-off", "boat_all_gear_catch") / a("S26-const", "boat_all_gear_catch"), 1.0939, 5e-4) && near(a("S25-split", "boat_winter_months_catch"), 4668, 1) && near(a("S25-off", "boat_winter_months_catch"), 4306, 1))
+    cal <- function(st, cls) { x <- rc(file.path(EV, st, "trailer_calibration.csv")); x[x$day_class == cls, ] }
+    chk("B80: without the term the model credits advisory days with 2.6 to 2.9 times the trailers counted on them, on both seasons (the 95% intervals exclude 2); with it, 0.9 to 1.3",
+        cal("S25-off", "advisory days")$ratio_lo95 > 2 && cal("S26-off", "advisory days")$ratio_lo95 > 2 && near(cal("S25-off", "advisory days")$median_over_observed, 2.64, 0.02) &&
+        near(cal("S26-off", "advisory days")$median_over_observed, 2.84, 0.02) && near(cal("S25-const", "advisory days")$median_over_observed, 1.23, 0.02) &&
+        near(cal("S26-const", "advisory days")$median_over_observed, 0.91, 0.02))
+    wi <- rc(file.path(EV, "S25-const", "boat_reporting_whatif.csv"))
+    chk("D55: carrying a sampled boat day's fitted deviation into its effort would read the authoritative boat all-gear catch 1.2% lower (2.2% on the days with no OSP count), from the same fit",
+        nrow(wi) == 3 && near(wi$expected_catch_median[1], 35462.04, 0.5) && near(wi$catch_over_reported[2], 0.9875, 1e-3) && near(wi$catch_over_reported[3], 0.9781, 1e-3) && wi$days_carrying_a_deviation[3] == 92)
+  } else skp("B80: the arms, verdicts and blockint tables")
+  if (!is.null(tr)) { x <- tr[tr$target == "2025-26" & tr$source == "2024-25" & tr$comparison == "TC - M0" & tr$weeks == "all weeks", ]
+    chk("B80 R2: the 2024-25 coefficient carried to 2025-26 gains 36.6 nats on that season's held-out weeks at 4.5 paired SE",
+        nrow(x) == 1 && near(x$diff, 36.58, 0.02) && near(x$ratio, 4.52, 0.02)) } else skp("B80 R2: the transfer table")
+  br <- "07_documentation/development_notes/A30-advisory-term-brief-2026-11-19.md"; dx <- sub("\\.md$", ".docx", br)
+  chk("B80 brief: the advisory term brief exists as markdown and as a Word file, carries no em dash, links ten figures that are on disk, and describes four options each with positives and negatives and a recommendation with what would overturn it",
+      file.exists(br) && file.exists(dx) && file.info(dx)$size > 5e5 && { t <- rdf(br)
+        imgs <- regmatches(t, gregexpr("\\]\\(figures/A30/[^)]+\\.png\\)", t))[[1]]; imgs <- sub("^\\]\\(", "", sub("\\)$", "", imgs))
+        !grepl("—", t, fixed = TRUE) && length(imgs) == 10 && all(file.exists(file.path(dirname(br), imgs))) &&
+        all(vapply(c("#### Option (a): keep one coefficient for the season (the shipped term)", "#### Option (b): adopt the winter split (two free coefficients)",
+                     "#### Option (c): a fleet-composition form", "#### Option (d): keep (a) now and set the conditions for reopening"), function(h) grepl(h, t, fixed = TRUE), logical(1))) &&
+        lengths(regmatches(t, gregexpr("**Positives**", t, fixed = TRUE))) == 4 && lengths(regmatches(t, gregexpr("**Negatives**", t, fixed = TRUE))) == 4 &&
+        grepl("**I recommend (a) with (d)'s conditions for D32, closing D31, and repairing the check (D54).**", t, fixed = TRUE) && grepl("**Where this could be wrong.**", t, fixed = TRUE) &&
+        grepl("**Three things I got wrong, and what each cost.**", t, fixed = TRUE) && grepl("No 2025-26 figure in this brief is an estimate", t, fixed = TRUE) })
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  dr <- rdf("07_documentation/README.md"); dg <- rdf("06_diagnostics/README.md"); orr <- rdf("05_output/README.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  chk("B80 to B83 pointers: the register (B80 DONE with R3a, B81, B82, B83, D31 answered, D32 re-asked, D54 and D55 open, the two defect rows), the campaign's Section 1z.21 and anchor, the status entry, the method document, the READMEs and the project guidance",
+      grepl("| B80 | **The boat advisory term on a second season", cr, fixed = TRUE) && grepl("**DONE 2026-11-19. The rule `af9e2b7`, written before any measurement; its addendum R3a `e4f88f8`", cr, fixed = TRUE) &&
+      grepl("| B81 | **Do crabbing boats respond to an advisory as the fleet does?", cr, fixed = TRUE) && grepl("| B82 | **Is the winter a boundary or a fleet?", cr, fixed = TRUE) &&
+      grepl("| B83 | **The acceptance test of the repaired held-out-week check", cr, fixed = TRUE) && grepl("ACCEPTED on both weeks", cr, fixed = TRUE) &&
+      grepl("**ANSWERED 2026-11-19 on a second season (B80; the decision to close is Matt's).", cr, fixed = TRUE) && grepl("**RE-ASKED ON A SECOND SEASON 2026-11-19 (B80, B82); OPEN as a decision for Matt", cr, fixed = TRUE) &&
+      grepl("| D54 | **Since the per-day effort effect (A39) the held-out-week block CV cannot be evaluated on a fit that carries the term**", cr, fixed = TRUE) &&
+      grepl("| D55 | **On a boat day with no OSP count the per-day effect's premise does not hold", cr, fixed = TRUE) &&
+      grepl("| 2026-11-19 | the B80 runner's eligibility reading (R1) took every row of `convergence_report.csv` as a fit", cr, fixed = TRUE) &&
+      grepl("| 2026-11-19 | B80's rule (`af9e2b7`) stated R3's expectation, PASS on 2024-25, from the 2026-09-26 block CV without opening", cr, fixed = TRUE) &&
+      grepl("### 1z.21 The boat advisory term on a second season: it carries; the winter is weaker; the held-out-week check had stopped working (2026-11-19)", vc, fixed = TRUE) &&
+      grepl("the arms' run folders and fits scratch only; 1z.21)", vc, fixed = TRUE) &&
+      grepl("- **[NEW 2026-11-19, B80 to B83; D31 answered, D32 and D30 narrowed, D54 and D55 OPENED; the decisions are Matt's] The boat advisory term on a second season.**", st, fixed = TRUE) &&
+      grepl("**13. The advisory term is one coefficient for the season, and the winter effect is smaller.**", md, fixed = TRUE) && grepl("**On a second season (2026-11-19, B80 to B83;", md, fixed = TRUE) &&
+      grepl("| `loo_block_*` | does the model predict a week of effort counts it has not seen", md, fixed = TRUE) && grepl("- **2026-11-19.** B80 to B83: the boat advisory term on a second season", md, fixed = TRUE) &&
+      grepl("| `A30-advisory-term-brief-2026-11-19.docx` (source `A30-advisory-term-brief-2026-11-19.md`) | **D32, D31, D54 and D55, with Matt:**", dr, fixed = TRUE) &&
+      grepl("| `desk_advisory_block_cv_2026-11-19.R` | **DESK, minutes, no MCMC**", dg, fixed = TRUE) && grepl("| `run_block_cv_exact_refit_2026-11-19.R` | **LIVE.**", dg, fixed = TRUE) &&
+      grepl("| `desk_advisory_crab_share_2026-11-19.R` | **DESK, seconds, no MCMC**", dg, fixed = TRUE) && grepl("| `desk_advisory_fleet_composition_2026-11-19.R` | **DESK, a minute, no MCMC**", dg, fixed = TRUE) &&
+      grepl("`advisory_replication_2026-11-19_{arms,pairs,monthly,verdicts}.csv` are the six renders of the same item", orr, fixed = TRUE) &&
+      grepl("**The held-out-week check (`loo_block_*`) is not usable as the drivers compute it on a fit that carries the per-day effort effect (D54, found 2026-11-19).**", cl, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

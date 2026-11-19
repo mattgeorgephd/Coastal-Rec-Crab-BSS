@@ -315,8 +315,8 @@ if (nrow(dc)) {
   cat("wrote 05_output/advisory_replication_2026-11-19_dayclass.csv\n")
 }
 
-# ---- Figure 9: what the shape does to the boat estimate, month by month ---------------------------
-if (is.null(monthly) || !nrow(monthly)) { skip("fig9", "no arm is rendered yet") } else {
+# ---- Figure 10: what the shape does to the boat estimate, month by month ---------------------------
+if (is.null(monthly) || !nrow(monthly)) { skip("fig10", "no arm is rendered yet") } else {
   m <- monthly |> mutate(armlab = c(const = "constant term (shipped)", split = "winter and rest split", off = "no term")[arm]) |>
     group_by(season) |> mutate(pos = match(month, sort(unique(month)))) |> ungroup()      # the season's months in order: September twice, at its two ends
   ax <- m |> distinct(season, month, pos) |> mutate(lab = month.abb[as.integer(substr(month, 6, 7))])
@@ -333,11 +333,11 @@ if (is.null(monthly) || !nrow(monthly)) { skip("fig9", "no arm is rendered yet")
          x = NULL, y = "private-boat catch, crab",
          caption = "Source: 05_output/advisory_replication_2026-11-19_monthly.csv (monthly_estimates_by_mode.csv of each arm).") +
     theme_brief() + theme(panel.grid.minor.x = element_blank())
-  save_fig(p9, "fig9_monthly_boat_catch_by_arm.png", 7.2, 5.6)
+  save_fig(p9, "fig10_monthly_boat_catch_by_arm.png", 7.2, 5.6)
 }
 
-# ---- Figure 10: each arm against the shipped one ---------------------------------------------------
-if (is.null(arms) || !any(arms$arm == "const")) { skip("fig10", "no const arm is rendered yet") } else {
+# ---- Figure 9: each arm against the shipped one ---------------------------------------------------
+if (is.null(arms) || !any(arms$arm == "const")) { skip("fig9", "no const arm is rendered yet") } else {
   a10 <- arms |> group_by(season) |> mutate(ref_tot = boat_all_gear_catch[arm == "const"][1], ref_win = boat_winter_months_catch[arm == "const"][1],
                                            ref_port = port_total[arm == "const"][1]) |> ungroup() |> filter(arm != "const") |>
     transmute(season, armlab = c(split = "winter and rest split", off = "no term")[arm],
@@ -358,7 +358,7 @@ if (is.null(arms) || !any(arms$arm == "const")) { skip("fig10", "no const arm is
          x = "change against the constant term, percent", y = NULL,
          caption = "Source: 05_output/advisory_replication_2026-11-19_arms.csv. 2025-26 is a readiness render (D18):\nits changes are shown, its levels are not estimates.") +
     theme_brief() + theme(panel.grid.major.y = element_blank())
-  save_fig(p10, "fig10_arms_against_shipped.png", 7, 4.8)
+  save_fig(p10, "fig9_arms_against_shipped.png", 7, 4.8)
 }
 
 # ---- The Word file ---------------------------------------------------------------------------------
@@ -369,7 +369,9 @@ if ("--docx" %in% commandArgs(trailingOnly = TRUE)) {
   if (!nzchar(Sys.which("pandoc"))) stop("pandoc is not on the PATH")
   if (!file.exists(file.path(dn, md))) stop("the brief's markdown is not there: ", file.path(dn, md))
   old <- setwd(dn)
-  rc <- system2("pandoc", c(md, "-f", "gfm", "-t", "docx", "--reference-doc=figures/brief-reference.docx", "--shift-heading-level-by=-1",
+  # pandoc's own markdown reader, not gfm: it sizes each table's columns from the dashes of its separator row, so the
+  # wide tables span the page with sensible proportions; "smart" is off so that nothing is turned into a typographic dash.
+  rc <- system2("pandoc", c(md, "-f", "markdown-smart", "-t", "docx", "--reference-doc=figures/brief-reference.docx", "--shift-heading-level-by=-1",
                             "-o", sub("\\.md$", ".docx", md)))
   setwd(old)
   if (!identical(rc, 0L)) stop("pandoc failed with status ", rc)

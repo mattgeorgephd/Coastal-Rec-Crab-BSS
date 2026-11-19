@@ -1,0 +1,8 @@
+stage: S25-off
+tag: AR-S25-off
+digest: 494297afb9
+git: 13786f5
+tree_clean_of_code: TRUE
+platform: R version 4.6.2 (2026-10-29); rstan 2.32.7; StanHeaders 2.32.10
+minutes: 18.4
+rendered: 2026-11-19 06:26:32 UTC
