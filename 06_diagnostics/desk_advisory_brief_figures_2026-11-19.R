@@ -188,7 +188,7 @@ for (sn in names(SLAB)) { st <- paste0(sn, "-const"); sm <- top_stream(st)
 k5 <- bind_rows(k5)
 if (!nrow(k5)) { skip("fig5", "no const arm has both of its held-out-week tables yet") } else {
   n5 <- k5 |> group_by(season, series) |> summarise(ok = sum(is.finite(k) & k <= 0.7), n = n(), .groups = "drop")
-  lab5 <- n5 |> group_by(season) |> summarise(lab = paste0(first(season), ": usable weeks ", paste(sprintf("%d of %d %s", ok, n,
+  lab5 <- n5 |> group_by(season) |> summarise(lab = paste0(first(season), ": usable weeks of ", first(n), ": ", paste(sprintf("%d %s", ok,
       c("before the per-day effect", "as computed now", "with the repair")[match(series, c(S_OLD, S_CND, S_INT))])[order(match(series, c(S_OLD, S_CND, S_INT)))], collapse = "; ")), .groups = "drop")
   d5 <- k5 |> left_join(lab5, by = "season") |> mutate(start = iso_monday(week), kk = pmin(ifelse(is.finite(k), k, 1.6), 1.6),
                                                        series = factor(series, levels = c(S_OLD, S_CND, S_INT)))
