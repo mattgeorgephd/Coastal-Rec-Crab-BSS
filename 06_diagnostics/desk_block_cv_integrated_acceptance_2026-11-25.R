@@ -146,7 +146,13 @@ one_fit <- function(sid, fit_name, stream, boat) {
     add(arm = sid, fit = fit_name, clause = "c", what = "checks (i) and (ii)",
         observed = if (is.null(ck)) "no checks file" else sprintf("(i) gap %.2e; (ii) grid gap %.2e; reliable %d conditional, %d integrated of %d", max(ck$conditional_loglik_max_abs_gap), ck$grid_halving_max_abs_elpd_gap[1], ck$reliable_conditional[1], ck$reliable_integrated[1], ck$weeks[1]),
         pass = !is.null(ck) && all(ck$check_i) && all(ck$check_ii))
+    # the tables the prototype wrote for this arm (a fit with no OSP stream has neither an osp nor a joint
+    # table, in the prototype or the library); a table written by one and not the other is a failure.
+    # Read 2026-11-25: the first run compared osp and joint on the 2025-26 arms too and scored the two
+    # absent tables as failures; that was this script's defect, corrected here, not the rule's.
     if (boat) for (s in c("trailer", "osp", "joint")) {
+      if (!file.exists(file.path(EVIDENCE, sid, sprintf("loo_blockint_%s_%s.csv", s, fit_name))) &&
+          !file.exists(file.path(td, sprintf("loo_block_%s_%s.csv", s, fit_name)))) next
       r <- cmp_tab(rd(file.path(td, sprintf("loo_block_%s_%s.csv", s, fit_name))), rd(file.path(EVIDENCE, sid, sprintf("loo_blockint_%s_%s.csv", s, fit_name))))
       add(arm = sid, fit = fit_name, clause = "a", what = sprintf("%s table against the prototype's", s), observed = sprintf("max gap %.2e %s", r$gap, r$why), pass = r$ok)
     }

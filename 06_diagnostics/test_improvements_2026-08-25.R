@@ -7107,7 +7107,7 @@ local({
   }
   bcv <- flat(rd("03_R_functions/bss_block_cv.R"))
   chk("B58: write_block_cv_diagnostics() keeps the loo_block default prefix (the report reads it) and takes another",
-      grepl('prefix = "loo_block") {', bcv, fixed = TRUE) &&
+      grepl('prefix = "loo_block", tol_loglik = 1e-6, tol_grid = 0.01) {', bcv, fixed = TRUE) &&   # B85 added the two tolerances
       grepl('sprintf("%s_%s_%s.csv", prefix, sn, label)', bcv, fixed = TRUE))
   source("03_R_functions/bss_rung_adequacy.R", local = TRUE)
   chk("B58: bss_rung_adequacy() carries cov50_trailer, NA when there is no fit",
@@ -7581,16 +7581,16 @@ local({
   ps_ <- rdf("02_stan_models/crab_bss_pooled.stan"); gs_ <- rdf("02_stan_models/crab_bss_gear_resolved.stan")
   for (nm in c("pooled", "gear")) {
     st_ <- if (nm == "pooled") ps_ else gs_
-    chk(sprintf("A36 %s Stan: sunday_split, sun and value_normal_sigma_B1_sun are data, B1_sun and B1_sun_out are zero-size vectors, the prior and the effort term are gated", nm),
-        all(vapply(c("int<lower=0,upper=1> sunday_split;", "vector<lower=0,upper=1>[D] sun;", "real value_normal_sigma_B1_sun;",
+    chk(sprintf("A36 %s Stan: sunday_split, sunday (sun until B84) and value_normal_sigma_B1_sun are data, B1_sun and B1_sun_out are zero-size vectors, the prior and the effort term are gated", nm),
+        all(vapply(c("int<lower=0,upper=1> sunday_split;", "vector<lower=0,upper=1>[D] sunday;", "real value_normal_sigma_B1_sun;",
                      "vector[sunday_split] B1_sun;", "vector[sunday_split] B1_sun_out;",
                      "if (sunday_split == 1) B1_sun[1] ~ normal(0, value_normal_sigma_B1_sun);",
-                     "(sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0)", "if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];"),
+                     "(sunday_split == 1 ? B1_sun[1] * sunday[d] : 0.0)", "if (sunday_split == 1) B1_sun_out[1] = B1_sun[1];"),
                    function(x) grepl(x, st_, fixed = TRUE), logical(1))) &&
-        sum(gregexpr("B1_sun[1] * sun[d]", st_, fixed = TRUE)[[1]] > 0) == 1)
+        sum(gregexpr("B1_sun[1] * sunday[d]", st_, fixed = TRUE)[[1]] > 0) == 1)
   }
   chk("A36 pooled Stan: the Sunday term sits in the EFFORT level, not the CPUE level",
-      grepl("B2 * holiday[d] +\n          (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0) +", ps_, fixed = TRUE) &&
+      grepl("B2 * holiday[d] +\n          (sunday_split == 1 ? B1_sun[1] * sunday[d] : 0.0) +", ps_, fixed = TRUE) &&
       !grepl("B1_C_sun", ps_, fixed = TRUE) && grepl("B1_C * w[d] + B2_C * holiday[d] +", ps_, fixed = TRUE))
   chk("A35: the holiday prior scales stay Stan DATA (value_normal_sigma_B2 on both tracks, _B2_C on the pooled), no literal in the Stan prior",
       grepl("B2 ~ normal(0, value_normal_sigma_B2);", ps_, fixed = TRUE) && grepl("B2_C ~ normal(0, value_normal_sigma_B2_C);", ps_, fixed = TRUE) &&
@@ -7606,7 +7606,7 @@ local({
     chk(sprintf("A35/A36 %s prep: holiday_prior_sd (default 1) and sunday_prior_sd (default 0.5) reach the Stan scales; sunday_split and sun are forwarded", nm),
         grepl(".hol_sd <- as.numeric(params$holiday_prior_sd %||% 1)", t_, fixed = TRUE) && grepl(".sun_sd <- as.numeric(params$sunday_prior_sd %||% 0.5)", t_, fixed = TRUE) &&
         grepl("value_normal_sigma_B2=.hol_sd", t_, fixed = TRUE) && grepl("value_normal_sigma_B1_sun=.sun_sd", t_, fixed = TRUE) &&
-        grepl("sunday_split=.sun_split, sun=.sun", t_, fixed = TRUE) && grepl(".sun_split <- as.integer(isTRUE(params$sunday_split))", t_, fixed = TRUE))
+        grepl("sunday_split=.sun_split, sunday=.sun", t_, fixed = TRUE) && grepl(".sun_split <- as.integer(isTRUE(params$sunday_split))", t_, fixed = TRUE))
   }
   chk("A35 pooled prep: B2_C's scale reads holiday_prior_sd too", grepl("value_normal_sigma_B2_C=.hol_sd", pp, fixed = TRUE))
   chk("A37 pooled prep: the boat I/E path mirrors the gear prep (population private_boat, ie_trips, use_boat_ie, the ie_min_obs_boat floor with a bss_warn note, ie_group_scale forwarded)",
@@ -7621,6 +7621,9 @@ local({
       grepl('"B1_sun",', md_, fixed = TRUE) && grepl('set(base %in% c("B1_sun", "B1_sun_out"), "no Sunday in this fit\'s window")', md_, fixed = TRUE) &&
       grepl("prior_tbl$`B1_sun[1]`", sr_, fixed = TRUE) && grepl("prior_tbl$B2_C <- list", sr_, fixed = TRUE))
   chk("A36 reporting: bss_decoupled_reasons() flags B1_sun with no Sunday and leaves it alone with one",
+      identical(bss_decoupled_reasons(c("B1_sun[1]", "B2"), list(sunday = c(0, 0), holiday = c(1, 0), w = c(1, 0)))[1], "no Sunday in this fit's window") &&
+      is.na(bss_decoupled_reasons(c("B1_sun[1]"), list(sunday = c(1, 0), holiday = c(1, 0), w = c(1, 0)))[1]) &&
+      # data saved before B84 (D53) names it sun
       identical(bss_decoupled_reasons(c("B1_sun[1]", "B2"), list(sun = c(0, 0), holiday = c(1, 0), w = c(1, 0)))[1], "no Sunday in this fit's window") &&
       is.na(bss_decoupled_reasons(c("B1_sun[1]"), list(sun = c(1, 0), holiday = c(1, 0), w = c(1, 0)))[1]))
   for (drv in c("01_BSS_models/BSS-GH-pooled-CPUE-model.Rmd", "01_BSS_models/BSS-GH-gear-type-CPUE-model.Rmd"))
