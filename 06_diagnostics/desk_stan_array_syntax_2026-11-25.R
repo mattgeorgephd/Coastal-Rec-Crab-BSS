@@ -246,10 +246,15 @@ if (length(.rd)) {
   for (m in names(B70)) {
     ref <- Sys.glob(file.path(B70[[m]], "bss_draws_summed_*.csv"))
     same <- vapply(ref, function(f) { g <- file.path(dirs[[m]], basename(f)); file.exists(g) && identical(unname(tools::md5sum(f)), unname(tools::md5sum(g))) }, logical(1))
-    pt <- function(d) { f <- Sys.glob(file.path(d, "port_total_*.csv")); if (length(f)) tools::md5sum(f[1]) else NA }
-    add(m, "5", "the confirmation render reproduces B70's saved draws byte for byte, and its port total file",
-        sprintf("%d of %d bss_draws_summed files identical; port total file %s", sum(same), length(ref), if (isTRUE(unname(pt(B70[[m]])) == unname(pt(dirs[[m]])))) "identical" else "DIFFERS"),
-        all(same) && length(ref) == 4L && isTRUE(unname(pt(B70[[m]])) == unname(pt(dirs[[m]]))))
+    # the port totals: every column B70's file has, value for value. (Read 2026-11-25: the render's file also
+    # carries PE_se, the column B73 added on 2026-10-19 after B70 was rendered; it is reported, not compared.)
+    pt <- function(d) { f <- Sys.glob(file.path(d, "port_total_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE, check.names = FALSE) else NULL }
+    a <- pt(B70[[m]]); b <- pt(dirs[[m]])
+    pt_same <- !is.null(a) && !is.null(b) && all(names(a) %in% names(b)) && nrow(a) == nrow(b) && identical(a, b[, names(a)])
+    add(m, "5", "the confirmation render reproduces B70's saved draws byte for byte, and its port totals value for value",
+        sprintf("%d of %d bss_draws_summed files identical; port totals %s%s", sum(same), length(ref), if (pt_same) "identical in every column B70's file has" else "DIFFER",
+                if (!is.null(b) && length(setdiff(names(b), names(a)))) sprintf(" (the render's file adds %s)", paste(setdiff(names(b), names(a)), collapse = ", ")) else ""),
+        all(same) && length(ref) == 4L && pt_same)
     res <- do.call(rbind, rows)
   }
 }
