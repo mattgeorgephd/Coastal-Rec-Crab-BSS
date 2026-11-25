@@ -7843,7 +7843,9 @@ local({
       nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
       nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
       # the second cut (2026-10-18): the day factor has mean one across days, and the GQ carry the shore's fitted deviation
-      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", stan, fixed = TRUE) && !grepl("eday_of_day[day_T[i]]", stan, fixed = TRUE) &&
+      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", stan, fixed = TRUE) && # B86 (2026-11-25): trailer days enter eday_of_day only inside the D55 switch, off by default
+      length(gregexpr("eday_of_day[day_T[i]]", stan, fixed = TRUE)[[1]]) == 2 &&
+      grepl("if (boat_day_carry == 1 && effort_day_effect == 1) {\n    array[D] int osp_on_day = rep_array(0, D);", stan, fixed = TRUE) &&
       grepl("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", stan, fixed = TRUE) &&
       grepl("* E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;", stan, fixed = TRUE) && grepl("* E_scale * L[d] * fd * df;", stan, fixed = TRUE) &&
       grepl("uE_raw ~ std_normal\\(\\);", stan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", stan) &&
@@ -7864,7 +7866,9 @@ local({
       nhit("sum\\(lambda_E_S\\[section_T\\[i\\]\\]\\[day_T\\[i\\], \\]\\) / R_G_boat\\s*\\* \\(effort_day_effect == 1 \\? exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", gstan) == 2 &&
       grepl("uE_raw ~ std_normal\\(\\);", gstan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", gstan) &&
       grepl("vector[effort_day_effect] sigma_uE_out;", gstan, fixed = TRUE) && grepl("if (effort_day_effect == 1) sigma_uE_out[1] = sigma_uE[1];", gstan, fixed = TRUE) &&
-      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", gstan, fixed = TRUE) && !grepl("eday_of_day[day_T[i]]", gstan, fixed = TRUE) &&
+      grepl("for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];", gstan, fixed = TRUE) && # B86 (2026-11-25): trailer days enter eday_of_day only inside the D55 switch, off by default
+      length(gregexpr("eday_of_day[day_T[i]]", gstan, fixed = TRUE)[[1]]) == 2 &&
+      grepl("if (boat_day_carry == 1 && effort_day_effect == 1) {\n    array[D] int osp_on_day = rep_array(0, D);", gstan, fixed = TRUE) &&
       grepl("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", gstan, fixed = TRUE) &&
       grepl("* E_scale * L[d] * lambda_C_S[s][d,g] * fd * zi_scale * df;", gstan, fixed = TRUE) && grepl("* E_scale * L[d] * fd * df;", gstan, fixed = TRUE))
   chk("A39 gear prep: the sampled-day index and the five fields, as the pooled prep builds them",
@@ -8692,7 +8696,104 @@ local({
       grepl("| `desk_advisory_block_cv_2026-11-19.R` | **DESK, minutes, no MCMC**", dg, fixed = TRUE) && grepl("| `run_block_cv_exact_refit_2026-11-19.R` | **LIVE.**", dg, fixed = TRUE) &&
       grepl("| `desk_advisory_crab_share_2026-11-19.R` | **DESK, seconds, no MCMC**", dg, fixed = TRUE) && grepl("| `desk_advisory_fleet_composition_2026-11-19.R` | **DESK, a minute, no MCMC**", dg, fixed = TRUE) &&
       grepl("`advisory_replication_2026-11-19_{arms,pairs,monthly,verdicts}.csv` are the six renders of the same item", orr, fixed = TRUE) &&
-      grepl("**The held-out-week check (`loo_block_*`) is not usable as the drivers compute it on a fit that carries the per-day effort effect (D54, found 2026-11-19).**", cl, fixed = TRUE))
+      # 2026-11-25 (B85): D54 closed, the guidance bullet rewritten
+      grepl("**The held-out-week check (`loo_block_*`) is day-integrated on a fit that carries the per-day effort effect (D54, closed 2026-11-25, B85).**", cl, fixed = TRUE))
+})
+
+# ---------- B84 to B88, D53 to D56, D31 closed (2026-11-25) ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  rc <- function(f) if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE) else NULL
+  near <- function(x, y, tol = 5e-4) length(x) == 1 && is.finite(x) && abs(x - y) <= tol
+  sp <- rdf("02_stan_models/crab_bss_pooled.stan"); sg <- rdf("02_stan_models/crab_bss_gear_resolved.stan")
+  # D53 / B84: no declaration in the removed form, the indicator renamed, the proof table
+  # a declaration TYPE<...>[...] NAME[DIMS]; one per line; it finds all 50 in the pooled program before B84
+  old_decl <- "^\\s*(int|real|vector|row_vector|matrix|simplex|ordered|positive_ordered|cov_matrix|corr_matrix|cholesky_factor_corr|cholesky_factor_cov|unit_vector)(<[^;>]*>)?(\\[[^\\]]*\\])?\\s+[A-Za-z_][A-Za-z0-9_]*\\s*\\[[^\\]]*\\]\\s*(;|=)"
+  chk("B84 (D53): neither Stan program declares an array in the form Stan 2.33 removed; both carry array[D] int<lower=1> period",
+      !any(grepl(old_decl, strsplit(sp, "\n")[[1]], perl = TRUE)) && !any(grepl(old_decl, strsplit(sg, "\n")[[1]], perl = TRUE)) &&
+      grepl("array[D] int<lower=1> period;", sp, fixed = TRUE) && grepl("array[D] int<lower=1> period;", sg, fixed = TRUE))
+  chk("B84 (D53): the A36 Sunday indicator is the data variable sunday in both programs and both preps, and no program names a variable sun (Stan 2.39 renames it)",
+      grepl("vector<lower=0,upper=1>[D] sunday;", sp, fixed = TRUE) && grepl("vector<lower=0,upper=1>[D] sunday;", sg, fixed = TRUE) &&
+      !grepl("(?<![A-Za-z0-9_])sun(?![A-Za-z0-9_])", sub("//.*", "", gsub("//[^\n]*", "", sp)), perl = TRUE) &&
+      !grepl("(?<![A-Za-z0-9_])sun(?![A-Za-z0-9_])", gsub("//[^\n]*", "", sg), perl = TRUE) &&
+      grepl("sunday_split=.sun_split, sunday=.sun,", rdf("03_R_functions/prep_bss_crab_pooled.R"), fixed = TRUE) &&
+      grepl("sunday_split=.sun_split, sunday=.sun,", rdf("03_R_functions/prep_bss_crab_gear.R"), fixed = TRUE) &&
+      grepl('g("sunday", g("sun", 0))', rdf("03_R_functions/model_diagnostics.R"), fixed = TRUE))
+  sx <- rc("05_output/stan_array_syntax_2026-11-25.csv")
+  chk("B84 (D53): the proof table is ACCEPTED on both programs, clauses 1 to 4b all pass, parsers 2.32.2 and 2.39.0",
+      !is.null(sx) && all(sx$verdict == "ACCEPTED") && all(c("1", "2", "3", "4", "4b") %in% sx$clause) &&
+      all(as.logical(sx$pass[sx$clause %in% c("1", "2", "3", "4", "4b")])) && setequal(unique(sx$program), c("pooled", "gear_resolved")) &&
+      all(sx$parser_232 == "stanc3 v2.32.2") && all(sx$parser_239 == "stanc3 v2.39.0"))
+  # D54 / B85: the library writes the day-integrated table; the saved draws carry the effect
+  bcv <- rdf("03_R_functions/bss_block_cv.R")
+  chk("B85 (D54): write_block_cv_diagnostics() builds the day-integrated streams on a fit with the effect, keeps the conditional ones as loo_blockcond_, and writes blockcv_checks_",
+      grepl("bss_block_day_streams(dr, stan_data, ev)", bcv, fixed = TRUE) && grepl('sprintf("%scond_%s_%s.csv", prefix, sn, label)', bcv, fixed = TRUE) &&
+      grepl('sprintf("blockcv_checks_%s.csv", label)', bcv, fixed = TRUE) && grepl(".sbd_pars", rdf("03_R_functions/save_bss_ppc_draws.R"), fixed = TRUE) &&
+      grepl('"theta_C", "sigma_uE", "uE_raw")', rdf("03_R_functions/save_bss_ppc_draws.R"), fixed = TRUE))
+  source("03_R_functions/bss_block_cv.R", local = TRUE)
+  chk("B85 (D54): the day integral at a vanishing sigma is the conditional likelihood at the level, and two counts of one day share one integral",
+      { mu0 <- matrix(c(3, 5, 4), nrow = 1); y <- c(2L, 6L, 4L); ed <- c(1L, 1L, 2L)
+        a <- bss_block_integrate_days(mu0, y, ed, sig = 1e-8, size = 7)
+        b <- c(sum(dnbinom(y[1:2], mu = mu0[1:2], size = 7, log = TRUE)), dnbinom(y[3], mu = mu0[3], size = 7, log = TRUE))
+        ncol(a$fine) == 2 && max(abs(a$fine[1, ] - b)) < 1e-6 && max(abs(a$coarse[1, ] - b)) < 1e-6 })
+  chk("B85 (D54): bss_effort_loglik() carries the day factor when the draws hold sigma_uE and uE_raw, and not otherwise",
+      { lam <- array(c(4, 6), dim = c(1, 1, 2, 1)); sdat <- list(D = 2L, S = 1L, G = 1L, T_n = 2L, T_I = c(3L, 7L), day_T = 1:2, section_T = c(1L, 1L), effort_day_effect = 1L, Eday_T = 1:2)
+        dw <- list(lambda_E_S = lam, R_G_boat = 1, r_E = 5, sigma_uE = 0.4, uE_raw = matrix(c(1, -1), nrow = 1))
+        l1 <- bss_effort_loglik(dw, sdat, "trailer")$ll; l0 <- bss_effort_loglik(dw[c("lambda_E_S", "R_G_boat", "r_E")], sdat, "trailer")$ll
+        f <- exp(0.4 * c(1, -1) - 0.08)
+        max(abs(l1 - dnbinom(c(3, 7), mu = c(4, 6) * f, size = 5, log = TRUE))) < 1e-12 && max(abs(l0 - dnbinom(c(3, 7), mu = c(4, 6), size = 5, log = TRUE))) < 1e-12 })
+  ac <- rc("05_output/block_cv_integrated_acceptance_2026-11-25.csv")
+  chk("B85 (D54): the acceptance is ACCEPTED, every judged row passing, clauses a to e present; the shore reported (25 of 38, 17 of 40, 9 of 11)",
+      !is.null(ac) && all(ac$verdict == "ACCEPTED") && all(as.logical(ac$pass[!is.na(ac$pass)])) && all(c("a", "b", "c", "d", "e") %in% ac$clause) &&
+      sum(!is.na(ac$pass)) == 49 && any(grepl("1 conditional, 25 integrated of 38", ac$observed, fixed = TRUE)) &&
+      any(grepl("0 conditional, 17 integrated of 40", ac$observed, fixed = TRUE)) && any(grepl("0 conditional, 9 integrated of 11", ac$observed, fixed = TRUE)))
+  # D55 / B86: the test, the switch
+  bd <- rc("05_output/boat_day_deviation_osp_2026-11-25.csv")
+  chk("B86 (D55): on the 51 days with both counts the trailer deviation predicts OSP's boat total with slope 0.93 [0.73, 1.12]; carrying beats the level by 0.43",
+      !is.null(bd) && bd$days[1] == 51 && near(bd$slope[1], 0.926, 5e-4) && near(bd$lo95[1], 0.730, 5e-4) && near(bd$hi95[1], 1.123, 5e-4) &&
+      grepl("mostly real boat effort", bd$reading[1], fixed = TRUE) && near(bd$slope[5], -0.430, 5e-4))
+  rcf <- rdf("run_config.R")
+  chk("B86 (D55): run_config ships boat_day_effect_reporting = \"level\"; bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
+      grepl('boat_day_effect_reporting = "level",', rcf, fixed = TRUE) &&
+      { source("03_R_functions/bss_effort_spec.R", local = TRUE)
+        identical(bss_boat_day_carry(list()), 0L) && identical(bss_boat_day_carry(list(boat_day_effect_reporting = "level")), 0L) &&
+        identical(bss_boat_day_carry(list(boat_day_effect_reporting = "carry_without_osp")), 1L) &&
+        inherits(try(bss_boat_day_carry(list(boat_day_effect_reporting = "carry")), silent = TRUE), "try-error") } &&
+      grepl("boat_day_carry = bss_boat_day_carry(params),", rdf("03_R_functions/prep_bss_crab_pooled.R"), fixed = TRUE) &&
+      grepl("boat_day_carry = bss_boat_day_carry(params),", rdf("03_R_functions/prep_bss_crab_gear.R"), fixed = TRUE))
+  chk("B86 (D55): both programs declare boat_day_carry and add only the sampled trailer days without an OSP count to eday_of_day, under the flag and the effect",
+      all(vapply(list(sp, sg), function(t) grepl("int<lower=0, upper=1> boat_day_carry;", t, fixed = TRUE) &&
+        grepl("if (boat_day_carry == 1 && effort_day_effect == 1) {", t, fixed = TRUE) &&
+        grepl("if (eday_of_day[day_T[i]] == 0 && osp_on_day[day_T[i]] == 0) eday_of_day[day_T[i]] = Eday_T[i];", t, fixed = TRUE), logical(1))))
+  fs <- rc("05_output/boat_day_carry_gq_2026-11-25_fixed_share.csv")
+  chk("B86: the switch's first form replays the authoritative fit exactly (off to 1e-9, on the what-if 34,686, no OSP day moved)",
+      !is.null(fs) && all(fs$verdict == "ACCEPTED") && all(as.logical(fs$pass)) && near(fs$value[3], 34686.44, 0.01))
+  # D56 / B87, B88
+  b87 <- rc("05_output/crab_share_day_volume_2026-11-25.csv"); b88 <- rc("05_output/crab_share_boat_weighted_osp_2026-11-25.csv")
+  chk("B87 (D56): the share integrated over the day volume prices the boat all-gear catch at -10.2% (31,851), -3.5% at 0.5, -9.5% at 0.82",
+      !is.null(b87) && near(b87$boat_catch_median[1], 35462, 1) && near(b87$change_pct[2], -10.18, 0.01) && near(b87$boat_catch_median[2], 31851, 1) &&
+      near(b87$change_pct[3], -3.46, 0.01) && near(b87$change_pct[4], -9.51, 0.01) && grepl("D56 is opened as an open item that moves the number", b87$reading[2], fixed = TRUE))
+  chk("B88 (D56): over the 115 OSP days the share the totals apply is 1.18 [0.92, 1.55] times OSP's boat-weighted crab-only share: not confirmed",
+      !is.null(b88) && { a <- b88[b88$month == "all", ]; a$osp_days == 115 && near(a$ratio_median, 1.18, 0.005) && near(a$ratio_lo95, 0.917, 0.005) &&
+        near(a$ratio_hi95, 1.55, 0.01) && grepl("do not show the excess", a$reading, fixed = TRUE) })
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md")
+  st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  dg <- rdf("06_diagnostics/README.md"); orr <- rdf("05_output/README.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  chk("B84 to B88 pointers: the register (B84 to B88, D53 and D54 CLOSED, D55 evidence and switch, D56 open, D31 CLOSED by Matt), campaign 1z.22 and its anchor, the status entry, limitation 18, the READMEs and the guidance",
+      all(vapply(c("| B84 |", "| B85 |", "| B86 |", "| B87 |", "| B88 |", "| D56 |"), function(x) grepl(x, cr, fixed = TRUE), logical(1))) &&
+      grepl("| **CLOSED 2026-11-25 (B84):", cr, fixed = TRUE) && grepl("| **CLOSED 2026-11-25 (B85):", cr, fixed = TRUE) &&
+      grepl("| **EVIDENCE IN AND SWITCH BUILT 2026-11-25 (B86); OPEN as a decision for Matt.**", cr, fixed = TRUE) &&
+      grepl("| **CLOSED 2026-11-25 (Matt: \"close as answered, with the limits in Section 6.2\" of the A30 brief).**", cr, fixed = TRUE) &&
+      grepl("### 1z.22 D53, D54 and D55 addressed; D56 opened", vc, fixed = TRUE) && grepl("no authoritative fit; 1z.22) |", vc, fixed = TRUE) &&
+      grepl("- **[NEW 2026-11-25, B86 to B88; D55 evidence in and switch built, D56 OPENED; both decisions are Matt's] What a boat day is credited with.**", st, fixed = TRUE) &&
+      grepl("**18. The crabbing share is applied at the model's day volume, not weighted over the real day-to-day volume (D56", md, fixed = TRUE) &&
+      grepl("- **2026-11-25.** B84 to B88 (campaign 1z.22).", md, fixed = TRUE) &&
+      all(vapply(c("desk_stan_array_syntax_2026-11-25.R", "desk_block_cv_integrated_acceptance_2026-11-25.R", "desk_boat_day_deviation_osp_2026-11-25.R",
+                   "desk_boat_day_carry_gq_2026-11-25.R", "desk_crab_share_day_volume_2026-11-25.R", "desk_crab_share_boat_weighted_osp_2026-11-25.R"),
+                 function(f) grepl(sprintf("| `%s` |", f), dg, fixed = TRUE) && file.exists(file.path("06_diagnostics", f)), logical(1))) &&
+      grepl("The 2026-11-25 tables (campaign 1z.22)", orr, fixed = TRUE) &&
+      grepl("**Current Stan works too (D53, closed 2026-11-25, B84):**", cl, fixed = TRUE) && grepl("`boat_day_effect_reporting` (B86, 2026-11-25", cl, fixed = TRUE) &&
+      grepl("**Two open decisions move the boat estimate (2026-11-25, campaign 1z.22).**", cl, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
