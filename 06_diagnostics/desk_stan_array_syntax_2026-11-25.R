@@ -65,6 +65,26 @@
 #       there could be rstan's own and not the programs'.
 #   EXPECTED: (1) to (5) hold.
 #
+# READ 2026-11-25: (1) to (4) hold on both programs (ACCEPTED). Then clause (6) ran.
+#
+# ADDENDUM (4b), WRITTEN AFTER CLAUSE (6) RAN AND BEFORE ANY RENAME. Under CRAN's pair
+# (StanHeaders 2.39.1.1, rstan 2.32.7 rebuilt against it) the converted pooled program COMPILES
+# (2.7 minutes) but cannot start: "variable does not exist; processing stage=data
+# initialization; variable name=sun". Stan 2.39's parser writes the data variable `sun` as
+# `_stan_sun` in its C++ (sun is a predefined macro on some compilers), and rstan 2.32.7 then does
+# not find it. A three-line model reproduces it and runs when the variable is called `sunday`;
+# on the lock's pair it runs either way. `sun` is the only identifier 2.39 renames in either
+# program. So the second barrier is the NAME, and the repair is to call the A36 Sunday indicator
+# `sunday` in both programs and both preps (and in the one diagnostic that reads it by name).
+#   (4b) The C++ the 2.32 parser generates from the renamed program is identical, up to
+#        source-location strings, to the C++ it generates from the program as converted (the
+#        commit whose message starts "B84 conversion") once the identifier sun is written
+#        sunday there (whole word, and the data name string "sun"). With rstan's default flags
+#        and with O1. Anything else is a FAIL and the rename is reverted.
+#   (6) is then re-run on the renamed program, and REPORTED: the pooled program samples 300
+#        iterations of the 2024-25 boat pot-closure fit on CRAN's pair.
+#   Clause (5), the confirmation render, is run on the renamed programs, so it covers both.
+#
 # WRITES 05_output/stan_array_syntax_2026-11-25.csv (one row per clause and program).
 #
 # HOW TO RUN (from the repository root; needs network once for the CRAN tarball)
@@ -189,6 +209,20 @@ for (m in names(PROGRAMS)) {
         nchar(co) > 0 && nsame)
   }
 }
+# (4b): the rename of sun to sunday, against the program as converted
+conv_ref <- system2("git", c("log", "-1", "--format=%h", "--grep=^B84 conversion"), stdout = TRUE)
+if (length(conv_ref) == 1L && nzchar(conv_ref)) for (m in names(PROGRAMS)) {
+  conv <- paste(system2("git", c("show", sprintf("%s:%s", conv_ref, PROGRAMS[[m]])), stdout = TRUE), collapse = "\n")
+  new <- read_new(PROGRAMS[[m]])
+  if (!grepl("\\bsunday\\b", new, perl = TRUE)) next                     # not renamed yet
+  for (fl in list(character(0), "O1")) {
+    cc <- stanc_run(js232, conv, fl)$cpp; cn <- stanc_run(js232, new, fl)$cpp
+    cc_m <- gsub("\\bsun\\b", "sunday", norm_cpp(cc), perl = TRUE)
+    same <- identical(cc_m, norm_cpp(cn))
+    add(m, "4b", sprintf("the rename sun -> sunday: C++ identical to the converted program's with the identifier mapped (flags: %s)", if (length(fl)) fl else "rstan default"),
+        sprintf("against %s; %s", conv_ref, if (same) "IDENTICAL" else "DIFFERS"), nchar(cc) > 0 && same)
+  }
+}
 res <- do.call(rbind, rows)
 
 # ---------------------------------------------------------------------------
@@ -207,7 +241,7 @@ if (length(.rd)) {
     res <- do.call(rbind, rows)
   }
 }
-verdict <- if (all(res$pass[res$clause %in% c("1", "2", "3", "4")])) "ACCEPTED" else "NOT ACCEPTED: revert the conversion"
+verdict <- if (all(res$pass[res$clause %in% c("1", "2", "3", "4", "4b")])) "ACCEPTED" else "NOT ACCEPTED: revert the conversion"
 op <- options(width = 250); print(res[, c("program", "clause", "observed", "pass")], row.names = FALSE, right = FALSE); options(op)
 cat("\nD53 rule, clauses (1) to (4):", verdict, "\n")
 res$verdict <- verdict

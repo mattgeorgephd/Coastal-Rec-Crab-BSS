@@ -118,7 +118,7 @@ data {
   int<lower=1> G;                        // Number of gear groups (1 in pooled)
   int<lower=1> S;                        // Number of sections (1)
   int<lower=1> P_n;                      // Number of AR periods
-  int<lower=1> period[D];               // Day-to-period mapping
+  array[D] int<lower=1> period;               // Day-to-period mapping
   vector<lower=0,upper=1>[D] w;          // Weekend indicator
   vector<lower=0,upper=1>[D] holiday;    // Holiday indicator
   // A36 (2026-10-16): THE SATURDAY/SUNDAY SPLIT OF THE WEEKEND EFFORT EFFECT. sunday_split = 1
@@ -163,7 +163,7 @@ data {
   // reliably (the same pattern the empty effort streams already use), whereas a D x 0
   // matrix is an unnecessary edge case. Rebuilt as a matrix in transformed data.
   vector[D * K_open] X_open_flat;
-  real<lower=0> O[D,S,G];               // Open/closed
+  array[D,S,G] real<lower=0> O;               // Open/closed
 
   // POOL-4: mu-hierarchy collapse lever. Since T2.5 (2026-09-29) the hierarchy is
   // collapsed automatically whenever S == 1 (every production fit; see transformed data),
@@ -236,14 +236,14 @@ data {
   int<lower=0> n_effort_obs;
 
   int<lower=0> Gear_n;
-  int<lower=1> day_Gear[Gear_n];
-  int<lower=1> section_Gear[Gear_n];
-  int<lower=0> Gear_I[Gear_n];
+  array[Gear_n] int<lower=1> day_Gear;
+  array[Gear_n] int<lower=1> section_Gear;
+  array[Gear_n] int<lower=0> Gear_I;
 
   int<lower=0> T_n;
-  int<lower=1> day_T[T_n];
-  int<lower=1> section_T[T_n];
-  int<lower=0> T_I[T_n];
+  array[T_n] int<lower=1> day_T;
+  array[T_n] int<lower=1> section_T;
+  array[T_n] int<lower=0> T_I;
 
   // 2026-10-18 (D45 experiment lever, CHANGE_REGISTER B68): a per-SAMPLED-DAY effect shared by
   // the day's repeat counts. Float 20 takes three counts on most two-sampler days and they are
@@ -260,8 +260,8 @@ data {
   // pooled track only; the gear program is unchanged).
   int<lower=0, upper=1> effort_day_effect;
   int<lower=0> n_Eday;
-  int<lower=1> Eday_Gear[Gear_n];
-  int<lower=1> Eday_T[T_n];
+  array[Gear_n] int<lower=1> Eday_Gear;
+  array[T_n] int<lower=1> Eday_T;
   real<lower=0> value_normal_sigma_uE;
 
   // --- Phase 1: OSP boat-count observations (second boat effort stream) ---
@@ -270,22 +270,22 @@ data {
   // coefficient kappa_OSP (~ the OSP/trailer overlap ratio). Empty (OSP_n = 0)
   // for shore fits and when use_osp_boat_counts = FALSE.
   int<lower=0> OSP_n;
-  int<lower=1> day_OSP[OSP_n];
-  int<lower=1> section_OSP[OSP_n];
-  int<lower=0> OSP_I[OSP_n];
+  array[OSP_n] int<lower=1> day_OSP;
+  array[OSP_n] int<lower=1> section_OSP;
+  array[OSP_n] int<lower=0> OSP_I;
 
   int<lower=0> Crab_n;
-  int<lower=1> day_Crab[Crab_n];
-  int<lower=1> section_Crab[Crab_n];
-  int<lower=0> Crab_I[Crab_n];
+  array[Crab_n] int<lower=1> day_Crab;
+  array[Crab_n] int<lower=1> section_Crab;
+  array[Crab_n] int<lower=0> Crab_I;
   real<lower=0,upper=1> p_I_crab;
 
   // --- Interview CPUE ---
   int<lower=0> IntC;
-  int<lower=1> day_IntC[IntC];
-  int<lower=1> gear_IntC[IntC];
-  int<lower=1> section_IntC[IntC];
-  int<lower=0> c[IntC];
+  array[IntC] int<lower=1> day_IntC;
+  array[IntC] int<lower=1> gear_IntC;
+  array[IntC] int<lower=1> section_IntC;
+  array[IntC] int<lower=0> c;
   vector<lower=0>[IntC] h;
 
   // --- Zero-inflated catch likelihood (2026-09-02; ADOPTED 2026-09-07, ON for shore) ---
@@ -314,20 +314,20 @@ data {
 
   // --- Gear-per-crabber interviews ---
   int<lower=0> IntA_gear;
-  int<lower=0> Gear_A[IntA_gear];
-  int<lower=1> A_A_gear[IntA_gear];
+  array[IntA_gear] int<lower=0> Gear_A;
+  array[IntA_gear] int<lower=1> A_A_gear;
 
   // --- Gear-per-boat-group interviews (POOL-1) ---
   // Replaces T_A_int / A_A_trailer. The model learns R_G_boat (mean gear deployed
   // per boat group) directly from observed number_of_gear via
   // Gear_A_boat[a] ~ poisson(R_G_boat), mirroring crab_bss_gear_resolved.stan.
   int<lower=0> IntA_trailer;
-  int<lower=1> Gear_A_boat[IntA_trailer];
+  array[IntA_trailer] int<lower=1> Gear_A_boat;
 
   // --- I/E direct effort observations ---
   int<lower=0> IE_n;
-  int<lower=1> day_IE[IE_n];
-  int<lower=1> section_IE[IE_n];
+  array[IE_n] int<lower=1> day_IE;
+  array[IE_n] int<lower=1> section_IE;
   vector<lower=0>[IE_n] IE_crabber_hours;
   // A37 (2026-10-16, D35): which population the I/E stream belongs to, as in
   // crab_bss_gear_resolved.stan. 0 (shore): IE_crabber_hours holds the observation the effort
@@ -384,12 +384,12 @@ data {
   // Phase 3: f is per STRATUM (n_f_strata; = 1 reproduces the Phase 2 scalar).
   // f_stratum[d] maps each day to its stratum (month / day_type / none).
   int<lower=1> n_f_strata;
-  int<lower=1,upper=n_f_strata> f_stratum[D];
+  array[D] int<lower=1,upper=n_f_strata> f_stratum;
   vector<lower=0,upper=1>[n_f_strata] crab_fraction_value;
   vector<lower=0>[n_f_strata] crab_fraction_alpha0;
   vector<lower=0>[n_f_strata] crab_fraction_beta0;
-  int<lower=0> crab_fraction_n_total[n_f_strata];
-  int<lower=0> crab_fraction_n_crab[n_f_strata];
+  array[n_f_strata] int<lower=0> crab_fraction_n_total;
+  array[n_f_strata] int<lower=0> crab_fraction_n_crab;
   // improvement 8 (2026-08-25): OSP CRAB-ONLY COUNTS AS A LOWER BOUND ON f.
   // D42 (2026-10-18): the HARD-bound construction described in this paragraph is the LEGACY
   // path, live only when crab_fraction_dynamic = 0. The shipped model (the dynamic f of review
@@ -409,8 +409,8 @@ data {
   int<lower=0,upper=1> osp_crab_lower;
   // Per-stratum totals: used ONLY as the has-data flag and for reporting. The
   // likelihood below is per DAY, not on these sums -- see the next paragraph.
-  int<lower=0> osp_f_n_total[n_f_strata];
-  int<lower=0> osp_f_n_crab[n_f_strata];
+  array[n_f_strata] int<lower=0> osp_f_n_total;
+  array[n_f_strata] int<lower=0> osp_f_n_crab;
   // WHY PER-DAY AND WHY BETA-BINOMIAL. A Binomial on the stratum SUM would treat
   // every boat-day as an independent Bernoulli trial: summing ~150 operating days at
   // ~50 boats gives n ~ 7,500 and an f_lower posterior SD near 0.005, which is not
@@ -424,9 +424,9 @@ data {
   // and on the legacy path the bound is HARD: an over-precise f_lower would force f up with
   // unearned confidence. Under the dynamic f the same kappa prices the f(1 - c) observation.
   int<lower=0> OSPF_n;
-  int<lower=1,upper=n_f_strata> osp_f_stratum[OSPF_n];
-  int<lower=0> osp_f_total[OSPF_n];
-  int<lower=0> osp_f_crab[OSPF_n];
+  array[OSPF_n] int<lower=1,upper=n_f_strata> osp_f_stratum;
+  array[OSPF_n] int<lower=0> osp_f_total;
+  array[OSPF_n] int<lower=0> osp_f_crab;
   real<lower=0> osp_f_kappa_prior_mu;
   // REVIEW ITEM 1B (2026-09-08): THE DYNAMIC CRABBING FRACTION.
   // crab_fraction_dynamic = 1 replaces the per-stratum Beta/Binomial construction above
@@ -468,16 +468,16 @@ data {
   // OBSERVED boat counts, never the latent effort, so f stays out of the effort and CPUE
   // likelihoods: the joint posterior factorizes and the boat total remains linear in f.
   int<lower=0,upper=1> crab_fraction_dynamic;
-  int<lower=0> f_walk_prev[n_f_strata];     // predecessor stratum (must be < k); 0 = anchored
+  array[n_f_strata] int<lower=0> f_walk_prev;     // predecessor stratum (must be < k); 0 = anchored
   vector<lower=0>[n_f_strata] f_walk_gap;   // months to the predecessor (1 = adjacent)
   real f_level_mu;                          // logit-scale prior mean of an anchored stratum
   real<lower=0> f_level_sd;                 // and its SD (weak: the level is learned)
   real<lower=0> f_walk_sd_prior;            // half-normal scale of sigma_f
   real f_walk_df;                           // > 0: Student-t innovations; <= 0: Gaussian
   int<lower=0> CFI_n;                       // sampler-contact days
-  int<lower=1,upper=n_f_strata> cfi_stratum[CFI_n];
-  int<lower=0> cfi_total[CFI_n];
-  int<lower=0> cfi_crab[CFI_n];
+  array[CFI_n] int<lower=1,upper=n_f_strata> cfi_stratum;
+  array[CFI_n] int<lower=0> cfi_total;
+  array[CFI_n] int<lower=0> cfi_crab;
   real<lower=0> cfi_kappa_prior_mu;         // lognormal centre of kappa_I
   // the combo-trip share c (2026-09-09): a per-stratum logit walk when combo_dynamic = 1
   // (the R side sets it whenever typed contacts or an OSP crab-only stream exist)
@@ -486,9 +486,9 @@ data {
   real<lower=0> c_level_sd;
   real<lower=0> c_walk_sd_prior;            // half-normal scale of sigma_c
   int<lower=0> CFC_n;                       // contact days with typed crabbing boats
-  int<lower=1,upper=n_f_strata> cfc_stratum[CFC_n];
-  int<lower=0> cfc_crab[CFC_n];             // typed crabbing boats that day
-  int<lower=0> cfc_combo[CFC_n];            // of which combo trips
+  array[CFC_n] int<lower=1,upper=n_f_strata> cfc_stratum;
+  array[CFC_n] int<lower=0> cfc_crab;             // typed crabbing boats that day
+  array[CFC_n] int<lower=0> cfc_combo;            // of which combo trips
   real<lower=0> cfc_kappa_prior_mu;         // lognormal centre of kappa_C
   // Phase 3: OSP-informs-tau toggle. 0 keeps the free kappa_OSP scale (Phase 1); 1 makes the
   // OSP mean use L (= tau_boat) as the turnover, so the dense OSP series identifies the boat
@@ -532,7 +532,7 @@ transformed data {
   // generated quantities can carry the fitted day deviation on the shore's sampled days. Built from the
   // gear counts only: on the boat the day's level is pinned by OSP's every-boat total, so the trailer
   // counts' shared deviation is a snapshot nuisance and the reported boat effort keeps the level.
-  int eday_of_day[D];
+  array[D] int eday_of_day;
   for (d in 1:D) eday_of_day[d] = 0;
   for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
@@ -575,7 +575,7 @@ parameters {
   vector<lower=0, upper=1>[zi_catch] theta_C;
   // D45 lever (2026-10-18): the per-sampled-day effort effects, non-centred; zero-size when off.
   vector[n_uE] uE_raw;
-  real<lower=0> sigma_uE[effort_day_effect];
+  array[effort_day_effect] real<lower=0> sigma_uE;
   real B1;
   real B2;
   real B1_C;
@@ -590,7 +590,7 @@ parameters {
   real<lower=0,upper=1> phi_E_scaled;
   matrix[P_n-1, G*S] eps_E;
   matrix[G,S] omega_E_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
-  real mu_mu_E[G];
+  array[G] real mu_mu_E;
   real<lower=0> sigma_mu_E;
   matrix[G * use_mu_hier_E, S] eps_mu_E;   // T2.5: zero rows when the effort hierarchy is collapsed
 
@@ -645,7 +645,7 @@ parameters {
   real<lower=0> sigma_r_C;
   matrix[P_n-1, G*S] eps_C;
   matrix[G,S] omega_C_0_raw;   // B1.3: non-centered AR(1) initial state (raw)
-  real mu_mu_C[G];
+  array[G] real mu_mu_C;
   real<lower=0> sigma_mu_C;
   matrix[G * use_mu_hier_C, S] eps_mu_C;   // T2.5: zero rows when the CPUE hierarchy is collapsed
 
@@ -661,7 +661,7 @@ transformed parameters {
   real<lower=-1,upper=1> phi_E;
   matrix[P_n, G*S] omega_E;
   matrix[G,S] omega_E_0;
-  matrix<lower=0>[D,G] lambda_E_S[S];
+  array[S] matrix<lower=0>[D,G] lambda_E_S;
   real<lower=0> r_E;
   real<lower=0> r_OSP;   // Phase 1: OSP observation overdispersion
 
@@ -670,7 +670,7 @@ transformed parameters {
   real<lower=0> r_C;
   matrix[P_n, G*S] omega_C;
   matrix[G,S] omega_C_0;
-  matrix<lower=0>[D,G] lambda_C_S[S];
+  array[S] matrix<lower=0>[D,G] lambda_C_S;
 
   vector<lower=0>[D] L;
   real<lower=0> E_scale;   // P1/POOL-3: 1 (crabbers) or R_G (gear); see effort_scale_gear
@@ -1051,14 +1051,14 @@ generated quantities {
   real theta_C_out;
   real<lower=0, upper=1> zi_scale;
 
-  matrix<lower=0>[D,G] lambda_Ctot_S[S];
-  matrix<lower=0>[D,G] C_expected[S];
+  array[S] matrix<lower=0>[D,G] lambda_Ctot_S;
+  array[S] matrix<lower=0>[D,G] C_expected;
   real<lower=0> C_expected_sum;
 
-  matrix<lower=0>[D,G] C[S];
+  array[S] matrix<lower=0>[D,G] C;
   real<lower=0> C_sum;
 
-  matrix<lower=0>[D,G] E[S];
+  array[S] matrix<lower=0>[D,G] E;
   real<lower=0> E_sum;
 
   real R_G_out;

@@ -7832,10 +7832,10 @@ local({
   nhit <- function(pat, x) { m <- gregexpr(pat, x)[[1]]; sum(m > 0) }
   chk("B68 Stan: the lever is declared in data, sized in transformed data and zero-size in parameters when off",
       grepl("int<lower=0, upper=1> effort_day_effect;", stan, fixed = TRUE) && grepl("int<lower=0> n_Eday;", stan, fixed = TRUE) &&
-      grepl("int<lower=1> Eday_Gear[Gear_n];", stan, fixed = TRUE) && grepl("int<lower=1> Eday_T[T_n];", stan, fixed = TRUE) &&
+      grepl("array[Gear_n] int<lower=1> Eday_Gear;", stan, fixed = TRUE) && grepl("array[T_n] int<lower=1> Eday_T;", stan, fixed = TRUE) &&
       grepl("real<lower=0> value_normal_sigma_uE;", stan, fixed = TRUE) &&
       grepl("int n_uE = (effort_day_effect == 1) ? n_Eday : 0;", stan, fixed = TRUE) &&
-      grepl("vector[n_uE] uE_raw;", stan, fixed = TRUE) && grepl("real<lower=0> sigma_uE[effort_day_effect];", stan, fixed = TRUE))
+      grepl("vector[n_uE] uE_raw;", stan, fixed = TRUE) && grepl("array[effort_day_effect] real<lower=0> sigma_uE;", stan, fixed = TRUE))
   chk("B68 Stan: the gear and trailer likelihoods and their log_lik carry the day multiplier (the literal 1.0 when off); the prior and the GQ are gated on the flag",
       nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
       nhit("exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", stan) == 2 &&
@@ -7856,7 +7856,7 @@ local({
   gstan <- rdf("02_stan_models/crab_bss_gear_resolved.stan"); gprep <- rdf("03_R_functions/prep_bss_crab_gear.R")
   chk("A39 gear Stan: the day effect is declared, zero-size when off, on both effort likelihoods and their log_lik with the mean-one factor, gated in the prior and the GQ, and in the totals through df",
       grepl("int<lower=0, upper=1> effort_day_effect;", gstan, fixed = TRUE) && grepl("int n_uE = (effort_day_effect == 1) ? n_Eday : 0;", gstan, fixed = TRUE) &&
-      grepl("vector[n_uE] uE_raw;", gstan, fixed = TRUE) && grepl("real<lower=0> sigma_uE[effort_day_effect];", gstan, fixed = TRUE) &&
+      grepl("vector[n_uE] uE_raw;", gstan, fixed = TRUE) && grepl("array[effort_day_effect] real<lower=0> sigma_uE;", gstan, fixed = TRUE) &&
       nhit("sum\\(lambda_E_S\\[section_Gear\\[i\\]\\]\\[day_Gear\\[i\\], \\]\\) \\* R_G\\s*\\* \\(effort_day_effect == 1 \\? exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_Gear\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", gstan) == 2 &&
       nhit("sum\\(lambda_E_S\\[section_T\\[i\\]\\]\\[day_T\\[i\\], \\]\\) / R_G_boat\\s*\\* \\(effort_day_effect == 1 \\? exp\\(sigma_uE\\[1\\] \\* uE_raw\\[Eday_T\\[i\\]\\] - 0\\.5 \\* square\\(sigma_uE\\[1\\]\\)\\) : 1\\.0\\)", gstan) == 2 &&
       grepl("uE_raw ~ std_normal\\(\\);", gstan) && grepl("sigma_uE\\[1\\] ~ normal\\(0, value_normal_sigma_uE\\);", gstan) &&
