@@ -1,0 +1,61 @@
+"variant","month","reported","priced","change_pct"
+"as reported (the share at the model's day volume)","2024-12",2360.92313064407,2360.92313064407,0
+"as reported (the share at the model's day volume)","2025-01",1912.66565016185,1912.66565016185,0
+"as reported (the share at the model's day volume)","2025-02",513.225434988011,513.225434988011,0
+"as reported (the share at the model's day volume)","2025-03",1058.2851688714,1058.2851688714,0
+"as reported (the share at the model's day volume)","2025-04",1151.49674340843,1151.49674340843,0
+"as reported (the share at the model's day volume)","2025-05",3477.37844195761,3477.37844195761,0
+"as reported (the share at the model's day volume)","2025-06",2626.88293634251,2626.88293634251,0
+"as reported (the share at the model's day volume)","2025-07",8819.8673591794,8819.8673591794,0
+"as reported (the share at the model's day volume)","2025-08",9930.95069575635,9930.95069575635,0
+"as reported (the share at the model's day volume)","2025-09",2292.95116028411,2292.95116028411,0
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2024-12",2360.92313064407,2263.56837070199,-4.1235887216506
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-01",1912.66565016185,1821.94812030545,-4.74298944244256
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-02",513.225434988011,491.464729086098,-4.23998976247574
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-03",1058.2851688714,980.711523269671,-7.33012687728212
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-04",1151.49674340843,1023.05237443661,-11.15455772733
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-05",3477.37844195761,3064.78836089168,-11.864974950315
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-06",2626.88293634251,2326.78906015057,-11.4239531590917
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-07",8819.8673591794,7808.9736103563,-11.46155273833
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-08",9930.95069575635,8836.04673333179,-11.0251676397147
+"PRIMARY: the share integrated over the day volume, s_day = sigma_uE","2025-09",2292.95116028411,2041.71951563748,-10.9566941066243
+"sensitivity: s_day = 0.5","2024-12",2360.92313064407,2331.63585755788,-1.24050091703761
+"sensitivity: s_day = 0.5","2025-01",1912.66565016185,1885.81500991578,-1.40383345326465
+"sensitivity: s_day = 0.5","2025-02",513.225434988011,506.39992401986,-1.32992453273696
+"sensitivity: s_day = 0.5","2025-03",1058.2851688714,1032.77022565658,-2.41097049881467
+"sensitivity: s_day = 0.5","2025-04",1151.49674340843,1108.30073663912,-3.75129213491696
+"sensitivity: s_day = 0.5","2025-05",3477.37844195761,3336.35672494019,-4.05540321168
+"sensitivity: s_day = 0.5","2025-06",2626.88293634251,2523.85982816388,-3.92187663764235
+"sensitivity: s_day = 0.5","2025-07",8819.8673591794,8482.58945386619,-3.82407004071539
+"sensitivity: s_day = 0.5","2025-08",9930.95069575635,9563.77826884384,-3.69725354763272
+"sensitivity: s_day = 0.5","2025-09",2292.95116028411,2208.80122797478,-3.66994002170107
+"sensitivity: s_day = 0.82","2024-12",2360.92313064407,2270.92997985174,-3.8117780974843
+"sensitivity: s_day = 0.82","2025-01",1912.66565016185,1831.04957913614,-4.26713738592022
+"sensitivity: s_day = 0.82","2025-02",513.225434988011,492.706872589923,-3.99796288322457
+"sensitivity: s_day = 0.82","2025-03",1058.2851688714,985.085728390243,-6.91679734671363
+"sensitivity: s_day = 0.82","2025-04",1151.49674340843,1031.74840871891,-10.3993637302932
+"sensitivity: s_day = 0.82","2025-05",3477.37844195761,3093.22459947041,-11.047225629861
+"sensitivity: s_day = 0.82","2025-06",2626.88293634251,2345.56546038588,-10.7091744388246
+"sensitivity: s_day = 0.82","2025-07",8819.8673591794,7887.5010679873,-10.5712053619687
+"sensitivity: s_day = 0.82","2025-08",9930.95069575635,8912.09420968252,-10.2594053408119
+"sensitivity: s_day = 0.82","2025-09",2292.95116028411,2061.10555091973,-10.1112319084741
+"B86's switch alone (volume-consistent), every other day as reported","2024-12",2360.92313064407,2134.76872846109,-9.57906673231177
+"B86's switch alone (volume-consistent), every other day as reported","2025-01",1912.66565016185,1767.72434248345,-7.57797410468161
+"B86's switch alone (volume-consistent), every other day as reported","2025-02",513.225434988011,450.367125858156,-12.2476995185019
+"B86's switch alone (volume-consistent), every other day as reported","2025-03",1058.2851688714,1060.51502077681,0.210704257320682
+"B86's switch alone (volume-consistent), every other day as reported","2025-04",1151.49674340843,1192.71123504638,3.57921043840388
+"B86's switch alone (volume-consistent), every other day as reported","2025-05",3477.37844195761,3239.92021942622,-6.82865631379792
+"B86's switch alone (volume-consistent), every other day as reported","2025-06",2626.88293634251,2577.47362398246,-1.88091032441855
+"B86's switch alone (volume-consistent), every other day as reported","2025-07",8819.8673591794,8586.38872586644,-2.64718984770174
+"B86's switch alone (volume-consistent), every other day as reported","2025-08",9930.95069575635,9874.21648727391,-0.571286780294633
+"B86's switch alone (volume-consistent), every other day as reported","2025-09",2292.95116028411,2283.39073693038,-0.416948407768825
+"B86's switch on the carried days, the integrated share on every other day","2024-12",2360.92313064407,2104.51103264503,-10.8606711786119
+"B86's switch on the carried days, the integrated share on every other day","2025-01",1912.66565016185,1732.89062081592,-9.39918742884922
+"B86's switch on the carried days, the integrated share on every other day","2025-02",513.225434988011,442.5732234426,-13.7663113962895
+"B86's switch on the carried days, the integrated share on every other day","2025-03",1058.2851688714,1005.7215393795,-4.96686819753474
+"B86's switch on the carried days, the integrated share on every other day","2025-04",1151.49674340843,1085.66100894988,-5.71740518029388
+"B86's switch on the carried days, the integrated share on every other day","2025-05",3477.37844195761,2893.26360773385,-16.7975629910136
+"B86's switch on the carried days, the integrated share on every other day","2025-06",2626.88293634251,2297.84831793135,-12.5256673549865
+"B86's switch on the carried days, the integrated share on every other day","2025-07",8819.8673591794,7735.5624753618,-12.2938910491562
+"B86's switch on the carried days, the integrated share on every other day","2025-08",9930.95069575635,8916.56247697887,-10.2144119919046
+"B86's switch on the carried days, the integrated share on every other day","2025-09",2292.95116028411,2052.90748217291,-10.46876541764
