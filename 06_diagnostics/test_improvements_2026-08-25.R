@@ -8783,7 +8783,7 @@ local({
   chk("B84 to B88 pointers: the register (B84 to B88, D53 and D54 CLOSED, D55 evidence and switch, D56 open, D31 CLOSED by Matt), campaign 1z.22 and its anchor, the status entry, limitation 18, the READMEs and the guidance",
       all(vapply(c("| B84 |", "| B85 |", "| B86 |", "| B87 |", "| B88 |", "| D56 |"), function(x) grepl(x, cr, fixed = TRUE), logical(1))) &&
       grepl("| **CLOSED 2026-11-25 (B84):", cr, fixed = TRUE) && grepl("| **CLOSED 2026-11-25 (B85):", cr, fixed = TRUE) &&
-      grepl("| **EVIDENCE IN AND SWITCH BUILT 2026-11-25 (B86); OPEN as a decision for Matt.**", cr, fixed = TRUE) &&
+      grepl("| **ADOPTED 2026-11-25 (A42; Matt: \"D55: adopt carry_without_osp\"); the render under A42's rule is the confirmation.** EVIDENCE IN AND SWITCH BUILT 2026-11-25 (B86).", cr, fixed = TRUE) && grepl("**WAITING FOR OSP'S 2025-26 RECORD (Matt, 2026-11-25:", cr, fixed = TRUE) &&
       grepl("| **CLOSED 2026-11-25 (Matt: \"close as answered, with the limits in Section 6.2\" of the A30 brief).**", cr, fixed = TRUE) &&
       grepl("### 1z.22 D53, D54 and D55 addressed; D56 opened", vc, fixed = TRUE) && grepl("no authoritative fit; 1z.22) |", vc, fixed = TRUE) &&
       grepl("- **[NEW 2026-11-25, B86 to B88; D55 evidence in and switch built, D56 OPENED; both decisions are Matt's] What a boat day is credited with.**", st, fixed = TRUE) &&
@@ -8794,7 +8794,7 @@ local({
                  function(f) grepl(sprintf("| `%s` |", f), dg, fixed = TRUE) && file.exists(file.path("06_diagnostics", f)), logical(1))) &&
       grepl("The 2026-11-25 tables (campaign 1z.22)", orr, fixed = TRUE) &&
       grepl("**Current Stan works too (D53, closed 2026-11-25, B84):**", cl, fixed = TRUE) && grepl("`boat_day_effect_reporting` (B86, 2026-11-25", cl, fixed = TRUE) &&
-      grepl("**Two open decisions move the boat estimate (2026-11-25, campaign 1z.22).**", cl, fixed = TRUE))
+      grepl("**What a boat day is credited with (2026-11-25, campaign 1z.22).** D55, ADOPTED as A42 (Matt)", cl, fixed = TRUE))
   chk("B84 (D53): clause (5) holds on both tracks: the confirmation render's eight fits are B70's byte for byte and its port totals agree in every column B70's file has",
       !is.null(sx) && all(c("5") %in% sx$clause) && sum(sx$clause == "5") == 2 && all(as.logical(sx$pass[sx$clause == "5"])) &&
       all(grepl("4 of 4 bss_draws_summed files identical; port totals identical in every column B70's file has", sx$observed[sx$clause == "5"], fixed = TRUE)) &&
