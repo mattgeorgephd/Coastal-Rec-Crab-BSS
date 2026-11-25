@@ -42,6 +42,26 @@
 #   (3) flag 1: no OSP day carries a deviation (the effort on every OSP day is unchanged, every draw).
 #   ACCEPTED if (1) to (3) hold.
 #
+# READ 2026-11-25 (the switch as first built, 2442411): ACCEPTED. Flag 0 equals the fit to 1e-15 on
+# every draw, flag 1 gives 34,686.44 against the what-if's 34,686.44 (-2.19%), and no OSP day moves.
+# (The first read failed (1) and (3) on this script's draw order alone: gqs() follows as.matrix(),
+# extract() permutes. Corrected and re-run; kept as 05_output/boat_day_carry_gq_2026-11-25_fixed_share.csv.)
+#
+# ADDENDUM (2b), WRITTEN AFTER THAT READ AND BEFORE THE STAN CHANGE IT CHECKS. The first form holds
+# a carried day's crabbing share at the LEVEL's boat volume. A34's volume term was fitted on OSP
+# days, where the volume is the day's actual boats, so on a carried day the consistent share is the
+# one at the carried volume (level x the day factor); the share falls as the boats rise (beta_fvol
+# -0.76 on B70), so holding it overstates how far crab effort moves with the deviation. The register
+# had said so at D55 ("the day's volume in the crabbing share (A34) has to be decided with it"), and
+# B80's what-if made the same simplification. The switch is changed so the generated quantities use
+# vd * L[d] * df for the share (df is exactly 1.0 on every day that does not carry a deviation, so
+# flag 0 stays bit-identical). Clause (2) is then replaced by:
+#   (2b) flag 1: C_expected_sum and E_sum equal, within 1e-9 relative on every draw, an independent
+#        recomputation in R from the fit's own draws (E, C_expected, L_out, lambda_E_S, R_G_boat,
+#        eta_f, beta_fvol, sigma_uE, uE_raw and the Stan data): on each carried day the effort and
+#        catch are multiplied by df * f(carried volume) / f(level volume).
+#   Clauses (1) and (3) stand. The first form's what-if row is reported beside it, not judged.
+#
 # WRITES 05_output/boat_day_carry_gq_2026-11-25.csv
 #
 # HOW TO RUN (needs the S25-const run folder and the fit cache; compiles the pooled program once)
@@ -78,26 +98,60 @@ pars <- fit@model_pars[seq_len(which(fit@model_pars == "lp__") - 1L)]
 # the parameters block only: gqs() takes draws of the parameters, by their constrained names
 pblock <- names(rstan::get_inits(fit)[[1]])
 dm <- as.matrix(fit, pars = pblock)
-E0 <- rstan::extract(fit, pars = c("C_expected_sum", "E_sum", "E"))
+# THE DRAW ORDER (read 2026-11-25): gqs() returns its draws in the order of `dm`, which is as.matrix()'s
+# (chain by chain, unpermuted), while rstan::extract() permutes them; the first read compared the two
+# orders draw by draw and failed clauses (1) and (3) on that alone. Everything is now taken in
+# as.matrix() order on both sides.
+am <- function(f, p) as.matrix(f, pars = p)
+day_sum <- function(f) { x <- am(f, "E"); d <- as.integer(sub("^E\\[[0-9]+,([0-9]+),[0-9]+\\]$", "\\1", colnames(x)))
+  sapply(sort(unique(d)), function(k) rowSums(x[, d == k, drop = FALSE])) }
+E0 <- list(C_expected_sum = am(fit, "C_expected_sum")[, 1], E_sum = am(fit, "E_sum")[, 1], Eday = day_sum(fit))
 run <- function(flag) { d <- sd_; d$boat_day_carry <- as.integer(flag); rstan::gqs(m, data = d, draws = dm, seed = 1) }
 g0 <- run(0); g1 <- run(1)
-x0 <- rstan::extract(g0, pars = c("C_expected_sum", "E_sum")); x1 <- rstan::extract(g1, pars = c("C_expected_sum", "E_sum", "E"))
+x0 <- list(C_expected_sum = am(g0, "C_expected_sum")[, 1], E_sum = am(g0, "E_sum")[, 1])
+x1 <- list(C_expected_sum = am(g1, "C_expected_sum")[, 1], E_sum = am(g1, "E_sum")[, 1], Eday = day_sum(g1))
 rel <- function(a, b) max(abs(a - b) / pmax(abs(b), 1e-12))
+# (2b): the independent recomputation in R, every draw in as.matrix() order
+mat <- function(p) as.matrix(fit, pars = p)
+nd <- nrow(dm); D <- as.integer(sd_$D); S <- as.integer(sd_$S %||% 1L); Gd <- as.integer(sd_$G %||% 1L)
+lam <- mat("lambda_E_S")                                   # columns lambda_E_S[s,d,g]
+lam_idx <- do.call(rbind, lapply(strsplit(sub("^lambda_E_S\\[(.*)\\]$", "\\1", colnames(lam)), ","), as.integer))
+Lm <- mat("L_out"); rg <- mat("R_G_boat")[, 1]; etaf <- mat("eta_f"); bf <- mat("beta_fvol")[, 1]
+sg <- mat("sigma_uE")[, 1]; uu <- mat("uE_raw")
+Tn <- as.integer(sd_$T_n); tday <- as.integer(sd_$day_T)[seq_len(Tn)]; ted <- as.integer(sd_$Eday_T)[seq_len(Tn)]
+osp_days <- unique(as.integer(sd_$day_OSP)[seq_len(sd_$OSP_n)])
+carry_days <- setdiff(unique(tday), osp_days)
+fstr <- as.integer(sd_$f_stratum); cen <- as.numeric(sd_$fvol_centre)
+share <- function(v, k, s) 1e-6 + (1 - 2e-6) * stats::plogis(etaf[s, k] + bf[s] * (log(v) - cen[k]))
+Eday_fit <- day_sum(fit); Cday_fit <- { x <- mat("C_expected"); d <- as.integer(sub("^C_expected\\[[0-9]+,([0-9]+),[0-9]+\\]$", "\\1", colnames(x)))
+  sapply(sort(unique(d)), function(k) rowSums(x[, d == k, drop = FALSE])) }
+Er <- Eday_fit; Cr <- Cday_fit
+for (d in carry_days) {
+  ed <- ted[match(d, tday)]; df <- exp(sg * uu[, ed] - 0.5 * sg^2)
+  vd <- rowSums(lam[, lam_idx[, 2] == d & lam_idx[, 3] == Gd, drop = FALSE]) / rg
+  k <- fstr[d]; v0 <- pmax(vd * Lm[, d], 1e-9); v1 <- pmax(vd * Lm[, d] * df, 1e-9)
+  ratio <- df * share(v1, k, seq_len(nd)) / share(v0, k, seq_len(nd))
+  Er[, d] <- Er[, d] * ratio; Cr[, d] <- Cr[, d] * ratio
+}
+R_E <- rowSums(Er); R_C <- rowSums(Cr)
 wi <- utils::read.csv(WHATIF); w <- wi[grepl("no OSP count", wi$reporting), ]
 osp_days <- unique(as.integer(sd_$day_OSP)[seq_len(sd_$OSP_n)])
-Eday0 <- apply(E0$E, c(1, 3), sum); Eday1 <- apply(x1$E, c(1, 3), sum)
+Eday0 <- E0$Eday; Eday1 <- x1$Eday
 res <- data.frame(
-  clause = c("1", "1", "2", "2", "3"),
+  clause = c("1", "1", "2b", "2b", "3", "reported"),
   what = c("flag 0: C_expected_sum equals the fit's, every draw (max relative gap)", "flag 0: E_sum equals the fit's, every draw (max relative gap)",
-           "flag 1: median C_expected_sum against the what-if", "flag 1: median E_sum against the what-if", "flag 1: effort on the OSP days unchanged, every draw (max relative gap)"),
+           "flag 1: C_expected_sum equals the R recomputation, every draw (max relative gap)", "flag 1: E_sum equals the R recomputation, every draw (max relative gap)",
+           "flag 1: effort on the OSP days unchanged, every draw (max relative gap)",
+           "the first form's price (share held at the level's volume, B80's what-if), median C_expected_sum"),
   observed = c(rel(x0$C_expected_sum, E0$C_expected_sum), rel(x0$E_sum, E0$E_sum),
-               stats::median(x1$C_expected_sum) - w$expected_catch_median, stats::median(x1$E_sum) - w$effort_median,
-               rel(Eday1[, osp_days], Eday0[, osp_days])),
-  value = c(NA, NA, stats::median(x1$C_expected_sum), stats::median(x1$E_sum), NA),
+               rel(x1$C_expected_sum, R_C), rel(x1$E_sum, R_E), rel(Eday1[, osp_days], Eday0[, osp_days]), NA),
+  value = c(NA, NA, stats::median(x1$C_expected_sum), stats::median(x1$E_sum), NA, w$expected_catch_median),
   stringsAsFactors = FALSE)
-res$pass <- c(res$observed[1:2] <= 1e-9, abs(res$observed[3:4]) <= 0.5, res$observed[5] <= 1e-9)
-res$verdict <- if (all(res$pass)) "ACCEPTED" else "NOT ACCEPTED"
-cat(sprintf("flag 0 median C_expected_sum %.1f (fit %.1f); flag 1 %.1f (what-if %.1f), %.2f%%\n", stats::median(x0$C_expected_sum), stats::median(E0$C_expected_sum),
-            stats::median(x1$C_expected_sum), w$expected_catch_median, 100 * (stats::median(x1$C_expected_sum) / stats::median(x0$C_expected_sum) - 1)))
+res$pass <- c(res$observed[1:2] <= 1e-9, res$observed[3:4] <= 1e-9, res$observed[5] <= 1e-9, NA)
+res$verdict <- if (all(res$pass, na.rm = TRUE)) "ACCEPTED" else "NOT ACCEPTED"
+cat(sprintf("flag 0 median C_expected_sum %.1f (fit %.1f); flag 1 %.1f (R recomputation %.1f), %.2f%%; the first form's what-if %.1f (%.2f%%)\n", stats::median(x0$C_expected_sum), stats::median(E0$C_expected_sum),
+            stats::median(x1$C_expected_sum), stats::median(R_C), 100 * (stats::median(x1$C_expected_sum) / stats::median(x0$C_expected_sum) - 1),
+            w$expected_catch_median, 100 * (w$expected_catch_median / stats::median(x0$C_expected_sum) - 1)))
+cat(sprintf("flag 1 boat all-gear effort %.1f against %.1f (%.2f%%); carried days %d\n", stats::median(x1$E_sum), stats::median(x0$E_sum), 100 * (stats::median(x1$E_sum) / stats::median(x0$E_sum) - 1), length(carry_days)))
 print(res, row.names = FALSE); cat("\nB86 switch:", res$verdict[1], "\n")
 utils::write.csv(res, OUT, row.names = FALSE); cat("Wrote", OUT, "\n")

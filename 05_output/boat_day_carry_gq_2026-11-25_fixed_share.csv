@@ -1,0 +1,6 @@
+"clause","what","observed","value","pass","verdict"
+"1","flag 0: C_expected_sum equals the fit's, every draw (max relative gap)",1.28008306110331e-15,NA,TRUE,"ACCEPTED"
+"1","flag 0: E_sum equals the fit's, every draw (max relative gap)",7.95924587402777e-16,NA,TRUE,"ACCEPTED"
+"2","flag 1: median C_expected_sum against the what-if",2.91038304567337e-11,34686.4424674263,TRUE,"ACCEPTED"
+"2","flag 1: median E_sum against the what-if",-4.18367562815547e-11,11774.2136224927,TRUE,"ACCEPTED"
+"3","flag 1: effort on the OSP days unchanged, every draw (max relative gap)",1.88178546540862e-15,NA,TRUE,"ACCEPTED"
