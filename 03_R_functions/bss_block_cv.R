@@ -88,7 +88,43 @@
 #   write_block_cv_diagnostics(fit, ...)           the in-driver call: every effort stream
 #       of one fit, each scored under the joint leave-out set of all of them, written as
 #       loo_block_<stream>_<label>.csv (and loo_block_joint_<label>.csv for a fit with
-#       more than one stream).
+#       more than one stream). On a fit that carries the per-day effort effect the tables
+#       are the day-integrated ones (below, D54) and the conditional ones are written beside
+#       them as loo_blockcond_<stream>_<label>.csv, with blockcv_checks_<label>.csv.
+#   bss_block_integrate_days(mu0, y, eday, sig, size)  the day-integrated log-likelihood,
+#       one column per sampled day (D54).
+#   bss_block_day_streams(draws, stan_data, event_dates)  the gear and trailer streams of a
+#       fit with the per-day effect, as day-integrated log-likelihoods with their weekly
+#       labels and the checks; from rstan::extract() or from saved ppc draws (D54).
+#
+# THE PER-DAY EFFORT EFFECT (A39) AND WHY THE TABLE IS INTEGRATED ON SUCH A FIT (D54, B85;
+# 2026-11-25). Since A39 a gear or trailer count's expectation carries its sampled day's own
+# deviation, exp(sigma_uE * uE_raw[day] - sigma_uE^2 / 2), and log_lik_gear / log_lik_trailer
+# are CONDITIONAL on it. A held-out week's counts are exactly what identify those days'
+# deviations, so importance sampling on the conditional likelihood asks the posterior to stand
+# in for one in which those deviations have reverted to their prior: the ratios are
+# heavy-tailed and most weeks fail the Pareto-k bar (12 of 42 joint weeks on the authoritative
+# boat all-gear fit, against 38 of 42 on the render before A39). It is not a sampler fault.
+# The repair integrates each held-out day's deviation out of both the importance ratio and
+# the score, which is the question an unsampled day poses (integrated importance sampling:
+# Li, Qiu, Zhang and Feng 2016, Statistics and Computing 26(4), 881-897; the conditional
+# against marginal distinction of Merkle, Furr and Rabe-Hesketh 2019, Psychometrika 84(3),
+# 802-829). For a sampled day with counts y_1..y_m and count expectations mu0_j WITHOUT the
+# day factor,
+#     p(y | theta) = integral of prod_j NB2(y_j | mu0_j exp(sigma z - sigma^2 / 2), r_E) N(z | 0, 1) dz,
+# computed by the trapezoid rule on z in [-8, 8] at step 0.025 (641 nodes) and checked against
+# every other node. The OSP likelihood carries no day deviation and enters unchanged. The scored
+# unit of the gear and trailer rows becomes the sampled DAY (n_obs counts days on those rows);
+# the joint row adds the OSP counts. Prototyped in 06_diagnostics/desk_advisory_block_cv_2026-11-19.R
+# (B80's R3a); accepted against an exact refit of two held-out weeks to 0.022 and 0.020 nats (B83);
+# this library version reproduces that prototype's tables (B85). Two checks are made on every
+# fit and written to blockcv_checks_<label>.csv: (i) the conditional log-likelihood rebuilt from
+# mu0 and the fitted deviations equals the fit's own log_lik to 1e-6 (else the reconstruction is
+# wrong, the integrated table is not trusted, and the conditional one is written as loo_block_*
+# with a run warning); (ii) halving the grid moves no reliable week by 0.01 nats (else a run
+# warning). WHAT IT DOES NOT FIX: a fit whose AR period equals the block (the shore all-gear
+# fit's weekly AR) still loses its period's only anchor when a week is held out; there the
+# integral returns the table to its state before A39 and no further.
 # Blocks are labelled by bss_block_weeks(dates): the ISO week ("2025-W03"). A week is a
 # choice: the resolution the shore AR runs at and a plausible gap between sampled boat
 # days; pass another `block` vector to test another one.
@@ -180,11 +216,23 @@ bss_effort_loglik <- function(draws, stan_data, stream = c("gear", "trailer", "o
       if (is.null(osp_k)) stop("osp stream needs kappa_OSP draws", call. = FALSE)
     }
   }
+  # D54 (2026-11-25): since A39 a gear or trailer count carries its sampled day's deviation. The
+  # saved draws hold sigma_uE and uE_raw from B85 on; with them the rebuild is exact. Without
+  # them (a run saved before B85) it is the count's likelihood at the LEVEL, which is not the
+  # fit's log_lik, and bss_block_cv_check() will say so.
+  dayf <- NULL
+  if (stream != "osp" && identical(as.integer(stan_data$effort_day_effect %||% 0L), 1L) &&
+      !is.null(draws$sigma_uE) && !is.null(draws$uE_raw) && length(draws$sigma_uE) > 0) {
+    ed <- as.integer(if (stream == "gear") stan_data$Eday_Gear else stan_data$Eday_T)[seq_len(n)]
+    sg <- as.numeric(draws$sigma_uE)[idx]; uu <- as.matrix(draws$uE_raw)[idx, , drop = FALSE]
+    dayf <- function(i) exp(sg * uu[, ed[i]] - 0.5 * sg^2)
+  }
   ll <- matrix(NA_real_, nrow = length(idx), ncol = n)
   for (i in seq_len(n)) {
     lam_i <- lam[idx, sec[i], day[i], , drop = FALSE]                 # [draws, 1, 1, G]
     lam_i <- rowSums(matrix(lam_i, nrow = length(idx)))              # sum over gear groups
     mu <- lam_i * mult
+    if (!is.null(dayf)) mu <- mu * dayf(i)
     if (stream == "osp") mu <- mu * (if (!is.null(osp_L)) osp_L[idx, day[i]] else osp_k)
     ll[, i] <- stats::dnbinom(y[i], mu = pmax(mu, 1e-300), size = size, log = TRUE)
   }
@@ -363,6 +411,81 @@ bss_block_cv_fit <- function(streams, k_max = 0.7) {
   out
 }
 
+# ---------------------------------------------------------------------------
+# D54: the day-integrated likelihood. mu0 [draws x n] is each count's expectation WITHOUT the
+# day factor, y the counts, eday each count's day-effect index, sig and size the draws of
+# sigma_uE and r_E. Returns $fine and $coarse, [draws x days] (the second on every other node,
+# the grid check), and $days, the day-effect indices in increasing order. The code is the
+# prototype's (desk_advisory_block_cv_2026-11-19.R, integrate_day_loglik) line for line, so the
+# two agree to the last bit (B85).
+# ---------------------------------------------------------------------------
+.bcv_row_lse <- function(A) { m <- A[cbind(seq_len(nrow(A)), max.col(A, ties.method = "first"))]; m + log(rowSums(exp(A - m))) }
+bss_block_integrate_days <- function(mu0, y, eday, sig, size, h = 0.025, zmax = 8) {
+  z <- seq(-zmax, zmax, by = h); K <- length(z); nd <- nrow(mu0)
+  lw <- stats::dnorm(z, log = TRUE) + log(h)
+  coarse <- seq(1L, K, by = 2L)
+  shift <- outer(sig, z) - 0.5 * sig^2                      # [draws x K]: the log of the day factor at each node
+  days <- sort(unique(eday))
+  fine <- crs <- matrix(NA_real_, nd, length(days))
+  for (j in seq_along(days)) {
+    A <- matrix(0, nd, K)
+    for (i in which(eday == days[j]))                       # size recycles down the rows: element [s, k] takes size[s]
+      A <- A + stats::dnbinom(y[i], mu = exp(log(mu0[, i]) + shift), size = size, log = TRUE)
+    A <- A + rep(lw, each = nd)
+    fine[, j] <- .bcv_row_lse(A)
+    crs[, j]  <- .bcv_row_lse(A[, coarse, drop = FALSE]) + log(2)
+  }
+  list(fine = fine, coarse = crs, days = days, n_nodes = K)
+}
+
+# The gear and trailer streams of a fit WITH the per-day effect, day-integrated. `draws` as
+# rstan::extract() returns it (or a saved ppc draws list from B85 on): lambda_E_S, r_E, R_G and
+# R_G_boat as the streams need, sigma_uE, uE_raw, and log_lik_<stream> when available (for check
+# (i)). `event_dates` the date of each day index (length D; only the sampled days are read).
+# Returns NULL when the fit carries no day effect, else a list with, per stream present,
+#   $streams[[s]]  list(ll = [draws x days], block = weekly labels, n_counts = counts per day)
+#   $coarse[[s]]   the same on the halved grid
+#   $checks        one row per stream: counts, days, the check (i) gap, sigma_uE summary
+bss_block_day_streams <- function(draws, stan_data, event_dates, h = 0.025, zmax = 8) {
+  if (!identical(as.integer(stan_data$effort_day_effect %||% 0L), 1L) || as.integer(stan_data$n_Eday %||% 0L) == 0L) return(NULL)
+  if (is.null(draws$sigma_uE) || is.null(draws$uE_raw) || !length(draws$sigma_uE))
+    stop("the fit carries the per-day effect but the draws hold no sigma_uE / uE_raw", call. = FALSE)
+  lam <- draws$lambda_E_S; nd <- dim(lam)[1]
+  sig <- as.numeric(draws$sigma_uE); uu <- as.matrix(draws$uE_raw); size <- as.numeric(draws$r_E)
+  ev <- as.Date(event_dates)
+  out <- list(streams = list(), coarse = list(), checks = NULL)
+  for (sn in c("gear", "trailer")) {
+    n <- as.integer(if (sn == "gear") stan_data$Gear_n %||% 0L else stan_data$T_n %||% 0L)
+    if (n == 0L) next
+    y   <- as.integer(if (sn == "gear") stan_data$Gear_I else stan_data$T_I)[seq_len(n)]
+    day <- as.integer(if (sn == "gear") stan_data$day_Gear else stan_data$day_T)[seq_len(n)]
+    sec <- as.integer((if (sn == "gear") stan_data$section_Gear else stan_data$section_T) %||% rep(1L, n))[seq_len(n)]
+    ed  <- as.integer(if (sn == "gear") stan_data$Eday_Gear else stan_data$Eday_T)[seq_len(n)]
+    mult <- if (sn == "gear") as.numeric(draws$R_G) else 1 / as.numeric(draws$R_G_boat)
+    if (!length(mult)) stop(sprintf("the %s stream needs %s draws", sn, if (sn == "gear") "R_G" else "R_G_boat"), call. = FALSE)
+    mu0 <- vapply(seq_len(n), function(i) rowSums(matrix(lam[, sec[i], day[i], , drop = FALSE], nrow = nd)) * mult, numeric(nd))
+    if (nd == 1L) mu0 <- matrix(mu0, nrow = 1L)
+    # check (i): the conditional log-likelihood from mu0 and the fitted deviations against the fit's own
+    llc <- draws[[paste0("log_lik_", sn)]]
+    gap <- if (is.null(llc)) NA_real_ else {
+      cond <- vapply(seq_len(n), function(i) stats::dnbinom(y[i], mu = mu0[, i] * exp(sig * uu[, ed[i]] - 0.5 * sig^2), size = size, log = TRUE), numeric(nd))
+      max(abs(cond - as.matrix(llc)))
+    }
+    dd <- tapply(as.character(ev[day]), ed, function(v) length(unique(v)))
+    if (any(dd != 1L)) stop(sprintf("a %s day-effect index spans more than one date", sn), call. = FALSE)
+    int <- bss_block_integrate_days(mu0, y, ed, sig, size, h = h, zmax = zmax)
+    day_date <- ev[day][match(int$days, ed)]
+    wk <- bss_block_weeks(day_date)
+    nc <- as.integer(table(factor(ed, levels = int$days)))
+    out$streams[[sn]] <- list(ll = int$fine, block = wk, n_counts = nc)
+    out$coarse[[sn]]  <- list(ll = int$coarse, block = wk, n_counts = nc)
+    out$checks <- rbind(out$checks, data.frame(stream = sn, counts = n, days = length(int$days), grid_step = h, grid_nodes = int$n_nodes,
+      conditional_loglik_max_abs_gap = gap, sigma_uE_mean = mean(sig), sigma_uE_q2.5 = unname(stats::quantile(sig, 0.025)),
+      sigma_uE_q97.5 = unname(stats::quantile(sig, 0.975)), stringsAsFactors = FALSE))
+  }
+  out
+}
+
 # The in-driver convenience: block tables for every effort stream of one fit, from the
 # stanfit's own log_lik_* generated quantities, written as loo_block_<stream>_<label>.csv.
 # `days_ss` gives the dates (event_date by day index) the weekly blocks are cut from.
@@ -371,7 +494,7 @@ bss_block_cv_fit <- function(streams, k_max = 0.7) {
 # ladder_block_<stream>_<label>_<resolution>.csv, so the report's block-CV table, which reads
 # the kept fit's loo_block_* files, is not mixed with rungs the run did not report.
 write_block_cv_diagnostics <- function(fit, stan_data, days_ss, label, output_dir, k_max = 0.7,
-                                       prefix = "loo_block") {
+                                       prefix = "loo_block", tol_loglik = 1e-6, tol_grid = 0.01) {
   if (is.null(fit) || !requireNamespace("loo", quietly = TRUE)) return(invisible(NULL))
   ev <- if (!is.null(days_ss) && "event_date" %in% names(days_ss)) as.Date(days_ss$event_date) else NULL
   if (is.null(ev)) return(invisible(NULL))
@@ -389,14 +512,63 @@ write_block_cv_diagnostics <- function(fit, stan_data, days_ss, label, output_di
     if (!is.null(got)) streams[[sn]] <- got
   }
   if (!length(streams)) return(invisible(NULL))
-  tabs <- tryCatch(bss_block_cv_fit(streams, k_max = k_max),
-                   error = function(e) { cat(sprintf("    [block CV] %s skipped: %s\n", label, conditionMessage(e))); NULL })
-  if (is.null(tabs)) return(invisible(NULL))
+  # D54 (B85): on a fit with the per-day effect, the gear and trailer streams are scored with each
+  # sampled day's deviation integrated out; the conditional tables are kept beside them.
+  integ <- NULL
+  if (identical(as.integer(stan_data$effort_day_effect %||% 0L), 1L) && as.integer(stan_data$n_Eday %||% 0L) > 0L &&
+      any(c("gear", "trailer") %in% names(streams))) {
+    integ <- tryCatch({
+      pars <- c("lambda_E_S", "r_E", "sigma_uE", "uE_raw",
+                if ("gear" %in% names(streams)) "R_G", if ("trailer" %in% names(streams)) "R_G_boat")
+      dr <- rstan::extract(fit, pars = pars)
+      for (sn in intersect(c("gear", "trailer"), names(streams))) dr[[paste0("log_lik_", sn)]] <- streams[[sn]]$ll
+      bss_block_day_streams(dr, stan_data, ev)
+    }, error = function(e) { cat(sprintf("    [block CV] %s: the day-integrated table was not built (%s); the conditional one is written\n", label, conditionMessage(e)))
+      if (exists("bss_warn", mode = "function")) bss_warn("block CV", sprintf("%s: the day-integrated held-out-week table was not built (%s); loo_block_* is the conditional table, unusable on most weeks of a fit with the per-day effect (D54)", label, conditionMessage(e)))
+      NULL })
+  }
+  tabs_cond <- tryCatch(bss_block_cv_fit(streams, k_max = k_max),
+                        error = function(e) { cat(sprintf("    [block CV] %s skipped: %s\n", label, conditionMessage(e))); NULL })
+  if (is.null(tabs_cond)) return(invisible(NULL))
+  tabs <- tabs_cond; unit <- "count"
+  if (!is.null(integ)) {
+    ok <- tryCatch({
+      s_int <- streams; s_crs <- streams
+      for (sn in names(integ$streams)) { s_int[[sn]] <- integ$streams[[sn]]; s_crs[[sn]] <- integ$coarse[[sn]] }
+      ti <- bss_block_cv_fit(s_int, k_max = k_max); th <- bss_block_cv_fit(s_crs, k_max = k_max)
+      top <- if ("joint" %in% names(ti)) "joint" else names(integ$streams)[1]
+      both <- merge(ti[[top]][, c("block", "elpd_block", "reliable")], th[[top]][, c("block", "elpd_block", "reliable")], by = "block")
+      rel <- both$reliable.x & both$reliable.y
+      gap_grid <- if (any(rel)) max(abs(both$elpd_block.x - both$elpd_block.y)[rel]) else NA_real_
+      gap_ll <- suppressWarnings(max(integ$checks$conditional_loglik_max_abs_gap, na.rm = TRUE))
+      chk <- cbind(fit = label, integ$checks, scored_row = top, weeks = nrow(ti[[top]]),
+                   reliable_conditional = sum(tabs_cond[[top]]$reliable), reliable_integrated = sum(ti[[top]]$reliable),
+                   median_k_conditional = stats::median(tabs_cond[[top]]$pareto_k), median_k_integrated = stats::median(ti[[top]]$pareto_k),
+                   grid_halving_max_abs_elpd_gap = gap_grid, check_i = is.finite(gap_ll) && gap_ll <= tol_loglik,
+                   check_ii = is.na(gap_grid) || gap_grid <= tol_grid, stringsAsFactors = FALSE)
+      utils::write.csv(chk, file.path(output_dir, sprintf("blockcv_checks_%s.csv", label)), row.names = FALSE)
+      if (!all(chk$check_i)) stop(sprintf("check (i) failed: the rebuilt conditional log-likelihood is %.2g from the fit's own", gap_ll))
+      if (!all(chk$check_ii) && exists("bss_warn", mode = "function"))
+        bss_warn("block CV", sprintf("%s: halving the quadrature grid moves a reliable week by %.3g nats (above %.2g); the day-integrated table is written, read it with that in mind", label, gap_grid, tol_grid))
+      ti
+    }, error = function(e) {
+      cat(sprintf("    [block CV] %s: the day-integrated table is not used (%s)\n", label, conditionMessage(e)))
+      if (exists("bss_warn", mode = "function")) bss_warn("block CV", sprintf("%s: the day-integrated held-out-week table is not used (%s); loo_block_* is the conditional table (D54)", label, conditionMessage(e)))
+      NULL })
+    if (!is.null(ok)) {
+      tabs <- ok; unit <- "sampled day (gear and trailer rows: the day deviation integrated out, D54)"
+      for (sn in names(tabs_cond)) {
+        tab <- cbind(data_type = sn, tabs_cond[[sn]], scored_unit = "count (conditional on the day deviation)", stringsAsFactors = FALSE)
+        utils::write.csv(tab, file.path(output_dir, sprintf("%scond_%s_%s.csv", prefix, sn, label)), row.names = FALSE)
+      }
+    }
+  }
   for (sn in names(tabs)) {
-    tab <- cbind(data_type = sn, tabs[[sn]], stringsAsFactors = FALSE)
+    tab <- cbind(data_type = sn, tabs[[sn]], scored_unit = unit, stringsAsFactors = FALSE)
     utils::write.csv(tab, file.path(output_dir, sprintf("%s_%s_%s.csv", prefix, sn, label)), row.names = FALSE)
-    cat(sprintf("    block CV %s/%s: %d weeks, %d reliable (k <= %.1f), held-out elpd %.1f; leave-out set %s\n",
-                label, sn, nrow(tab), sum(tab$reliable), k_max, sum(tab$elpd_block[tab$reliable]), tab$leaveout_streams[1]))
+    cat(sprintf("    block CV %s/%s: %d weeks, %d reliable (k <= %.1f), held-out elpd %.1f; leave-out set %s%s\n",
+                label, sn, nrow(tab), sum(tab$reliable), k_max, sum(tab$elpd_block[tab$reliable]), tab$leaveout_streams[1],
+                if (identical(unit, "count")) "" else "; day-integrated"))
   }
   invisible(tabs)
 }

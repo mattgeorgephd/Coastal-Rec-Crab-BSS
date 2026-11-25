@@ -40,8 +40,12 @@
 
 # Draw objects the PPC and zero-bin diagnostics read. Anything absent from a given fit
 # (theta_C when zi_catch = 0, R_T when the fit uses R_G_boat) is skipped silently.
+# D54 (B85, 2026-11-25): sigma_uE and uE_raw, the per-day effort effect (A39), so that a
+# committed run's gear and trailer log-likelihood can be rebuilt exactly from this file and
+# its held-out-week table re-read (bss_effort_loglik(), bss_block_day_streams()). Zero-size
+# on a fit without the effect, and then skipped.
 .sbd_pars <- c("lambda_E_S", "lambda_C_S", "r_E", "r_C", "R_G", "R_T", "R_G_boat",
-               "L_out", "kappa_OSP", "r_OSP", "theta_C")
+               "L_out", "kappa_OSP", "r_OSP", "theta_C", "sigma_uE", "uE_raw")
 
 save_bss_ppc_draws <- function(fit, stan_data, label, output_dir,
                                pars = .sbd_pars, max_draws = NULL, quiet = FALSE, seed = 1L) {
@@ -51,7 +55,7 @@ save_bss_ppc_draws <- function(fit, stan_data, label, output_dir,
     dr <- list()
     for (p in have) {
       x <- try(rstan::extract(fit, pars = p)[[p]], silent = TRUE)
-      if (!inherits(x, "try-error") && !is.null(x)) dr[[p]] <- x
+      if (!inherits(x, "try-error") && !is.null(x) && (length(x) > 0 || !p %in% c("sigma_uE", "uE_raw"))) dr[[p]] <- x
     }
     if (!length(dr)) return(invisible(NULL))
     # Draw count from the FIRST dimension whatever the rank: a scalar parameter extracts
