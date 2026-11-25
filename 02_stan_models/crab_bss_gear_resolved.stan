@@ -145,9 +145,9 @@ data {
   vector<lower=0,upper=1>[D] holiday;
   // A36 (2026-10-16): the Saturday/Sunday split of the weekend EFFORT effect, mirroring
   // crab_bss_pooled.stan (the comment there). sunday_split = 1 adds the Sunday increment B1_sun
-  // to the shared effort level; sun[d] is the calendar Sunday. sunday_split = 0 is bit-identical.
+  // to the shared effort level; sunday[d] is the calendar Sunday. sunday_split = 0 is bit-identical.
   int<lower=0,upper=1> sunday_split;
-  vector<lower=0,upper=1>[D] sun;
+  vector<lower=0,upper=1>[D] sunday;
 
   // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES, mirroring
   // crab_bss_pooled.stan. K_open = 0 reproduces the pre-2026-08-25 effort process
@@ -794,7 +794,7 @@ transformed parameters {
         // improvement 4: opener effort covariates on the shared effort level. K_open = 0
         // drops the term entirely, so the default path is byte-identical.
         real log_level_E = mu_E[1,s] + omega_E[period[d], s] + B1 * w[d] + B2 * holiday[d]
-          + (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0)   // A36: the Sunday increment
+          + (sunday_split == 1 ? B1_sun[1] * sunday[d] : 0.0)   // A36: the Sunday increment
           + (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0);
         for (g in 1:G) {
           // Effort split across gears by the O share (columns sum to 1 over g; O == 1 at G = 1).

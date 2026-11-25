@@ -362,7 +362,8 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     }
   }
 
-  # A36 (2026-10-16): the Saturday/Sunday split. sun is the calendar Sunday (prep_days_crab's
+  # A36 (2026-10-16): the Saturday/Sunday split. sunday (the Stan data name; `sun` until B84,
+  # 2026-11-25, renamed because Stan 2.39 mangles it, D53) is the calendar Sunday (prep_days_crab's
   # day_type_num_sunday; derived here when a caller built `days` without it), and the split is
   # on only under run_config sunday_split, so an off run's Stan data differ in nothing but these
   # fields and B1_sun stays zero-size.
@@ -377,7 +378,7 @@ prep_bss_crab_pooled <- function(days, summ, est_catch_group, params, population
     D=D, G=G, S=S,
     P_n=P_n, period=pvec,
     w=days$day_type_num_weekend, holiday=days$day_type_num_holiday,
-    sunday_split=.sun_split, sun=.sun,   # A36
+    sunday_split=.sun_split, sunday=.sun,   # A36
     K_open = as.integer(open_spec$K_open),
     X_open_flat = as.numeric(open_spec$X_open),   # flat, column-major; Stan rebuilds the matrix
     O=array(1.0, dim=c(D,S,G)),

@@ -69,7 +69,7 @@ bss_decoupled_reasons <- function(parameters, stan_data = NULL) {
   combo_d <- g("combo_dynamic", 0L);         cfc_n <- g("CFC_n", 0L)
   w_sum   <- sum(as.numeric(g("w", 0)), na.rm = TRUE)
   h_sum   <- sum(as.numeric(g("holiday", 0)), na.rm = TRUE)
-  sun_sum <- sum(as.numeric(g("sun", 0)), na.rm = TRUE)   # A36
+  sun_sum <- sum(as.numeric(g("sunday", g("sun", 0))), na.rm = TRUE)   # A36; "sun" in data saved before B84 (D53)
 
   if (ie_n == 0) set(base == "sigma_IE",
     "no I/E observations in this fit (IE_n = 0); sigma_IE is its prior")

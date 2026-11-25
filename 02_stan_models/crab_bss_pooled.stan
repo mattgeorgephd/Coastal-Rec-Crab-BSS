@@ -124,8 +124,8 @@ data {
   // A36 (2026-10-16): THE SATURDAY/SUNDAY SPLIT OF THE WEEKEND EFFORT EFFECT. sunday_split = 1
   // adds a Sunday increment B1_sun to the EFFORT process, so the day-type multiplier is 1 on a
   // weekday, exp(B1) on a Saturday, exp(B1 + B1_sun) on a Sunday, and exp(B2) more on a holiday
-  // on top of whichever day it fell on. sun[d] is the CALENDAR Sunday (the R prep's
-  // day_type_num_sunday): a Sunday holiday carries w, sun and holiday, and days_wkend does not
+  // on top of whichever day it fell on. sunday[d] is the CALENDAR Sunday (the R prep's
+  // day_type_num_sunday): a Sunday holiday carries w, sunday and holiday, and days_wkend does not
   // move it. The CPUE process keeps its pooled weekend effect (B1_C on w). The reason it exists:
   // Sunday is sampled on 10 of 196 boat days and 4 of 145 shore days in the 2024-25 all-gear
   // window, so a pooled weekend effect is Saturday's effect applied to every Sunday with
@@ -134,7 +134,7 @@ data {
   // where they were not. sunday_split = 0 is bit-identical to the model without it (B1_sun is
   // zero-size, so the unconstrained parameter vector is unchanged).
   int<lower=0,upper=1> sunday_split;
-  vector<lower=0,upper=1>[D] sun;
+  vector<lower=0,upper=1>[D] sunday;
   // improvement 4 (2026-08-25): OTHER-FISHERY OPENER EFFORT COVARIATES.
   // Generalizes the single razor-dig indicator into a K_open-column design matrix on
   // the EFFORT process, so any opener (razor dig, MA2 halibut / salmon / bottomfish)
@@ -792,7 +792,7 @@ transformed parameters {
         //   is byte-identical to the pre-2026-08-25 effort process.
         lambda_E_S[s][d,g] = exp(mu_E[g,s] +
           to_matrix(omega_E[period[d],], G, S)[g,s] + B1 * w[d] + B2 * holiday[d] +
-          (sunday_split == 1 ? B1_sun[1] * sun[d] : 0.0) +   // A36: the Sunday increment
+          (sunday_split == 1 ? B1_sun[1] * sunday[d] : 0.0) +   // A36: the Sunday increment
           (K_open > 0 ? dot_product(X_open[d], B_open) : 0.0)) * O[d,s,g];
         // CPUE: AR deviation + weekend + holiday (B2_C, item 6a) + optional same-day-effort
         //   density-dependence (gamma_C, item 6b; only when estimate_cpue_density = 1). The

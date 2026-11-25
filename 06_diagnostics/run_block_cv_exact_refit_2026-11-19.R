@@ -109,6 +109,8 @@ ds <- ds[file.exists(file.path(ds, sprintf("ppc_draws_%s.rds", FIT_BOAT)))]
 if (!length(ds)) stop("the arm's run folder (with ppc_draws) is not on this machine")
 dir <- ds[length(ds)]
 sd0 <- readRDS(file.path(dir, sprintf("ppc_draws_%s.rds", FIT_BOAT)))$stan_data
+# B84 (2026-11-25, D53): the Stan data name of the A36 Sunday indicator is now sunday; data saved before it calls it sun
+if (is.null(sd0[["sunday"]]) && !is.null(sd0[["sun"]])) { sd0[["sunday"]] <- sd0[["sun"]]; sd0[["sun"]] <- NULL }
 pw <- rd(file.path(dir, sprintf("loo_pointwise_trailer_%s.csv", FIT_BOAT)))
 Tn <- as.integer(sd0[["T_n"]]); stopifnot(nrow(pw) == Tn, identical(as.integer(sd0[["T_I"]])[seq_len(Tn)], as.integer(pw$observed)))
 wk <- bss_block_weeks(pw$event_date)

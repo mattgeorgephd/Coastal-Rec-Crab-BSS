@@ -120,6 +120,14 @@ stanc_run <- function(js, code, flags = character(0), name = "model") {
 stanc_version <- function(js) { x <- readLines(js, warn = FALSE); m <- regmatches(x, regexpr("stanc3 v[0-9.]+", x)); if (length(m)) m[1] else NA_character_ }
 read_old <- function(path) paste(system2("git", c("show", sprintf("%s:%s", OLD_REF, path)), stdout = TRUE), collapse = "\n")
 read_new <- function(path) paste(readLines(path, warn = FALSE), collapse = "\n")
+# the identifier sun as the 2.32 parser writes it in C++: sun, and sun_data__ / sun_flat__ (a trailing
+# underscore is still the same name), never B1_sun or sunday_split
+SUN_MAP <- "(?<![A-Za-z0-9_])sun(?![A-Za-z0-9])"
+# and because sunday is three characters longer, stanc's C++ printer indents the continuation lines
+# of a call that names it three columns further: whitespace outside string literals means nothing to
+# C++, so the renamed comparisons collapse every run of white space first (read 2026-11-25; the first
+# two reads of 4b failed on the map and then on this indentation, both the comparison's, not the C++'s)
+ws <- function(x) gsub("[[:space:]]+", " ", x)
 norm_cpp <- function(cpp) gsub("\\(in '[^']*', line [0-9]+, column [0-9]+ to (line [0-9]+, )?column [0-9]+\\)", "(in <loc>)", cpp)
 
 js232 <- system.file("stanc.js", package = "StanHeaders")
@@ -199,26 +207,30 @@ for (m in names(PROGRAMS)) {
   for (fl in list(character(0), "O1")) {
     co <- stanc_run(js232, old, fl)$cpp; cn <- n32$cpp
     if (length(fl)) cn <- stanc_run(js232, new, fl)$cpp
-    raw_same <- identical(co, cn); nsame <- identical(norm_cpp(co), norm_cpp(cn))
+    # once the rename of (4b) is in the tree, the old program's identifier sun is mapped to sunday
+    # before the comparison (4b itself checks the rename against the converted program alone)
+    renamed <- grepl("\\bsunday\\b", new, perl = TRUE)
+    raw_same <- identical(co, cn)
+    nsame <- if (renamed) identical(ws(gsub(SUN_MAP, "sunday", norm_cpp(co), perl = TRUE)), ws(norm_cpp(cn))) else identical(norm_cpp(co), norm_cpp(cn))
     nloc <- length(gregexpr("\\(in '[^']*', line [0-9]+", co)[[1]])
-    first <- if (nsame) "" else { a <- strsplit(norm_cpp(co), "\n")[[1]]; b <- strsplit(norm_cpp(cn), "\n")[[1]]; k <- which(a[seq_len(min(length(a), length(b)))] != b[seq_len(min(length(a), length(b)))])[1]
+    first <- if (nsame) "" else { a <- strsplit(if (renamed) gsub(SUN_MAP, "sunday", norm_cpp(co), perl = TRUE) else norm_cpp(co), "\n")[[1]]; b <- strsplit(norm_cpp(cn), "\n")[[1]]; k <- which(a[seq_len(min(length(a), length(b)))] != b[seq_len(min(length(a), length(b)))])[1]
       sprintf("; first difference at C++ line %s: [%s] vs [%s]", k, substr(a[k], 1, 120), substr(b[k], 1, 120)) }
-    add(m, "4", sprintf("generated C++ identical up to source-location strings (flags: %s)", if (length(fl)) fl else "rstan default"),
+    add(m, "4", sprintf("generated C++ identical up to source-location strings%s (flags: %s)", if (renamed) ", the identifier sun -> sunday and white space" else "", if (length(fl)) fl else "rstan default"),
         sprintf("%s characters; raw text %s; %d location strings normalised; normalised text %s%s", format(nchar(co), big.mark = ","),
                 if (raw_same) "identical" else "differs", nloc, if (nsame) "IDENTICAL" else "DIFFERS", first),
         nchar(co) > 0 && nsame)
   }
 }
 # (4b): the rename of sun to sunday, against the program as converted
-conv_ref <- system2("git", c("log", "-1", "--format=%h", "--grep=^B84 conversion"), stdout = TRUE)
+conv_ref <- system2("git", c("log", "-1", "--format=%h", shQuote("--grep=^B84 conversion")), stdout = TRUE)   # system2 does not quote: the space needs it
 if (length(conv_ref) == 1L && nzchar(conv_ref)) for (m in names(PROGRAMS)) {
   conv <- paste(system2("git", c("show", sprintf("%s:%s", conv_ref, PROGRAMS[[m]])), stdout = TRUE), collapse = "\n")
   new <- read_new(PROGRAMS[[m]])
   if (!grepl("\\bsunday\\b", new, perl = TRUE)) next                     # not renamed yet
   for (fl in list(character(0), "O1")) {
     cc <- stanc_run(js232, conv, fl)$cpp; cn <- stanc_run(js232, new, fl)$cpp
-    cc_m <- gsub("\\bsun\\b", "sunday", norm_cpp(cc), perl = TRUE)
-    same <- identical(cc_m, norm_cpp(cn))
+    cc_m <- gsub(SUN_MAP, "sunday", norm_cpp(cc), perl = TRUE)
+    same <- identical(ws(cc_m), ws(norm_cpp(cn)))
     add(m, "4b", sprintf("the rename sun -> sunday: C++ identical to the converted program's with the identifier mapped (flags: %s)", if (length(fl)) fl else "rstan default"),
         sprintf("against %s; %s", conv_ref, if (same) "IDENTICAL" else "DIFFERS"), nchar(cc) > 0 && same)
   }
