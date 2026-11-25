@@ -119,7 +119,12 @@ stanc_run <- function(js, code, flags = character(0), name = "model") {
 }
 stanc_version <- function(js) { x <- readLines(js, warn = FALSE); m <- regmatches(x, regexpr("stanc3 v[0-9.]+", x)); if (length(m)) m[1] else NA_character_ }
 read_old <- function(path) paste(system2("git", c("show", sprintf("%s:%s", OLD_REF, path)), stdout = TRUE), collapse = "\n")
-read_new <- function(path) paste(readLines(path, warn = FALSE), collapse = "\n")
+# The programs the rule certifies are those AT THE RENAME COMMIT (the message starting "B84 rename"), not the
+# working tree: later deliberate changes (B86 added the D55 switch in 2442411) are not this rule's to judge, and
+# a re-run on the working tree after them read as differences (read 2026-11-25). Before the rename exists, and
+# with --convert, the working tree is read.
+.new_ref <- local({ x <- suppressWarnings(system2("git", c("log", "-1", "--format=%h", shQuote("--grep=^B84 rename")), stdout = TRUE)); if (length(x) == 1L && nzchar(x)) x else NA_character_ })
+read_new <- function(path) if (!is.na(.new_ref) && !("--convert" %in% .args)) paste(system2("git", c("show", sprintf("%s:%s", .new_ref, path)), stdout = TRUE), collapse = "\n") else paste(readLines(path, warn = FALSE), collapse = "\n")
 # the identifier sun as the 2.32 parser writes it in C++: sun, and sun_data__ / sun_flat__ (a trailing
 # underscore is still the same name), never B1_sun or sunday_split
 SUN_MAP <- "(?<![A-Za-z0-9_])sun(?![A-Za-z0-9])"

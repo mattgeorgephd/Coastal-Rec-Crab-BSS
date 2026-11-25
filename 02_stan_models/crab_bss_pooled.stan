@@ -1130,7 +1130,9 @@ generated quantities {
       real vd = 0;
       real fd;
       for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
-      vd = fmax(vd * L[d], 1e-9);
+      // D55 (B86): a day that carries its deviation has the level times its day factor as its volume;
+      // the factor is the literal 1.0 on every other day, so with boat_day_carry = 0 nothing moves
+      vd = fmax(vd * L[d] * ((effort_day_effect == 1 && eday_of_day[d] > 0) ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0), 1e-9);
       fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
       bw_num[f_stratum[d]] += vd * fd;
       bw_den[f_stratum[d]] += vd;
@@ -1199,18 +1201,19 @@ generated quantities {
     for (d in 1:D) {
       // D40: the day's own share under the volume term, from the model's daily boat volume
       // (the OSP stream's mean); the stratum's share otherwise, bit-identical to before.
+      // D45 lever: on a day with gear counts the reported effort and catch carry the fitted day deviation
+      // (mean one across days, so an unsampled day's expectation is the level); the literal 1.0 when off,
+      // and on every boat day (eday_of_day is built from the gear counts, and under D55's boat_day_carry = 1 also from the sampled
+      // trailer days without an OSP count). Computed before the share, which takes the carried volume (B86).
+      real df = (effort_day_effect == 1 && eday_of_day[d] > 0)
+                ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0;
       real fd = f_crab[f_stratum[d]];
       if (n_fvol == 1) {
         real vd = 0;
         for (s2 in 1:S) vd += lambda_E_S[s2][d, G] / R_G_boat;
-        vd = fmax(vd * L[d], 1e-9);
+        vd = fmax(vd * L[d] * df, 1e-9);   // D55 (B86): df is 1.0 unless the day carries its deviation
         fd = 1e-6 + (1 - 2e-6) * inv_logit(eta_f[f_stratum[d]] + beta_fvol[1] * (log(vd) - fvol_centre[f_stratum[d]]));
       }
-      // D45 lever: on a day with gear counts the reported effort and catch carry the fitted day deviation
-      // (mean one across days, so an unsampled day's expectation is the level); the literal 1.0 when off,
-      // and on every boat day (eday_of_day is built from the gear counts only).
-      real df = (effort_day_effect == 1 && eday_of_day[d] > 0)
-                ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0;
       for (s in 1:S) {
         // P1/POOL-3: E_scale converts lambda_E to the unit of h (see effort_scale_gear).
         // ZERO INFLATION SCALES THE REPORTED TOTAL, and getting this wrong would silently

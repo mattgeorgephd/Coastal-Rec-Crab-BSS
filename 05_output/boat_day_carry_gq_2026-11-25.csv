@@ -1,0 +1,7 @@
+"clause","what","observed","value","pass","verdict"
+"1","flag 0: C_expected_sum equals the fit's, every draw (max relative gap)",1.28008306110331e-15,NA,TRUE,"ACCEPTED"
+"1","flag 0: E_sum equals the fit's, every draw (max relative gap)",7.95924587402777e-16,NA,TRUE,"ACCEPTED"
+"2b","flag 1: C_expected_sum equals the R recomputation, every draw (max relative gap)",1.8309455442833e-15,34361.4026407601,TRUE,"ACCEPTED"
+"2b","flag 1: E_sum equals the R recomputation, every draw (max relative gap)",1.64251530523243e-15,11681.38463457,TRUE,"ACCEPTED"
+"3","flag 1: effort on the OSP days unchanged, every draw (max relative gap)",1.88178546540862e-15,NA,TRUE,"ACCEPTED"
+"reported","the first form's price (share held at the level's volume, B80's what-if), median C_expected_sum",NA,34686.4424674263,NA,"ACCEPTED"

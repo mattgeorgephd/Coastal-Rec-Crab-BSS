@@ -606,10 +606,12 @@ run_config <- list(
   # level with slope 0.93 [0.73, 1.12] (R^2 0.65; carrying it beats the level when the slope
   # exceeds 0.5), so it is real boat effort, not snapshot. "carry_without_osp" carries each such
   # day's fitted deviation into its reported effort and catch, as a shore day does (an OSP day
-  # keeps the level times its own L[d], or OSP's day would be counted twice). Priced exactly from
-  # the authoritative fit (generated quantities only, no refit): boat all-gear 35,462 to 34,686
-  # (-2.2%), port about -0.9%; 2025-26 readiness render -4.4%. "level" ships (bit-identical to
-  # every render before it); the choice is Matt's (CHANGE_REGISTER D55). Stan data, no recompile.
+  # keeps the level times its own L[d], or OSP's day would be counted twice). The carried day's
+  # crabbing share is taken at its carried volume, as A34's share is a function of the day's real
+  # volume. Priced exactly from the authoritative fit (generated quantities only, no refit): boat
+  # all-gear 35,462 to 34,361 (-3.1%), port about -1.3%. "level" ships (bit-identical to every
+  # render before it); the choice is Matt's (CHANGE_REGISTER D55; the related D56 is separate).
+  # Stan data, no recompile.
   boat_day_effect_reporting = "level",   # "level" | "carry_without_osp"
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
