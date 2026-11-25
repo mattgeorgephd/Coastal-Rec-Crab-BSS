@@ -616,7 +616,13 @@ run_config <- list(
   # THE RULE (A42, written and committed with the switch before the render): the render of run_config.R as shipped, --model both, on a clean tree, is adopted as the authoritative run if (1) every fit on both tracks passes the convergence gate and no chain is stuck; (2) the six fits the switch cannot reach (the four shore fits, which have no trailer counts, and the two boat pot-closure fits, where A40's floor keeps the per-day effect off) reproduce B70's saved draws byte for byte; (3) on the two boat all-gear fits every row of structural_params_*.csv equals B70's (the switch acts only in the generated quantities, so the sampler's draws are B70's), except the boat-weighted share rows, which it is built to change; (4) the pooled boat all-gear expected catch equals B86's exact replay, 34,361.4, within 0.5 crab; (5) the cross-check is within cross_check_tolerance.
   # Reported, not judged: the port total and its interval, the gear track's boat all-gear figure, the boat catch by month, the PE against the BSS.
   # If a clause fails, the key goes back to "level", the failure is recorded, and B70 stays the authoritative run.
-  boat_day_effect_reporting = "carry_without_osp",   # "level" (bit-identical to B70) | "carry_without_osp" (A42)
+  # RENDERED 2026-11-25 (B89): clauses (1), (2) and (5) met, (3) and (4) NOT MET. The rule assumed the
+  # switch could not move the sampler's draws; it does, because Stan draws the generated quantities'
+  # random numbers from the sampler's stream, so the render is another realisation of the same posterior
+  # (60 structural parameters within Monte Carlo error of B70's, the largest 0.04 posterior SD) and the
+  # switch is exact on its own draws (-3.22%). By the rule the key is back at "level" and B70 stays the
+  # authoritative run; the corrected rule and the render are with Matt (CHANGE_REGISTER A42, B89).
+  boat_day_effect_reporting = "level",   # "level" (B70, ships) | "carry_without_osp" (A42, adopted by Matt, rule not met)
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 

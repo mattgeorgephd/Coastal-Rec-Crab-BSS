@@ -8754,8 +8754,8 @@ local({
       !is.null(bd) && bd$days[1] == 51 && near(bd$slope[1], 0.926, 5e-4) && near(bd$lo95[1], 0.730, 5e-4) && near(bd$hi95[1], 1.123, 5e-4) &&
       grepl("mostly real boat effort", bd$reading[1], fixed = TRUE) && near(bd$slope[5], -0.430, 5e-4))
   rcf <- rdf("run_config.R")
-  chk("B86 / A42 (D55): run_config ships boat_day_effect_reporting = \"carry_without_osp\" since A42 (Matt, 2026-11-25); bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
-      grepl('boat_day_effect_reporting = "carry_without_osp",', rcf, fixed = TRUE) && grepl("| A42 | **A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
+  chk("B86 / A42 / B89 (D55): A42 was adopted by Matt and its render did not meet the rule, so run_config ships boat_day_effect_reporting = \"level\"; bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
+      grepl('boat_day_effect_reporting = "level",   # "level" (B70, ships)', rcf, fixed = TRUE) && grepl("| A42 | **A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
       { source("03_R_functions/bss_effort_spec.R", local = TRUE)
         identical(bss_boat_day_carry(list()), 0L) && identical(bss_boat_day_carry(list(boat_day_effect_reporting = "level")), 0L) &&
         identical(bss_boat_day_carry(list(boat_day_effect_reporting = "carry_without_osp")), 1L) &&
@@ -8783,7 +8783,7 @@ local({
   chk("B84 to B88 pointers: the register (B84 to B88, D53 and D54 CLOSED, D55 evidence and switch, D56 open, D31 CLOSED by Matt), campaign 1z.22 and its anchor, the status entry, limitation 18, the READMEs and the guidance",
       all(vapply(c("| B84 |", "| B85 |", "| B86 |", "| B87 |", "| B88 |", "| D56 |"), function(x) grepl(x, cr, fixed = TRUE), logical(1))) &&
       grepl("| **CLOSED 2026-11-25 (B84):", cr, fixed = TRUE) && grepl("| **CLOSED 2026-11-25 (B85):", cr, fixed = TRUE) &&
-      grepl("| **ADOPTED 2026-11-25 (A42; Matt: \"D55: adopt carry_without_osp\"); the render under A42's rule is the confirmation.** EVIDENCE IN AND SWITCH BUILT 2026-11-25 (B86).", cr, fixed = TRUE) && grepl("**WAITING FOR OSP'S 2025-26 RECORD (Matt, 2026-11-25:", cr, fixed = TRUE) &&
+      grepl("| **ADOPTED BY MATT 2026-11-25 (A42); its render (B89) did not meet the rule's clauses (3) and (4)", cr, fixed = TRUE) && grepl("**WAITING FOR OSP'S 2025-26 RECORD (Matt, 2026-11-25:", cr, fixed = TRUE) &&
       grepl("| **CLOSED 2026-11-25 (Matt: \"close as answered, with the limits in Section 6.2\" of the A30 brief).**", cr, fixed = TRUE) &&
       grepl("### 1z.22 D53, D54 and D55 addressed; D56 opened", vc, fixed = TRUE) && grepl("no authoritative fit; 1z.22) |", vc, fixed = TRUE) &&
       grepl("- **[NEW 2026-11-25, B86 to B88; D55 evidence in and switch built, D56 OPENED; both decisions are Matt's] What a boat day is credited with.**", st, fixed = TRUE) &&
@@ -8813,6 +8813,12 @@ local({
       grepl("| 2026-11-25 | five mistakes in my own check scripts of 2026-11-25", cr, fixed = TRUE) &&
       grepl("| 2026-11-25 | the rename commit was cited as `50f7f6f`", cr, fixed = TRUE) && !grepl("RENDER_CLAUSE5|GQ_CHECK_LINE", cr) &&
       !grepl("RENDER_ANCHOR|GQ_ANCHOR|GQ_CLAUSE|RENDER_CLAUSE5", vc) && !grepl("RENDER_SUMMARY", st, fixed = TRUE))
+  ak <- rc("05_output/a42_render_check_2026-11-25.csv"); ar <- rc("05_output/a42_render_replay_2026-11-25.csv")
+  chk("B89 (A42): the render met clauses 1, 2 and 5 and not 3 and 4, so the key is back at level; on its own draws the switch is exact (-3.22%)",
+      !is.null(ak) && all(as.logical(ak$pass[ak$clause %in% c("1", "2", "5")])) && !any(as.logical(ak$pass[ak$clause %in% c("3", "4")])) &&
+      sum(ak$clause == "2") == 6 && grepl("NOT MET", ak$verdict[1], fixed = TRUE) && !is.null(ar) &&
+      ar$value[ar$quantity == "replay_on_max_rel_gap"] < 1e-9 && near(ar$value[ar$quantity == "switch_effect_pct"], -3.22, 0.01) &&
+      grepl("| B89 | **The A42 render:", cr, fixed = TRUE) && grepl("| 2026-11-25 | A42's rule (`ebc4038`), which I wrote, assumed", cr, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
