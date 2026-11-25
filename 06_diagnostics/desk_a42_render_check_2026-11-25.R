@@ -31,14 +31,16 @@
 #   (5) the cross-check is within cross_check_tolerance (its own verdict)
 # and reports the port total, the components against B70 and the boat catch by month.
 #
-# HOW TO RUN   RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/desk_a42_render_check_2026-11-25.R <render date folder>
+# HOW TO RUN   RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/desk_a42_render_check_2026-11-25.R <pooled folder> <gear folder> <cross_check csv>
 # WRITES       05_output/a42_render_check_2026-11-25.csv, _components.csv, _months.csv
 ###############################################################################
 .args <- commandArgs(trailingOnly = TRUE)
-if (!length(.args)) stop("give the render's dated folder, e.g. 05_output/20261125")
-R <- .args[1]
+# the render's two run folders and its cross-check file, explicitly: a dated folder can hold an earlier
+# render under the unsuffixed names (on 2026-11-25 it held B84's confirmation render), and the A42 render
+# then writes to <name>-HHMMSS
+if (length(.args) != 3L) stop("give the pooled run folder, the gear run folder and the cross_check_*.csv file")
 B70 <- c(pooled = "05_output/20261019/pooled-CPUE-2024-25", gear = "05_output/20261019/gear-type-CPUE-model-2024-25")
-NEW <- c(pooled = file.path(R, "pooled-CPUE-2024-25"), gear = file.path(R, "gear-type-CPUE-model-2024-25"))
+NEW <- c(pooled = .args[1], gear = .args[2]); CC <- .args[3]
 stopifnot(all(dir.exists(NEW)))
 rd <- function(p) utils::read.csv(p, stringsAsFactors = FALSE, check.names = FALSE)
 UNREACHED <- c("shore_all_gear", "shore_ring_net_only", "private_boat_ring_net_only")
@@ -62,7 +64,7 @@ for (tr in names(NEW)) {
 pv <- rd(file.path(NEW[["pooled"]], "pe_vs_bss_comparison.csv"))
 boat <- pv$BSS_catch[pv$component == "private_boat (All gear)"]
 add("4", "pooled boat all-gear expected catch against B86's replay (34,361.4)", sprintf("%.1f", boat), isTRUE(abs(boat - 34361.4) <= 1))   # the file rounds to whole crab, so 34,361 is 0.4 from the replay
-cc <- rd(Sys.glob(file.path(R, "cross_check_*.csv"))[1])
+cc <- rd(CC)
 add("5", "the cross-check within tolerance", sprintf("pooled %s, gear %s, %+.2f%%, %s", format(cc$pooled_median, big.mark = ","), format(cc$gear_median, big.mark = ","), cc$gear_minus_pooled_pct, cc$verdict), identical(cc$verdict, "PASS"))
 res <- do.call(rbind, rows); res$verdict <- if (all(res$pass)) "ADOPTED: every clause met" else "NOT MET: the key goes back to \"level\""
 print(res[, c("clause", "what", "observed", "pass")], row.names = FALSE, right = FALSE); cat("\nA42:", res$verdict[1], "\n")
