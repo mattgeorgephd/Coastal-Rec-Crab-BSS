@@ -8754,8 +8754,8 @@ local({
       !is.null(bd) && bd$days[1] == 51 && near(bd$slope[1], 0.926, 5e-4) && near(bd$lo95[1], 0.730, 5e-4) && near(bd$hi95[1], 1.123, 5e-4) &&
       grepl("mostly real boat effort", bd$reading[1], fixed = TRUE) && near(bd$slope[5], -0.430, 5e-4))
   rcf <- rdf("run_config.R")
-  chk("B86 (D55): run_config ships boat_day_effect_reporting = \"level\"; bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
-      grepl('boat_day_effect_reporting = "level",', rcf, fixed = TRUE) &&
+  chk("B86 / A42 (D55): run_config ships boat_day_effect_reporting = \"carry_without_osp\" since A42 (Matt, 2026-11-25); bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
+      grepl('boat_day_effect_reporting = "carry_without_osp",', rcf, fixed = TRUE) && grepl("| A42 | **A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
       { source("03_R_functions/bss_effort_spec.R", local = TRUE)
         identical(bss_boat_day_carry(list()), 0L) && identical(bss_boat_day_carry(list(boat_day_effect_reporting = "level")), 0L) &&
         identical(bss_boat_day_carry(list(boat_day_effect_reporting = "carry_without_osp")), 1L) &&
