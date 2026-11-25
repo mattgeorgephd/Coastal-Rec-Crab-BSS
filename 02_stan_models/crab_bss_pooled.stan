@@ -263,6 +263,10 @@ data {
   array[Gear_n] int<lower=1> Eday_Gear;
   array[T_n] int<lower=1> Eday_T;
   real<lower=0> value_normal_sigma_uE;
+  // D55 (B86, 2026-11-25): 1 = a sampled TRAILER day with no OSP count carries its fitted day deviation
+  // into the reported effort and catch, as a shore day with gear counts does; 0 (ships) = every boat day
+  // reports the level, as since A39. Read only in transformed data (eday_of_day); 0 is bit-identical.
+  int<lower=0, upper=1> boat_day_carry;
 
   // --- Phase 1: OSP boat-count observations (second boat effort stream) ---
   // OSP_I is the DAILY BOAT TOTAL (all private boats) on OSP-sampled days. It
@@ -535,6 +539,16 @@ transformed data {
   array[D] int eday_of_day;
   for (d in 1:D) eday_of_day[d] = 0;
   for (i in 1:Gear_n) eday_of_day[day_Gear[i]] = Eday_Gear[i];
+  // D55 (B86, 2026-11-25): A39's premise holds on an OSP day (OSP's count sets that day's L[d]) and not on
+  // a trailer day without one: on the 51 days of 2024-25 with both counts the trailer deviation predicts
+  // OSP's boat total with slope 0.93 [0.73, 1.12], so it is boat effort, not snapshot. Under
+  // boat_day_carry = 1 such a day carries it; an OSP day does not, or its boats would count twice.
+  if (boat_day_carry == 1 && effort_day_effect == 1) {
+    array[D] int osp_on_day = rep_array(0, D);
+    for (i in 1:OSP_n) osp_on_day[day_OSP[i]] = 1;
+    for (i in 1:T_n)
+      if (eday_of_day[day_T[i]] == 0 && osp_on_day[day_T[i]] == 0) eday_of_day[day_T[i]] = Eday_T[i];
+  }
   int n_f_leg = crab_fraction_estimate * (1 - crab_fraction_dynamic);
   int n_c_dyn = n_f_dyn * combo_dynamic;   // 2026-09-09: the combo-share walk is live
   int n_fvol = n_f_dyn * f_volume;         // D40: the day-level volume term is live

@@ -654,6 +654,9 @@ prep_bss_crab_gear <- function(days, summ, est_catch_group, params, population_n
     Eday_Gear = if(is_shore) as.integer(.eday) else integer(0),
     Eday_T = if(!is_shore) as.integer(.eday) else integer(0),
     value_normal_sigma_uE = as.numeric(params$effort_day_effect_sd %||% 0.5),
+    # D55 (B86, 2026-11-25): a sampled trailer day with no OSP count carries its fitted deviation
+    # into the reported effort and catch under "carry_without_osp"; "level" (ships) is bit-identical
+    boat_day_carry = bss_boat_day_carry(params),
 
     # Phase 1b: OSP boat-count stream (empty for shore / when toggle off)
     OSP_n = OSP_n,

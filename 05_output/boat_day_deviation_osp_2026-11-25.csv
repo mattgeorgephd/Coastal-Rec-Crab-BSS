@@ -1,0 +1,6 @@
+"what","days","intercept","slope","se_hc3","lo95","hi95","r_squared","reading","note"
+"PRIMARY: r_d on delta_d, every overlap day",51,0.0328358388958352,0.926431275343603,0.100454947403511,0.729539578432721,1.12332297225449,0.653281411957413,"the trailer deviation is mostly real boat effort: carrying it predicts a trailer-only day's boats better than the level (A39's premise fails there)",""
+"days with two or more trailer counts",27,0.178310418297284,0.886072324645752,0.113873895450143,0.662879489563471,1.10926515972803,0.774883034100489,"",""
+"model-light: r_d on log(mean trailers) - log(lambda / R_G_boat)",51,-0.0497835687733867,0.742458643162896,0.0780943924266064,0.589393634006748,0.895523652319045,0.634630929518838,"",""
+"day bootstrap of the primary slope (2,000, seed 1)",51,NA,0.924802307265273,0.101861113938748,0.75204260216018,1.15148531418625,NA,"","percentile interval"
+"squared error per day, carried minus level (negative favours carrying)",51,NA,-0.430049364573933,0.11670409604908,-0.65878939283013,-0.201309336317737,NA,"","mean squared error: level 0.6625, carried 0.2324"

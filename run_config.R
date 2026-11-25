@@ -596,6 +596,21 @@ run_config <- list(
   effort_day_effect    = TRUE,
   effort_day_effect_sd = 0.5,          # half-normal scale of sigma_uE (log scale)
   effort_day_effect_min_repeat_days = 5,   # A40: the identification floor (sampled days with 2+ counts)
+  # D55 (2026-11-25, B86): WHAT A SAMPLED TRAILER DAY WITH NO OSP COUNT REPORTS. A39 keeps the
+  # LEVEL on every boat day, on the premise that the trailer counts' shared deviation is a
+  # snapshot nuisance and OSP's every-boat total pins the day. On an OSP day that holds: the
+  # day's L[d] is set by OSP's count. On a trailer day without one (every December to February
+  # day, 92 of 143 sampled trailer days on 2024-25, every boat day of 2025-26 so far) it was
+  # tested (06_diagnostics/desk_boat_day_deviation_osp_2026-11-25.R, rule first): on the 51 days
+  # of 2024-25 with both counts, the trailer deviation predicts OSP's boat total against the
+  # level with slope 0.93 [0.73, 1.12] (R^2 0.65; carrying it beats the level when the slope
+  # exceeds 0.5), so it is real boat effort, not snapshot. "carry_without_osp" carries each such
+  # day's fitted deviation into its reported effort and catch, as a shore day does (an OSP day
+  # keeps the level times its own L[d], or OSP's day would be counted twice). Priced exactly from
+  # the authoritative fit (generated quantities only, no refit): boat all-gear 35,462 to 34,686
+  # (-2.2%), port about -0.9%; 2025-26 readiness render -4.4%. "level" ships (bit-identical to
+  # every render before it); the choice is Matt's (CHANGE_REGISTER D55). Stan data, no recompile.
+  boat_day_effect_reporting = "level",   # "level" | "carry_without_osp"
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 
