@@ -7493,7 +7493,8 @@ local({
         { df_ <- " * df"   # B68 / A39 (2026-10-18): the totals on both tracks also carry the day effect's factor, the literal 1.0 when off
           grepl("real fd = f_crab[f_stratum[d]];", st_, fixed = TRUE) && grepl(paste0("lambda_C_S[s][d,g] * fd * zi_scale", df_, ";"), st_, fixed = TRUE) &&
           grepl(paste0("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * fd", df_, ";"), st_, fixed = TRUE) } &&
-        !grepl("f_crab[f_stratum[d]] * zi_scale", st_, fixed = TRUE) && grepl("vd = fmax(vd * L[d], 1e-9);", st_, fixed = TRUE))
+        # B86 (2026-11-25): the day's volume carries df, the literal 1.0 unless the day carries its deviation (D55's switch)
+        !grepl("f_crab[f_stratum[d]] * zi_scale", st_, fixed = TRUE) && grepl("vd = fmax(vd * L[d] * df, 1e-9);", st_, fixed = TRUE))
     chk(sprintf("D40 %s: both classification streams see the day's share when the term is on", basename(sf)),
         grepl("eta_f[cfi_stratum[i]] + beta_fvol[1] * cfi_x[i]", st_, fixed = TRUE) &&
         grepl("eta_f[osp_f_stratum[i]] + beta_fvol[1] * osp_f_x[i]", st_, fixed = TRUE) &&
@@ -8794,6 +8795,24 @@ local({
       grepl("The 2026-11-25 tables (campaign 1z.22)", orr, fixed = TRUE) &&
       grepl("**Current Stan works too (D53, closed 2026-11-25, B84):**", cl, fixed = TRUE) && grepl("`boat_day_effect_reporting` (B86, 2026-11-25", cl, fixed = TRUE) &&
       grepl("**Two open decisions move the boat estimate (2026-11-25, campaign 1z.22).**", cl, fixed = TRUE))
+  chk("B84 (D53): clause (5) holds on both tracks: the confirmation render's eight fits are B70's byte for byte and its port totals agree in every column B70's file has",
+      !is.null(sx) && all(c("5") %in% sx$clause) && sum(sx$clause == "5") == 2 && all(as.logical(sx$pass[sx$clause == "5"])) &&
+      all(grepl("4 of 4 bss_draws_summed files identical; port totals identical in every column B70's file has", sx$observed[sx$clause == "5"], fixed = TRUE)) &&
+      length(unique(sx$program)) == 2 && nrow(sx) == 16 && all(as.logical(sx$pass)))
+  gq <- rc("05_output/boat_day_carry_gq_2026-11-25.csv")
+  chk("B86: the switch that ships (the share at the carried volume) replays the authoritative fit exactly: off equals the fit, on equals the R recomputation (34,361.4, -3.10%), no OSP day moves",
+      !is.null(gq) && all(gq$verdict == "ACCEPTED") && all(as.logical(gq$pass[!is.na(gq$pass)])) && all(c("1", "2b", "3") %in% gq$clause) &&
+      all(gq$observed[gq$clause %in% c("1", "2b", "3")] <= 1e-9) && near(gq$value[gq$clause == "2b"][1], 34361.40, 0.01))
+  chk("B86: in both programs the carried day's share takes vd * L[d] * df, with df computed first, and the monthly boat-weighted share output takes the same volume",
+      all(vapply(list(sp, sg), function(t) grepl("vd = fmax(vd * L[d] * df, 1e-9);   // D55 (B86): df is 1.0 unless the day carries its deviation", t, fixed = TRUE) &&
+        grepl("vd = fmax(vd * L[d] * ((effort_day_effect == 1 && eday_of_day[d] > 0) ? exp(sigma_uE[1] * uE_raw[eday_of_day[d]] - 0.5 * square(sigma_uE[1])) : 1.0), 1e-9);", t, fixed = TRUE) &&
+        regexpr("real df = (effort_day_effect == 1 && eday_of_day[d] > 0)", t, fixed = TRUE) < regexpr("      real fd = f_crab[f_stratum[d]];", t, fixed = TRUE), logical(1))) &&
+      grepl("all-gear 35,462 to 34,361 (-3.1%), port about -1.3%.", rcf, fixed = TRUE))
+  chk("B84 to B88: the register's section C records the switch's first form, the five check-script mistakes and the amended hash",
+      grepl("| 2026-11-25 | B86's switch as first built (`2442411`) held a carried day's crabbing share at the LEVEL's boat volume", cr, fixed = TRUE) &&
+      grepl("| 2026-11-25 | five mistakes in my own check scripts of 2026-11-25", cr, fixed = TRUE) &&
+      grepl("| 2026-11-25 | the rename commit was cited as `50f7f6f`", cr, fixed = TRUE) && !grepl("RENDER_CLAUSE5|GQ_CHECK_LINE", cr) &&
+      !grepl("RENDER_ANCHOR|GQ_ANCHOR|GQ_CLAUSE|RENDER_CLAUSE5", vc) && !grepl("RENDER_SUMMARY", st, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))
