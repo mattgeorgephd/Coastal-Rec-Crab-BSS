@@ -119,6 +119,9 @@ windows live here. Each block replaces the nine per-season keys in section 1.2 o
 set; change one, change them all.
 
 **The canonical run (shipped; no edit needed).** The window of the authoritative run,
+`05_output/20261125/pooled-CPUE-2024-25-190951`, port total 85,477 [72,037, 102,630], with its gear cross-check
+`05_output/20261125/gear-type-CPUE-model-2024-25-200438` (85,179, -0.35%), the renders of `run_config.R` exactly as
+shipped on the cloud container (B89, accepted 2026-11-26), and of the run it replaced,
 `05_output/20261019/pooled-CPUE-2024-25`, port total 86,497 [72,869, 104,595], with its gear
 cross-check `05_output/20261019/gear-type-CPUE-model-2024-25` (86,285, -0.25%), which are the renders of
 `run_config.R` exactly as shipped, `model <- "both"`, on the cloud container (B70, accepted 2026-10-19; and of the

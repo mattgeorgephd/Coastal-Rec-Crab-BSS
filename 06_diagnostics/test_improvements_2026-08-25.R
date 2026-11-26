@@ -8047,7 +8047,7 @@ local({
       grepl("accepted by Matt 2026-10-19, the same day", cl, fixed = TRUE) && grepl("port **86,497 [72,869, 104,595]**", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
       grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **Accepted.** Matt accepted B70 as the authoritative run the same day (2026-10-19", vc, fixed = TRUE) &&
       grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16)", vc, fixed = TRUE) &&
-      grepl("**Since 2026-10-19 (B70)** it is `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (the box; B67 replaced)", md, fixed = TRUE) &&
+      grepl("**since 2026-10-19 (B70)** it was `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (the box; B67 replaced)", md, fixed = TRUE) &&
       grepl("The render (B70, the same day) met every clause", ph, fixed = TRUE) && grepl("Rendered the same day (B70): every clause met on the gear track", gh, fixed = TRUE))
 })
 
@@ -8066,19 +8066,19 @@ local({
       length(a39) == 1 && grepl("THE AUTHORITATIVE RUN since 2026-10-19 (B70, Matt)", a39, fixed = TRUE) &&
       length(b67) == 1 && grepl("AUTHORITATIVE 2026-10-18 to 2026-10-19 (Matt accepted the container render); replaced by B70", b67, fixed = TRUE))
   chk("B70 accepted: the box names the render as the authoritative run with the five clauses, what moved against B67 (the turnover included) and the shipped file as its configuration",
-      grepl("RENDERED ON THE CLOUD CONTAINER (B70)", ps, fixed = TRUE) && grepl("**It met the A40 rule, written before it ran** (CHANGE_REGISTER A40):", ps, fixed = TRUE) &&
+      grepl("> **THE RUN IT REPLACED, B70 (its record as written on 2026-10-19):**", ps, fixed = TRUE) && grepl("**It met the A40 rule, written before it ran** (CHANGE_REGISTER A40):", ps, fixed = TRUE) &&
       grepl("**What moved against the run it replaced:** port 86,113 to 86,497 (+0.4%)", ps, fixed = TRUE) && grepl("the shared boat turnover `tau_bar` 3.16 to", ps, fixed = TRUE) &&
       grepl("The BSS sits 2.5% below the PE (88,758).", ps, fixed = TRUE) && grepl("**THE AUTHORITATIVE RUN MOVES to B70: Matt accepted A40's render on 2026-10-19;", ps, fixed = TRUE))
   chk("B70 accepted: CLAUDE.md names the run, its cross-check, the turnover on it and the reproducible reference; run_config.R's header and section 1.2 name it with B67 and B65 before it",
       grepl("`05_output/20261019/gear-type-CPUE-model-2024-25` at **86,285 (-0.25%, PASS)**", cl, fixed = TRUE) &&
       grepl("the fitted `tau_bar` is **2.972** in the posterior mean (median 2.951 [2.24, 3.82]) on the authoritative run, B70", cl, fixed = TRUE) &&
-      grepl("The reproducible reference now is the B70 run (86,497", cl, fixed = TRUE) && !grepl("pending Matt's acceptance", cl, fixed = TRUE) &&
+      grepl("before 2026-11-26 it was the B70 run (86,497, which `boat_day_effect_reporting = \"level\"` reproduces;", cl, fixed = TRUE) && !grepl("pending Matt's acceptance", cl, fixed = TRUE) &&
       grepl("#   port total 86,497  [72,869, 104,595]", rc, fixed = TRUE) && grepl("#   05_output/20261019/pooled-CPUE-2024-25\n", rc, fixed = TRUE) &&
       grepl("# 05_output/20261019/pooled-CPUE-2024-25, 86,497 [72,869, 104,595] (and of the runs before it:", rc, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE))
   chk("B70 accepted: the README run table, the guide's canonical-run paragraph, the method document and both histories carry the move",
       grepl("accepted as the authoritative run **86,497 [72,869, 104,595]**, cross-check -0.25% (B70) |", rm_, fixed = TRUE) &&
       grepl("`05_output/20261019/pooled-CPUE-2024-25`, port total 86,497 [72,869, 104,595], with its gear", gd, fixed = TRUE) && grepl("(B70, accepted 2026-10-19; and of the", gd, fixed = TRUE) &&
-      grepl("**The authoritative run has moved four times since this reference run.**", md, fixed = TRUE) &&
+      grepl("**The authoritative run has moved five times since this reference run.**", md, fixed = TRUE) &&
       grepl("THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 86,497 (B70, B71)", ph, fixed = TRUE) && grepl("THE CROSS-CHECK OF THE AUTHORITATIVE RUN, -0.25% (B70)", gh, fixed = TRUE) &&
       !grepl("pending Matt's acceptance", ph, fixed = TRUE) && !grepl("pending Matt's acceptance", gh, fixed = TRUE) && !grepl("pending Matt's acceptance", md, fixed = TRUE) && !grepl("pending Matt's acceptance", ps, fixed = TRUE))
   if (dir.exists("05_output/20261019/pooled-CPUE-2024-25")) {
@@ -8754,8 +8754,8 @@ local({
       !is.null(bd) && bd$days[1] == 51 && near(bd$slope[1], 0.926, 5e-4) && near(bd$lo95[1], 0.730, 5e-4) && near(bd$hi95[1], 1.123, 5e-4) &&
       grepl("mostly real boat effort", bd$reading[1], fixed = TRUE) && near(bd$slope[5], -0.430, 5e-4))
   rcf <- rdf("run_config.R")
-  chk("B86 / A42 / B89 (D55): A42 was adopted by Matt and its render did not meet the rule, so run_config ships boat_day_effect_reporting = \"level\"; bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
-      grepl('boat_day_effect_reporting = "level",   # "level" (B70, ships)', rcf, fixed = TRUE) && grepl("| A42 | **A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
+  chk("B86 / A42 / B89 (D55): A42 adopted by Matt and its render B89 accepted as the authoritative run (a one-time exception), so run_config ships boat_day_effect_reporting = \"carry_without_osp\"; bss_boat_day_carry() maps level to 0, carry_without_osp to 1 and stops on anything else",
+      grepl('boat_day_effect_reporting = "carry_without_osp",   # A42, the authoritative run B89', rcf, fixed = TRUE) && grepl("| A42 | **A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION", rdf("07_documentation/development_notes/CHANGE_REGISTER.md"), fixed = TRUE) &&
       { source("03_R_functions/bss_effort_spec.R", local = TRUE)
         identical(bss_boat_day_carry(list()), 0L) && identical(bss_boat_day_carry(list(boat_day_effect_reporting = "level")), 0L) &&
         identical(bss_boat_day_carry(list(boat_day_effect_reporting = "carry_without_osp")), 1L) &&
@@ -8783,9 +8783,9 @@ local({
   chk("B84 to B88 pointers: the register (B84 to B88, D53 and D54 CLOSED, D55 evidence and switch, D56 open, D31 CLOSED by Matt), campaign 1z.22 and its anchor, the status entry, limitation 18, the READMEs and the guidance",
       all(vapply(c("| B84 |", "| B85 |", "| B86 |", "| B87 |", "| B88 |", "| D56 |"), function(x) grepl(x, cr, fixed = TRUE), logical(1))) &&
       grepl("| **CLOSED 2026-11-25 (B84):", cr, fixed = TRUE) && grepl("| **CLOSED 2026-11-25 (B85):", cr, fixed = TRUE) &&
-      grepl("| **ADOPTED BY MATT 2026-11-25 (A42); its render (B89) did not meet the rule's clauses (3) and (4)", cr, fixed = TRUE) && grepl("**WAITING FOR OSP'S 2025-26 RECORD (Matt, 2026-11-25:", cr, fixed = TRUE) &&
+      grepl("| **CLOSED 2026-11-26: ADOPTED (A42) and in the authoritative run B89, which Matt accepted as a one-time exception", cr, fixed = TRUE) && grepl("**WAITING FOR OSP'S 2025-26 RECORD (Matt, 2026-11-25:", cr, fixed = TRUE) &&
       grepl("| **CLOSED 2026-11-25 (Matt: \"close as answered, with the limits in Section 6.2\" of the A30 brief).**", cr, fixed = TRUE) &&
-      grepl("### 1z.22 D53, D54 and D55 addressed; D56 opened", vc, fixed = TRUE) && grepl("no authoritative fit; 1z.22) |", vc, fixed = TRUE) &&
+      grepl("### 1z.22 D53, D54 and D55 addressed; D56 opened", vc, fixed = TRUE) && grepl("no authoritative fit; 1z.22); 2026-11-25 (A42:", vc, fixed = TRUE) &&
       grepl("- **[NEW 2026-11-25, B86 to B88; D55 evidence in and switch built, D56 OPENED; both decisions are Matt's] What a boat day is credited with.**", st, fixed = TRUE) &&
       grepl("**18. The crabbing share is applied at the model's day volume, not weighted over the real day-to-day volume (D56", md, fixed = TRUE) &&
       grepl("- **2026-11-25.** B84 to B88 (campaign 1z.22).", md, fixed = TRUE) &&
@@ -8819,6 +8819,20 @@ local({
       sum(ak$clause == "2") == 6 && grepl("NOT MET", ak$verdict[1], fixed = TRUE) && !is.null(ar) &&
       ar$value[ar$quantity == "replay_on_max_rel_gap"] < 1e-9 && near(ar$value[ar$quantity == "switch_effect_pct"], -3.22, 0.01) &&
       grepl("| B89 | **The A42 render:", cr, fixed = TRUE) && grepl("| 2026-11-25 | A42's rule (`ebc4038`), which I wrote, assumed", cr, fixed = TRUE))
+  # 2026-11-26: Matt accepted B89 as the authoritative run, a one-time exception; the rule-first practice stands
+  P89 <- "05_output/20261125/pooled-CPUE-2024-25-190951"; G89 <- "05_output/20261125/gear-type-CPUE-model-2024-25-200438"
+  pt89 <- rc(file.path(P89, "port_total_Dungeness_Kept.csv")); cc89 <- rc("05_output/20261125/cross_check_20261125_190949.csv")
+  chk("B89 is the authoritative run: its folders are committed, port 85,477 [72,037, 102,630], cross-check 85,179 (-0.35%, PASS), manifest on a clean tree at 3985e2e",
+      dir.exists(P89) && dir.exists(G89) && !is.null(pt89) && identical(as.numeric(unlist(pt89[pt89$Estimate == "Expected_Catch", c("BSS_median", "BSS_lo95", "BSS_hi95")])), c(85477, 72037, 102630)) &&
+      !is.null(cc89) && cc89$gear_median == 85179 && cc89$verdict == "PASS" &&
+      { m <- readLines("05_output/20261125/run_manifest_20261125_190949.txt", warn = FALSE); any(grepl("git sha     : 3985e2e", m, fixed = TRUE)) && any(grepl("clean (the render ran on the committed tree)", m, fixed = TRUE)) })
+  chk("B89's records: the status box names it and the one-time exception, the register's A42 and B89 rows say so, campaign 1z.23 exists, the guidance and the method document carry it",
+      grepl("> ### THE AUTHORITATIVE RUN: B70'S METHOD WITH A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRYING ITS OWN DEVIATION (A42, D55), RENDERED ON THE CLOUD CONTAINER (B89)", st, fixed = TRUE) &&
+      grepl("**accepted by Matt on 2026-11-26 as the authoritative run, as a one-time exception**", st, fixed = TRUE) &&
+      grepl("THE AUTHORITATIVE RUN SINCE 2026-11-26 (B89, `135b949`), accepted by Matt as a ONE-TIME EXCEPTION", cr, fixed = TRUE) &&
+      grepl("ACCEPTED BY MATT 2026-11-26 AS THE AUTHORITATIVE RUN, A ONE-TIME EXCEPTION", cr, fixed = TRUE) &&
+      grepl("### 1z.23 D55 adopted: the A42 render, its rule not met, and the one-time acceptance", vc, fixed = TRUE) && grepl("`135b949`; 1z.23) |", vc, fixed = TRUE) &&
+      grepl("**THE AUTHORITATIVE RUN SINCE 2026-11-26 IS B89**", cl, fixed = TRUE) && grepl("**Since 2026-11-26 (B89)** it is `05_output/20261125/pooled-CPUE-2024-25-190951`", md, fixed = TRUE))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

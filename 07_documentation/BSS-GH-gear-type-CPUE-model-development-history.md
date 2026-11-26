@@ -19,6 +19,10 @@ The gear-resolved track branched from the shared pooled/gear-resolved sequence a
 
 ## Version log
 
+### 2026-11-26, A42 IN THE GEAR PROGRAM; THE CROSS-CHECK OF THE AUTHORITATIVE RUN, -0.35% (B89)
+
+The gear program carries the same `boat_day_carry` switch as the pooled one (transformed data and the generated quantities' day volume), and the gear prep passes it from `boat_day_effect_reporting`; the program also moved to `array[N] type name` with the indicator `sunday` (B84, D53). In the authoritative render B89 the gear boat all-gear fit reads 34,129 (35,350 on B70) and the cross-check 85,179 against the pooled 85,477, -0.35%, PASS; the gear shore and pot-closure fits are B70's byte for byte.
+
 ### 2026-10-20, A41 IN THE GEAR PREP: THE SAME UNOBSERVED tau_bar BELOW THE FLOOR
 
 `prep_bss_crab_gear()` applies A41 as the pooled prep does: a boat fit below the shared-turnover

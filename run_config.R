@@ -54,7 +54,16 @@
 # boat I/E path (A37, inert on 2024-25) and the comonotone pairing of the shore fits' draws in the
 # port total (A38), rendered on the cloud container 2026-10-17 and accepted 2026-10-18 (B67), and,
 # since 2026-10-18/19, the per-day effort effect (A39, section 2.1) with its identification floor
-# (A40), rendered on the cloud container 2026-10-19 from 3fbecc5 and accepted the same day (B70):
+# (A40), rendered on the cloud container 2026-10-19 from 3fbecc5 and accepted the same day (B70),
+# and, since 2026-11-25/26, a sampled trailer day without an OSP count carrying its own deviation
+# (A42, section 2.1), rendered on the cloud container 2026-11-25 from 3985e2e and accepted by Matt
+# on 2026-11-26 as a one-time exception to its rule (B89):
+#
+#   05_output/20261125/pooled-CPUE-2024-25-190951
+#   port total 85,477  [72,037, 102,630]      4 of 4 components fitted, all BSS
+#   05_output/20261125/gear-type-CPUE-model-2024-25-200438:
+#                       85,179, -0.35%, the cross-check PASSES
+#   (the run it replaced, B70, and the runs before it:)
 #
 #   05_output/20261019/pooled-CPUE-2024-25
 #   port total 86,497  [72,869, 104,595]      4 of 4 components fitted, all BSS
@@ -283,6 +292,7 @@ run_config <- list(
 
   # --- 1.2 The season window and the structural dates (the nine per-season keys) ---
   # SHIPPED: THE SINGLE 2024-25 SEASON. This is the window of the authoritative run,
+  # 05_output/20261125/pooled-CPUE-2024-25-190951, 85,477 [72,037, 102,630] (B89), and of
   # 05_output/20261019/pooled-CPUE-2024-25, 86,497 [72,869, 104,595] (and of the runs before it:
   # 05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557]; 05_output/20261003/pooled-CPUE-2024-25, 87,932 [75,193, 105,271]; 05_output/20260929/pooled-CPUE-2024-25-220449, 99,822; 05_output/20260928/pooled-CPUE-2024-25,
   # 99,873; the 2026-09-27 render, 96,118; and R4, 94,376).

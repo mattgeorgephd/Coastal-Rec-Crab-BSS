@@ -15,6 +15,10 @@ A note on numbering: these version tags (v6.x, v7.x) are the internal developmen
 
 ## Version log
 
+### 2026-11-26, A42: A SAMPLED TRAILER DAY WITHOUT AN OSP COUNT CARRIES ITS OWN DEVIATION; THE AUTHORITATIVE RUN MOVES TO ITS RENDER, 85,477 (B89)
+
+The pooled program's generated quantities, under `boat_day_carry = 1` (`run_config.R` `boat_day_effect_reporting = "carry_without_osp"`, Matt's adoption of D55), add the sampled trailer days without an OSP count to `eday_of_day`, so those days' reported effort and catch carry their fitted day deviation, with the crabbing share taken at the carried volume (the switch built in B86 on the evidence that the deviation predicts OSP's boat total with slope 0.93). Before that, on 2026-11-25: both Stan programs moved to `array[N] type name` and the A36 indicator became `sunday` (B84, D53), and the held-out-week check became day-integrated on a fit with the per-day effect (B85, D54). The render (B89, from `3985e2e`) met clauses (1), (2) and (5) of A42's rule and not (3) and (4), which assumed a generated-quantities change leaves the sampler's draws untouched; Stan's `poisson_rng` draws from the sampler's stream, so the render is another realisation of the same posterior. Matt accepted it as the authoritative run as a one-time exception ("the rule should stand for future runs"): port 86,497 to 85,477, the pooled boat all-gear fit 35,462 to 34,405, nothing else moved.
+
 ### 2026-10-20, A41: A FIT BELOW THE SHARED-TURNOVER FLOOR KEEPS ONE UNOBSERVED tau_bar (D49 OPTION (iii), MATT); D19 CLOSED KEEPING local
 
 Matt's two decisions. A41: `bss_shared_tau_data()` no longer falls back to per-day draws below the
