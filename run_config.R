@@ -620,9 +620,11 @@ run_config <- list(
   # switch could not move the sampler's draws; it does, because Stan draws the generated quantities'
   # random numbers from the sampler's stream, so the render is another realisation of the same posterior
   # (60 structural parameters within Monte Carlo error of B70's, the largest 0.04 posterior SD) and the
-  # switch is exact on its own draws (-3.22%). By the rule the key is back at "level" and B70 stays the
-  # authoritative run; the corrected rule and the render are with Matt (CHANGE_REGISTER A42, B89).
-  boat_day_effect_reporting = "level",   # "level" (B70, ships) | "carry_without_osp" (A42, adopted by Matt, rule not met)
+  # switch is exact on its own draws (-3.22%). ACCEPTED BY MATT 2026-11-26 AS THE AUTHORITATIVE RUN, AS A
+  # ONE-TIME EXCEPTION ("yes, accept the render, but only this one time, the rule should stand for future
+  # runs"): a render that fails a clause of its rule written beforehand is not adopted, and a rule is not
+  # rewritten after its read. CHANGE_REGISTER A42 and B89.
+  boat_day_effect_reporting = "carry_without_osp",   # A42, the authoritative run B89 | "level" reproduces B70
   sections          = c(1),
   period_pe         = "week",         # PE temporal stratum
 

@@ -1,0 +1,2 @@
+"fit","stream","counts","days","grid_step","grid_nodes","conditional_loglik_max_abs_gap","sigma_uE_mean","sigma_uE_q2.5","sigma_uE_q97.5","scored_row","weeks","reliable_conditional","reliable_integrated","median_k_conditional","median_k_integrated","grid_halving_max_abs_elpd_gap","check_i","check_ii"
+"private_boat_all_gear_Dungeness_Kept","trailer",195,143,0.025,641,3.05533376376843e-13,0.846626873547371,0.697796004864187,1.01640866765768,"joint",42,11,38,0.858848586847152,0.349635224423227,7.105427357601e-15,TRUE,TRUE

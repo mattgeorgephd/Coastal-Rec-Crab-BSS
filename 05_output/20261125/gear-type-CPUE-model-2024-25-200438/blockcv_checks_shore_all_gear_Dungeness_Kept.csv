@@ -1,0 +1,2 @@
+"fit","stream","counts","days","grid_step","grid_nodes","conditional_loglik_max_abs_gap","sigma_uE_mean","sigma_uE_q2.5","sigma_uE_q97.5","scored_row","weeks","reliable_conditional","reliable_integrated","median_k_conditional","median_k_integrated","grid_halving_max_abs_elpd_gap","check_i","check_ii"
+"shore_all_gear_Dungeness_Kept","gear",311,145,0.025,641,5.00932628710871e-13,0.421378400132063,0.350721624869252,0.500222761874449,"gear",38,0,20,1.02326802660856,0.688209459503285,3.5527136788005e-15,TRUE,TRUE
