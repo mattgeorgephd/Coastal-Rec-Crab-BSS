@@ -28,15 +28,16 @@
 # Why the render's draws are not B70's although the switch acts only in the generated quantities: Stan
 # draws the generated quantities' random numbers (poisson_rng) from the sampler's own stream, and a
 # Poisson draw consumes a rate-dependent number of them, so a changed rate shifts every later transition.
-# HOW TO RUN  RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/desk_a42_render_replay_2026-11-25.R
-#             (needs the render's run folder and its fit cache, /home/user/bss_fit_cache_a42 on the container)
+# HOW TO RUN  BSS_FIT_CACHE_DIR=<the A42 render's fit cache> RENV_ACTIVATE_PROJECT=FALSE Rscript 06_diagnostics/desk_a42_render_replay_2026-11-25.R
+#             (needs the render's run folder, whose ppc_draws_*.rds is not committed, and that cache holding the one boat all-gear fit)
 # WRITES      05_output/a42_render_replay_2026-11-25.csv
 ###############################################################################
 suppressPackageStartupMessages(library(rstan))
 N <- "05_output/20261125/pooled-CPUE-2024-25-190951"
 sd_ <- readRDS(file.path(N, "ppc_draws_private_boat_all_gear_Dungeness_Kept.rds"))$stan_data; sd_ <- sd_[!startsWith(names(sd_), ".")]
 cat("boat_day_carry in the render's data:", sd_$boat_day_carry, "\n")
-f <- Sys.glob("/home/user/bss_fit_cache_a42/private_boat_all_gear_Dungeness_Kept_att1_*.rds"); stopifnot(length(f) == 1)
+CACHE <- Sys.getenv("BSS_FIT_CACHE_DIR", unset = ""); if (!nzchar(CACHE) || !dir.exists(CACHE)) stop("set BSS_FIT_CACHE_DIR to the fit cache the A42 render wrote")
+f <- Sys.glob(file.path(CACHE, "private_boat_all_gear_Dungeness_Kept_att1_*.rds")); stopifnot(length(f) == 1)
 fit <- readRDS(f)
 own <- as.matrix(fit, pars = "C_expected_sum")[, 1]
 m <- rstan::stan_model("02_stan_models/crab_bss_pooled.stan", auto_write = FALSE)

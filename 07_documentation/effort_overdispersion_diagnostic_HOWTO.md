@@ -1,5 +1,18 @@
 # Effort over-dispersion diagnostic: how to run and read it
 
+> ## WARNING (2026-11-27): on a fit with the per-day effort effect, this diagnostic leaves the day effect out
+>
+> Since A39 and A40 (2026-10-18/19) the effort likelihood of a fit that carries the per-day effort
+> effect has the mean `lambda_E[d] * m * exp(sigma_uE * uE_raw - sigma_uE^2 / 2)`. The decomposition
+> below, `ppc_calibration_*` and `ppc_byobs_*` still form the mean as `lambda_E[d] * m`. So on such a
+> fit (the two all-gear fits of 2024-25) the three shares are WITHIN-DAY shares, the day effect's
+> variance is in none of them, and the `ppc_coverage_50` column under-covers: on the authoritative
+> boat all-gear fit the trailer stream reads 0.359 as computed and 0.544 once the day's deviation is
+> integrated out (`05_output/ppc_day_effect_2026-11-27.csv`). The figures in section 6's update
+> (81 to 91 percent NB, 4 to 13 percent latent) are from runs before A39; B89 reads NB 0.45 and 0.55
+> and latent 0.43 and 0.29 on the two all-gear fits. Open as CHANGE_REGISTER D58. The lever "the
+> single-cell level redundancy (T2.5)" named in section 5 was closed by A31 (2026-09-29).
+>
 > ## WARNING (2026-09-01): the `coverage_50` this document tells you to read was BIASED
 >
 > Until 2026-09-01 `ppc_calibration_*.csv` computed `coverage_50` by testing the observation
@@ -39,7 +52,7 @@ The v7.0 PPC showed the negative-binomial effort model is over-dispersed (gear a
 
 ## 2. Why it needs the fits, not the CSVs
 
-The decomposition needs the joint posterior draws of the latent effort intensity `lambda_E_S` at each effort-observation day, plus the `r_E`, `R_G`, `R_T` draws. The committed outputs carry only summaries. So it runs on the in-memory `stanfit` objects. The function placed in `03_R_functions/` is auto-sourced and is callable in two modes.
+The decomposition needs the joint posterior draws of the latent effort intensity `lambda_E_S` at each effort-observation day, plus the `r_E` and `R_G` draws and the trailer multiplier (`1 / R_G_boat` on the current models; `R_T` on pre-v7.6 fits). The committed outputs carry only summaries. So it runs on the in-memory `stanfit` objects. The function placed in `03_R_functions/` is auto-sourced and is callable in two modes.
 
 ## 3. How to run
 
@@ -112,7 +125,7 @@ The three components are summed across observations and normalized to shares. Th
 
 Because the shore fits are well-identified (n_eff above 4,000, so the latent `lambda_E` is tightly pinned on observed days), I expect `share_latent` to be modest on the observed days and `share_nb_overdisp` to dominate, pointing to the `r_E` / `sigma_r_E` prior as the lever for shore. The boat, being weakly identified, may show a larger latent share. The diagnostic measures this rather than assuming it; read the verdict column and act per section 5.
 
-**Update (now confirmed).** Across the fits the NB observation over-dispersion dominates the effort predictive variance (roughly 81 to 91 percent), and the latent AR share is small (4 to 13 percent), so the `r_E` / `sigma_r_E` prior is the lever, as anticipated.
+**Update (confirmed on the runs before the per-day effort effect, A39; see the 2026-11-27 warning at the top for what a fit with the effect reads).** Across the fits the NB observation over-dispersion dominates the effort predictive variance (roughly 81 to 91 percent), and the latent AR share is small (4 to 13 percent), so the `r_E` / `sigma_r_E` prior is the lever, as anticipated.
 
 ## 7. Outputs
 

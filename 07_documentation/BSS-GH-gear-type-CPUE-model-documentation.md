@@ -7,7 +7,7 @@
 **Agency:** Washington Department of Fish and Wildlife (WDFW)
 **Status:** Operational, **not published**. This is the **CROSS-CHECK** to the pooled model, not the headline estimator, and that is a design decision rather than a ranking of quality (Section 2).
 **Framework version:** 6.0, adopted 2026-09-12, when the method of record moved to Method v2.0 and this track was brought onto the same configuration. Framework v5.6, frozen against the same era as Method v1.0, is archived at `archive/method-v1.0-gear-resolved-CPUE.md`.
-**The cross-check of the current authoritative run (2026-10-02, A32):** `05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi`, 99,294 [82,154, 123,380], **-0.53%** against the pooled 99,822 (PASS): the authoritative batch's stage D6, which is this track's render of `run_config.R` as shipped since D3 and D6 were adopted together (only `run_tag` differs). Before A32 the cross-check was the batch's stage A gear render, `05_output/20260930/gear-type-CPUE-model-2024-25`, 98,382 [81,145, 122,466], -1.44% (shore all-gear monthly, plain NB2). **Reference run:** `05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same `run_estimation.R` call as the pooled reference run (`model = "both"`, 2026-09-28, committed `ff750c4`): 98,588 [81,046, 123,563], **-1.29%** against the pooled 99,873, inside the 2% criterion. It superseded ladder rung R5 (`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, 93,274, at R4's configuration and on the predictive catch).
+**The cross-check of the current authoritative run (B89, since 2026-11-26):** `05_output/20261125/gear-type-CPUE-model-2024-25-200438`, 85,179 [71,806, 103,141], **-0.35%** against the pooled 85,477 (PASS), this track's render of `run_config.R` as shipped. Between A32 and B89 this track's Stan program gained what the pooled one did (A33 and A34, the OSP crab-only stream and the volume term of the crabbing share; A35 and A36, the holiday prior and the Sunday increment; A39 and A40, the per-day effort effect and its floor; A41; A42, the carried trailer-day deviation), and its cross-check read -0.03% (B65), -0.27% (B67) and -0.25% (B70); the specification of each is the pooled document's Section 14, and Section 7 below lists them. **When the track was matched to the pooled one (2026-10-02, A32):** `05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi`, 99,294 [82,154, 123,380], **-0.53%** against the pooled 99,822 (PASS): the authoritative batch's stage D6, which was this track's render of `run_config.R` as shipped then, D3 and D6 adopted together (only `run_tag` differed). Before A32 the cross-check was the batch's stage A gear render, `05_output/20260930/gear-type-CPUE-model-2024-25`, 98,382 [81,145, 122,466], -1.44% (shore all-gear monthly, plain NB2). **Reference run:** `05_output/20260928/gear-type-CPUE-model-2024-25`, rendered in the same `run_estimation.R` call as the pooled reference run (`model = "both"`, 2026-09-28, committed `ff750c4`): 98,588 [81,046, 123,563], **-1.29%** against the pooled 99,873, inside the 2% criterion. It superseded ladder rung R5 (`05_output/20260911/gear-type-CPUE-model-IMP-R5-gear-crosscheck-newf`, 93,274, at R4's configuration and on the predictive catch).
 **Convention:** no em dashes.
 
 > ### READ THE POOLED DOCUMENT FIRST
@@ -36,8 +36,8 @@ catch rates. With `gear_resolved_G = TRUE` the shore fits carry a genuine per-ge
 process, so a per-gear catch estimate carries posterior uncertainty from the model.
 
 **An independent check on the port total.** The two models share the effort side and differ
-in the catch side, which makes their agreement informative. **On the current authoritative run
-it reads 99,294 [82,154, 123,380] against the pooled 99,822, -0.53%** (A32, 2026-10-02: the gear
+in the catch side, which makes their agreement informative. **On the current authoritative run (B89)
+it reads 85,179 [71,806, 103,141] against the pooled 85,477, -0.35%; at A32 (2026-10-02) it read 99,294 [82,154, 123,380] against 99,822, -0.53%** (the gear
 shore fits at the pooled periods with the zero-inflated catch; the figures below, through the
 component table, are the 2026-09-28 reference run's, before A32). **Under the 2026-09-28 reference run, before A32** (the
 re-render at B44 to B49, 2026-09-28, `run_estimation.R` with `model = "both"`) the gear track
@@ -233,6 +233,8 @@ catalog as the pooled model (pooled document Section 11), plus:
 ## 7. Version history, and a note on two numbering systems
 
 Newest first. The full log is `BSS-GH-gear-type-CPUE-model-development-history.md`.
+
+- **2026-10-04 to 2026-11-26 (A33 to A42): the changes this track shares with the pooled one.** Each is a `run_config.R` key read by both preps and a Stan data flag in both programs, specified in the pooled document's Section 14 and not repeated here: A33 and A34 (OSP's crab-only count as an observation of `f(1 - c)`, and the crabbing share varying with the day's boat volume; cross-check -0.03%, B65); A35 and A36 (the holiday prior scale 0.5 and the Sunday increment `B1_sun`, the indicator named `sunday` since B84) with A38 in the port total (cross-check -0.27%, B67); A39 and A40 (the per-day effort effect with its repeat-day floor; -0.25%, B70); A41 (a fit below the shared-turnover floor keeps one unobserved `tau_bar`); A42 (a sampled trailer day without an OSP count carries its own deviation; -0.35%, B89, the current cross-check). B84 (2026-11-25): the program declares arrays as `array[N] type name` and compiles on current Stan.
 
 - **2026-10-02 (A32): D3 and D6 adopted together.** The shore fits at the pooled track's
   periods (`gear_period_bss` per population) and the zero-inflated shore catch

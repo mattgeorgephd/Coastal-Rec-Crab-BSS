@@ -127,7 +127,7 @@
 #
 # validate_season_window() warns when any of the structural dates falls outside the
 # estimation window, which is the check that a rollback from a multi-season span needs.
-# Two more groups to revisit on new data, both in section 2:
+# Three more groups to revisit on new data (the first two in section 2, the third in section 5):
 #
 #   the AR caps      ar_max_resolution (2024-25-derived; RE-DERIVE with the ladder,
 #                    ar_escalate + ar_rung_adequacy, before trusting them on new data)
@@ -144,7 +144,7 @@
 # ---------------------------------------------------------------------------
 #
 # ---------------------------------------------------------------------------
-# WHERE THIS WORK STANDS (context; updated 2026-09-28). Read this before treating any
+# WHERE THIS WORK STANDS (context; updated 2026-11-27). Read this before treating any
 # number in this repository as an estimate.
 #
 # NOTHING HAS BEEN PUBLISHED. WDFW has published no recreational Dungeness crab
@@ -153,7 +153,9 @@
 # creel team, and confirmation from OSP that they can supply daily boat-count data.
 # The `OSP-boat-count-incorporation` branch, the work incorporating both, merged
 # into `main` on 2026-09-28 (pull request #5) and again on 2026-11-18 (pull request
-# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record.
+# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record as last
+# merged. Since 2026-11-26 this branch is AHEAD of `main`: A42 and the authoritative run B89
+# are here only, and `main` names B70 until the next pull request merges.
 # There is therefore NO published
 # figure that a change here has to stay consistent with, and continuity with an
 # earlier internal run is not by itself a reason to prefer one modelling choice
@@ -163,7 +165,7 @@
 # returning vessels, converted to crab effort by a crabbing fraction `f` that is a
 # per-stratum (year-month) logit random walk observed by the coastal crab samplers'
 # interview contacts, with a combo-trip share `c` on its own walk; the within-day
-# turnover is estimated from the OSP/trailer overlap and shared across the boat fits.
+# turnover is estimated from the OSP/trailer overlap, one level per boat fit shared across its days.
 # Shore effort is the dock gear count expanded by a turnover derived from the I/E time
 # column. Both components are on gear-deployments. Shore catch is zero-inflated negative
 # binomial, everything else NB2. The commercial vessels are an exact census over the
@@ -211,8 +213,8 @@
 # How it works: run_estimation.R injects `run_config` (defined below) into the
 # render environment of the chosen .Rmd. As of the 2026-07-12 restructure (P5),
 # run_config is the BASE parameter set and each model layers its own internal
-# tuning on top: each .Rmd does `params <- modifyList(run_config, params_model)`,
-# where `params_model` holds ONLY that model's specifics (Stan file, per-fit
+# tuning on top: each .Rmd does `params <- modifyList(run_config, params)`, where the
+# driver's own `params <- list(` block (called `params_model` in the documents) holds ONLY that model's specifics (Stan file, per-fit
 # sampler settings, gate thresholds, AR-selector thresholds, model constants).
 # The two key sets are INTENDED to be disjoint; a key in both is decided silently by the
 # driver (params_model wins), so grep both params_model blocks before adding a key here.
@@ -283,10 +285,6 @@ run_config <- list(
   # the "both" cross-check criterion: the gear-resolved Expected_Catch port total within this
   # fraction of the pooled one (run_estimation.R section 7; the 2% agreed 2026-08-26)
   cross_check_tolerance = 0.02,
-  # These unify the two models onto one set of strings. The committed gear-resolved driver
-  # used "Rec Crab Grays Harbor Westport 2024-25" while pooled used the string below;
-  # centralizing here makes both use one value. If either string must be preserved verbatim
-  # as an output identifier, give that model its own value in its .Rmd instead.
   # (project_name and fishery_name were removed 2026-09-28, B46: no code read them, and the
   # fishery name hard-coded "2024-25". The reports name the modelled seasons from season_filter.)
 
@@ -364,8 +362,11 @@ run_config <- list(
   commercial_opener = "2025-02-11",
   #
   # -- OTHER WINDOWS, READY TO PASTE OVER THE NINE KEYS ABOVE ---------------------
-  # Swap the whole block; never one key. NEW_SEASON_GUIDE.md section 7.1 carries the same
-  # three blocks with the data prerequisites and the failure modes spelled out.
+  # Swap the whole block; never one key. NEW_SEASON_GUIDE.md section 7.1 carries the canonical
+  # block, the 2025-26 block and a 2024-26 span example, with the data prerequisites and the
+  # failure modes spelled out. run_tag is NOT one of the keys to paste: it is set once, in
+  # section 1.1 above, so EDIT that line. A second run_tag in this list would be ignored in
+  # favour of the first, and since 2026-11-27 (B90) the file stops on any key set twice.
   #
   # -- single season 2025-26 (data through 2026-09-08; the season ends 2026-09-15) ----
   #   est_date_start    = "2025-09-16",   est_date_end      = "2026-09-15",
@@ -375,13 +376,16 @@ run_config <- list(
   #   pot_open_date     = "2025-12-01",
   #   census_windows    = NULL,
   #   census_start_date = "2025-12-01",   census_end_date   = "2026-01-03",
-  #   commercial_opener = "2026-01-04",   run_tag           = "season-2025-26",
+  #   commercial_opener = "2026-01-04",
+  #   and in section 1.1:  run_tag = "season-2025-26"
   #   KNOWN FIRST (corrected 2026-09-28): the 2025-26 OSP record is PARTIAL and the rest is awaited
   #   from OSP. WBL_boat_counts.xlsx holds 23 OSP days (17 Sep to 18 Oct 2025, 14 of them paired
   #   with Westport trailer counts) and ingress_egress.xlsx one WBL boat day (2025-12-19), so the
   #   turnover calibration would fire on autumn-only overlap and apply it to the winter. Wait for
-  #   the full record before quoting a 2025-26 boat total. The tally has 23 days and the charter
-  #   roster 11 Westport trips.
+  #   the full record before quoting a 2025-26 boat total. Corrected 2026-10-02 in the guide and
+  #   here 2026-11-27: all 23 OSP days are in the pot closure, so the boat ALL-GEAR fit has no OSP
+  #   day and runs one tau_bar at its prior that no day observes (A41). The tally has 23 days and
+  #   the charter roster 11 Westport trips.
   #
   # -- two-season span 2023-25: OUT OF SCOPE (Matt, 2026-09-28). Kept only as the record of what
   #    shipped here until 2026-09-12 (CHANGE_REGISTER D28). Seasons before 2024-25 were exploratory:
@@ -401,7 +405,8 @@ run_config <- list(
   #     "2024-25" = c("2024-12-01", "2025-02-08")
   #   ),
   #   census_start_date = "2024-12-01",   census_end_date   = "2025-02-08",
-  #   commercial_opener = "2025-02-11",   run_tag           = "two-season-2023-25",
+  #   commercial_opener = "2025-02-11",
+  #   and in section 1.1:  run_tag = "two-season-2023-25"
   #   WHY IT IS BLOCKED: no vessel tally and no charter roster were ever kept for 2023-24,
   #   so that season's commercial/charter component is 0 and estimate_comm_charter() only
   #   WARNS (D8). A two-season port total is short by the whole 2023-24 commercial/charter
@@ -437,10 +442,10 @@ run_config <- list(
   # consistency check on the method.
   # PRODUCTION USES THE TURNOVER, NOT THE DAY LENGTH. Since shore moved to
   # gear-deployments (v7.7) the expansion is E = lambda_E * R_G * tau_shore, so L in the
-  # Stan model is tau_shore (~1.7, dimensionless), NOT L_effective in hours. L_effective
-  # is still computed every run and drives the day_length column used by the diagnostics
-  # and the civil-twilight comparison, but it is not on the estimation path unless
-  # shore_effort_unit is set back to a time unit. The regression fallback ladder below
+  # Stan model is tau_shore (2.48 derived on 2024-25, dimensionless), NOT L_effective in hours.
+  # L_effective, the day_length column and the civil-twilight comparison are computed only under a
+  # time-denominated shore_effort_unit or day_length_diagnostics = TRUE (since 2026-09-29, B55),
+  # and are not on the estimation path unless shore_effort_unit is set back to a time unit. The regression fallback ladder below
   # (regression -> grand mean -> civil twilight) governs L_effective only.
   # BOATS: L is tau_boat (deployment turnover), NOT 24 h. The old flat L = 24 gear-hours
   # was removed in POOL-3 / v7.6 when the boat moved to gear-deployments.
@@ -574,7 +579,9 @@ run_config <- list(
   # mean ONE across days (so lambda_E keeps its meaning and an unsampled day's expected
   # effort is the level), one uE per sampled day, uE ~ normal(0, sigma_uE),
   # sigma_uE ~ half-normal(effort_day_effect_sd); on a shore day with gear counts the totals
-  # carry the fitted deviation, the boat keeps the level (OSP pins it). Both Stan programs;
+  # carry the fitted deviation; the boat keeps the level on an OSP day (OSP pins it) and, since A42,
+  # carries the deviation on a sampled trailer day without an OSP count (boat_day_effect_reporting,
+  # below). Both Stan programs;
   # the flag is Stan data. Priced on the container 2026-10-18 as the B68 lever (campaign
   # 1z.14): shore all-gear half-width +7.5% with the point +1.1%, boat +4.0% and +0.2%, the
   # port SD +2.5%; sigma_uE 0.42 (shore) and 0.84 (boat). FALSE restores every render before
@@ -618,9 +625,9 @@ run_config <- list(
   # day's fitted deviation into its reported effort and catch, as a shore day does (an OSP day
   # keeps the level times its own L[d], or OSP's day would be counted twice). The carried day's
   # crabbing share is taken at its carried volume, as A34's share is a function of the day's real
-  # volume. Priced exactly from the authoritative fit (generated quantities only, no refit): boat
-  # all-gear 35,462 to 34,361 (-3.1%), port about -1.3%. "level" ships (bit-identical to every
-  # render before it); the choice is Matt's (CHANGE_REGISTER D55; the related D56 is separate).
+  # volume. Priced exactly from B70's fit (generated quantities only, no refit): boat
+  # all-gear 35,462 to 34,361 (-3.1%), port about -1.3%. "level" shipped until A42 (bit-identical to
+  # every render before it); the choice was Matt's (CHANGE_REGISTER D55; the related D56 is separate).
   # Stan data, no recompile.
   # ADOPTED 2026-11-25 (A42; Matt: "D55: adopt carry_without_osp").
   # THE RULE (A42, written and committed with the switch before the render): the render of run_config.R as shipped, --model both, on a clean tree, is adopted as the authoritative run if (1) every fit on both tracks passes the convergence gate and no chain is stuck; (2) the six fits the switch cannot reach (the four shore fits, which have no trailer counts, and the two boat pot-closure fits, where A40's floor keeps the per-day effect off) reproduce B70's saved draws byte for byte; (3) on the two boat all-gear fits every row of structural_params_*.csv equals B70's (the switch acts only in the generated quantities, so the sampler's draws are B70's), except the boat-weighted share rows, which it is built to change; (4) the pooled boat all-gear expected catch equals B86's exact replay, 34,361.4, within 0.5 crab; (5) the cross-check is within cross_check_tolerance.
@@ -684,7 +691,9 @@ run_config <- list(
   # derived, so the old turnover was the wrong quantity, not a competing estimate; both
   # keys ship "derived". Rung R4 of 06_diagnostics/run_improvements_2026-09-08.R still
   # isolates the change (R3 pins 1.7) so its size on the shore is on the record. To hold
-  # the old value: set tau_shore_prior_mu = 1.7 and tau_shore_prior_sigma = 0.3.
+  # the old value: set tau_shore_prior_mu = 1.7 and tau_shore_prior_sigma = 0.3, and since A41
+  # also shared_tau_refusal = "per_day" (with a numeric prior the shore floor is not waived, so
+  # the shore fits fall below it; read from the code, not confirmed by a run).
   tau_shore_prior_mu     = "derived", # shore deployment turnover from the I/E time column (2.48 on 2024-25)
   tau_shore_prior_sigma  = "derived", # bootstrap log-SE of the level, floored below
   tau_shore_prior_sigma_floor = 0.10, # never claim better than 10% level precision from the prior
@@ -778,9 +787,14 @@ run_config <- list(
   # catch stream 3.8 nats WORSE, 2 then 16 Pareto k above 0.7, sigma_r_OSP collapsing 0.806
   # -> 0.086, and OSP coverage_50 at 0.977 against a nominal 0.500. Do not adopt it.
   #
-  # THE FEATURE IS BOAT-ONLY IN EFFECT, BY THE FLOOR BELOW, NOT BY A POPULATION SWITCH.
-  # A global toggle moved the SHORE all-gear component +17.9% on 4 informed days out of 289,
-  # with an interval containing its own prior centre and no replication in the gear track.
+  # WHO RUNS IT (corrected 2026-11-27, B90; this block said "boat-only in effect" until then).
+  # With a NUMERIC shore prior the floor below keeps the shore out: a global toggle had moved the
+  # SHORE all-gear component +17.9% on 4 informed days out of 289, with an interval containing its
+  # own prior centre and no replication in the gear track. AS SHIPPED the shore prior is "derived"
+  # (since 2026-09-09), which WAIVES the shore floor, so all four fits run one shared tau_bar: the
+  # boat's is identified by its OSP days, the shore's sits close to its derived prior and is what
+  # carries the turnover's uncertainty into the shore interval (and D51 is about what its 4 I/E days
+  # do to it).
   shared_tau             = TRUE,
   # Fixed day-to-day log-scale spread of L around tau_bar. PINNED at the value every
   # adopted run used (0.15 = half of the old 0.3 prior SD) on 2026-09-08, because the boat
@@ -788,24 +802,30 @@ run_config <- list(
   # widened the day-to-day spread to 0.25 as a silent side effect of re-centring the prior.
   # May be a per-population list; the shore's between-day spread of the count-hour
   # turnover is ~0.37 (log-SD, 40 I/E days), the boat's 0.15 is the value every adopted
-  # run used. Kept as a scalar (boat-only in effect) until the derived shore prior is
-  # adopted, when list(shore = 0.35, private_boat = 0.15) is the recommended setting.
+  # run used. Written 2026-09-08: "kept as a scalar (boat-only in effect) until the derived shore
+  # prior is adopted, when list(shore = 0.35, private_boat = 0.15) is the recommended setting".
+  # The derived shore prior WAS adopted the next day and this key was never revisited, so the shore
+  # fits have run their shared tau_bar with a day spread of 0.15 ever since. OPEN as CHANGE_REGISTER
+  # D57 (found 2026-11-27, B90), a decision for Matt: the value moves the model, so do not change it
+  # in passing.
   shared_tau_sigma       = 0.15,
   # Minimum days that can INFORM L (I/E days, plus OSP days when osp_scale_is_tau = 1) before
   # a fit is allowed a shared level; below it the fit degrades to per-day draws with a printed
   # reason. Stated explicitly here rather than left to the helper default, because it is the
-  # thing that makes the line above boat-only. Observed counts: shore all-gear 4, shore pot
+  # thing that makes the line above boat-only under a numeric shore prior. Observed counts: shore all-gear 4, shore pot
   # closure 0, boat all-gear 130, boat pot closure 18. Any threshold in 5..18 separates the
   # shore from the boat; 15 sits just below 18 deliberately, to keep the boat pot closure,
   # whose tau_bar (1.873 pooled, 2.050 gear-resolved) is corroborated across tracks. Setting
   # 20 drops that component out of the feature and is worth running once as a sensitivity.
-  # SEASON-DERIVED floor: 15 makes the shared turnover boat-only on 2024-25 (130
-  # OSP-informed days vs 0 shore). A season with sparse OSP coverage can drop the boat
+  # SEASON-DERIVED floor: under a numeric shore prior 15 makes the shared turnover boat-only on
+  # 2024-25 (130 OSP-informed days vs 4 and 0 shore); as shipped the shore entry resolves to 0
+  # (next lines). A season with sparse OSP coverage can drop the boat
   # below this floor; the run prints the informed-day count next to this decision.
   # 2026-09-08: may also be a per-population list, list(shore = 0, private_boat = 15);
   # bss_resolve_tau_shore_prior() sets the shore entry to 0 when the shore prior is derived.
   shared_tau_min_obs     = 15,
-  # A41 (2026-10-20, D49 option (iii), Matt): what a fit BELOW the floor runs. "shared_prior" (ships)
+  # A41 (2026-10-20, D49 option (iii), Matt): what a fit BELOW the floor runs (any population's;
+  # as shipped only a boat fit can be, since the shore floor is waived). "shared_prior" (ships)
   # keeps the shared structure, one tau_bar ~ lognormal(log(centre), tau_boat_prior_sigma) scaling
   # every day with the fixed day spread above, and lets NO day observe it (the fit's OSP boat totals,
   # if any, observe presence through the free scale kappa_OSP, osp_scale_is_tau = 0 for that fit;
@@ -914,7 +934,7 @@ run_config <- list(
   # (crab_fraction_dynamic, below); the set value is only the level prior's centre.
   use_crab_fraction         = TRUE,
   # crab_fraction_strata: "none" (one scalar f = Phase 2) | "month" | "day_type" |
-  # "month_day_type". Per-stratum f (a Beta prior per stratum, updated by that stratum's
+  # "month_day_type" | "opener" | "month_opener" (the last two with the opener covariates). Per-stratum f (a Beta prior per stratum, updated by that stratum's
   # I/E classification counts). "none" reproduces Phase 2 exactly. Move to "month" once the
   # pilot classifies enough boats per month; a single annual f over-states the summer crab
   # share (summer is tuna/salmon-dominated), which is where the harvest is largest.
@@ -1014,7 +1034,7 @@ run_config <- list(
   ie_crab_col               = "boats_crabbing",  # ingress_egress column: crab-classified boats
   ie_total_col              = "boats_total",     # ingress_egress column: total classified boats
 
-  # --- 2.4b ADOPTED 2026-10-04 (A33), PENDING ITS CONFIRMING RENDER: the OSP crab-only stream ---
+  # --- 2.4b ADOPTED 2026-10-04 (A33), rendered in B65: the OSP crab-only stream ---
   # THE PROBLEM. OSP reports, per day, the number of SAMPLED private boats that were ONLY
   # crabbing (WPTPrivateCrabOnly, delivered 2026-10-02, B64). It does not count combo trips:
   # a boat that crabs AND fishes another fishery is labelled by the other fishery. So the
@@ -1246,7 +1266,9 @@ run_config <- list(
   # resolution, different routing, nothing else moving. It did, across 10,253 shared
   # parameter rows at full precision.
 
-  # ar_max_resolution$pooled leaves shore all-gear data-driven, which selects DAILY. The
+  # (THE 2026-09-04 STATE, kept as the record of how the weekly cap was reached; the cap above
+  # has shipped "weekly" since 2026-09-07.) ar_max_resolution$pooled then left shore all-gear
+  # data-driven, which selected DAILY. The
   # ladder fitted it at daily / weekly / biweekly / monthly and ALL FOUR passed the
   # convergence gate, so the gate cannot choose between them. Adequacy can:
   #        rung   P_n   catch    p_loo/n_obs   bad Pareto k   gear coverage_50
@@ -1304,8 +1326,8 @@ run_config <- list(
   #   boat pot-closure       24    6 (11 days)      7 (14 days)     29%
   #
   # WHY THIS IS NOT PE-ONLY, contrary to the note that stood here until 2026-09-12. A
-  # component whose convergence gate FAILS reports its PE point in the port total, as a
-  # CONSTANT with no interval (see section 7.7 of either driver). The boat pot closure is
+  # component whose convergence gate FAILS reports its PE in the port total: as seeded draws
+  # with its PE catch SE since B73 (2026-10-19), as a CONSTANT with no interval before. The boat pot closure is
   # the component most likely to fall back. So these levers can reach the headline.
   # =========================================================================
   #
@@ -1349,9 +1371,9 @@ run_config <- list(
   #    2024-25 PE port total at the shipped CPUE fill: 72,224 ("zero"), 81,160
   #    ("day_type"), 85,076 ("local_day_type", shipped). The effort totals are 45,175 /
   #    53,846 / 56,793: "zero" omits 20% of the season's effort.
-  #    Still worth reading against the post-ladder BSS rather than the stale
-  #    20260904/pooled-CPUE-AD-A1-adopted reference (CHANGE_REGISTER D19); the ladder's R0
-  #    desk rung prints all three so the comparison costs no MCMC.
+  #    Re-measured against B70 on 2026-10-19 (campaign 1z.17) and D19 CLOSED 2026-10-20 (Matt:
+  #    keep "local" for the CPUE fill); the ladder's R0 desk rung prints all three effort fills,
+  #    so the comparison costs no MCMC.
   pe_empty_effort_stratum = "local_day_type",  # "local_day_type" | "day_type" | "zero"
   #
   # 3. WHAT AN UNSAMPLED OR SINGLETON CELL CONTRIBUTES TO THE SE (NEW 2026-09-12,
@@ -1385,7 +1407,8 @@ run_config <- list(
   #    the mean, finest with two or more for the spread), so this lever and lever 2 move
   #    independent things and the ladder can attribute them one at a time.
   #    NOT INCLUDED, and tracked separately as D22: the PE applies no finite-population
-  #    correction anywhere, and the PE catch still has NO SE at all (only effort does).
+  #    correction anywhere. (Until B73, 2026-10-19, the PE catch had no SE at all; it has one
+  #    now, pe_catch_variance().)
   pe_variance       = "impute_aware", # "impute_aware" | "donor_mean_only" | "sampled_only"
   # Which interviews the Point Estimator uses for the boat gear-per-group ratio.
   # "match_bss" (default) applies filter_incomplete_trips, matching the frame the BSS
@@ -1469,14 +1492,11 @@ run_config <- list(
   # Line 30.7 on 3); "pooled" uses one charter mean for every trip (2,186, SE 118).
   charter_expansion = "vessel",
 
-  # --- 2.9 The I/E day-length regression (a TIME-UNIT lever only) ---
-  # It does NOT feed the shore turnover derivation (that reads the I/E time column directly,
-  # section 2.x above). Since 2026-09-29 (B55) it runs only when shore_effort_unit is a time
+  # --- 2.9 The I/E streams: the day-length regression (time units only) and the I/E observation floors ---
+  # The regression does NOT feed the shore turnover derivation (that reads the I/E time column
+  # directly, section 2.2 above). Since 2026-09-29 (B55) it runs only when shore_effort_unit is a time
   # unit or day_length_diagnostics = TRUE: under gear-deployments no estimate reads it.
   day_length_diagnostics = FALSE,   # TRUE computes L_effective and civil twilight anyway (needs suncalc)
-                                     #   regression (historical, current behavior). TRUE
-                                     #   restricts to season_filter via the workbook's
-                                     #   season column (now the fishery season label).
   use_ie_day_length = TRUE,
   ie_min_obs_for_regression = 5,
   # GR-8 (2026-07-13): minimum in-window I/E days required before the I/E likelihood is
@@ -1600,14 +1620,15 @@ run_config <- list(
   # R_G_prior_sigma = 0.3,
 
   # The boat catch is proportional to tau_boat (the boat deployment turnover) when tau
-  # is prior-dominated, which it is whenever no in-window boat I/E days pin it (the
-  # 2024-25 case: 0 boat I/E days, so the boat total rests on the tau_boat prior). With
+  # is prior-dominated, which it WAS on 2024-25 before the shared turnover (0 boat I/E days,
+  # so the boat total rested on the tau_boat prior; since shared_tau with osp_scale_is_tau the
+  # OSP days identify it and the projection is an upper bound). With
   # diagnose_tau_sensitivity = TRUE the gear driver PROJECTS the boat and port totals
   # across tau_sensitivity_grid in a single run (no refit), via
   # 03_R_functions/diagnose_tau_boat_sensitivity.R; it writes tau_boat_sensitivity.csv
   # plus an on-page table and states whether tau was prior-dominated (projection exact)
-  # or not (projection = upper bound). For the EXACT multi-refit check that stays valid
-  # even when boat I/E informs tau, source 06_diagnostics/run_tau_sweep.R instead.
+  # or not (projection = upper bound). (The exact multi-refit sweep,
+  # 06_diagnostics/run_tau_sweep.R, is superseded and refuses to fit, B46.)
   # Default TRUE since the 2026-07-20 multi-refit sweep confirmed the projection
   # reproduces the exact result to ~0.2% (boat elasticity 1.00), so it is ~free.
   diagnose_tau_sensitivity = TRUE,
@@ -2009,19 +2030,21 @@ run_config <- list(
   # without moving its total). Stan data, so changing it recompiles nothing.
   mu_hier_collapse_single    = "both",     # (pooled) "both" | "effort" | "none"
   estimate_B1_C              = TRUE,   # (gear-resolved) weekend/holiday CPUE effect B1_C.
+                                       #   TRUE matches the pooled model; FALSE drops B1_C
+                                       #   from the likelihood (v5.4 behavior).
 
   # ============================================================================
   # 5. GEAR-RESOLVED MODEL ONLY
   # ----------------------------------------------------------------------------
   # Read by crab_bss_gear_resolved.stan and its driver; the pooled model ignores every
   # key in this section. The gear-resolved track is the CROSS-CHECK, not the headline
-  # estimator. Its render of this file as shipped is the authoritative batch's stage D6
-  # (05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi), -0.53% against
-  # the authoritative pooled run at the port since D3 and D6 were adopted (A32, 2026-10-02);
-  # before that -1.44% (stage A's gear render) and -1.29% (B50, 2026-09-28).
+  # estimator. Its render of this file as shipped is B89's cross-check
+  # (05_output/20261125/gear-type-CPUE-model-2024-25-200438), 85,179, -0.35% against the
+  # authoritative pooled run at the port. Before it: -0.25% (B70), -0.27% (B67), -0.03% (B65),
+  # and -0.53% when D3 and D6 were adopted (A32, 2026-10-02: the authoritative batch's stage D6,
+  # 05_output/20260930/gear-type-CPUE-model-2024-25-AB-D6-gear-matched-zi); before that -1.44%
+  # (stage A's gear render) and -1.29% (B50, 2026-09-28).
   # ============================================================================
-                                       #   TRUE matches the pooled model; FALSE drops B1_C
-                                       #   from the likelihood (v5.4 behavior).
   gear_resolved_G            = FALSE, # (gear-resolved) GR-7 Phase 1. FALSE = production G = 1
                                        #   (gear split by PE apportionment). TRUE turns on genuine
                                        #   per-gear CPUE for SHORE fits (Option A1): only single-gear
@@ -2104,5 +2127,15 @@ run_config <- list(
                                        #   chosen unit (the comparison is done).
   # (use_boat_ie moved to section 2.9 on 2026-10-16, A37: both tracks read it now.)
 )
+
+# 2026-11-27 (B90): a key set twice is decided silently by its FIRST copy (`run_config$key` returns
+# the first match), so a window block pasted with its own run_tag under the one in section 1.1 would
+# file a 2025-26 run under the 2024-25 tag, and a second copy of any other key would simply not apply.
+# Stop instead. A file with each key once is unaffected.
+if (anyDuplicated(names(run_config))) {
+  stop("run_config.R sets a key more than once: ",
+       paste(unique(names(run_config)[duplicated(names(run_config))]), collapse = ", "),
+       ". Keep one copy of each key (run_tag lives in section 1.1).", call. = FALSE)
+}
 
 # =========================================================================== #

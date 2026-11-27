@@ -194,6 +194,10 @@ ARMS <- list(
 .tag <- function(sid) paste0("AR-", sid)
 resolve_cfg <- function(sid) {
   cfg <- BASE
+  # 2026-11-27 (B90): the six arms were rendered on 2026-11-19 with every boat day reporting the level;
+  # run_config.R ships "carry_without_osp" since A42 (2026-11-26). Pinned here so a re-render of an arm
+  # is the arm that was read (S25-const is B70, not B89).
+  cfg$boat_day_effect_reporting <- "level"
   w <- SEASONS[[.season_of(sid)]]$window
   for (k in names(w)) cfg[k] <- list(w[[k]])
   d <- ARMS[[.arm_of(sid)]]$delta

@@ -352,7 +352,7 @@ bss_shared_tau_data <- function(eff_spec, L_data, L_prior_sigma, params = list()
 
 # ---------------------------------------------------------------------------
 # D55 (B86, 2026-11-25): the Stan data flag boat_day_carry from run_config's
-# boat_day_effect_reporting. "level" (ships) -> 0: every boat day reports the level, as since
+# boat_day_effect_reporting. "level" (shipped until A42, 2026-11-26) -> 0: every boat day reports the level, as since
 # A39. "carry_without_osp" -> 1: a sampled trailer day with no OSP count carries its fitted
 # day deviation into the reported effort and catch, as a shore day does. Anything else stops:
 # a misspelt value must not fall through to the default silently. Shared by both preps.

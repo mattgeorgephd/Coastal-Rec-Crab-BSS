@@ -1070,7 +1070,7 @@ The design-based estimator: it averages the sampled days within each week by day
 - an unsampled cell's **CPUE** is that month's ratio of sums (`pe_empty_stratum = "local"`), matching the scale of the effort fill. Whether that is the right fill is an open question (CHANGE_REGISTER D19).
 - an unsampled or singleton cell's **variance** (`pe_variance = "impute_aware"`): a singleton cell borrows its donor's spread (the collapsed-stratum estimator), an imputed cell carries the donor mean's sampling variance plus a between-cell surrogate, and the component SE carries the covariances between cells that share a donor (B44). `effort_se_sampled_only` in the CSV keeps the sampled-cells-only arithmetic.
 
-The point estimate is unaffected by the third setting. **This is not PE-only bookkeeping**: a component whose gate fails reports its PE point in the port total as a constant, so these settings reach the headline whenever a component falls back.
+The point estimate is unaffected by the third setting. **This is not PE-only bookkeeping**: a component whose gate fails reports its PE in the port total, as seeded draws around the PE point with its catch SE (B73), so these settings reach the headline and its interval whenever a component falls back.
 
 ```{r pe-estimates, results='hide'}
 # ---- 7.2 PE ESTIMATES ----

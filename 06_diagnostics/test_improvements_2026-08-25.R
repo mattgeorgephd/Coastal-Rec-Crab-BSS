@@ -1,4 +1,24 @@
 # -----------------------------------------------------------------------------
+# Part of Coastal-Rec-Crab-BSS: recreational Dungeness crab creel estimation
+# for Grays Harbor / Westport (WDFW).
+# Copyright (C) 2024-2026 Washington Department of Fish and Wildlife.
+#
+# Adapted from CreelEstimates, the WDFW freshwater creel estimation framework:
+#   https://github.com/dfw-wa/CreelEstimates   (licensed GPL-3.0).
+# Substantial portions of the methodology, structure, and R/Stan code originate
+# in CreelEstimates and remain (C) their authors under GPL-3.0; changes for
+# recreational crab are by WDFW.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License, version 3, as published by the Free
+# Software Foundation. It is distributed WITHOUT ANY WARRANTY; without even the
+# implied
+# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details. You should have received a copy of
+# the GNU General Public License along with this program (see the LICENSE file);
+# if not, see <https://www.gnu.org/licenses/>.
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # test_improvements_2026-08-25.R
 #
 # Standalone regression harness for the 2026-08-25 improvement batch. Deliberately
@@ -5941,7 +5961,7 @@ local({
   chk("A30 docs: the method document moved with the adoption (header, the data streams, 14.2, 21a, limitations 12 and 13)",
       # 2026-09-29: the header moved again (B44 to B51); it must still name A30 among what it carries
       # 2026-10-04: and again (A33); 2026-10-16: and again (A35 to A37); 2026-10-18: and again (A39)
-      grepl("**last moved 2026-10-18: A39", md, fixed = TRUE) && grepl("before that 2026-10-16: A35", md, fixed = TRUE) &&
+      grepl("**last moved 2026-11-26: A42**", md, fixed = TRUE) && grepl("before that 2026-10-16: A35", md, fixed = TRUE) &&
       grepl("the NWS Small-Craft-Advisory flag on the private-boat all-gear effort process (A30, 2026-09-27)", md, fixed = TRUE) &&
       grepl("**NWS marine hazard archive** (covariate, not a stream)", md, fixed = TRUE) &&
       grepl("In production\nthere is exactly one, in exactly one fit**", md, fixed = TRUE) &&
@@ -7647,7 +7667,7 @@ local({
       !grepl("(A33, pending its confirming render). It came without", md, fixed = TRUE))
   chk("A35/A36/A37 docs: the box says the shipped file differs in three keys pending one render; the method document has the split, the priors and the boat I/E form; CLAUDE.md lists the keys",
       grepl("A35 TO A38 RENDERED 2026-10-17 ON THE CONTAINER (B67)", ps, fixed = TRUE) &&
-      grepl("**The Saturday/Sunday split (A36, 2026-10-16; rendered 2026-10-17, B67, the authoritative run since 2026-10-18).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
+      grepl("**The Saturday/Sunday split (A36, 2026-10-16; rendered 2026-10-17, B67, the authoritative run from 2026-10-18 to 2026-10-19).**", md, fixed = TRUE) && grepl("| `B2`, `B2_C` | `normal(0, holiday_prior_sd)` |", md, fixed = TRUE) &&
       grepl("| `B1_sun` (A36) | `normal(0, sunday_prior_sd)` |", md, fixed = TRUE) && grepl("on the boat (A37, 2026-10-16, `ie_group_scale = 1`)", md, fixed = TRUE) &&
       grepl("`holiday_prior_sd` (A35, 2026-10-16:", cl, fixed = TRUE) && grepl("`sunday_split` / `sunday_prior_sd` (A36, 2026-10-16:", cl, fixed = TRUE))
 })
@@ -7817,7 +7837,7 @@ local({
   chk("B67 docs: the box, the register, CLAUDE.md, run_config.R and the method document name the new run with its total and interval, and B65 as the run replaced",
       grepl("**`05_output/20261017/pooled-CPUE-2024-25`, port total 86,113 [72,407, 103,557]**", ps, fixed = TRUE) &&
       grepl("**THE RUN BEFORE THAT (B65, authoritative 2026-10-04 to 2026-10-18):**", ps, fixed = TRUE) &&   # 2026-10-19 (B70): B67 is the run replaced now, B65 the one before
-      grepl("It replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) &&   # 2026-10-19 (B70): the run replaced
+      grepl("B70 had replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) &&   # 2026-10-19 (B70): the run replaced
       grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) && grepl("05_output/20261017/pooled-CPUE-2024-25, 86,113 [72,407, 103,557], B67", rc, fixed = TRUE) &&
       grepl("**since 2026-10-18 (B67)**, it was `05_output/20261017/pooled-CPUE-2024-25`, **86,113 [72,407, 103,557]**", md, fixed = TRUE))
   chk("B67 docs: the register carries B66 and B67, A35 to A38 read AUTHORITATIVE since 2026-10-18, B65 reads replaced, and the campaign 1z.13 with its anchor",
@@ -8047,7 +8067,7 @@ local({
       grepl("accepted by Matt 2026-10-19, the same day", cl, fixed = TRUE) && grepl("port **86,497 [72,869, 104,595]**", cl, fixed = TRUE) && grepl("port **86,113 [72,407, 103,557]**", cl, fixed = TRUE) &&
       grepl("- **The render (B70).** `Rscript run_estimation.R --model both` from `3fbecc5`", vc, fixed = TRUE) && grepl("- **Accepted.** Matt accepted B70 as the authoritative run the same day (2026-10-19", vc, fixed = TRUE) &&
       grepl("`run_manifest_20261019_032942.txt` and `cross_check_20261019_032942.csv` (1z.16; B70); 2026-10-19 (accepted as the authoritative run, the documents moved; 1z.16)", vc, fixed = TRUE) &&
-      grepl("**since 2026-10-19 (B70)** it was `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (the box; B67 replaced)", md, fixed = TRUE) &&
+      grepl("**since 2026-10-19 (B70)** it was `05_output/20261019/pooled-CPUE-2024-25`, **86,497 [72,869, 104,595]**", md, fixed = TRUE) && grepl("accepted by Matt the same day as the authoritative run (it was that until 2026-11-26; B67 replaced)", md, fixed = TRUE) &&
       grepl("The render (B70, the same day) met every clause", ph, fixed = TRUE) && grepl("Rendered the same day (B70): every clause met on the gear track", gh, fixed = TRUE))
 })
 
@@ -8060,8 +8080,10 @@ local({
   ph <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-development-history.md"); gh <- rdf("07_documentation/BSS-GH-gear-type-CPUE-model-development-history.md")
   a39 <- regmatches(cr, regexpr("\\| A39 \\|[^\n]*", cr)); b67 <- regmatches(cr, regexpr("\\| B67 \\|[^\n]*", cr))
   chk("B70 accepted: the register's Authoritative run line names 05_output/20261019 at 86,497 [72,869, 104,595] with its cross-check, B67 as the run replaced and B65 before it; its Last updated line records the move; A39 and B67 read accordingly",
-      grepl("**Authoritative run:** `05_output/20261019/pooled-CPUE-2024-25`, port total **86,497 [72,869, 104,595]**, 4 of 4 components fitted, every one reporting BSS, with its gear-resolved cross-check `05_output/20261019/gear-type-CPUE-model-2024-25` at 86,285 (-0.25%, PASS)", cr, fixed = TRUE) &&
-      grepl("It replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) && grepl("That had replaced `05_output/20261003/pooled-CPUE-2024-25`", cr, fixed = TRUE) &&
+      # 2026-11-27 (B90): the header names B89; B70 is the run it replaced
+      grepl("**Authoritative run:** `05_output/20261125/pooled-CPUE-2024-25-190951`, port total **85,477 [72,037, 102,630]**", cr, fixed = TRUE) &&
+      grepl("It replaced `05_output/20261019/pooled-CPUE-2024-25`, port total **86,497 [72,869, 104,595]**, with its gear-resolved cross-check `05_output/20261019/gear-type-CPUE-model-2024-25` at 86,285 (-0.25%, PASS)", cr, fixed = TRUE) &&
+      grepl("B70 had replaced `05_output/20261017/pooled-CPUE-2024-25`, port total **86,113 [72,407, 103,557]**", cr, fixed = TRUE) && grepl("That had replaced `05_output/20261003/pooled-CPUE-2024-25`", cr, fixed = TRUE) &&
       grepl("**THE AUTHORITATIVE RUN MOVES to B70: Matt accepted the A40 render on 2026-10-19;", cr, fixed = TRUE) &&
       length(a39) == 1 && grepl("THE AUTHORITATIVE RUN since 2026-10-19 (B70, Matt)", a39, fixed = TRUE) &&
       length(b67) == 1 && grepl("AUTHORITATIVE 2026-10-18 to 2026-10-19 (Matt accepted the container render); replaced by B70", b67, fixed = TRUE))
@@ -8071,7 +8093,7 @@ local({
       grepl("The BSS sits 2.5% below the PE (88,758).", ps, fixed = TRUE) && grepl("**THE AUTHORITATIVE RUN MOVES to B70: Matt accepted A40's render on 2026-10-19;", ps, fixed = TRUE))
   chk("B70 accepted: CLAUDE.md names the run, its cross-check, the turnover on it and the reproducible reference; run_config.R's header and section 1.2 name it with B67 and B65 before it",
       grepl("`05_output/20261019/gear-type-CPUE-model-2024-25` at **86,285 (-0.25%, PASS)**", cl, fixed = TRUE) &&
-      grepl("the fitted `tau_bar` is **2.972** in the posterior mean (median 2.951 [2.24, 3.82]) on the authoritative run, B70", cl, fixed = TRUE) &&
+      grepl("the fitted `tau_bar` is **2.972** in the posterior mean (median 2.951 [2.24, 3.82]) on B70 and 2.970 (2.949 [2.26, 3.83]) on the authoritative run, B89", cl, fixed = TRUE) &&
       grepl("before 2026-11-26 it was the B70 run (86,497, which `boat_day_effect_reporting = \"level\"` reproduces;", cl, fixed = TRUE) && !grepl("pending Matt's acceptance", cl, fixed = TRUE) &&
       grepl("#   port total 86,497  [72,869, 104,595]", rc, fixed = TRUE) && grepl("#   05_output/20261019/pooled-CPUE-2024-25\n", rc, fixed = TRUE) &&
       grepl("# 05_output/20261019/pooled-CPUE-2024-25, 86,497 [72,869, 104,595] (and of the runs before it:", rc, fixed = TRUE) && grepl("87,932 [75,193, 105,271]", rc, fixed = TRUE))
@@ -8357,7 +8379,7 @@ local({
       grepl("`shared_tau_refusal` (A41, 2026-10-20, beside the floor:", cl, fixed = TRUE) && grepl("and D19 was CLOSED on 2026-10-20 (Matt: keep `local`).", cl, fixed = TRUE) &&
       grepl("**What a refused fit runs (A41, 2026-10-20; D49 closed).**", md, fixed = TRUE) && grepl("**16. A fit below the shared-turnover floor has no data on its turnover, and says so (D49", md, fixed = TRUE) &&
       grepl("not settled until 2026-10-20 (D19 closed by Matt, keeping `local`).**", md, fixed = TRUE) &&
-      grepl("[NEW 2026-10-20, A41; D49 CLOSED; D19 CLOSED]", st, fixed = TRUE) && grepl("(B76, 2026-10-20, under A41) and their predecessors in `05_output/20261019/` (B75, before A41)", ro, fixed = TRUE))
+      grepl("[NEW 2026-10-20, A41; D49 CLOSED; D19 CLOSED]", st, fixed = TRUE) && grepl("(B76, 2026-10-20, under A41 and before A42,", ro, fixed = TRUE) && grepl("and their predecessors in `05_output/20261019/` (B75, before A41)", ro, fixed = TRUE))
   rp <- "05_output/20261020/A41-B70-reproduction"
   if (dir.exists(rp)) {
     pt <- function(f) utils::read.csv(file.path(rp, f), stringsAsFactors = FALSE)
@@ -8387,13 +8409,14 @@ local({
   rm_ <- rdf("README.md"); cl <- rdf("07_documentation/CLAUDE.md"); cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md")
   st <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md"); dr <- rdf("07_documentation/README.md"); ir <- rdf("04_input_files/README.md"); rc <- rdf("run_config.R")
   chk("B77 pointers: README, CLAUDE.md, run_config.R, the register (header, Branch line, B77 row), the status Repo line and the documentation README all say main is the method of record after pull request #8 (27d68c7) and that the branch restarted from main",
-      grepl("- **Status:** **`main` is the method of record.**", rm_, fixed = TRUE) && grepl("on 2026-11-18 (merge commit `27d68c7`, 59 commits: A31 to A41, B50 to B76 and the current authoritative run, B70)", rm_, fixed = TRUE) &&
+      grepl("- **Status:** **`main` is the method of record as last merged, and the development branch is ahead of it.**", rm_, fixed = TRUE) && grepl("on 2026-11-18 (merge commit `27d68c7`, 59 commits: A31 to A41, B50 to B76 and B70, the authoritative run at that merge)", rm_, fixed = TRUE) &&
+      grepl("A42 and the authoritative run B89 (port 85,477 [72,037, 102,630], cross-check -0.35%) are on `OSP-boat-count-incorporation` only", rm_, fixed = TRUE) &&
       grepl("restarted from `main` after the merge", rm_, fixed = TRUE) &&
-      grepl("which merged into `main` on 2026-11-18 (merge commit `27d68c7`, 59 commits;", cl, fixed = TRUE) && grepl("**`main` is the method of record**: Method v2.0 with A30 to A41 and the authoritative run B70.", cl, fixed = TRUE) &&
-      grepl("and again on 2026-11-18 (pull request\n# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record.", rc, fixed = TRUE) &&
+      grepl("which merged into `main` on 2026-11-18 (merge commit `27d68c7`, 59 commits;", cl, fixed = TRUE) && grepl("**`main` is the method of record as last merged**: Method v2.0 with A30 to A41 and the run B70.", cl, fixed = TRUE) &&
+      grepl("and again on 2026-11-18 (pull request\n# #8: A31 to A41 and the authoritative run, B70); `main` is the method of record as last\n# merged. Since 2026-11-26 this branch is AHEAD of `main`: A42 and the authoritative run B89", rc, fixed = TRUE) &&
       grepl("**MERGED: pull request #8 merged `OSP-boat-count-incorporation` into `main` on 2026-11-18 (merge commit `27d68c7`", cr, fixed = TRUE) &&
       grepl("**Branch:** `OSP-boat-count-incorporation`, restarted from `main` after [pull request #8]", cr, fixed = TRUE) && grepl("| B77 | **After the second merge: the documentation says `main` is the method of record**", cr, fixed = TRUE) &&
-      grepl("**Repo:** `Coastal-Rec-Crab-BSS`. **The work is on branch `main`, which is the method of record:**", st, fixed = TRUE) && grepl("on 2026-11-18 (PR #8, merge commit `27d68c7`:", st, fixed = TRUE) &&
+      grepl("**the last merged state is branch `main`:** the `OSP-boat-count-incorporation` branch merged into branch `main` twice", st, fixed = TRUE) && grepl("on 2026-11-18 (PR #8, merge commit `27d68c7`:", st, fixed = TRUE) &&
       grepl("| `archive/PR-8-merge-OSP-boat-count-incorporation.md` |", dr, fixed = TRUE) && grepl("pull request #8 on 2026-11-18, after which the branch was restarted from `main`", dr, fixed = TRUE))
   chk("B77 inventory: the workbook the merged head carried (razor-clam-dig-dates-2021-2026.xlsx, 2026-11-02) is on disk, inventoried as read by no code path, and indeed read by none",
       file.exists("04_input_files/razor-clam-dig-dates-2021-2026.xlsx") && grepl("| `razor-clam-dig-dates-2021-2026.xlsx` | none yet: read by NO code path |", ir, fixed = TRUE) &&
@@ -8489,7 +8512,7 @@ local({
   chk("B78 method and guides: the method document carries the caution beside the I/E likelihood and limitation 17, the season guide says what to expect until D51 is decided, the input README and CLAUDE.md carry the workbook quirk and D51, and both folder READMEs list the script and its tables",
       grepl("> **The shore I/E likelihood compares one float with two (D51, found 2026-11-18; open).**", md, fixed = TRUE) &&
       grepl("**17. The shore I/E likelihood compares one float with two, and reads the turnover low wherever it binds (D51,", md, fixed = TRUE) &&
-      grepl("posterior median 2.380 [1.97, 2.89] (authoritative run, B70;", md, fixed = TRUE) &&
+      grepl("posterior median 2.380 [1.97, 2.89] (B89 and B70, whose shore fits are identical;", md, fixed = TRUE) &&
       grepl("Until\nD51 is decided, expect it on any season with many I/E days", ng, fixed = TRUE) &&
       grepl("**`crabber_flow` in `ingress_egress.xlsx` is 0 on a day's first and last interval row**", ir, fixed = TRUE) &&
       grepl("**D51 (open since 2026-11-18, B78, a decision for Matt): the shore I/E LIKELIHOOD compares Float 20's arrivals", cl, fixed = TRUE) &&
@@ -8693,7 +8716,7 @@ local({
       grepl("- **[NEW 2026-11-19, B80 to B83; D31 answered, D32 and D30 narrowed, D54 and D55 OPENED; the decisions are Matt's] The boat advisory term on a second season.**", st, fixed = TRUE) &&
       grepl("**13. The advisory term is one coefficient for the season, and the winter effect is smaller.**", md, fixed = TRUE) && grepl("**On a second season (2026-11-19, B80 to B83;", md, fixed = TRUE) &&
       grepl("| `loo_block_*` | does the model predict a week of effort counts it has not seen", md, fixed = TRUE) && grepl("- **2026-11-19.** B80 to B83: the boat advisory term on a second season", md, fixed = TRUE) &&
-      grepl("| `A30-advisory-term-brief-2026-11-19.docx` (source `A30-advisory-term-brief-2026-11-19.md`) | **D32, D31, D54 and D55, with Matt:**", dr, fixed = TRUE) &&
+      grepl("| `A30-advisory-term-brief-2026-11-19.docx` (source `A30-advisory-term-brief-2026-11-19.md`) | **D32, open with Matt (D31, D54 and D55, which the brief also raised, were closed on 2026-11-25 and 2026-11-26):**", dr, fixed = TRUE) &&
       grepl("| `desk_advisory_block_cv_2026-11-19.R` | **DESK, minutes, no MCMC**", dg, fixed = TRUE) && grepl("| `run_block_cv_exact_refit_2026-11-19.R` | **LIVE.**", dg, fixed = TRUE) &&
       grepl("| `desk_advisory_crab_share_2026-11-19.R` | **DESK, seconds, no MCMC**", dg, fixed = TRUE) && grepl("| `desk_advisory_fleet_composition_2026-11-19.R` | **DESK, a minute, no MCMC**", dg, fixed = TRUE) &&
       grepl("`advisory_replication_2026-11-19_{arms,pairs,monthly,verdicts}.csv` are the six renders of the same item", orr, fixed = TRUE) &&
@@ -8831,8 +8854,54 @@ local({
       grepl("**accepted by Matt on 2026-11-26 as the authoritative run, as a one-time exception**", st, fixed = TRUE) &&
       grepl("THE AUTHORITATIVE RUN SINCE 2026-11-26 (B89, `135b949`), accepted by Matt as a ONE-TIME EXCEPTION", cr, fixed = TRUE) &&
       grepl("ACCEPTED BY MATT 2026-11-26 AS THE AUTHORITATIVE RUN, A ONE-TIME EXCEPTION", cr, fixed = TRUE) &&
-      grepl("### 1z.23 D55 adopted: the A42 render, its rule not met, and the one-time acceptance", vc, fixed = TRUE) && grepl("`135b949`; 1z.23) |", vc, fixed = TRUE) &&
+      grepl("### 1z.23 D55 adopted: the A42 render, its rule not met, and the one-time acceptance", vc, fixed = TRUE) && grepl("`135b949`; 1z.23); 2026-11-27 (B90, the housekeeping review:", vc, fixed = TRUE) &&
       grepl("**THE AUTHORITATIVE RUN SINCE 2026-11-26 IS B89**", cl, fixed = TRUE) && grepl("**Since 2026-11-26 (B89)** it is `05_output/20261125/pooled-CPUE-2024-25-190951`", md, fixed = TRUE))
+})
+
+
+# ---------- B90 (2026-11-27): the housekeeping review; D57 and D58 opened ----------
+local({
+  rdf <- function(f) paste(readLines(f, warn = FALSE), collapse = "\n")
+  cr <- rdf("07_documentation/development_notes/CHANGE_REGISTER.md"); ps <- rdf("07_documentation/development_notes/PIPELINE_STATUS.md")
+  vc <- rdf("07_documentation/development_notes/VALIDATION_CAMPAIGN.md"); md <- rdf("07_documentation/BSS-GH-pooled-CPUE-model-documentation.md")
+  gd <- rdf("07_documentation/NEW_SEASON_GUIDE.md"); rc <- rdf("run_config.R"); rm_ <- rdf("README.md"); cl <- rdf("07_documentation/CLAUDE.md")
+  # the stop on a key set twice: the shipped file passes it, and the same file with a second run_tag stops
+  src <- readLines("run_config.R", warn = FALSE); i <- grep("^  run_tag +=", src)[1]
+  tf <- tempfile(fileext = ".R"); writeLines(append(src, "  run_tag = \"dup\",", after = i), tf)
+  r <- tryCatch({ sys.source(tf, envir = new.env()); "no stop" }, error = function(e) conditionMessage(e))
+  chk("B90: run_config.R stops on a key set twice (a second run_tag), and the shipped file sets each key once",
+      grepl("sets a key more than once: run_tag", r, fixed = TRUE) && !anyDuplicated(names({ e <- new.env(); sys.source("run_config.R", envir = e); e$run_config })))
+  chk("B90: the guide's window blocks no longer SET run_tag (each names it as a section 1.1 edit)",
+      !any(grepl("^  run_tag +=", readLines("07_documentation/NEW_SEASON_GUIDE.md", warn = FALSE))) && grepl("**`run_tag` is not one of\nthem:**", gd, fixed = TRUE))
+  chk("B90: the register has the B90 row, D57 and D58 open, and today's defect rows; the campaign has 1z.24 with its anchor; the status table lists both items",
+      grepl("| B90 | **Housekeeping review of the branch while waiting for OSP:", cr, fixed = TRUE) &&
+      grepl("| D57 | **The shore fits run their shared turnover with a day spread nobody chose for the shore:", cr, fixed = TRUE) && grepl("| D58 | **The effort predictive checks omit the per-day effort factor:", cr, fixed = TRUE) &&
+      grepl("**OPEN, measured 2026-11-27 under a rule committed first (`d8fa451`)", cr, fixed = TRUE) && sum(grepl("^\\| 2026-11-27 \\|", strsplit(cr, "\n")[[1]])) == 6L &&
+      grepl("### 1z.24 Housekeeping while waiting for OSP: the documents read against the code; D57 and D58 opened (2026-11-27)", vc, fixed = TRUE) && grepl("the D58 rule `d8fa451`", vc, fixed = TRUE) &&
+      grepl("| **Matt** | D58 (found 2026-11-27) |", ps, fixed = TRUE) && grepl("| **Matt** | D57 (found 2026-11-27) |", ps, fixed = TRUE))
+  chk("B90: no document calls the shared turnover boat-only as a present fact (run_config.R, the method document, the guidance)",
+      !grepl("THE FEATURE IS BOAT-ONLY IN EFFECT", rc, fixed = TRUE) && !grepl("**That floor is what makes the\nfeature boat-only in effect**", md, fixed = TRUE) &&
+      !grepl("which is what makes the shared turnover boat-only)", cl, fixed = TRUE) && grepl("**For the shore the floor is waived whenever the shore centre is derived**", md, fixed = TRUE))
+  chk("B90: the README no longer requires the pinned Stan pair, and the method document carries A42 in its version line, its effort equation and its per-day paragraph",
+      !grepl("The Stan packages must be the pinned ones", rm_, fixed = TRUE) && grepl("**Current Stan works too (D53, closed 2026-11-25, B84).**", rm_, fixed = TRUE) &&
+      grepl("E[s][d,g] = lambda_E_S[s][d,g] * E_scale * L[d] * f_d * dayfac_d", md, fixed = TRUE) && grepl("**Since A42 (2026-11-26,", md, fixed = TRUE) &&
+      !grepl("The boat I/E path needs a code change, not a flag", md, fixed = TRUE))
+  if (file.exists("05_output/ppc_day_effect_2026-11-27.csv")) {
+    d <- utils::read.csv("05_output/ppc_day_effect_2026-11-27.csv", stringsAsFactors = FALSE)
+    g <- function(st, form, col) d[[col]][d$stream == st & d$mean_form == form]
+    chk("B90/D58: the desk table holds what the documents quote (trailer 0.359 as computed with the PIT-bias flag, 0.544 integrated with none; gear 0.418 and 0.598; the check within 0.02 on both)",
+        nrow(d) == 6L && all(abs(d$coverage_50[d$mean_form == "as_computed"] - d$committed_coverage_50[d$mean_form == "as_computed"]) <= 0.02) &&
+        round(g("trailer", "as_computed", "coverage_50"), 3) == 0.359 && g("trailer", "as_computed", "flags") == "pit_bias" &&
+        round(g("trailer", "integrated", "coverage_50"), 3) == 0.544 && g("trailer", "integrated", "flags") == "none" &&
+        round(g("gear", "as_computed", "coverage_50"), 3) == 0.418 && round(g("gear", "integrated", "coverage_50"), 3) == 0.598 &&
+        grepl("the diagnostic's", g("trailer", "integrated", "reading"), fixed = TRUE) && grepl("mixed", g("gear", "integrated", "reading"), fixed = TRUE))
+  } else skp("B90/D58: the desk table", "05_output/ppc_day_effect_2026-11-27.csv")
+  # the three effort diagnostics still omit the factor (D58 is OPEN): when one of them gains it, this check must be rewritten with the repair
+  chk("B90/D58: the three effort predictive diagnostics do not yet carry the per-day factor (the open item the documents describe)",
+      !grepl("uE_raw", rdf("03_R_functions/model_diagnostics.R"), fixed = TRUE) && !grepl("uE_raw", rdf("03_R_functions/diagnose_effort_overdispersion.R"), fixed = TRUE))
+  hdr <- vapply(c(list.files("03_R_functions", pattern = "\\.R$", full.names = TRUE), list.files("06_diagnostics", pattern = "\\.R$", full.names = TRUE)),
+                function(f) any(grepl("GNU General Public License", readLines(f, n = 30L, warn = FALSE), fixed = TRUE)), logical(1))
+  chk("B90: every R source file in 03_R_functions and 06_diagnostics carries the licence header", all(hdr), sprintf("(missing: %s)", paste(basename(names(hdr)[!hdr]), collapse = ", ")))
 })
 
 cat(sprintf("\n==== %d passed, %d failed, %d skipped ====\n", ok, bad, skipped))

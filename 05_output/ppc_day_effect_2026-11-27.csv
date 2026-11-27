@@ -1,0 +1,7 @@
+"fit","stream","n_counts","n_days","sampling_sd_days","committed_coverage_50","mean_form","coverage_50","coverage_95","pit_mean","pit_sd","flags","reading"
+"shore_all_gear_Dungeness_Kept","gear",311,145,0.04152273992687,0.42443729903537,"as_computed",0.418006430868167,0.877813504823151,0.465064992688407,0.320142787513585,"none","mixed: reported as measured"
+"shore_all_gear_Dungeness_Kept","gear",311,145,0.04152273992687,0.42443729903537,"conditional",0.726688102893891,0.977491961414791,0.504128165813486,0.221617617176106,"miscalibrated","mixed: reported as measured"
+"shore_all_gear_Dungeness_Kept","gear",311,145,0.04152273992687,0.42443729903537,"integrated",0.598070739549839,0.961414790996785,0.514761375531772,0.256910778192089,"none","mixed: reported as measured"
+"private_boat_all_gear_Dungeness_Kept","trailer",195,143,0.0418121005003545,0.358974358974359,"as_computed",0.358974358974359,0.784615384615385,0.398518898474128,0.33514019094107,"pit_bias","the diagnostic's: the flag comes from the omitted day factor"
+"private_boat_all_gear_Dungeness_Kept","trailer",195,143,0.0418121005003545,0.358974358974359,"conditional",0.769230769230769,1,0.503172823056462,0.193980970060312,"miscalibrated","the diagnostic's: the flag comes from the omitted day factor"
+"private_boat_all_gear_Dungeness_Kept","trailer",195,143,0.0418121005003545,0.358974358974359,"integrated",0.543589743589744,0.974358974358974,0.490505762404975,0.272874265078088,"none","the diagnostic's: the flag comes from the omitted day factor"
